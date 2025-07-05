@@ -1,54 +1,53 @@
 #!/bin/bash
 
-# SBOM Play Development Startup Script
-# This script activates the virtual environment and starts the Flask application
+# SBOM Play - Development Startup Script
+# Client-Side Application
 
-set -e  # Exit on any error
+echo "🚀 Starting SBOM Play Development Server"
+echo "========================================"
 
-echo "🚀 Starting SBOM Play Development Server..."
-
-# Check if virtual environment exists
-if [ ! -d "venv" ]; then
-    echo "❌ Virtual environment not found. Please run 'python -m venv venv' first."
+# Check if Python is available
+if command -v python3 &> /dev/null; then
+    PYTHON_CMD="python3"
+elif command -v python &> /dev/null; then
+    PYTHON_CMD="python"
+else
+    echo "❌ Python is not installed. Please install Python 3.7+ to run the development server."
     exit 1
 fi
 
-# Check if requirements are installed
-if [ ! -f "venv/bin/pip" ]; then
-    echo "❌ Virtual environment appears to be corrupted. Please recreate it."
+# Check if we're in the right directory
+if [ ! -f "index.html" ]; then
+    echo "❌ index.html not found. Please run this script from the project root directory."
     exit 1
 fi
 
-# Activate virtual environment
-echo "📦 Activating virtual environment..."
-source venv/bin/activate
-
-# Check if required packages are installed
-echo "🔍 Checking dependencies..."
-if ! python -c "import flask" 2>/dev/null; then
-    echo "⚠️  Flask not found. Installing dependencies..."
-    pip install -r requirements.txt
+# Check if required files exist
+if [ ! -f "js/app.js" ] || [ ! -f "css/style.css" ]; then
+    echo "❌ Required client-side files not found. Please ensure all files are present."
+    exit 1
 fi
 
-# Set development environment variables
-export FLASK_ENV=development
-export FLASK_DEBUG=1
+echo "✅ Client-side files found"
+echo "✅ Starting HTTP server..."
 
-# Check if database exists, if not create it
-if [ ! -f "sbomplay.db" ]; then
-    echo "🗄️  Initializing database..."
-    python -c "
-from utils.database import DatabaseManager
-db = DatabaseManager()
-print('✅ Database initialized')
-"
-fi
+# Get the current directory
+CURRENT_DIR=$(pwd)
 
-# Start the Flask application
-echo "🌐 Starting Flask development server..."
-echo "📍 Server will be available at: http://localhost:5000"
-echo "🛑 Press Ctrl+C to stop the server"
+echo ""
+echo "📁 Serving files from: $CURRENT_DIR"
+echo "🌐 Server will be available at: http://localhost:8000"
+echo ""
+echo "💡 Tips:"
+echo "   - Open http://localhost:8000 in your browser"
+echo "   - All processing happens client-side"
+echo "   - No backend server required"
+echo "   - Press Ctrl+C to stop the server"
 echo ""
 
-# Run the application
-python app.py 
+# Start Python HTTP server
+echo "🚀 Starting development server..."
+$PYTHON_CMD -m http.server 8000
+
+echo ""
+echo "👋 Development server stopped." 
