@@ -1,0 +1,96 @@
+{
+  "sbom": {
+    "spdxVersion": "SPDX-2.3",
+    "dataLicense": "CC0-1.0",
+    "SPDXID": "SPDXRef-DOCUMENT",
+    "name": "com.github.facebook/facebook-android-sdk",
+    "documentNamespace": "https://spdx.org/spdxdocs/protobom/f3c564ee-160f-4632-8b82-0e295a8e5cbd",
+    "creationInfo": {
+      "creators": [
+        "Tool: protobom-v0.0.0-20250703203817-48bceb9919d2+dirty",
+        "Tool: GitHub.com-Dependency-Graph"
+      ],
+      "created": "2025-07-05T10:23:39Z"
+    },
+    "packages": [
+      {
+        "name": "actions/checkout",
+        "SPDXID": "SPDXRef-githubactions-actions-checkout-2-75c946",
+        "versionInfo": "2",
+        "downloadLocation": "NOASSERTION",
+        "filesAnalyzed": false,
+        "externalRefs": [
+          {
+            "referenceCategory": "PACKAGE-MANAGER",
+            "referenceType": "purl",
+            "referenceLocator": "pkg:githubactions/actions/checkout@2"
+          }
+        ]
+      },
+      {
+        "name": "hramos/needs-attention",
+        "SPDXID": "SPDXRef-githubactions-hramos-needs-attention-1-75c946",
+        "versionInfo": "1",
+        "downloadLocation": "NOASSERTION",
+        "filesAnalyzed": false,
+        "externalRefs": [
+          {
+            "referenceCategory": "PACKAGE-MANAGER",
+            "referenceType": "purl",
+            "referenceLocator": "pkg:githubactions/hramos/needs-attention@1"
+          }
+        ]
+      },
+      {
+        "name": "actions/stale",
+        "SPDXID": "SPDXRef-githubactions-actions-stale-4-75c946",
+        "versionInfo": "4",
+        "downloadLocation": "NOASSERTION",
+        "filesAnalyzed": false,
+        "externalRefs": [
+          {
+            "referenceCategory": "PACKAGE-MANAGER",
+            "referenceType": "purl",
+            "referenceLocator": "pkg:githubactions/actions/stale@4"
+          }
+        ]
+      },
+      {
+        "name": "com.github.facebook/facebook-android-sdk",
+        "SPDXID": "SPDXRef-github-facebook-facebook-android-sdk-main-26769f",
+        "versionInfo": "main",
+        "downloadLocation": "git+https://github.com/facebook/facebook-android-sdk",
+        "filesAnalyzed": false,
+        "externalRefs": [
+          {
+            "referenceCategory": "PACKAGE-MANAGER",
+            "referenceType": "purl",
+            "referenceLocator": "pkg:github/facebook/facebook-android-sdk@main"
+          }
+        ]
+      }
+    ],
+    "relationships": [
+      {
+        "spdxElementId": "SPDXRef-github-facebook-facebook-android-sdk-main-26769f",
+        "relatedSpdxElement": "SPDXRef-githubactions-actions-checkout-2-75c946",
+        "relationshipType": "DEPENDS_ON"
+      },
+      {
+        "spdxElementId": "SPDXRef-github-facebook-facebook-android-sdk-main-26769f",
+        "relatedSpdxElement": "SPDXRef-githubactions-hramos-needs-attention-1-75c946",
+        "relationshipType": "DEPENDS_ON"
+      },
+      {
+        "spdxElementId": "SPDXRef-github-facebook-facebook-android-sdk-main-26769f",
+        "relatedSpdxElement": "SPDXRef-githubactions-actions-stale-4-75c946",
+        "relationshipType": "DEPENDS_ON"
+      },
+      {
+        "spdxElementId": "SPDXRef-DOCUMENT",
+        "relatedSpdxElement": "SPDXRef-github-facebook-facebook-android-sdk-main-26769f",
+        "relationshipType": "DESCRIBES"
+      }
+    ]
+  }
+}

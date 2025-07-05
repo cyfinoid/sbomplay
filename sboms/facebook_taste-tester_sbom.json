@@ -1,0 +1,380 @@
+{
+  "sbom": {
+    "spdxVersion": "SPDX-2.3",
+    "dataLicense": "CC0-1.0",
+    "SPDXID": "SPDXRef-DOCUMENT",
+    "name": "com.github.facebook/taste-tester",
+    "documentNamespace": "https://spdx.org/spdxdocs/protobom/335cf17d-0395-4a3d-86fb-05e478b71367",
+    "comment": "Exact versions could not be resolved for some packages. For more information: https://docs.github.com/en/code-security/supply-chain-security/understanding-your-software-supply-chain/about-the-dependency-graph#dependencies-included.",
+    "creationInfo": {
+      "creators": [
+        "Tool: protobom-v0.0.0-20250703203817-48bceb9919d2+dirty",
+        "Tool: GitHub.com-Dependency-Graph"
+      ],
+      "created": "2025-07-05T10:24:04Z"
+    },
+    "packages": [
+      {
+        "name": "colorize",
+        "SPDXID": "SPDXRef-gem-colorize-75c946",
+        "versionInfo": ">= 0",
+        "downloadLocation": "NOASSERTION",
+        "filesAnalyzed": false,
+        "externalRefs": [
+          {
+            "referenceCategory": "PACKAGE-MANAGER",
+            "referenceType": "purl",
+            "referenceLocator": "pkg:gem/colorize"
+          }
+        ]
+      },
+      {
+        "name": "chef",
+        "SPDXID": "SPDXRef-gem-chef-75c946",
+        "versionInfo": ">= 0",
+        "downloadLocation": "NOASSERTION",
+        "filesAnalyzed": false,
+        "externalRefs": [
+          {
+            "referenceCategory": "PACKAGE-MANAGER",
+            "referenceType": "purl",
+            "referenceLocator": "pkg:gem/chef"
+          }
+        ]
+      },
+      {
+        "name": "json",
+        "SPDXID": "SPDXRef-gem-json-75c946",
+        "versionInfo": ">= 2.0.0",
+        "downloadLocation": "NOASSERTION",
+        "filesAnalyzed": false,
+        "externalRefs": [
+          {
+            "referenceCategory": "PACKAGE-MANAGER",
+            "referenceType": "purl",
+            "referenceLocator": "pkg:gem/json"
+          }
+        ]
+      },
+      {
+        "name": "mixlib-config",
+        "SPDXID": "SPDXRef-gem-mixlib-config-75c946",
+        "versionInfo": ">= 0",
+        "downloadLocation": "NOASSERTION",
+        "filesAnalyzed": false,
+        "externalRefs": [
+          {
+            "referenceCategory": "PACKAGE-MANAGER",
+            "referenceType": "purl",
+            "referenceLocator": "pkg:gem/mixlib-config"
+          }
+        ]
+      },
+      {
+        "name": "between_meals",
+        "SPDXID": "SPDXRef-gem-betweenmeals-75c946",
+        "versionInfo": ">= 0.0.11",
+        "downloadLocation": "NOASSERTION",
+        "filesAnalyzed": false,
+        "externalRefs": [
+          {
+            "referenceCategory": "PACKAGE-MANAGER",
+            "referenceType": "purl",
+            "referenceLocator": "pkg:gem/between_meals"
+          }
+        ]
+      },
+      {
+        "name": "minitar",
+        "SPDXID": "SPDXRef-gem-minitar-75c946",
+        "versionInfo": ">= 0.6.1",
+        "downloadLocation": "NOASSERTION",
+        "filesAnalyzed": false,
+        "externalRefs": [
+          {
+            "referenceCategory": "PACKAGE-MANAGER",
+            "referenceType": "purl",
+            "referenceLocator": "pkg:gem/minitar"
+          }
+        ]
+      },
+      {
+        "name": "actionshub/markdownlint",
+        "SPDXID": "SPDXRef-githubactions-actionshub-markdownlint-1.2.0-75c946",
+        "versionInfo": "1.2.0",
+        "downloadLocation": "NOASSERTION",
+        "filesAnalyzed": false,
+        "externalRefs": [
+          {
+            "referenceCategory": "PACKAGE-MANAGER",
+            "referenceType": "purl",
+            "referenceLocator": "pkg:githubactions/actionshub/markdownlint@1.2.0"
+          }
+        ]
+      },
+      {
+        "name": "ruby/setup-ruby",
+        "SPDXID": "SPDXRef-githubactions-ruby-setup-ruby-1..-75c946",
+        "versionInfo": "1.*.*",
+        "downloadLocation": "NOASSERTION",
+        "filesAnalyzed": false,
+        "externalRefs": [
+          {
+            "referenceCategory": "PACKAGE-MANAGER",
+            "referenceType": "purl",
+            "referenceLocator": "pkg:githubactions/ruby/setup-ruby@1.%2A.%2A"
+          }
+        ]
+      },
+      {
+        "name": "actions/checkout",
+        "SPDXID": "SPDXRef-githubactions-actions-checkout-3..-75c946",
+        "versionInfo": "3.*.*",
+        "downloadLocation": "NOASSERTION",
+        "filesAnalyzed": false,
+        "externalRefs": [
+          {
+            "referenceCategory": "PACKAGE-MANAGER",
+            "referenceType": "purl",
+            "referenceLocator": "pkg:githubactions/actions/checkout@3.%2A.%2A"
+          }
+        ]
+      },
+      {
+        "name": "gaurav-nelson/github-action-markdown-link-check",
+        "SPDXID": "SPDXRef-githubactions-gaurav-nelson-github-action-markdown-link-check-1..-75c946",
+        "versionInfo": "1.*.*",
+        "downloadLocation": "NOASSERTION",
+        "filesAnalyzed": false,
+        "externalRefs": [
+          {
+            "referenceCategory": "PACKAGE-MANAGER",
+            "referenceType": "purl",
+            "referenceLocator": "pkg:githubactions/gaurav-nelson/github-action-markdown-link-check@1.%2A.%2A"
+          }
+        ]
+      },
+      {
+        "name": "chef-zero",
+        "SPDXID": "SPDXRef-gem-chef-zero-75c946",
+        "versionInfo": ">= 0",
+        "downloadLocation": "NOASSERTION",
+        "filesAnalyzed": false,
+        "externalRefs": [
+          {
+            "referenceCategory": "PACKAGE-MANAGER",
+            "referenceType": "purl",
+            "referenceLocator": "pkg:gem/chef-zero"
+          }
+        ]
+      },
+      {
+        "name": "between_meals",
+        "SPDXID": "SPDXRef-gem-betweenmeals-75c946",
+        "versionInfo": ">= 0",
+        "downloadLocation": "NOASSERTION",
+        "filesAnalyzed": false,
+        "externalRefs": [
+          {
+            "referenceCategory": "PACKAGE-MANAGER",
+            "referenceType": "purl",
+            "referenceLocator": "pkg:gem/between_meals"
+          }
+        ]
+      },
+      {
+        "name": "rubocop",
+        "SPDXID": "SPDXRef-gem-rubocop-1.25.1-75c946",
+        "versionInfo": "1.25.1",
+        "downloadLocation": "NOASSERTION",
+        "filesAnalyzed": false,
+        "licenseConcluded": "MIT",
+        "copyrightText": "AutocorrectNotice Copyright (c) 2015 Yahoo! Inc., Copyright (c) 2012-2022 Bozhidar Batsov, Copyright (c) 2012-22 Bozhidar Batsov, Copyright (c) 2015 Mikko Kokkonen",
+        "externalRefs": [
+          {
+            "referenceCategory": "PACKAGE-MANAGER",
+            "referenceType": "purl",
+            "referenceLocator": "pkg:gem/rubocop@1.25.1"
+          }
+        ]
+      },
+      {
+        "name": "mdl",
+        "SPDXID": "SPDXRef-gem-mdl-75c946",
+        "versionInfo": ">= 0",
+        "downloadLocation": "NOASSERTION",
+        "filesAnalyzed": false,
+        "externalRefs": [
+          {
+            "referenceCategory": "PACKAGE-MANAGER",
+            "referenceType": "purl",
+            "referenceLocator": "pkg:gem/mdl"
+          }
+        ]
+      },
+      {
+        "name": "knife-solo",
+        "SPDXID": "SPDXRef-gem-knife-solo-75c946",
+        "versionInfo": ">= 0",
+        "downloadLocation": "NOASSERTION",
+        "filesAnalyzed": false,
+        "externalRefs": [
+          {
+            "referenceCategory": "PACKAGE-MANAGER",
+            "referenceType": "purl",
+            "referenceLocator": "pkg:gem/knife-solo"
+          }
+        ]
+      },
+      {
+        "name": "rspec-core",
+        "SPDXID": "SPDXRef-gem-rspec-core-75c946",
+        "versionInfo": "~> 3.11",
+        "downloadLocation": "NOASSERTION",
+        "filesAnalyzed": false,
+        "externalRefs": [
+          {
+            "referenceCategory": "PACKAGE-MANAGER",
+            "referenceType": "purl",
+            "referenceLocator": "pkg:gem/rspec-core"
+          }
+        ]
+      },
+      {
+        "name": "rspec-expectations",
+        "SPDXID": "SPDXRef-gem-rspec-expectations-75c946",
+        "versionInfo": "~> 3.11",
+        "downloadLocation": "NOASSERTION",
+        "filesAnalyzed": false,
+        "externalRefs": [
+          {
+            "referenceCategory": "PACKAGE-MANAGER",
+            "referenceType": "purl",
+            "referenceLocator": "pkg:gem/rspec-expectations"
+          }
+        ]
+      },
+      {
+        "name": "rspec-mocks",
+        "SPDXID": "SPDXRef-gem-rspec-mocks-75c946",
+        "versionInfo": "~> 3.11",
+        "downloadLocation": "NOASSERTION",
+        "filesAnalyzed": false,
+        "externalRefs": [
+          {
+            "referenceCategory": "PACKAGE-MANAGER",
+            "referenceType": "purl",
+            "referenceLocator": "pkg:gem/rspec-mocks"
+          }
+        ]
+      },
+      {
+        "name": "com.github.facebook/taste-tester",
+        "SPDXID": "SPDXRef-github-facebook-taste-tester-main-930b49",
+        "versionInfo": "main",
+        "downloadLocation": "git+https://github.com/facebook/taste-tester",
+        "filesAnalyzed": false,
+        "licenseDeclared": "Apache-2.0",
+        "externalRefs": [
+          {
+            "referenceCategory": "PACKAGE-MANAGER",
+            "referenceType": "purl",
+            "referenceLocator": "pkg:github/facebook/taste-tester@main"
+          }
+        ]
+      }
+    ],
+    "relationships": [
+      {
+        "spdxElementId": "SPDXRef-github-facebook-taste-tester-main-930b49",
+        "relatedSpdxElement": "SPDXRef-gem-json-75c946",
+        "relationshipType": "DEPENDS_ON"
+      },
+      {
+        "spdxElementId": "SPDXRef-github-facebook-taste-tester-main-930b49",
+        "relatedSpdxElement": "SPDXRef-gem-betweenmeals-75c946",
+        "relationshipType": "DEPENDS_ON"
+      },
+      {
+        "spdxElementId": "SPDXRef-github-facebook-taste-tester-main-930b49",
+        "relatedSpdxElement": "SPDXRef-githubactions-gaurav-nelson-github-action-markdown-link-check-1..-75c946",
+        "relationshipType": "DEPENDS_ON"
+      },
+      {
+        "spdxElementId": "SPDXRef-github-facebook-taste-tester-main-930b49",
+        "relatedSpdxElement": "SPDXRef-gem-rspec-core-75c946",
+        "relationshipType": "DEPENDS_ON"
+      },
+      {
+        "spdxElementId": "SPDXRef-github-facebook-taste-tester-main-930b49",
+        "relatedSpdxElement": "SPDXRef-gem-mixlib-config-75c946",
+        "relationshipType": "DEPENDS_ON"
+      },
+      {
+        "spdxElementId": "SPDXRef-github-facebook-taste-tester-main-930b49",
+        "relatedSpdxElement": "SPDXRef-githubactions-actionshub-markdownlint-1.2.0-75c946",
+        "relationshipType": "DEPENDS_ON"
+      },
+      {
+        "spdxElementId": "SPDXRef-github-facebook-taste-tester-main-930b49",
+        "relatedSpdxElement": "SPDXRef-githubactions-ruby-setup-ruby-1..-75c946",
+        "relationshipType": "DEPENDS_ON"
+      },
+      {
+        "spdxElementId": "SPDXRef-github-facebook-taste-tester-main-930b49",
+        "relatedSpdxElement": "SPDXRef-githubactions-actions-checkout-3..-75c946",
+        "relationshipType": "DEPENDS_ON"
+      },
+      {
+        "spdxElementId": "SPDXRef-github-facebook-taste-tester-main-930b49",
+        "relatedSpdxElement": "SPDXRef-gem-mdl-75c946",
+        "relationshipType": "DEPENDS_ON"
+      },
+      {
+        "spdxElementId": "SPDXRef-github-facebook-taste-tester-main-930b49",
+        "relatedSpdxElement": "SPDXRef-gem-rspec-expectations-75c946",
+        "relationshipType": "DEPENDS_ON"
+      },
+      {
+        "spdxElementId": "SPDXRef-github-facebook-taste-tester-main-930b49",
+        "relatedSpdxElement": "SPDXRef-gem-colorize-75c946",
+        "relationshipType": "DEPENDS_ON"
+      },
+      {
+        "spdxElementId": "SPDXRef-github-facebook-taste-tester-main-930b49",
+        "relatedSpdxElement": "SPDXRef-gem-minitar-75c946",
+        "relationshipType": "DEPENDS_ON"
+      },
+      {
+        "spdxElementId": "SPDXRef-github-facebook-taste-tester-main-930b49",
+        "relatedSpdxElement": "SPDXRef-gem-rubocop-1.25.1-75c946",
+        "relationshipType": "DEPENDS_ON"
+      },
+      {
+        "spdxElementId": "SPDXRef-github-facebook-taste-tester-main-930b49",
+        "relatedSpdxElement": "SPDXRef-gem-knife-solo-75c946",
+        "relationshipType": "DEPENDS_ON"
+      },
+      {
+        "spdxElementId": "SPDXRef-github-facebook-taste-tester-main-930b49",
+        "relatedSpdxElement": "SPDXRef-gem-rspec-mocks-75c946",
+        "relationshipType": "DEPENDS_ON"
+      },
+      {
+        "spdxElementId": "SPDXRef-github-facebook-taste-tester-main-930b49",
+        "relatedSpdxElement": "SPDXRef-gem-chef-75c946",
+        "relationshipType": "DEPENDS_ON"
+      },
+      {
+        "spdxElementId": "SPDXRef-github-facebook-taste-tester-main-930b49",
+        "relatedSpdxElement": "SPDXRef-gem-chef-zero-75c946",
+        "relationshipType": "DEPENDS_ON"
+      },
+      {
+        "spdxElementId": "SPDXRef-DOCUMENT",
+        "relatedSpdxElement": "SPDXRef-github-facebook-taste-tester-main-930b49",
+        "relationshipType": "DESCRIBES"
+      }
+    ]
+  }
+}

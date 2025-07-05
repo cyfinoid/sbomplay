@@ -1,0 +1,96 @@
+{
+  "sbom": {
+    "spdxVersion": "SPDX-2.3",
+    "dataLicense": "CC0-1.0",
+    "SPDXID": "SPDXRef-DOCUMENT",
+    "name": "com.github.facebook/fatal",
+    "documentNamespace": "https://spdx.org/spdxdocs/protobom/036a6f20-9d98-4ab9-afd2-0403ff59e9d6",
+    "creationInfo": {
+      "creators": [
+        "Tool: protobom-v0.0.0-20250703203817-48bceb9919d2+dirty",
+        "Tool: GitHub.com-Dependency-Graph"
+      ],
+      "created": "2025-07-05T10:24:05Z"
+    },
+    "packages": [
+      {
+        "name": "actions/checkout",
+        "SPDXID": "SPDXRef-githubactions-actions-checkout-4..-75c946",
+        "versionInfo": "4.*.*",
+        "downloadLocation": "NOASSERTION",
+        "filesAnalyzed": false,
+        "externalRefs": [
+          {
+            "referenceCategory": "PACKAGE-MANAGER",
+            "referenceType": "purl",
+            "referenceLocator": "pkg:githubactions/actions/checkout@4.%2A.%2A"
+          }
+        ]
+      },
+      {
+        "name": "actions/create-release",
+        "SPDXID": "SPDXRef-githubactions-actions-create-release-1..-75c946",
+        "versionInfo": "1.*.*",
+        "downloadLocation": "NOASSERTION",
+        "filesAnalyzed": false,
+        "externalRefs": [
+          {
+            "referenceCategory": "PACKAGE-MANAGER",
+            "referenceType": "purl",
+            "referenceLocator": "pkg:githubactions/actions/create-release@1.%2A.%2A"
+          }
+        ]
+      },
+      {
+        "name": "actions/upload-release-asset",
+        "SPDXID": "SPDXRef-githubactions-actions-upload-release-asset-1..-75c946",
+        "versionInfo": "1.*.*",
+        "downloadLocation": "NOASSERTION",
+        "filesAnalyzed": false,
+        "externalRefs": [
+          {
+            "referenceCategory": "PACKAGE-MANAGER",
+            "referenceType": "purl",
+            "referenceLocator": "pkg:githubactions/actions/upload-release-asset@1.%2A.%2A"
+          }
+        ]
+      },
+      {
+        "name": "com.github.facebook/fatal",
+        "SPDXID": "SPDXRef-github-facebook-fatal-main-b7ac6b",
+        "versionInfo": "main",
+        "downloadLocation": "git+https://github.com/facebook/fatal",
+        "filesAnalyzed": false,
+        "externalRefs": [
+          {
+            "referenceCategory": "PACKAGE-MANAGER",
+            "referenceType": "purl",
+            "referenceLocator": "pkg:github/facebook/fatal@main"
+          }
+        ]
+      }
+    ],
+    "relationships": [
+      {
+        "spdxElementId": "SPDXRef-github-facebook-fatal-main-b7ac6b",
+        "relatedSpdxElement": "SPDXRef-githubactions-actions-upload-release-asset-1..-75c946",
+        "relationshipType": "DEPENDS_ON"
+      },
+      {
+        "spdxElementId": "SPDXRef-github-facebook-fatal-main-b7ac6b",
+        "relatedSpdxElement": "SPDXRef-githubactions-actions-checkout-4..-75c946",
+        "relationshipType": "DEPENDS_ON"
+      },
+      {
+        "spdxElementId": "SPDXRef-github-facebook-fatal-main-b7ac6b",
+        "relatedSpdxElement": "SPDXRef-githubactions-actions-create-release-1..-75c946",
+        "relationshipType": "DEPENDS_ON"
+      },
+      {
+        "spdxElementId": "SPDXRef-DOCUMENT",
+        "relatedSpdxElement": "SPDXRef-github-facebook-fatal-main-b7ac6b",
+        "relationshipType": "DESCRIBES"
+      }
+    ]
+  }
+}

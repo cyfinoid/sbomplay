@@ -1,0 +1,118 @@
+{
+  "sbom": {
+    "spdxVersion": "SPDX-2.3",
+    "dataLicense": "CC0-1.0",
+    "SPDXID": "SPDXRef-DOCUMENT",
+    "name": "com.github.microsoft/music-explorer",
+    "documentNamespace": "https://spdx.org/spdxdocs/protobom/d017650c-1856-48f4-be20-fd1356df6ea4",
+    "creationInfo": {
+      "creators": [
+        "Tool: protobom-v0.0.0-20250703203817-48bceb9919d2+dirty",
+        "Tool: GitHub.com-Dependency-Graph"
+      ],
+      "created": "2025-07-05T10:02:29Z"
+    },
+    "packages": [
+      {
+        "name": "Newtonsoft.Json",
+        "SPDXID": "SPDXRef-nuget-Newtonsoft.Json-4.5.11-75c946",
+        "versionInfo": "4.5.11",
+        "downloadLocation": "NOASSERTION",
+        "filesAnalyzed": false,
+        "licenseConcluded": "MIT",
+        "copyrightText": "(c) 2008 VeriSign, Inc., Copyright James Newton-King 2008, Copyright James Newton-King 2008 WrapNonExceptionThrows RSDS",
+        "externalRefs": [
+          {
+            "referenceCategory": "PACKAGE-MANAGER",
+            "referenceType": "purl",
+            "referenceLocator": "pkg:nuget/Newtonsoft.Json@4.5.11"
+          }
+        ]
+      },
+      {
+        "name": "WPtoolkit",
+        "SPDXID": "SPDXRef-nuget-WPtoolkit-4.2013.08.16-75c946",
+        "versionInfo": "4.2013.08.16",
+        "downloadLocation": "NOASSERTION",
+        "filesAnalyzed": false,
+        "externalRefs": [
+          {
+            "referenceCategory": "PACKAGE-MANAGER",
+            "referenceType": "purl",
+            "referenceLocator": "pkg:nuget/WPtoolkit@4.2013.08.16"
+          }
+        ]
+      },
+      {
+        "name": "SharpGIS.GZipWebClient",
+        "SPDXID": "SPDXRef-nuget-SharpGIS.GZipWebClient-1.4.0.0-75c946",
+        "versionInfo": "1.4.0.0",
+        "downloadLocation": "NOASSERTION",
+        "filesAnalyzed": false,
+        "externalRefs": [
+          {
+            "referenceCategory": "PACKAGE-MANAGER",
+            "referenceType": "purl",
+            "referenceLocator": "pkg:nuget/SharpGIS.GZipWebClient@1.4.0.0"
+          }
+        ]
+      },
+      {
+        "name": "NokiaMusic",
+        "SPDXID": "SPDXRef-nuget-NokiaMusic-2.4.0-75c946",
+        "versionInfo": "2.4.0",
+        "downloadLocation": "NOASSERTION",
+        "filesAnalyzed": false,
+        "copyrightText": "(c) 2008 VeriSign, Inc., Copyright (c) 2012-2013, Nokia, Copyright (c) 2012-2013, Nokia en-US Nokia Music NokiaMusic WindowsPhone, Copyright Nokia 2012-2013",
+        "externalRefs": [
+          {
+            "referenceCategory": "PACKAGE-MANAGER",
+            "referenceType": "purl",
+            "referenceLocator": "pkg:nuget/NokiaMusic@2.4.0"
+          }
+        ]
+      },
+      {
+        "name": "com.github.microsoft/music-explorer",
+        "SPDXID": "SPDXRef-github-microsoft-music-explorer-master-5dd2fa",
+        "versionInfo": "master",
+        "downloadLocation": "git+https://github.com/microsoft/music-explorer",
+        "filesAnalyzed": false,
+        "externalRefs": [
+          {
+            "referenceCategory": "PACKAGE-MANAGER",
+            "referenceType": "purl",
+            "referenceLocator": "pkg:github/microsoft/music-explorer@master"
+          }
+        ]
+      }
+    ],
+    "relationships": [
+      {
+        "spdxElementId": "SPDXRef-github-microsoft-music-explorer-master-5dd2fa",
+        "relatedSpdxElement": "SPDXRef-nuget-NokiaMusic-2.4.0-75c946",
+        "relationshipType": "DEPENDS_ON"
+      },
+      {
+        "spdxElementId": "SPDXRef-github-microsoft-music-explorer-master-5dd2fa",
+        "relatedSpdxElement": "SPDXRef-nuget-Newtonsoft.Json-4.5.11-75c946",
+        "relationshipType": "DEPENDS_ON"
+      },
+      {
+        "spdxElementId": "SPDXRef-github-microsoft-music-explorer-master-5dd2fa",
+        "relatedSpdxElement": "SPDXRef-nuget-WPtoolkit-4.2013.08.16-75c946",
+        "relationshipType": "DEPENDS_ON"
+      },
+      {
+        "spdxElementId": "SPDXRef-github-microsoft-music-explorer-master-5dd2fa",
+        "relatedSpdxElement": "SPDXRef-nuget-SharpGIS.GZipWebClient-1.4.0.0-75c946",
+        "relationshipType": "DEPENDS_ON"
+      },
+      {
+        "spdxElementId": "SPDXRef-DOCUMENT",
+        "relatedSpdxElement": "SPDXRef-github-microsoft-music-explorer-master-5dd2fa",
+        "relationshipType": "DESCRIBES"
+      }
+    ]
+  }
+}

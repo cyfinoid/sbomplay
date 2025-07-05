@@ -1,0 +1,97 @@
+{
+  "sbom": {
+    "spdxVersion": "SPDX-2.3",
+    "dataLicense": "CC0-1.0",
+    "SPDXID": "SPDXRef-DOCUMENT",
+    "name": "com.github.facebook/Haxl",
+    "documentNamespace": "https://spdx.org/spdxdocs/protobom/d750f302-e012-49f6-99e0-327be1af6229",
+    "creationInfo": {
+      "creators": [
+        "Tool: protobom-v0.0.0-20250703203817-48bceb9919d2+dirty",
+        "Tool: GitHub.com-Dependency-Graph"
+      ],
+      "created": "2025-07-05T10:23:57Z"
+    },
+    "packages": [
+      {
+        "name": "actions/checkout",
+        "SPDXID": "SPDXRef-githubactions-actions-checkout-4..-75c946",
+        "versionInfo": "4.*.*",
+        "downloadLocation": "NOASSERTION",
+        "filesAnalyzed": false,
+        "externalRefs": [
+          {
+            "referenceCategory": "PACKAGE-MANAGER",
+            "referenceType": "purl",
+            "referenceLocator": "pkg:githubactions/actions/checkout@4.%2A.%2A"
+          }
+        ]
+      },
+      {
+        "name": "actions/cache/restore",
+        "SPDXID": "SPDXRef-githubactions-actionscache-restore-4..-75c946",
+        "versionInfo": "4.*.*",
+        "downloadLocation": "NOASSERTION",
+        "filesAnalyzed": false,
+        "externalRefs": [
+          {
+            "referenceCategory": "PACKAGE-MANAGER",
+            "referenceType": "purl",
+            "referenceLocator": "pkg:githubactions/actions/cache/restore@4.%2A.%2A"
+          }
+        ]
+      },
+      {
+        "name": "actions/cache/save",
+        "SPDXID": "SPDXRef-githubactions-actionscache-save-4..-75c946",
+        "versionInfo": "4.*.*",
+        "downloadLocation": "NOASSERTION",
+        "filesAnalyzed": false,
+        "externalRefs": [
+          {
+            "referenceCategory": "PACKAGE-MANAGER",
+            "referenceType": "purl",
+            "referenceLocator": "pkg:githubactions/actions/cache/save@4.%2A.%2A"
+          }
+        ]
+      },
+      {
+        "name": "com.github.facebook/Haxl",
+        "SPDXID": "SPDXRef-github-facebook-Haxl-main-ae7d69",
+        "versionInfo": "main",
+        "downloadLocation": "git+https://github.com/facebook/Haxl",
+        "filesAnalyzed": false,
+        "licenseDeclared": "BSD-3-Clause",
+        "externalRefs": [
+          {
+            "referenceCategory": "PACKAGE-MANAGER",
+            "referenceType": "purl",
+            "referenceLocator": "pkg:github/facebook/Haxl@main"
+          }
+        ]
+      }
+    ],
+    "relationships": [
+      {
+        "spdxElementId": "SPDXRef-github-facebook-Haxl-main-ae7d69",
+        "relatedSpdxElement": "SPDXRef-githubactions-actions-checkout-4..-75c946",
+        "relationshipType": "DEPENDS_ON"
+      },
+      {
+        "spdxElementId": "SPDXRef-github-facebook-Haxl-main-ae7d69",
+        "relatedSpdxElement": "SPDXRef-githubactions-actionscache-restore-4..-75c946",
+        "relationshipType": "DEPENDS_ON"
+      },
+      {
+        "spdxElementId": "SPDXRef-github-facebook-Haxl-main-ae7d69",
+        "relatedSpdxElement": "SPDXRef-githubactions-actionscache-save-4..-75c946",
+        "relationshipType": "DEPENDS_ON"
+      },
+      {
+        "spdxElementId": "SPDXRef-DOCUMENT",
+        "relatedSpdxElement": "SPDXRef-github-facebook-Haxl-main-ae7d69",
+        "relationshipType": "DESCRIBES"
+      }
+    ]
+  }
+}

@@ -1,0 +1,39 @@
+{
+  "sbom": {
+    "spdxVersion": "SPDX-2.3",
+    "dataLicense": "CC0-1.0",
+    "SPDXID": "SPDXRef-DOCUMENT",
+    "name": "com.github.microsoft/bubble-level-wp",
+    "documentNamespace": "https://spdx.org/spdxdocs/protobom/f0866b8e-2e8a-4d3f-b918-de697bd5462c",
+    "creationInfo": {
+      "creators": [
+        "Tool: protobom-v0.0.0-20250703203817-48bceb9919d2+dirty",
+        "Tool: GitHub.com-Dependency-Graph"
+      ],
+      "created": "2025-07-05T10:02:38Z"
+    },
+    "packages": [
+      {
+        "name": "com.github.microsoft/bubble-level-wp",
+        "SPDXID": "SPDXRef-github-microsoft-bubble-level-wp-master-2739eb",
+        "versionInfo": "master",
+        "downloadLocation": "git+https://github.com/microsoft/bubble-level-wp",
+        "filesAnalyzed": false,
+        "externalRefs": [
+          {
+            "referenceCategory": "PACKAGE-MANAGER",
+            "referenceType": "purl",
+            "referenceLocator": "pkg:github/microsoft/bubble-level-wp@master"
+          }
+        ]
+      }
+    ],
+    "relationships": [
+      {
+        "spdxElementId": "SPDXRef-DOCUMENT",
+        "relatedSpdxElement": "SPDXRef-github-microsoft-bubble-level-wp-master-2739eb",
+        "relationshipType": "DESCRIBES"
+      }
+    ]
+  }
+}

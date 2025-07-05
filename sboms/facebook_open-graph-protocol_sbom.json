@@ -1,0 +1,39 @@
+{
+  "sbom": {
+    "spdxVersion": "SPDX-2.3",
+    "dataLicense": "CC0-1.0",
+    "SPDXID": "SPDXRef-DOCUMENT",
+    "name": "com.github.facebook/open-graph-protocol",
+    "documentNamespace": "https://spdx.org/spdxdocs/protobom/e39959d4-16f5-4067-be08-68a6d410311d",
+    "creationInfo": {
+      "creators": [
+        "Tool: protobom-v0.0.0-20250703203817-48bceb9919d2+dirty",
+        "Tool: GitHub.com-Dependency-Graph"
+      ],
+      "created": "2025-07-05T10:23:38Z"
+    },
+    "packages": [
+      {
+        "name": "com.github.facebook/open-graph-protocol",
+        "SPDXID": "SPDXRef-github-facebook-open-graph-protocol-master-4f0548",
+        "versionInfo": "master",
+        "downloadLocation": "git+https://github.com/facebook/open-graph-protocol",
+        "filesAnalyzed": false,
+        "externalRefs": [
+          {
+            "referenceCategory": "PACKAGE-MANAGER",
+            "referenceType": "purl",
+            "referenceLocator": "pkg:github/facebook/open-graph-protocol@master"
+          }
+        ]
+      }
+    ],
+    "relationships": [
+      {
+        "spdxElementId": "SPDXRef-DOCUMENT",
+        "relatedSpdxElement": "SPDXRef-github-facebook-open-graph-protocol-master-4f0548",
+        "relationshipType": "DESCRIBES"
+      }
+    ]
+  }
+}

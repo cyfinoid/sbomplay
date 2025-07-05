@@ -1,0 +1,1072 @@
+{
+  "sbom": {
+    "spdxVersion": "SPDX-2.3",
+    "dataLicense": "CC0-1.0",
+    "SPDXID": "SPDXRef-DOCUMENT",
+    "name": "com.github.facebook/facebook-ios-sdk",
+    "documentNamespace": "https://spdx.org/spdxdocs/protobom/4820c721-9198-4c11-962d-01537e47def4",
+    "creationInfo": {
+      "creators": [
+        "Tool: protobom-v0.0.0-20250703203817-48bceb9919d2+dirty",
+        "Tool: GitHub.com-Dependency-Graph"
+      ],
+      "created": "2025-07-05T10:23:40Z"
+    },
+    "packages": [
+      {
+        "name": "addressable",
+        "SPDXID": "SPDXRef-gem-addressable-2.8.0-75c946",
+        "versionInfo": "2.8.0",
+        "downloadLocation": "NOASSERTION",
+        "filesAnalyzed": false,
+        "licenseConcluded": "Apache-2.0",
+        "copyrightText": "Copyright (c) Bob Aman",
+        "externalRefs": [
+          {
+            "referenceCategory": "PACKAGE-MANAGER",
+            "referenceType": "purl",
+            "referenceLocator": "pkg:gem/addressable@2.8.0"
+          }
+        ]
+      },
+      {
+        "name": "tzinfo",
+        "SPDXID": "SPDXRef-gem-tzinfo-2.0.4-75c946",
+        "versionInfo": "2.0.4",
+        "downloadLocation": "NOASSERTION",
+        "filesAnalyzed": false,
+        "licenseConcluded": "MIT",
+        "externalRefs": [
+          {
+            "referenceCategory": "PACKAGE-MANAGER",
+            "referenceType": "purl",
+            "referenceLocator": "pkg:gem/tzinfo@2.0.4"
+          }
+        ]
+      },
+      {
+        "name": "cocoapods-try",
+        "SPDXID": "SPDXRef-gem-cocoapods-try-1.2.0-75c946",
+        "versionInfo": "1.2.0",
+        "downloadLocation": "NOASSERTION",
+        "filesAnalyzed": false,
+        "licenseConcluded": "MIT",
+        "copyrightText": "Copyright (c) 2013 Fabio Pelosin",
+        "externalRefs": [
+          {
+            "referenceCategory": "PACKAGE-MANAGER",
+            "referenceType": "purl",
+            "referenceLocator": "pkg:gem/cocoapods-try@1.2.0"
+          }
+        ]
+      },
+      {
+        "name": "typhoeus",
+        "SPDXID": "SPDXRef-gem-typhoeus-1.4.0-75c946",
+        "versionInfo": "1.4.0",
+        "downloadLocation": "NOASSERTION",
+        "filesAnalyzed": false,
+        "licenseConcluded": "MIT",
+        "copyrightText": "Copyright (c) 2009-2010 Paul Dix, Copyright (c) 2009-2010 Paul Dix (http://www.pauldix.net/), Copyright (c) 2011 David Balatero, Copyright (c) 2011-2012 David Balatero (https://github.com/dbalatero/), Copyright (c) 2012-2016 Hans Hasselberg, Copyright (c) 2012-2016 Hans Hasselberg (http://github.com/i0rek/)",
+        "externalRefs": [
+          {
+            "referenceCategory": "PACKAGE-MANAGER",
+            "referenceType": "purl",
+            "referenceLocator": "pkg:gem/typhoeus@1.4.0"
+          }
+        ]
+      },
+      {
+        "name": "CFPropertyList",
+        "SPDXID": "SPDXRef-gem-CFPropertyList-3.0.3-75c946",
+        "versionInfo": "3.0.3",
+        "downloadLocation": "NOASSERTION",
+        "filesAnalyzed": false,
+        "licenseConcluded": "MIT",
+        "externalRefs": [
+          {
+            "referenceCategory": "PACKAGE-MANAGER",
+            "referenceType": "purl",
+            "referenceLocator": "pkg:gem/CFPropertyList@3.0.3"
+          }
+        ]
+      },
+      {
+        "name": "rouge",
+        "SPDXID": "SPDXRef-gem-rouge-3.15.0-75c946",
+        "versionInfo": "3.15.0",
+        "downloadLocation": "NOASSERTION",
+        "filesAnalyzed": false,
+        "licenseConcluded": "MIT OR BSD-2-Clause",
+        "copyrightText": "CoprimeQ CellGroupData ColorDistance, Copyright (c) 2006-2012 by the, Copyright (c) 2012 Jeanine Adkisson.",
+        "externalRefs": [
+          {
+            "referenceCategory": "PACKAGE-MANAGER",
+            "referenceType": "purl",
+            "referenceLocator": "pkg:gem/rouge@3.15.0"
+          }
+        ]
+      },
+      {
+        "name": "public_suffix",
+        "SPDXID": "SPDXRef-gem-publicsuffix-4.0.6-75c946",
+        "versionInfo": "4.0.6",
+        "downloadLocation": "NOASSERTION",
+        "filesAnalyzed": false,
+        "licenseConcluded": "MIT",
+        "externalRefs": [
+          {
+            "referenceCategory": "PACKAGE-MANAGER",
+            "referenceType": "purl",
+            "referenceLocator": "pkg:gem/public_suffix@4.0.6"
+          }
+        ]
+      },
+      {
+        "name": "gh_inspector",
+        "SPDXID": "SPDXRef-gem-ghinspector-1.1.3-75c946",
+        "versionInfo": "1.1.3",
+        "downloadLocation": "NOASSERTION",
+        "filesAnalyzed": false,
+        "licenseConcluded": "MIT",
+        "copyrightText": "Copyright (c) 2017 Orta Therox and Felix Krause",
+        "externalRefs": [
+          {
+            "referenceCategory": "PACKAGE-MANAGER",
+            "referenceType": "purl",
+            "referenceLocator": "pkg:gem/gh_inspector@1.1.3"
+          }
+        ]
+      },
+      {
+        "name": "ruby-macho",
+        "SPDXID": "SPDXRef-gem-ruby-macho-2.5.1-75c946",
+        "versionInfo": "2.5.1",
+        "downloadLocation": "NOASSERTION",
+        "filesAnalyzed": false,
+        "licenseConcluded": "MIT",
+        "copyrightText": "Copyright (c) 2015, 2016, 2017, 2018 William Woodruff, Copyright (c) 2015, 2016, 2017, 2018 William Woodruff <william yossarian.net>",
+        "externalRefs": [
+          {
+            "referenceCategory": "PACKAGE-MANAGER",
+            "referenceType": "purl",
+            "referenceLocator": "pkg:gem/ruby-macho@2.5.1"
+          }
+        ]
+      },
+      {
+        "name": "minitest",
+        "SPDXID": "SPDXRef-gem-minitest-5.14.4-75c946",
+        "versionInfo": "5.14.4",
+        "downloadLocation": "NOASSERTION",
+        "filesAnalyzed": false,
+        "licenseConcluded": "MIT",
+        "copyrightText": "Copyright (c) Ryan Davis, seattle.rb",
+        "externalRefs": [
+          {
+            "referenceCategory": "PACKAGE-MANAGER",
+            "referenceType": "purl",
+            "referenceLocator": "pkg:gem/minitest@5.14.4"
+          }
+        ]
+      },
+      {
+        "name": "sassc",
+        "SPDXID": "SPDXRef-gem-sassc-2.2.1-75c946",
+        "versionInfo": "2.2.1",
+        "downloadLocation": "NOASSERTION",
+        "filesAnalyzed": false,
+        "licenseConcluded": "MIT",
+        "copyrightText": "Copyright (c) 2011 Joseph A. Adams (joeyadams3.14159@gmail.com), Copyright (c) Marcel Greter, Copyright (c) Ryan Boland & Contributors, Copyright 2006 Nemanja Trifunovic, Copyright 2006-2016 Nemanja Trifunovic",
+        "externalRefs": [
+          {
+            "referenceCategory": "PACKAGE-MANAGER",
+            "referenceType": "purl",
+            "referenceLocator": "pkg:gem/sassc@2.2.1"
+          }
+        ]
+      },
+      {
+        "name": "xcinvoke",
+        "SPDXID": "SPDXRef-gem-xcinvoke-0.3.0-75c946",
+        "versionInfo": "0.3.0",
+        "downloadLocation": "NOASSERTION",
+        "filesAnalyzed": false,
+        "licenseConcluded": "MIT",
+        "externalRefs": [
+          {
+            "referenceCategory": "PACKAGE-MANAGER",
+            "referenceType": "purl",
+            "referenceLocator": "pkg:gem/xcinvoke@0.3.0"
+          }
+        ]
+      },
+      {
+        "name": "algoliasearch",
+        "SPDXID": "SPDXRef-gem-algoliasearch-1.27.5-75c946",
+        "versionInfo": "1.27.5",
+        "downloadLocation": "NOASSERTION",
+        "filesAnalyzed": false,
+        "licenseConcluded": "MIT",
+        "copyrightText": "Copyright (c) 2013-Present Algolia",
+        "externalRefs": [
+          {
+            "referenceCategory": "PACKAGE-MANAGER",
+            "referenceType": "purl",
+            "referenceLocator": "pkg:gem/algoliasearch@1.27.5"
+          }
+        ]
+      },
+      {
+        "name": "cocoapods-plugins",
+        "SPDXID": "SPDXRef-gem-cocoapods-plugins-1.0.0-75c946",
+        "versionInfo": "1.0.0",
+        "downloadLocation": "NOASSERTION",
+        "filesAnalyzed": false,
+        "licenseConcluded": "MIT",
+        "copyrightText": "Copyright (c) 2014 David Grandinetti",
+        "externalRefs": [
+          {
+            "referenceCategory": "PACKAGE-MANAGER",
+            "referenceType": "purl",
+            "referenceLocator": "pkg:gem/cocoapods-plugins@1.0.0"
+          }
+        ]
+      },
+      {
+        "name": "cocoapods-search",
+        "SPDXID": "SPDXRef-gem-cocoapods-search-1.0.1-75c946",
+        "versionInfo": "1.0.1",
+        "downloadLocation": "NOASSERTION",
+        "filesAnalyzed": false,
+        "licenseConcluded": "MIT",
+        "copyrightText": "Copyright (c) 2015 Eloy Duran <eloy.de.enige@gmail.com> , Fabio Pelosin <fabiopelosin@gmail.com>",
+        "externalRefs": [
+          {
+            "referenceCategory": "PACKAGE-MANAGER",
+            "referenceType": "purl",
+            "referenceLocator": "pkg:gem/cocoapods-search@1.0.1"
+          }
+        ]
+      },
+      {
+        "name": "open4",
+        "SPDXID": "SPDXRef-gem-open4-1.3.4-75c946",
+        "versionInfo": "1.3.4",
+        "downloadLocation": "NOASSERTION",
+        "filesAnalyzed": false,
+        "licenseConcluded": "Ruby",
+        "externalRefs": [
+          {
+            "referenceCategory": "PACKAGE-MANAGER",
+            "referenceType": "purl",
+            "referenceLocator": "pkg:gem/open4@1.3.4"
+          }
+        ]
+      },
+      {
+        "name": "ethon",
+        "SPDXID": "SPDXRef-gem-ethon-0.14.0-75c946",
+        "versionInfo": "0.14.0",
+        "downloadLocation": "NOASSERTION",
+        "filesAnalyzed": false,
+        "licenseConcluded": "MIT",
+        "copyrightText": "Copyright (c) 2012-2016 Hans Hasselberg, Copyright (c) 2012-2016 Hans Hasselberg (http://www.hans.io)",
+        "externalRefs": [
+          {
+            "referenceCategory": "PACKAGE-MANAGER",
+            "referenceType": "purl",
+            "referenceLocator": "pkg:gem/ethon@0.14.0"
+          }
+        ]
+      },
+      {
+        "name": "jazzy",
+        "SPDXID": "SPDXRef-gem-jazzy-0.13.1-75c946",
+        "versionInfo": "0.13.1",
+        "downloadLocation": "NOASSERTION",
+        "filesAnalyzed": false,
+        "licenseConcluded": "MIT",
+        "copyrightText": "(c) JS Foundation and other contributors, Copyright (c) 2014 Realm Inc., Copyright 2013-2017 Twitter, Inc. and other contributors",
+        "externalRefs": [
+          {
+            "referenceCategory": "PACKAGE-MANAGER",
+            "referenceType": "purl",
+            "referenceLocator": "pkg:gem/jazzy@0.13.1"
+          }
+        ]
+      },
+      {
+        "name": "cocoapods",
+        "SPDXID": "SPDXRef-gem-cocoapods-1.11.0-75c946",
+        "versionInfo": "1.11.0",
+        "downloadLocation": "NOASSERTION",
+        "filesAnalyzed": false,
+        "licenseConcluded": "MIT",
+        "externalRefs": [
+          {
+            "referenceCategory": "PACKAGE-MANAGER",
+            "referenceType": "purl",
+            "referenceLocator": "pkg:gem/cocoapods@1.11.0"
+          }
+        ]
+      },
+      {
+        "name": "mustache",
+        "SPDXID": "SPDXRef-gem-mustache-1.1.1-75c946",
+        "versionInfo": "1.1.1",
+        "downloadLocation": "NOASSERTION",
+        "filesAnalyzed": false,
+        "licenseConcluded": "MIT",
+        "copyrightText": "Copyright (c) 2009 Chris Wanstrath, COPYRIGHT' COPYRIGHT Mustache",
+        "externalRefs": [
+          {
+            "referenceCategory": "PACKAGE-MANAGER",
+            "referenceType": "purl",
+            "referenceLocator": "pkg:gem/mustache@1.1.1"
+          }
+        ]
+      },
+      {
+        "name": "colored2",
+        "SPDXID": "SPDXRef-gem-colored2-3.1.2-75c946",
+        "versionInfo": "3.1.2",
+        "downloadLocation": "NOASSERTION",
+        "filesAnalyzed": false,
+        "licenseConcluded": "MIT",
+        "copyrightText": "Copyright (c) 2010 Chris Wanstrath, Copyright (c) 2016 Konstantin Gredeskoul",
+        "externalRefs": [
+          {
+            "referenceCategory": "PACKAGE-MANAGER",
+            "referenceType": "purl",
+            "referenceLocator": "pkg:gem/colored2@3.1.2"
+          }
+        ]
+      },
+      {
+        "name": "nanaimo",
+        "SPDXID": "SPDXRef-gem-nanaimo-0.3.0-75c946",
+        "versionInfo": "0.3.0",
+        "downloadLocation": "NOASSERTION",
+        "filesAnalyzed": false,
+        "licenseConcluded": "MIT",
+        "copyrightText": "Copyright (c) 2016 Danielle Tomlinson, Samuel Giddins",
+        "externalRefs": [
+          {
+            "referenceCategory": "PACKAGE-MANAGER",
+            "referenceType": "purl",
+            "referenceLocator": "pkg:gem/nanaimo@0.3.0"
+          }
+        ]
+      },
+      {
+        "name": "cocoapods-downloader",
+        "SPDXID": "SPDXRef-gem-cocoapods-downloader-1.6.3-75c946",
+        "versionInfo": "1.6.3",
+        "downloadLocation": "NOASSERTION",
+        "filesAnalyzed": false,
+        "licenseConcluded": "MIT",
+        "copyrightText": "Copyright (c) 2011 - 2012 Eloy Duran <eloy.de.enige@gmail.com>, Copyright (c) 2012 Fabio Pelosin <fabiopelosin@gmail.com>",
+        "externalRefs": [
+          {
+            "referenceCategory": "PACKAGE-MANAGER",
+            "referenceType": "purl",
+            "referenceLocator": "pkg:gem/cocoapods-downloader@1.6.3"
+          }
+        ]
+      },
+      {
+        "name": "claide",
+        "SPDXID": "SPDXRef-gem-claide-1.0.3-75c946",
+        "versionInfo": "1.0.3",
+        "downloadLocation": "NOASSERTION",
+        "filesAnalyzed": false,
+        "licenseConcluded": "MIT",
+        "copyrightText": "Copyright (c) 2011 - 2012 Eloy Duran <eloy.de.enige@gmail.com>, Copyright (c) 2012 Fabio Pelosin <fabiopelosin@gmail.com>",
+        "externalRefs": [
+          {
+            "referenceCategory": "PACKAGE-MANAGER",
+            "referenceType": "purl",
+            "referenceLocator": "pkg:gem/claide@1.0.3"
+          }
+        ]
+      },
+      {
+        "name": "cocoapods-core",
+        "SPDXID": "SPDXRef-gem-cocoapods-core-1.11.0-75c946",
+        "versionInfo": "1.11.0",
+        "downloadLocation": "NOASSERTION",
+        "filesAnalyzed": false,
+        "licenseConcluded": "MIT",
+        "externalRefs": [
+          {
+            "referenceCategory": "PACKAGE-MANAGER",
+            "referenceType": "purl",
+            "referenceLocator": "pkg:gem/cocoapods-core@1.11.0"
+          }
+        ]
+      },
+      {
+        "name": "concurrent-ruby",
+        "SPDXID": "SPDXRef-gem-concurrent-ruby-1.1.9-75c946",
+        "versionInfo": "1.1.9",
+        "downloadLocation": "NOASSERTION",
+        "filesAnalyzed": false,
+        "licenseConcluded": "MIT",
+        "copyrightText": "Copyright (c) 2014 Jerry D'Antonio (https://twitter.com/jerrydantonio), Copyright (c) Jerry D'Antonio, Copyright Concurrent Ruby",
+        "externalRefs": [
+          {
+            "referenceCategory": "PACKAGE-MANAGER",
+            "referenceType": "purl",
+            "referenceLocator": "pkg:gem/concurrent-ruby@1.1.9"
+          }
+        ]
+      },
+      {
+        "name": "netrc",
+        "SPDXID": "SPDXRef-gem-netrc-0.11.0-75c946",
+        "versionInfo": "0.11.0",
+        "downloadLocation": "NOASSERTION",
+        "filesAnalyzed": false,
+        "licenseConcluded": "MIT",
+        "copyrightText": "Copyright (c) 2011-2014 CONTRIBUTORS.md (https://github.com/geemus/netrc/blob/master/CONTRIBUTORS.md)",
+        "externalRefs": [
+          {
+            "referenceCategory": "PACKAGE-MANAGER",
+            "referenceType": "purl",
+            "referenceLocator": "pkg:gem/netrc@0.11.0"
+          }
+        ]
+      },
+      {
+        "name": "escape",
+        "SPDXID": "SPDXRef-gem-escape-0.0.4-75c946",
+        "versionInfo": "0.0.4",
+        "downloadLocation": "NOASSERTION",
+        "filesAnalyzed": false,
+        "licenseConcluded": "BSD-3-Clause",
+        "externalRefs": [
+          {
+            "referenceCategory": "PACKAGE-MANAGER",
+            "referenceType": "purl",
+            "referenceLocator": "pkg:gem/escape@0.0.4"
+          }
+        ]
+      },
+      {
+        "name": "ffi",
+        "SPDXID": "SPDXRef-gem-ffi-1.15.3-75c946",
+        "versionInfo": "1.15.3",
+        "downloadLocation": "NOASSERTION",
+        "filesAnalyzed": false,
+        "licenseConcluded": "BSD-3-Clause",
+        "externalRefs": [
+          {
+            "referenceCategory": "PACKAGE-MANAGER",
+            "referenceType": "purl",
+            "referenceLocator": "pkg:gem/ffi@1.15.3"
+          }
+        ]
+      },
+      {
+        "name": "activesupport",
+        "SPDXID": "SPDXRef-gem-activesupport-6.1.4.1-75c946",
+        "versionInfo": "6.1.4.1",
+        "downloadLocation": "NOASSERTION",
+        "filesAnalyzed": false,
+        "licenseConcluded": "MIT",
+        "externalRefs": [
+          {
+            "referenceCategory": "PACKAGE-MANAGER",
+            "referenceType": "purl",
+            "referenceLocator": "pkg:gem/activesupport@6.1.4.1"
+          }
+        ]
+      },
+      {
+        "name": "xcodeproj",
+        "SPDXID": "SPDXRef-gem-xcodeproj-1.21.0-75c946",
+        "versionInfo": "1.21.0",
+        "downloadLocation": "NOASSERTION",
+        "filesAnalyzed": false,
+        "licenseConcluded": "MIT",
+        "copyrightText": "Copyright (c) 2012 Eloy Duran <eloy.de.enige@gmail.com>",
+        "externalRefs": [
+          {
+            "referenceCategory": "PACKAGE-MANAGER",
+            "referenceType": "purl",
+            "referenceLocator": "pkg:gem/xcodeproj@1.21.0"
+          }
+        ]
+      },
+      {
+        "name": "xcpretty",
+        "SPDXID": "SPDXRef-gem-xcpretty-0.1.12-75c946",
+        "versionInfo": "0.1.12",
+        "downloadLocation": "NOASSERTION",
+        "filesAnalyzed": false,
+        "licenseConcluded": "MIT",
+        "copyrightText": "Copyright (c) 1989, 1991 Free Software Foundation, Inc., Copyright (c) 2012, Copyright (c) 2013 Marin Usalj, copyrighted by the Free Software Foundation",
+        "externalRefs": [
+          {
+            "referenceCategory": "PACKAGE-MANAGER",
+            "referenceType": "purl",
+            "referenceLocator": "pkg:gem/xcpretty@0.1.12"
+          }
+        ]
+      },
+      {
+        "name": "atomos",
+        "SPDXID": "SPDXRef-gem-atomos-0.1.3-75c946",
+        "versionInfo": "0.1.3",
+        "downloadLocation": "NOASSERTION",
+        "filesAnalyzed": false,
+        "licenseConcluded": "MIT",
+        "copyrightText": "Copyright (c) 2018 Samuel Giddins",
+        "externalRefs": [
+          {
+            "referenceCategory": "PACKAGE-MANAGER",
+            "referenceType": "purl",
+            "referenceLocator": "pkg:gem/atomos@0.1.3"
+          }
+        ]
+      },
+      {
+        "name": "nap",
+        "SPDXID": "SPDXRef-gem-nap-1.1.0-75c946",
+        "versionInfo": "1.1.0",
+        "downloadLocation": "NOASSERTION",
+        "filesAnalyzed": false,
+        "licenseConcluded": "MIT",
+        "copyrightText": "AutoritA (c) Racine, Copyright (c) 2015 Manfred Stienstra, Fingertips <manfred@fngtps.com>",
+        "externalRefs": [
+          {
+            "referenceCategory": "PACKAGE-MANAGER",
+            "referenceType": "purl",
+            "referenceLocator": "pkg:gem/nap@1.1.0"
+          }
+        ]
+      },
+      {
+        "name": "zeitwerk",
+        "SPDXID": "SPDXRef-gem-zeitwerk-2.4.2-75c946",
+        "versionInfo": "2.4.2",
+        "downloadLocation": "NOASSERTION",
+        "filesAnalyzed": false,
+        "licenseConcluded": "MIT",
+        "copyrightText": "Copyright (c) 2019-o Xavier Noria, License, Copyright (c) 2019",
+        "externalRefs": [
+          {
+            "referenceCategory": "PACKAGE-MANAGER",
+            "referenceType": "purl",
+            "referenceLocator": "pkg:gem/zeitwerk@2.4.2"
+          }
+        ]
+      },
+      {
+        "name": "cocoapods-trunk",
+        "SPDXID": "SPDXRef-gem-cocoapods-trunk-1.5.0-75c946",
+        "versionInfo": "1.5.0",
+        "downloadLocation": "NOASSERTION",
+        "filesAnalyzed": false,
+        "licenseConcluded": "MIT",
+        "copyrightText": "Copyright (c) 2013 Eloy Duran",
+        "externalRefs": [
+          {
+            "referenceCategory": "PACKAGE-MANAGER",
+            "referenceType": "purl",
+            "referenceLocator": "pkg:gem/cocoapods-trunk@1.5.0"
+          }
+        ]
+      },
+      {
+        "name": "httpclient",
+        "SPDXID": "SPDXRef-gem-httpclient-2.8.3-75c946",
+        "versionInfo": "2.8.3",
+        "downloadLocation": "NOASSERTION",
+        "filesAnalyzed": false,
+        "licenseConcluded": "Ruby",
+        "copyrightText": "Copyright (c) 2000-2007 NAKAMURA, Hiroshi <nakahiro@sarion.co.jp>, Copyright (c) 2000-2015 NAKAMURA, Hiroshi <nahi@ruby-lang.org>, Copyright (c) 2001 TAKAHASHI Masayoshi, copyrighted by Maebashi-san",
+        "externalRefs": [
+          {
+            "referenceCategory": "PACKAGE-MANAGER",
+            "referenceType": "purl",
+            "referenceLocator": "pkg:gem/httpclient@2.8.3"
+          }
+        ]
+      },
+      {
+        "name": "rexml",
+        "SPDXID": "SPDXRef-gem-rexml-3.2.5-75c946",
+        "versionInfo": "3.2.5",
+        "downloadLocation": "NOASSERTION",
+        "filesAnalyzed": false,
+        "licenseConcluded": "BSD-2-Clause",
+        "externalRefs": [
+          {
+            "referenceCategory": "PACKAGE-MANAGER",
+            "referenceType": "purl",
+            "referenceLocator": "pkg:gem/rexml@3.2.5"
+          }
+        ]
+      },
+      {
+        "name": "cocoapods-deintegrate",
+        "SPDXID": "SPDXRef-gem-cocoapods-deintegrate-1.0.5-75c946",
+        "versionInfo": "1.0.5",
+        "downloadLocation": "NOASSERTION",
+        "filesAnalyzed": false,
+        "licenseConcluded": "MIT",
+        "copyrightText": "Copyright (c) 2015 Kyle Fuller <kyle@fuller.li>",
+        "externalRefs": [
+          {
+            "referenceCategory": "PACKAGE-MANAGER",
+            "referenceType": "purl",
+            "referenceLocator": "pkg:gem/cocoapods-deintegrate@1.0.5"
+          }
+        ]
+      },
+      {
+        "name": "fourflusher",
+        "SPDXID": "SPDXRef-gem-fourflusher-2.3.1-75c946",
+        "versionInfo": "2.3.1",
+        "downloadLocation": "NOASSERTION",
+        "filesAnalyzed": false,
+        "licenseConcluded": "MIT",
+        "copyrightText": "Copyright (c) 2011 - 2015 Eloy Duran <eloy.de.enige@gmail.com> , Fabio Pelosin <fabiopelosin@gmail.com> , Samuel Giddins <segiddins@segiddins.me>, Copyright (c) 2015 Boris Bugling",
+        "externalRefs": [
+          {
+            "referenceCategory": "PACKAGE-MANAGER",
+            "referenceType": "purl",
+            "referenceLocator": "pkg:gem/fourflusher@2.3.1"
+          }
+        ]
+      },
+      {
+        "name": "fuzzy_match",
+        "SPDXID": "SPDXRef-gem-fuzzymatch-2.0.4-75c946",
+        "versionInfo": "2.0.4",
+        "downloadLocation": "NOASSERTION",
+        "filesAnalyzed": false,
+        "licenseConcluded": "MIT",
+        "copyrightText": "Copyright 2011 Brighter Planet, Inc., Copyright 2013 Seamus Abshere",
+        "externalRefs": [
+          {
+            "referenceCategory": "PACKAGE-MANAGER",
+            "referenceType": "purl",
+            "referenceLocator": "pkg:gem/fuzzy_match@2.0.4"
+          }
+        ]
+      },
+      {
+        "name": "i18n",
+        "SPDXID": "SPDXRef-gem-i18n-1.8.10-75c946",
+        "versionInfo": "1.8.10",
+        "downloadLocation": "NOASSERTION",
+        "filesAnalyzed": false,
+        "licenseConcluded": "MIT",
+        "copyrightText": "Copyright (c) 2003-2009 Masao Mutoh, Copyright (c) 2005-2019 David Heinemeier Hansson, Copyright (c) 2008 The Ruby I18n team",
+        "externalRefs": [
+          {
+            "referenceCategory": "PACKAGE-MANAGER",
+            "referenceType": "purl",
+            "referenceLocator": "pkg:gem/i18n@1.8.10"
+          }
+        ]
+      },
+      {
+        "name": "json",
+        "SPDXID": "SPDXRef-gem-json-2.5.1-75c946",
+        "versionInfo": "2.5.1",
+        "downloadLocation": "NOASSERTION",
+        "filesAnalyzed": false,
+        "licenseConcluded": "Ruby OR (BSD-2-Clause AND Ruby)",
+        "copyrightText": "Copyright 2001-2004 Unicode, Inc.",
+        "externalRefs": [
+          {
+            "referenceCategory": "PACKAGE-MANAGER",
+            "referenceType": "purl",
+            "referenceLocator": "pkg:gem/json@2.5.1"
+          }
+        ]
+      },
+      {
+        "name": "liferaft",
+        "SPDXID": "SPDXRef-gem-liferaft-0.0.6-75c946",
+        "versionInfo": "0.0.6",
+        "downloadLocation": "NOASSERTION",
+        "filesAnalyzed": false,
+        "licenseConcluded": "MIT",
+        "copyrightText": "Copyright (c) 2015 Boris Bugling",
+        "externalRefs": [
+          {
+            "referenceCategory": "PACKAGE-MANAGER",
+            "referenceType": "purl",
+            "referenceLocator": "pkg:gem/liferaft@0.0.6"
+          }
+        ]
+      },
+      {
+        "name": "molinillo",
+        "SPDXID": "SPDXRef-gem-molinillo-0.8.0-75c946",
+        "versionInfo": "0.8.0",
+        "downloadLocation": "NOASSERTION",
+        "filesAnalyzed": false,
+        "licenseConcluded": "MIT",
+        "copyrightText": "Copyright (c) 2014 Samuel E. Giddins segiddins@segiddins.me",
+        "externalRefs": [
+          {
+            "referenceCategory": "PACKAGE-MANAGER",
+            "referenceType": "purl",
+            "referenceLocator": "pkg:gem/molinillo@0.8.0"
+          }
+        ]
+      },
+      {
+        "name": "sqlite3",
+        "SPDXID": "SPDXRef-gem-sqlite3-1.4.2-75c946",
+        "versionInfo": "1.4.2",
+        "downloadLocation": "NOASSERTION",
+        "filesAnalyzed": false,
+        "licenseConcluded": "BSD-3-Clause",
+        "copyrightText": "(c) from foo group, Copyright (c) 2000-2004 Minero Aoki, Copyright (c) 2004, Jamis Buck (jamis@jamisbuck.org)",
+        "externalRefs": [
+          {
+            "referenceCategory": "PACKAGE-MANAGER",
+            "referenceType": "purl",
+            "referenceLocator": "pkg:gem/sqlite3@1.4.2"
+          }
+        ]
+      },
+      {
+        "name": "redcarpet",
+        "SPDXID": "SPDXRef-gem-redcarpet-3.5.1-75c946",
+        "versionInfo": "3.5.1",
+        "downloadLocation": "NOASSERTION",
+        "filesAnalyzed": false,
+        "licenseConcluded": "MIT",
+        "copyrightText": "(c), (r), (tm), Copyright (c) 2008, Natacha Porte, Copyright (c) 2009, Natacha Porte, Copyright (c) 2011-2016, Vicent Marti, Copyright (c) 2015, Vicent Marti",
+        "externalRefs": [
+          {
+            "referenceCategory": "PACKAGE-MANAGER",
+            "referenceType": "purl",
+            "referenceLocator": "pkg:gem/redcarpet@3.5.1"
+          }
+        ]
+      },
+      {
+        "name": "actions/checkout",
+        "SPDXID": "SPDXRef-githubactions-actions-checkout-2-75c946",
+        "versionInfo": "2",
+        "downloadLocation": "NOASSERTION",
+        "filesAnalyzed": false,
+        "externalRefs": [
+          {
+            "referenceCategory": "PACKAGE-MANAGER",
+            "referenceType": "purl",
+            "referenceLocator": "pkg:githubactions/actions/checkout@2"
+          }
+        ]
+      },
+      {
+        "name": "hramos/needs-attention",
+        "SPDXID": "SPDXRef-githubactions-hramos-needs-attention-1-75c946",
+        "versionInfo": "1",
+        "downloadLocation": "NOASSERTION",
+        "filesAnalyzed": false,
+        "externalRefs": [
+          {
+            "referenceCategory": "PACKAGE-MANAGER",
+            "referenceType": "purl",
+            "referenceLocator": "pkg:githubactions/hramos/needs-attention@1"
+          }
+        ]
+      },
+      {
+        "name": "actions/stale",
+        "SPDXID": "SPDXRef-githubactions-actions-stale-4-75c946",
+        "versionInfo": "4",
+        "downloadLocation": "NOASSERTION",
+        "filesAnalyzed": false,
+        "externalRefs": [
+          {
+            "referenceCategory": "PACKAGE-MANAGER",
+            "referenceType": "purl",
+            "referenceLocator": "pkg:githubactions/actions/stale@4"
+          }
+        ]
+      },
+      {
+        "name": "com.github.facebook/facebook-ios-sdk",
+        "SPDXID": "SPDXRef-github-facebook-facebook-ios-sdk-main-0c4cf6",
+        "versionInfo": "main",
+        "downloadLocation": "git+https://github.com/facebook/facebook-ios-sdk",
+        "filesAnalyzed": false,
+        "externalRefs": [
+          {
+            "referenceCategory": "PACKAGE-MANAGER",
+            "referenceType": "purl",
+            "referenceLocator": "pkg:github/facebook/facebook-ios-sdk@main"
+          }
+        ]
+      }
+    ],
+    "relationships": [
+      {
+        "spdxElementId": "SPDXRef-github-facebook-facebook-ios-sdk-main-0c4cf6",
+        "relatedSpdxElement": "SPDXRef-gem-mustache-1.1.1-75c946",
+        "relationshipType": "DEPENDS_ON"
+      },
+      {
+        "spdxElementId": "SPDXRef-github-facebook-facebook-ios-sdk-main-0c4cf6",
+        "relatedSpdxElement": "SPDXRef-gem-cocoapods-trunk-1.5.0-75c946",
+        "relationshipType": "DEPENDS_ON"
+      },
+      {
+        "spdxElementId": "SPDXRef-github-facebook-facebook-ios-sdk-main-0c4cf6",
+        "relatedSpdxElement": "SPDXRef-gem-liferaft-0.0.6-75c946",
+        "relationshipType": "DEPENDS_ON"
+      },
+      {
+        "spdxElementId": "SPDXRef-github-facebook-facebook-ios-sdk-main-0c4cf6",
+        "relatedSpdxElement": "SPDXRef-gem-sqlite3-1.4.2-75c946",
+        "relationshipType": "DEPENDS_ON"
+      },
+      {
+        "spdxElementId": "SPDXRef-github-facebook-facebook-ios-sdk-main-0c4cf6",
+        "relatedSpdxElement": "SPDXRef-gem-xcinvoke-0.3.0-75c946",
+        "relationshipType": "DEPENDS_ON"
+      },
+      {
+        "spdxElementId": "SPDXRef-github-facebook-facebook-ios-sdk-main-0c4cf6",
+        "relatedSpdxElement": "SPDXRef-gem-algoliasearch-1.27.5-75c946",
+        "relationshipType": "DEPENDS_ON"
+      },
+      {
+        "spdxElementId": "SPDXRef-github-facebook-facebook-ios-sdk-main-0c4cf6",
+        "relatedSpdxElement": "SPDXRef-gem-cocoapods-1.11.0-75c946",
+        "relationshipType": "DEPENDS_ON"
+      },
+      {
+        "spdxElementId": "SPDXRef-github-facebook-facebook-ios-sdk-main-0c4cf6",
+        "relatedSpdxElement": "SPDXRef-gem-cocoapods-core-1.11.0-75c946",
+        "relationshipType": "DEPENDS_ON"
+      },
+      {
+        "spdxElementId": "SPDXRef-github-facebook-facebook-ios-sdk-main-0c4cf6",
+        "relatedSpdxElement": "SPDXRef-gem-concurrent-ruby-1.1.9-75c946",
+        "relationshipType": "DEPENDS_ON"
+      },
+      {
+        "spdxElementId": "SPDXRef-github-facebook-facebook-ios-sdk-main-0c4cf6",
+        "relatedSpdxElement": "SPDXRef-gem-escape-0.0.4-75c946",
+        "relationshipType": "DEPENDS_ON"
+      },
+      {
+        "spdxElementId": "SPDXRef-github-facebook-facebook-ios-sdk-main-0c4cf6",
+        "relatedSpdxElement": "SPDXRef-gem-activesupport-6.1.4.1-75c946",
+        "relationshipType": "DEPENDS_ON"
+      },
+      {
+        "spdxElementId": "SPDXRef-github-facebook-facebook-ios-sdk-main-0c4cf6",
+        "relatedSpdxElement": "SPDXRef-gem-rexml-3.2.5-75c946",
+        "relationshipType": "DEPENDS_ON"
+      },
+      {
+        "spdxElementId": "SPDXRef-github-facebook-facebook-ios-sdk-main-0c4cf6",
+        "relatedSpdxElement": "SPDXRef-gem-rouge-3.15.0-75c946",
+        "relationshipType": "DEPENDS_ON"
+      },
+      {
+        "spdxElementId": "SPDXRef-github-facebook-facebook-ios-sdk-main-0c4cf6",
+        "relatedSpdxElement": "SPDXRef-gem-minitest-5.14.4-75c946",
+        "relationshipType": "DEPENDS_ON"
+      },
+      {
+        "spdxElementId": "SPDXRef-github-facebook-facebook-ios-sdk-main-0c4cf6",
+        "relatedSpdxElement": "SPDXRef-gem-nanaimo-0.3.0-75c946",
+        "relationshipType": "DEPENDS_ON"
+      },
+      {
+        "spdxElementId": "SPDXRef-github-facebook-facebook-ios-sdk-main-0c4cf6",
+        "relatedSpdxElement": "SPDXRef-gem-claide-1.0.3-75c946",
+        "relationshipType": "DEPENDS_ON"
+      },
+      {
+        "spdxElementId": "SPDXRef-github-facebook-facebook-ios-sdk-main-0c4cf6",
+        "relatedSpdxElement": "SPDXRef-gem-zeitwerk-2.4.2-75c946",
+        "relationshipType": "DEPENDS_ON"
+      },
+      {
+        "spdxElementId": "SPDXRef-github-facebook-facebook-ios-sdk-main-0c4cf6",
+        "relatedSpdxElement": "SPDXRef-gem-cocoapods-deintegrate-1.0.5-75c946",
+        "relationshipType": "DEPENDS_ON"
+      },
+      {
+        "spdxElementId": "SPDXRef-github-facebook-facebook-ios-sdk-main-0c4cf6",
+        "relatedSpdxElement": "SPDXRef-gem-redcarpet-3.5.1-75c946",
+        "relationshipType": "DEPENDS_ON"
+      },
+      {
+        "spdxElementId": "SPDXRef-github-facebook-facebook-ios-sdk-main-0c4cf6",
+        "relatedSpdxElement": "SPDXRef-gem-addressable-2.8.0-75c946",
+        "relationshipType": "DEPENDS_ON"
+      },
+      {
+        "spdxElementId": "SPDXRef-github-facebook-facebook-ios-sdk-main-0c4cf6",
+        "relatedSpdxElement": "SPDXRef-gem-cocoapods-plugins-1.0.0-75c946",
+        "relationshipType": "DEPENDS_ON"
+      },
+      {
+        "spdxElementId": "SPDXRef-github-facebook-facebook-ios-sdk-main-0c4cf6",
+        "relatedSpdxElement": "SPDXRef-gem-cocoapods-search-1.0.1-75c946",
+        "relationshipType": "DEPENDS_ON"
+      },
+      {
+        "spdxElementId": "SPDXRef-github-facebook-facebook-ios-sdk-main-0c4cf6",
+        "relatedSpdxElement": "SPDXRef-gem-open4-1.3.4-75c946",
+        "relationshipType": "DEPENDS_ON"
+      },
+      {
+        "spdxElementId": "SPDXRef-github-facebook-facebook-ios-sdk-main-0c4cf6",
+        "relatedSpdxElement": "SPDXRef-gem-ethon-0.14.0-75c946",
+        "relationshipType": "DEPENDS_ON"
+      },
+      {
+        "spdxElementId": "SPDXRef-github-facebook-facebook-ios-sdk-main-0c4cf6",
+        "relatedSpdxElement": "SPDXRef-gem-fuzzymatch-2.0.4-75c946",
+        "relationshipType": "DEPENDS_ON"
+      },
+      {
+        "spdxElementId": "SPDXRef-github-facebook-facebook-ios-sdk-main-0c4cf6",
+        "relatedSpdxElement": "SPDXRef-gem-json-2.5.1-75c946",
+        "relationshipType": "DEPENDS_ON"
+      },
+      {
+        "spdxElementId": "SPDXRef-github-facebook-facebook-ios-sdk-main-0c4cf6",
+        "relatedSpdxElement": "SPDXRef-githubactions-actions-checkout-2-75c946",
+        "relationshipType": "DEPENDS_ON"
+      },
+      {
+        "spdxElementId": "SPDXRef-github-facebook-facebook-ios-sdk-main-0c4cf6",
+        "relatedSpdxElement": "SPDXRef-gem-sassc-2.2.1-75c946",
+        "relationshipType": "DEPENDS_ON"
+      },
+      {
+        "spdxElementId": "SPDXRef-github-facebook-facebook-ios-sdk-main-0c4cf6",
+        "relatedSpdxElement": "SPDXRef-gem-colored2-3.1.2-75c946",
+        "relationshipType": "DEPENDS_ON"
+      },
+      {
+        "spdxElementId": "SPDXRef-github-facebook-facebook-ios-sdk-main-0c4cf6",
+        "relatedSpdxElement": "SPDXRef-gem-xcpretty-0.1.12-75c946",
+        "relationshipType": "DEPENDS_ON"
+      },
+      {
+        "spdxElementId": "SPDXRef-github-facebook-facebook-ios-sdk-main-0c4cf6",
+        "relatedSpdxElement": "SPDXRef-gem-httpclient-2.8.3-75c946",
+        "relationshipType": "DEPENDS_ON"
+      },
+      {
+        "spdxElementId": "SPDXRef-github-facebook-facebook-ios-sdk-main-0c4cf6",
+        "relatedSpdxElement": "SPDXRef-gem-fourflusher-2.3.1-75c946",
+        "relationshipType": "DEPENDS_ON"
+      },
+      {
+        "spdxElementId": "SPDXRef-github-facebook-facebook-ios-sdk-main-0c4cf6",
+        "relatedSpdxElement": "SPDXRef-gem-i18n-1.8.10-75c946",
+        "relationshipType": "DEPENDS_ON"
+      },
+      {
+        "spdxElementId": "SPDXRef-github-facebook-facebook-ios-sdk-main-0c4cf6",
+        "relatedSpdxElement": "SPDXRef-gem-molinillo-0.8.0-75c946",
+        "relationshipType": "DEPENDS_ON"
+      },
+      {
+        "spdxElementId": "SPDXRef-github-facebook-facebook-ios-sdk-main-0c4cf6",
+        "relatedSpdxElement": "SPDXRef-githubactions-actions-stale-4-75c946",
+        "relationshipType": "DEPENDS_ON"
+      },
+      {
+        "spdxElementId": "SPDXRef-github-facebook-facebook-ios-sdk-main-0c4cf6",
+        "relatedSpdxElement": "SPDXRef-gem-tzinfo-2.0.4-75c946",
+        "relationshipType": "DEPENDS_ON"
+      },
+      {
+        "spdxElementId": "SPDXRef-github-facebook-facebook-ios-sdk-main-0c4cf6",
+        "relatedSpdxElement": "SPDXRef-gem-cocoapods-try-1.2.0-75c946",
+        "relationshipType": "DEPENDS_ON"
+      },
+      {
+        "spdxElementId": "SPDXRef-github-facebook-facebook-ios-sdk-main-0c4cf6",
+        "relatedSpdxElement": "SPDXRef-gem-CFPropertyList-3.0.3-75c946",
+        "relationshipType": "DEPENDS_ON"
+      },
+      {
+        "spdxElementId": "SPDXRef-github-facebook-facebook-ios-sdk-main-0c4cf6",
+        "relatedSpdxElement": "SPDXRef-gem-netrc-0.11.0-75c946",
+        "relationshipType": "DEPENDS_ON"
+      },
+      {
+        "spdxElementId": "SPDXRef-github-facebook-facebook-ios-sdk-main-0c4cf6",
+        "relatedSpdxElement": "SPDXRef-gem-ffi-1.15.3-75c946",
+        "relationshipType": "DEPENDS_ON"
+      },
+      {
+        "spdxElementId": "SPDXRef-github-facebook-facebook-ios-sdk-main-0c4cf6",
+        "relatedSpdxElement": "SPDXRef-githubactions-hramos-needs-attention-1-75c946",
+        "relationshipType": "DEPENDS_ON"
+      },
+      {
+        "spdxElementId": "SPDXRef-github-facebook-facebook-ios-sdk-main-0c4cf6",
+        "relatedSpdxElement": "SPDXRef-gem-ghinspector-1.1.3-75c946",
+        "relationshipType": "DEPENDS_ON"
+      },
+      {
+        "spdxElementId": "SPDXRef-github-facebook-facebook-ios-sdk-main-0c4cf6",
+        "relatedSpdxElement": "SPDXRef-gem-cocoapods-downloader-1.6.3-75c946",
+        "relationshipType": "DEPENDS_ON"
+      },
+      {
+        "spdxElementId": "SPDXRef-github-facebook-facebook-ios-sdk-main-0c4cf6",
+        "relatedSpdxElement": "SPDXRef-gem-atomos-0.1.3-75c946",
+        "relationshipType": "DEPENDS_ON"
+      },
+      {
+        "spdxElementId": "SPDXRef-github-facebook-facebook-ios-sdk-main-0c4cf6",
+        "relatedSpdxElement": "SPDXRef-gem-publicsuffix-4.0.6-75c946",
+        "relationshipType": "DEPENDS_ON"
+      },
+      {
+        "spdxElementId": "SPDXRef-github-facebook-facebook-ios-sdk-main-0c4cf6",
+        "relatedSpdxElement": "SPDXRef-gem-ruby-macho-2.5.1-75c946",
+        "relationshipType": "DEPENDS_ON"
+      },
+      {
+        "spdxElementId": "SPDXRef-github-facebook-facebook-ios-sdk-main-0c4cf6",
+        "relatedSpdxElement": "SPDXRef-gem-jazzy-0.13.1-75c946",
+        "relationshipType": "DEPENDS_ON"
+      },
+      {
+        "spdxElementId": "SPDXRef-github-facebook-facebook-ios-sdk-main-0c4cf6",
+        "relatedSpdxElement": "SPDXRef-gem-xcodeproj-1.21.0-75c946",
+        "relationshipType": "DEPENDS_ON"
+      },
+      {
+        "spdxElementId": "SPDXRef-github-facebook-facebook-ios-sdk-main-0c4cf6",
+        "relatedSpdxElement": "SPDXRef-gem-nap-1.1.0-75c946",
+        "relationshipType": "DEPENDS_ON"
+      },
+      {
+        "spdxElementId": "SPDXRef-github-facebook-facebook-ios-sdk-main-0c4cf6",
+        "relatedSpdxElement": "SPDXRef-gem-typhoeus-1.4.0-75c946",
+        "relationshipType": "DEPENDS_ON"
+      },
+      {
+        "spdxElementId": "SPDXRef-DOCUMENT",
+        "relatedSpdxElement": "SPDXRef-github-facebook-facebook-ios-sdk-main-0c4cf6",
+        "relationshipType": "DESCRIBES"
+      }
+    ]
+  }
+}

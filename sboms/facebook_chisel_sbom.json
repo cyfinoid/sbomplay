@@ -1,0 +1,40 @@
+{
+  "sbom": {
+    "spdxVersion": "SPDX-2.3",
+    "dataLicense": "CC0-1.0",
+    "SPDXID": "SPDXRef-DOCUMENT",
+    "name": "com.github.facebook/chisel",
+    "documentNamespace": "https://spdx.org/spdxdocs/protobom/001dc557-15ae-4073-b7b7-43ef343856b5",
+    "creationInfo": {
+      "creators": [
+        "Tool: protobom-v0.0.0-20250703203817-48bceb9919d2+dirty",
+        "Tool: GitHub.com-Dependency-Graph"
+      ],
+      "created": "2025-07-05T10:23:55Z"
+    },
+    "packages": [
+      {
+        "name": "com.github.facebook/chisel",
+        "SPDXID": "SPDXRef-github-facebook-chisel-main-c95367",
+        "versionInfo": "main",
+        "downloadLocation": "git+https://github.com/facebook/chisel",
+        "filesAnalyzed": false,
+        "licenseDeclared": "MIT",
+        "externalRefs": [
+          {
+            "referenceCategory": "PACKAGE-MANAGER",
+            "referenceType": "purl",
+            "referenceLocator": "pkg:github/facebook/chisel@main"
+          }
+        ]
+      }
+    ],
+    "relationships": [
+      {
+        "spdxElementId": "SPDXRef-DOCUMENT",
+        "relatedSpdxElement": "SPDXRef-github-facebook-chisel-main-c95367",
+        "relationshipType": "DESCRIBES"
+      }
+    ]
+  }
+}

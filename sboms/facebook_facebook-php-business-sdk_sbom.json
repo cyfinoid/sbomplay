@@ -1,0 +1,194 @@
+{
+  "sbom": {
+    "spdxVersion": "SPDX-2.3",
+    "dataLicense": "CC0-1.0",
+    "SPDXID": "SPDXRef-DOCUMENT",
+    "name": "com.github.facebook/facebook-php-business-sdk",
+    "documentNamespace": "https://spdx.org/spdxdocs/protobom/c5eafd00-2d38-4d91-93dc-79edb021aac9",
+    "comment": "Exact versions could not be resolved for some packages. For more information: https://docs.github.com/en/code-security/supply-chain-security/understanding-your-software-supply-chain/about-the-dependency-graph#dependencies-included.",
+    "creationInfo": {
+      "creators": [
+        "Tool: protobom-v0.0.0-20250703203817-48bceb9919d2+dirty",
+        "Tool: GitHub.com-Dependency-Graph"
+      ],
+      "created": "2025-07-05T10:24:00Z"
+    },
+    "packages": [
+      {
+        "name": "guzzlehttp/guzzle",
+        "SPDXID": "SPDXRef-composer-guzzlehttp-guzzle-75c946",
+        "versionInfo": ">= 6.5,< 7.0 || >= 7.0,< 8.0",
+        "downloadLocation": "NOASSERTION",
+        "filesAnalyzed": false,
+        "externalRefs": [
+          {
+            "referenceCategory": "PACKAGE-MANAGER",
+            "referenceType": "purl",
+            "referenceLocator": "pkg:composer/guzzlehttp/guzzle"
+          }
+        ]
+      },
+      {
+        "name": "mockery/mockery",
+        "SPDXID": "SPDXRef-composer-mockery-mockery-1.3.3-75c946",
+        "versionInfo": "1.3.3",
+        "downloadLocation": "NOASSERTION",
+        "filesAnalyzed": false,
+        "licenseConcluded": "BSD-3-Clause",
+        "copyrightText": "Copyright (c) 2010 Padraic Brady (http://blog.astrumfutura.com), Copyright (c) 2010, Padraic Brady, Copyright (c) 2016 Dave Marshall, Copyright (c) 2017 Dave Marshall, Copyright (c) 2017 Dave Marshall https://github.com/davedevelopment, Copyright (c) 2019 Enalean, copyright u'Padraic Brady, Dave Marshall and contributors",
+        "externalRefs": [
+          {
+            "referenceCategory": "PACKAGE-MANAGER",
+            "referenceType": "purl",
+            "referenceLocator": "pkg:composer/mockery/mockery@1.3.3"
+          }
+        ]
+      },
+      {
+        "name": "phpunit/phpunit",
+        "SPDXID": "SPDXRef-composer-phpunit-phpunit-75c946",
+        "versionInfo": "~> 9",
+        "downloadLocation": "NOASSERTION",
+        "filesAnalyzed": false,
+        "externalRefs": [
+          {
+            "referenceCategory": "PACKAGE-MANAGER",
+            "referenceType": "purl",
+            "referenceLocator": "pkg:composer/phpunit/phpunit"
+          }
+        ]
+      },
+      {
+        "name": "symfony/finder",
+        "SPDXID": "SPDXRef-composer-symfony-finder-75c946",
+        "versionInfo": "~> 2.6",
+        "downloadLocation": "NOASSERTION",
+        "filesAnalyzed": false,
+        "externalRefs": [
+          {
+            "referenceCategory": "PACKAGE-MANAGER",
+            "referenceType": "purl",
+            "referenceLocator": "pkg:composer/symfony/finder"
+          }
+        ]
+      },
+      {
+        "name": "php",
+        "SPDXID": "SPDXRef-composer-php-75c946",
+        "versionInfo": ">= 8.0",
+        "downloadLocation": "NOASSERTION",
+        "filesAnalyzed": false,
+        "externalRefs": [
+          {
+            "referenceCategory": "PACKAGE-MANAGER",
+            "referenceType": "purl",
+            "referenceLocator": "pkg:composer/php"
+          }
+        ]
+      },
+      {
+        "name": "actions/checkout",
+        "SPDXID": "SPDXRef-githubactions-actions-checkout-3..-75c946",
+        "versionInfo": "3.*.*",
+        "downloadLocation": "NOASSERTION",
+        "filesAnalyzed": false,
+        "externalRefs": [
+          {
+            "referenceCategory": "PACKAGE-MANAGER",
+            "referenceType": "purl",
+            "referenceLocator": "pkg:githubactions/actions/checkout@3.%2A.%2A"
+          }
+        ]
+      },
+      {
+        "name": "shivammathur/setup-php",
+        "SPDXID": "SPDXRef-githubactions-shivammathur-setup-php-2..-75c946",
+        "versionInfo": "2.*.*",
+        "downloadLocation": "NOASSERTION",
+        "filesAnalyzed": false,
+        "externalRefs": [
+          {
+            "referenceCategory": "PACKAGE-MANAGER",
+            "referenceType": "purl",
+            "referenceLocator": "pkg:githubactions/shivammathur/setup-php@2.%2A.%2A"
+          }
+        ]
+      },
+      {
+        "name": "php-actions/composer",
+        "SPDXID": "SPDXRef-githubactions-php-actions-composer-6..-75c946",
+        "versionInfo": "6.*.*",
+        "downloadLocation": "NOASSERTION",
+        "filesAnalyzed": false,
+        "externalRefs": [
+          {
+            "referenceCategory": "PACKAGE-MANAGER",
+            "referenceType": "purl",
+            "referenceLocator": "pkg:githubactions/php-actions/composer@6.%2A.%2A"
+          }
+        ]
+      },
+      {
+        "name": "com.github.facebook/facebook-php-business-sdk",
+        "SPDXID": "SPDXRef-github-facebook-facebook-php-business-sdk-main-b9387a",
+        "versionInfo": "main",
+        "downloadLocation": "git+https://github.com/facebook/facebook-php-business-sdk",
+        "filesAnalyzed": false,
+        "externalRefs": [
+          {
+            "referenceCategory": "PACKAGE-MANAGER",
+            "referenceType": "purl",
+            "referenceLocator": "pkg:github/facebook/facebook-php-business-sdk@main"
+          }
+        ]
+      }
+    ],
+    "relationships": [
+      {
+        "spdxElementId": "SPDXRef-github-facebook-facebook-php-business-sdk-main-b9387a",
+        "relatedSpdxElement": "SPDXRef-githubactions-shivammathur-setup-php-2..-75c946",
+        "relationshipType": "DEPENDS_ON"
+      },
+      {
+        "spdxElementId": "SPDXRef-github-facebook-facebook-php-business-sdk-main-b9387a",
+        "relatedSpdxElement": "SPDXRef-githubactions-php-actions-composer-6..-75c946",
+        "relationshipType": "DEPENDS_ON"
+      },
+      {
+        "spdxElementId": "SPDXRef-github-facebook-facebook-php-business-sdk-main-b9387a",
+        "relatedSpdxElement": "SPDXRef-composer-guzzlehttp-guzzle-75c946",
+        "relationshipType": "DEPENDS_ON"
+      },
+      {
+        "spdxElementId": "SPDXRef-github-facebook-facebook-php-business-sdk-main-b9387a",
+        "relatedSpdxElement": "SPDXRef-composer-mockery-mockery-1.3.3-75c946",
+        "relationshipType": "DEPENDS_ON"
+      },
+      {
+        "spdxElementId": "SPDXRef-github-facebook-facebook-php-business-sdk-main-b9387a",
+        "relatedSpdxElement": "SPDXRef-composer-phpunit-phpunit-75c946",
+        "relationshipType": "DEPENDS_ON"
+      },
+      {
+        "spdxElementId": "SPDXRef-github-facebook-facebook-php-business-sdk-main-b9387a",
+        "relatedSpdxElement": "SPDXRef-composer-symfony-finder-75c946",
+        "relationshipType": "DEPENDS_ON"
+      },
+      {
+        "spdxElementId": "SPDXRef-github-facebook-facebook-php-business-sdk-main-b9387a",
+        "relatedSpdxElement": "SPDXRef-composer-php-75c946",
+        "relationshipType": "DEPENDS_ON"
+      },
+      {
+        "spdxElementId": "SPDXRef-github-facebook-facebook-php-business-sdk-main-b9387a",
+        "relatedSpdxElement": "SPDXRef-githubactions-actions-checkout-3..-75c946",
+        "relationshipType": "DEPENDS_ON"
+      },
+      {
+        "spdxElementId": "SPDXRef-DOCUMENT",
+        "relatedSpdxElement": "SPDXRef-github-facebook-facebook-php-business-sdk-main-b9387a",
+        "relationshipType": "DESCRIBES"
+      }
+    ]
+  }
+}

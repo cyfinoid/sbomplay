@@ -1,0 +1,80 @@
+{
+  "sbom": {
+    "spdxVersion": "SPDX-2.3",
+    "dataLicense": "CC0-1.0",
+    "SPDXID": "SPDXRef-DOCUMENT",
+    "name": "com.github.microsoft/real-time-filter-demo",
+    "documentNamespace": "https://spdx.org/spdxdocs/protobom/e6f2091b-48b2-4619-9473-a0ffb8d55bc3",
+    "creationInfo": {
+      "creators": [
+        "Tool: protobom-v0.0.0-20250703203817-48bceb9919d2+dirty",
+        "Tool: GitHub.com-Dependency-Graph"
+      ],
+      "created": "2025-07-05T10:02:26Z"
+    },
+    "packages": [
+      {
+        "name": "LumiaImagingSDK",
+        "SPDXID": "SPDXRef-nuget-LumiaImagingSDK-2.0.184-75c946",
+        "versionInfo": "2.0.184",
+        "downloadLocation": "NOASSERTION",
+        "filesAnalyzed": false,
+        "copyrightText": "(c) 2008 VeriSign, Inc., (c) Microsoft 2024, Copyright (c) 1992-2008 The University of Tennessee, Copyright (c) 1992-2008 The University of Tennessee., Copyright (c) 2012-2014, Microsoft, Copyright (c) 2012-2015, Microsoft, Copyright (c) 2012-2015, Microsoft., Copyright 1990 - 1998, 2000 by AT&T, Lucent Technologies and Bellcore, Copyright 1990 - 1998, 2000 by AT&T, Lucent Technologies and Bellcore., Copyright WrapNonExceptionThrows RSDS, Copyright WrapNonExceptionThrows RSDSl, Copyright WrapNonExceptionThrows RSDSl M",
+        "externalRefs": [
+          {
+            "referenceCategory": "PACKAGE-MANAGER",
+            "referenceType": "purl",
+            "referenceLocator": "pkg:nuget/LumiaImagingSDK@2.0.184"
+          }
+        ]
+      },
+      {
+        "name": "NokiaImagingSDK",
+        "SPDXID": "SPDXRef-nuget-NokiaImagingSDK-1.2.115-75c946",
+        "versionInfo": "1.2.115",
+        "downloadLocation": "NOASSERTION",
+        "filesAnalyzed": false,
+        "copyrightText": "(c) 2008 VeriSign, Inc., Copyright (c) 1992-2008 The University of Tennessee., Copyright (c) 2012-2014, Nokia, Copyright (c) 2014, Microsoft Mobile Oy., Copyright 1990 - 1998, 2000 by AT&T, Lucent Technologies and Bellcore., Copyright WrapNonExceptionThrows RSDS, Copyright WrapNonExceptionThrows RSDS Ys9, Copyright WrapNonExceptionThrows RSDSD, Copyright WrapNonExceptionThrows RSDSH",
+        "externalRefs": [
+          {
+            "referenceCategory": "PACKAGE-MANAGER",
+            "referenceType": "purl",
+            "referenceLocator": "pkg:nuget/NokiaImagingSDK@1.2.115"
+          }
+        ]
+      },
+      {
+        "name": "com.github.microsoft/real-time-filter-demo",
+        "SPDXID": "SPDXRef-github-microsoft-real-time-filter-demo-master-f15787",
+        "versionInfo": "master",
+        "downloadLocation": "git+https://github.com/microsoft/real-time-filter-demo",
+        "filesAnalyzed": false,
+        "licenseDeclared": "MIT",
+        "externalRefs": [
+          {
+            "referenceCategory": "PACKAGE-MANAGER",
+            "referenceType": "purl",
+            "referenceLocator": "pkg:github/microsoft/real-time-filter-demo@master"
+          }
+        ]
+      }
+    ],
+    "relationships": [
+      {
+        "spdxElementId": "SPDXRef-github-microsoft-real-time-filter-demo-master-f15787",
+        "relatedSpdxElement": "SPDXRef-nuget-LumiaImagingSDK-2.0.184-75c946",
+        "relationshipType": "DEPENDS_ON"
+      },
+      {
+        "spdxElementId": "SPDXRef-github-microsoft-real-time-filter-demo-master-f15787",
+        "relatedSpdxElement": "SPDXRef-nuget-NokiaImagingSDK-1.2.115-75c946",
+        "relationshipType": "DEPENDS_ON"
+      },
+      {
+        "spdxElementId": "SPDXRef-DOCUMENT",
+        "relatedSpdxElement": "SPDXRef-github-microsoft-real-time-filter-demo-master-f15787",
+        "relationshipType": "DESCRIBES"
+      }
+    ]
+  }
+}

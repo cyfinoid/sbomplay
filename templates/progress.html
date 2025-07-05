@@ -1,0 +1,217 @@
+{% extends "base.html" %}
+
+{% block title %}Analysis Progress - SBOM Play{% endblock %}
+
+{% block extra_css %}
+<style>
+    .progress-container {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        color: white;
+        padding: 2rem 0;
+        border-radius: 1rem;
+        margin-bottom: 2rem;
+    }
+    .current-repo {
+        background-color: rgba(255, 255, 255, 0.1);
+        border-radius: 0.5rem;
+        padding: 1rem;
+        margin: 1rem 0;
+    }
+    .error-list {
+        max-height: 200px;
+        overflow-y: auto;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+    <div class="row justify-content-center">
+        <div class="col-lg-10">
+            <!-- Header -->
+            <div class="d-flex justify-content-between align-items-center mb-4">
+                <h2>
+                    <i class="fas fa-spinner fa-spin me-2"></i>Analysis Progress
+                </h2>
+                <a href="{{ url_for('index') }}" class="btn btn-outline-secondary">
+                    <i class="fas fa-arrow-left me-2"></i>Back to Dashboard
+                </a>
+            </div>
+
+            <!-- Progress Overview -->
+            <div class="progress-container">
+                <div class="row text-center">
+                    <div class="col-md-4">
+                        <h4><i class="fab fa-github me-2"></i>{{ org_name }}</h4>
+                        <p class="mb-0">Organization</p>
+                    </div>
+                    <div class="col-md-4">
+                        <h4>{{ processed_repos }}/{{ total_repos }}</h4>
+                        <p class="mb-0">Repositories Processed</p>
+                    </div>
+                    <div class="col-md-4">
+                        <h4>
+                            {% if status == 'completed' %}
+                                <i class="fas fa-check-circle text-success"></i>
+                            {% elif status == 'processing' %}
+                                <i class="fas fa-spinner fa-spin"></i>
+                            {% else %}
+                                <i class="fas fa-clock"></i>
+                            {% endif %}
+                        </h4>
+                        <p class="mb-0">{{ status.title() }}</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Progress Bar -->
+            <div class="card mb-4">
+                <div class="card-header">
+                    <h5 class="mb-0">
+                        <i class="fas fa-tasks me-2"></i>Processing Progress
+                    </h5>
+                </div>
+                <div class="card-body">
+                    <div class="progress mb-3 progress-animated" style="height: 2rem;">
+                        <div class="progress-bar progress-bar-striped progress-bar-animated" 
+                             role="progressbar" 
+                             style="width: {{ (processed_repos / total_repos * 100) if total_repos > 0 else 0 }}%"
+                             aria-valuenow="{{ processed_repos }}" 
+                             aria-valuemin="0" 
+                             aria-valuemax="{{ total_repos }}">
+                            {{ "%.1f"|format(processed_repos / total_repos * 100) if total_repos > 0 else 0 }}%
+                        </div>
+                    </div>
+                    <p class="text-muted mb-0">
+                        Processed {{ processed_repos }} out of {{ total_repos }} repositories
+                        {% if status == 'processing' %}
+                            <span class="badge bg-warning ms-2 processing-indicator">
+                                <i class="fas fa-spinner fa-spin me-1"></i>In Progress
+                            </span>
+                        {% elif status == 'completed' %}
+                            <span class="badge bg-success ms-2">
+                                <i class="fas fa-check me-1"></i>Completed
+                            </span>
+                        {% endif %}
+                    </p>
+                    {% if status == 'processing' %}
+                    <small class="text-muted">
+                        <i class="fas fa-info-circle me-1"></i>
+                        Processing repositories sequentially. Some may not have SBOMs available.
+                        {% if rate_limit_info.authenticated == 'No' %}
+                        <br><i class="fas fa-clock me-1"></i>
+                        <strong>Persistent Analysis:</strong> Will wait for rate limit resets to process all repositories (60 requests/hour limit).
+                        {% endif %}
+                    </small>
+                    {% endif %}
+                </div>
+            </div>
+
+            <!-- Current Repository -->
+            {% if progress_data.current_repo %}
+            <div class="card mb-4">
+                <div class="card-header">
+                    <h5 class="mb-0">
+                        <i class="fas fa-code-branch me-2"></i>Currently Processing
+                    </h5>
+                </div>
+                <div class="card-body">
+                    <div class="current-repo">
+                        <h6 class="mb-2">
+                            <i class="fab fa-github me-2"></i>{{ progress_data.current_repo }}
+                        </h6>
+                        <p class="mb-0 text-muted">
+                            <i class="fas fa-download me-1"></i>Fetching SBOM data...
+                        </p>
+                    </div>
+                </div>
+            </div>
+            {% endif %}
+
+            <!-- Errors -->
+            {% if progress_data.errors %}
+            <div class="card mb-4">
+                <div class="card-header">
+                    <h5 class="mb-0">
+                        <i class="fas fa-exclamation-triangle me-2"></i>Errors
+                    </h5>
+                </div>
+                <div class="card-body">
+                    <div class="error-list">
+                        {% for error in progress_data.errors %}
+                        <div class="alert alert-warning alert-sm mb-2">
+                            <i class="fas fa-exclamation-circle me-2"></i>{{ error }}
+                        </div>
+                        {% endfor %}
+                    </div>
+                </div>
+            </div>
+            {% endif %}
+
+            <!-- Summary (if completed) -->
+            {% if status == 'completed' %}
+            <div class="card mb-4">
+                <div class="card-header">
+                    <h5 class="mb-0">
+                        <i class="fas fa-chart-pie me-2"></i>Analysis Summary
+                    </h5>
+                </div>
+                <div class="card-body">
+                    <div class="row">
+                        <div class="col-md-4">
+                            <div class="text-center">
+                                <h4 class="text-primary">{{ total_repos }}</h4>
+                                <p class="mb-0">Total Repositories</p>
+                            </div>
+                        </div>
+                        <div class="col-md-4">
+                            <div class="text-center">
+                                <h4 class="text-success">{{ processed_repos }}</h4>
+                                <p class="mb-0">Processed</p>
+                            </div>
+                        </div>
+                        <div class="col-md-4">
+                            <div class="text-center">
+                                <h4 class="text-warning">{{ progress_data.errors|length if progress_data.errors else 0 }}</h4>
+                                <p class="mb-0">Errors</p>
+                            </div>
+                        </div>
+                    </div>
+                    {% if progress_data.errors %}
+                    <div class="alert alert-info mt-3">
+                        <i class="fas fa-info-circle me-2"></i>
+                        <strong>Note:</strong> Some repositories may not have SBOMs available or may be private. 
+                        This is normal for many GitHub organizations.
+                    </div>
+                    {% endif %}
+                </div>
+            </div>
+            {% endif %}
+
+            <!-- Actions -->
+            <div class="card">
+                <div class="card-header">
+                    <h5 class="mb-0">
+                        <i class="fas fa-cogs me-2"></i>Actions
+                    </h5>
+                </div>
+                <div class="card-body">
+                    <div class="d-flex gap-2">
+                        {% if status == 'completed' %}
+                            <a href="{{ url_for('results') }}" class="btn btn-success">
+                                <i class="fas fa-chart-bar me-2"></i>View Results
+                            </a>
+                        {% endif %}
+                        <a href="{{ url_for('index') }}" class="btn btn-outline-primary">
+                            <i class="fas fa-home me-2"></i>Back to Dashboard
+                        </a>
+                        <button data-refresh class="btn btn-outline-secondary">
+                            <i class="fas fa-sync-alt me-2"></i>Refresh
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %} 

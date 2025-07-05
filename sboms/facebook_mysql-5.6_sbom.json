@@ -1,0 +1,587 @@
+{
+  "sbom": {
+    "spdxVersion": "SPDX-2.3",
+    "dataLicense": "CC0-1.0",
+    "SPDXID": "SPDXRef-DOCUMENT",
+    "name": "com.github.facebook/mysql-5.6",
+    "documentNamespace": "https://spdx.org/spdxdocs/protobom/61611179-c048-4da0-8214-96f47ffedb9c",
+    "comment": "Exact versions could not be resolved for some packages. For more information: https://docs.github.com/en/code-security/supply-chain-security/understanding-your-software-supply-chain/about-the-dependency-graph#dependencies-included.",
+    "creationInfo": {
+      "creators": [
+        "Tool: protobom-v0.0.0-20250703203817-48bceb9919d2+dirty",
+        "Tool: GitHub.com-Dependency-Graph"
+      ],
+      "created": "2025-07-05T10:23:45Z"
+    },
+    "packages": [
+      {
+        "name": "mysql:mysql-connector-java",
+        "SPDXID": "SPDXRef-maven-mysql-mysql-connector-java-5.1.17-75c946",
+        "versionInfo": "5.1.17",
+        "downloadLocation": "NOASSERTION",
+        "filesAnalyzed": false,
+        "licenseConcluded": "GPL-2.0",
+        "externalRefs": [
+          {
+            "referenceCategory": "PACKAGE-MANAGER",
+            "referenceType": "purl",
+            "referenceLocator": "pkg:maven/mysql/mysql-connector-java@5.1.17"
+          }
+        ]
+      },
+      {
+        "name": "org.apache.openjpa:openjpa",
+        "SPDXID": "SPDXRef-maven-org.apache.openjpa-openjpa-2.1.0-75c946",
+        "versionInfo": "2.1.0",
+        "downloadLocation": "NOASSERTION",
+        "filesAnalyzed": false,
+        "licenseConcluded": "Apache-2.0",
+        "externalRefs": [
+          {
+            "referenceCategory": "PACKAGE-MANAGER",
+            "referenceType": "purl",
+            "referenceLocator": "pkg:maven/org.apache.openjpa/openjpa@2.1.0"
+          }
+        ]
+      },
+      {
+        "name": "com.mysql.clusterj:clusterj-api",
+        "SPDXID": "SPDXRef-maven-com.mysql.clusterj-clusterj-api-7.1.16-SNAPSHOT-75c946",
+        "versionInfo": "7.1.16-SNAPSHOT",
+        "downloadLocation": "NOASSERTION",
+        "filesAnalyzed": false,
+        "externalRefs": [
+          {
+            "referenceCategory": "PACKAGE-MANAGER",
+            "referenceType": "purl",
+            "referenceLocator": "pkg:maven/com.mysql.clusterj/clusterj-api@7.1.16-SNAPSHOT"
+          }
+        ]
+      },
+      {
+        "name": "com.mysql.clusterj:clusterj-core",
+        "SPDXID": "SPDXRef-maven-com.mysql.clusterj-clusterj-core-7.1.16-SNAPSHOT-75c946",
+        "versionInfo": "7.1.16-SNAPSHOT",
+        "downloadLocation": "NOASSERTION",
+        "filesAnalyzed": false,
+        "externalRefs": [
+          {
+            "referenceCategory": "PACKAGE-MANAGER",
+            "referenceType": "purl",
+            "referenceLocator": "pkg:maven/com.mysql.clusterj/clusterj-core@7.1.16-SNAPSHOT"
+          }
+        ]
+      },
+      {
+        "name": "com.mysql.clusterj:clusterj-jpatest",
+        "SPDXID": "SPDXRef-maven-com.mysql.clusterj-clusterj-jpatest-7.1.16-SNAPSHOT-75c946",
+        "versionInfo": "7.1.16-SNAPSHOT",
+        "downloadLocation": "NOASSERTION",
+        "filesAnalyzed": false,
+        "externalRefs": [
+          {
+            "referenceCategory": "PACKAGE-MANAGER",
+            "referenceType": "purl",
+            "referenceLocator": "pkg:maven/com.mysql.clusterj/clusterj-jpatest@7.1.16-SNAPSHOT"
+          }
+        ]
+      },
+      {
+        "name": "ndbjtie:ndbjtie",
+        "SPDXID": "SPDXRef-maven-ndbjtie-ndbjtie-7.1.16-SNAPSHOT-75c946",
+        "versionInfo": "7.1.16-SNAPSHOT",
+        "downloadLocation": "NOASSERTION",
+        "filesAnalyzed": false,
+        "externalRefs": [
+          {
+            "referenceCategory": "PACKAGE-MANAGER",
+            "referenceType": "purl",
+            "referenceLocator": "pkg:maven/ndbjtie/ndbjtie@7.1.16-SNAPSHOT"
+          }
+        ]
+      },
+      {
+        "name": "junit:junit",
+        "SPDXID": "SPDXRef-maven-junit-junit-4.13.1-75c946",
+        "versionInfo": "4.13.1",
+        "downloadLocation": "NOASSERTION",
+        "filesAnalyzed": false,
+        "licenseConcluded": "EPL-1.0",
+        "externalRefs": [
+          {
+            "referenceCategory": "PACKAGE-MANAGER",
+            "referenceType": "purl",
+            "referenceLocator": "pkg:maven/junit/junit@4.13.1"
+          }
+        ]
+      },
+      {
+        "name": "org.antlr:antlr",
+        "SPDXID": "SPDXRef-maven-org.antlr-antlr-3.2-75c946",
+        "versionInfo": "3.2",
+        "downloadLocation": "NOASSERTION",
+        "filesAnalyzed": false,
+        "copyrightText": "Copyright (c) 2005 Terence Parr, Copyright (c) 2005-2006 Terence Parr, Copyright (c) 2005-2007 Kunle Odutola, Copyright (c) 2005-2008 Terence Parr, Copyright (c) 2005-2009 Jim Idle, Temporal Wave LLC http://www.temporal-wave.com http://www.linkedin.com/in/jimidle, Copyright (c) 2005-2009 Terence Parr, Copyright (c) 2006 Kay Roepke, Copyright (c) 2006 Martin Traverso, Copyright (c) 2006, 2007 Kay Roepke, Copyright (c) 2006,2007 Kay Roepke, Copyright (c) 2007 Kay Roepke, Copyright (c) 2007-2008 Johannes Luber, Copyright (c) 2007-2008 Ronald Blaschke, Copyright (c) 2008 Erik van Bilsen, Copyright (c) 2008 Ronald Blaschke, Copyright (c) 2008-2009 Sam Harwell, Pixel Mine, Inc.",
+        "externalRefs": [
+          {
+            "referenceCategory": "PACKAGE-MANAGER",
+            "referenceType": "purl",
+            "referenceLocator": "pkg:maven/org.antlr/antlr@3.2"
+          }
+        ]
+      },
+      {
+        "name": "org.antlr:antlr3-maven-plugin",
+        "SPDXID": "SPDXRef-maven-org.antlr-antlr3-maven-plugin-3.2-75c946",
+        "versionInfo": "3.2",
+        "downloadLocation": "NOASSERTION",
+        "filesAnalyzed": false,
+        "licenseConcluded": "BSD-3-Clause AND BSD-3-Clause AND BSD-2-Clause",
+        "copyrightText": "Copyright (c) 2005-2008 Terence Parr Maven, Copyright (c) 2009 Jim Idle",
+        "externalRefs": [
+          {
+            "referenceCategory": "PACKAGE-MANAGER",
+            "referenceType": "purl",
+            "referenceLocator": "pkg:maven/org.antlr/antlr3-maven-plugin@3.2"
+          }
+        ]
+      },
+      {
+        "name": "com.mysql.clusterj:clusterj-test",
+        "SPDXID": "SPDXRef-maven-com.mysql.clusterj-clusterj-test-7.1.16-SNAPSHOT-75c946",
+        "versionInfo": "7.1.16-SNAPSHOT",
+        "downloadLocation": "NOASSERTION",
+        "filesAnalyzed": false,
+        "externalRefs": [
+          {
+            "referenceCategory": "PACKAGE-MANAGER",
+            "referenceType": "purl",
+            "referenceLocator": "pkg:maven/com.mysql.clusterj/clusterj-test@7.1.16-SNAPSHOT"
+          }
+        ]
+      },
+      {
+        "name": "com.mysql.clusterj:clusterj-tie",
+        "SPDXID": "SPDXRef-maven-com.mysql.clusterj-clusterj-tie-7.1.16-SNAPSHOT-75c946",
+        "versionInfo": "7.1.16-SNAPSHOT",
+        "downloadLocation": "NOASSERTION",
+        "filesAnalyzed": false,
+        "externalRefs": [
+          {
+            "referenceCategory": "PACKAGE-MANAGER",
+            "referenceType": "purl",
+            "referenceLocator": "pkg:maven/com.mysql.clusterj/clusterj-tie@7.1.16-SNAPSHOT"
+          }
+        ]
+      },
+      {
+        "name": "org.apache.maven.plugins:maven-compiler-plugin",
+        "SPDXID": "SPDXRef-maven-org.apache.maven.plugins-maven-compiler-plugin-75c946",
+        "downloadLocation": "NOASSERTION",
+        "filesAnalyzed": false,
+        "externalRefs": [
+          {
+            "referenceCategory": "PACKAGE-MANAGER",
+            "referenceType": "purl",
+            "referenceLocator": "pkg:maven/org.apache.maven.plugins/maven-compiler-plugin"
+          }
+        ]
+      },
+      {
+        "name": "junit:junit",
+        "SPDXID": "SPDXRef-maven-junit-junit-75c946",
+        "downloadLocation": "NOASSERTION",
+        "filesAnalyzed": false,
+        "externalRefs": [
+          {
+            "referenceCategory": "PACKAGE-MANAGER",
+            "referenceType": "purl",
+            "referenceLocator": "pkg:maven/junit/junit"
+          }
+        ]
+      },
+      {
+        "name": "org.apache.felix:maven-bundle-plugin",
+        "SPDXID": "SPDXRef-maven-org.apache.felix-maven-bundle-plugin-1.4.0-75c946",
+        "versionInfo": "1.4.0",
+        "downloadLocation": "NOASSERTION",
+        "filesAnalyzed": false,
+        "licenseConcluded": "Apache-2.0",
+        "externalRefs": [
+          {
+            "referenceCategory": "PACKAGE-MANAGER",
+            "referenceType": "purl",
+            "referenceLocator": "pkg:maven/org.apache.felix/maven-bundle-plugin@1.4.0"
+          }
+        ]
+      },
+      {
+        "name": "org.apache.maven.plugins:maven-surefire-plugin",
+        "SPDXID": "SPDXRef-maven-org.apache.maven.plugins-maven-surefire-plugin-75c946",
+        "downloadLocation": "NOASSERTION",
+        "filesAnalyzed": false,
+        "externalRefs": [
+          {
+            "referenceCategory": "PACKAGE-MANAGER",
+            "referenceType": "purl",
+            "referenceLocator": "pkg:maven/org.apache.maven.plugins/maven-surefire-plugin"
+          }
+        ]
+      },
+      {
+        "name": "junit:junit",
+        "SPDXID": "SPDXRef-maven-junit-junit-3.8.1-75c946",
+        "versionInfo": "3.8.1",
+        "downloadLocation": "NOASSERTION",
+        "filesAnalyzed": false,
+        "licenseConcluded": "CPL-1.0",
+        "externalRefs": [
+          {
+            "referenceCategory": "PACKAGE-MANAGER",
+            "referenceType": "purl",
+            "referenceLocator": "pkg:maven/junit/junit@3.8.1"
+          }
+        ]
+      },
+      {
+        "name": "com.mysql.clusterj:clusterj-core",
+        "SPDXID": "SPDXRef-maven-com.mysql.clusterj-clusterj-core-75c946",
+        "downloadLocation": "NOASSERTION",
+        "filesAnalyzed": false,
+        "externalRefs": [
+          {
+            "referenceCategory": "PACKAGE-MANAGER",
+            "referenceType": "purl",
+            "referenceLocator": "pkg:maven/com.mysql.clusterj/clusterj-core"
+          }
+        ]
+      },
+      {
+        "name": "com.mysql.clusterj:clusterj-api",
+        "SPDXID": "SPDXRef-maven-com.mysql.clusterj-clusterj-api-75c946",
+        "downloadLocation": "NOASSERTION",
+        "filesAnalyzed": false,
+        "externalRefs": [
+          {
+            "referenceCategory": "PACKAGE-MANAGER",
+            "referenceType": "purl",
+            "referenceLocator": "pkg:maven/com.mysql.clusterj/clusterj-api"
+          }
+        ]
+      },
+      {
+        "name": "ndbj:ndbj",
+        "SPDXID": "SPDXRef-maven-ndbj-ndbj-0.7.3-75c946",
+        "versionInfo": "0.7.3",
+        "downloadLocation": "NOASSERTION",
+        "filesAnalyzed": false,
+        "externalRefs": [
+          {
+            "referenceCategory": "PACKAGE-MANAGER",
+            "referenceType": "purl",
+            "referenceLocator": "pkg:maven/ndbj/ndbj@0.7.3"
+          }
+        ]
+      },
+      {
+        "name": "geronimo-spec:geronimo-spec-jta",
+        "SPDXID": "SPDXRef-maven-geronimo-spec-geronimo-spec-jta-1.0.1B-rc4-75c946",
+        "versionInfo": "1.0.1B-rc4",
+        "downloadLocation": "NOASSERTION",
+        "filesAnalyzed": false,
+        "externalRefs": [
+          {
+            "referenceCategory": "PACKAGE-MANAGER",
+            "referenceType": "purl",
+            "referenceLocator": "pkg:maven/geronimo-spec/geronimo-spec-jta@1.0.1B-rc4"
+          }
+        ]
+      },
+      {
+        "name": "org.apache.maven.plugins:maven-enforcer-plugin",
+        "SPDXID": "SPDXRef-maven-org.apache.maven.plugins-maven-enforcer-plugin-2.0.6-75c946",
+        "versionInfo": "2.0.6",
+        "downloadLocation": "NOASSERTION",
+        "filesAnalyzed": false,
+        "externalRefs": [
+          {
+            "referenceCategory": "PACKAGE-MANAGER",
+            "referenceType": "purl",
+            "referenceLocator": "pkg:maven/org.apache.maven.plugins/maven-enforcer-plugin@2.0.6"
+          }
+        ]
+      },
+      {
+        "name": "com.mysql.clusterj:clusterj-test",
+        "SPDXID": "SPDXRef-maven-com.mysql.clusterj-clusterj-test-75c946",
+        "downloadLocation": "NOASSERTION",
+        "filesAnalyzed": false,
+        "externalRefs": [
+          {
+            "referenceCategory": "PACKAGE-MANAGER",
+            "referenceType": "purl",
+            "referenceLocator": "pkg:maven/com.mysql.clusterj/clusterj-test"
+          }
+        ]
+      },
+      {
+        "name": "mysql:driver",
+        "SPDXID": "SPDXRef-maven-mysql-driver-5.1.10-75c946",
+        "versionInfo": "5.1.10",
+        "downloadLocation": "NOASSERTION",
+        "filesAnalyzed": false,
+        "externalRefs": [
+          {
+            "referenceCategory": "PACKAGE-MANAGER",
+            "referenceType": "purl",
+            "referenceLocator": "pkg:maven/mysql/driver@5.1.10"
+          }
+        ]
+      },
+      {
+        "name": "mysql:mysql-connector-java",
+        "SPDXID": "SPDXRef-maven-mysql-mysql-connector-java-75c946",
+        "downloadLocation": "NOASSERTION",
+        "filesAnalyzed": false,
+        "externalRefs": [
+          {
+            "referenceCategory": "PACKAGE-MANAGER",
+            "referenceType": "purl",
+            "referenceLocator": "pkg:maven/mysql/mysql-connector-java"
+          }
+        ]
+      },
+      {
+        "name": "org.antlr:antlr",
+        "SPDXID": "SPDXRef-maven-org.antlr-antlr-75c946",
+        "downloadLocation": "NOASSERTION",
+        "filesAnalyzed": false,
+        "externalRefs": [
+          {
+            "referenceCategory": "PACKAGE-MANAGER",
+            "referenceType": "purl",
+            "referenceLocator": "pkg:maven/org.antlr/antlr"
+          }
+        ]
+      },
+      {
+        "name": "com.mysql.clusterj:clusterj-tie",
+        "SPDXID": "SPDXRef-maven-com.mysql.clusterj-clusterj-tie-75c946",
+        "downloadLocation": "NOASSERTION",
+        "filesAnalyzed": false,
+        "externalRefs": [
+          {
+            "referenceCategory": "PACKAGE-MANAGER",
+            "referenceType": "purl",
+            "referenceLocator": "pkg:maven/com.mysql.clusterj/clusterj-tie"
+          }
+        ]
+      },
+      {
+        "name": "ndbjtie:ndbjtie",
+        "SPDXID": "SPDXRef-maven-ndbjtie-ndbjtie-75c946",
+        "downloadLocation": "NOASSERTION",
+        "filesAnalyzed": false,
+        "externalRefs": [
+          {
+            "referenceCategory": "PACKAGE-MANAGER",
+            "referenceType": "purl",
+            "referenceLocator": "pkg:maven/ndbjtie/ndbjtie"
+          }
+        ]
+      },
+      {
+        "name": "org.apache.openjpa:openjpa",
+        "SPDXID": "SPDXRef-maven-org.apache.openjpa-openjpa-75c946",
+        "downloadLocation": "NOASSERTION",
+        "filesAnalyzed": false,
+        "externalRefs": [
+          {
+            "referenceCategory": "PACKAGE-MANAGER",
+            "referenceType": "purl",
+            "referenceLocator": "pkg:maven/org.apache.openjpa/openjpa"
+          }
+        ]
+      },
+      {
+        "name": "com.mysql.clusterj:clusterj-jpatest",
+        "SPDXID": "SPDXRef-maven-com.mysql.clusterj-clusterj-jpatest-75c946",
+        "downloadLocation": "NOASSERTION",
+        "filesAnalyzed": false,
+        "externalRefs": [
+          {
+            "referenceCategory": "PACKAGE-MANAGER",
+            "referenceType": "purl",
+            "referenceLocator": "pkg:maven/com.mysql.clusterj/clusterj-jpatest"
+          }
+        ]
+      },
+      {
+        "name": "com.github.facebook/mysql-5.6",
+        "SPDXID": "SPDXRef-github-facebook-mysql-5.6-fb-mysql-8.0.32-735fff",
+        "versionInfo": "fb-mysql-8.0.32",
+        "downloadLocation": "git+https://github.com/facebook/mysql-5.6",
+        "filesAnalyzed": false,
+        "externalRefs": [
+          {
+            "referenceCategory": "PACKAGE-MANAGER",
+            "referenceType": "purl",
+            "referenceLocator": "pkg:github/facebook/mysql-5.6@fb-mysql-8.0.32"
+          }
+        ]
+      }
+    ],
+    "relationships": [
+      {
+        "spdxElementId": "SPDXRef-github-facebook-mysql-5.6-fb-mysql-8.0.32-735fff",
+        "relatedSpdxElement": "SPDXRef-maven-mysql-mysql-connector-java-5.1.17-75c946",
+        "relationshipType": "DEPENDS_ON"
+      },
+      {
+        "spdxElementId": "SPDXRef-github-facebook-mysql-5.6-fb-mysql-8.0.32-735fff",
+        "relatedSpdxElement": "SPDXRef-maven-com.mysql.clusterj-clusterj-core-7.1.16-SNAPSHOT-75c946",
+        "relationshipType": "DEPENDS_ON"
+      },
+      {
+        "spdxElementId": "SPDXRef-github-facebook-mysql-5.6-fb-mysql-8.0.32-735fff",
+        "relatedSpdxElement": "SPDXRef-maven-ndbjtie-ndbjtie-75c946",
+        "relationshipType": "DEPENDS_ON"
+      },
+      {
+        "spdxElementId": "SPDXRef-github-facebook-mysql-5.6-fb-mysql-8.0.32-735fff",
+        "relatedSpdxElement": "SPDXRef-maven-com.mysql.clusterj-clusterj-jpatest-75c946",
+        "relationshipType": "DEPENDS_ON"
+      },
+      {
+        "spdxElementId": "SPDXRef-github-facebook-mysql-5.6-fb-mysql-8.0.32-735fff",
+        "relatedSpdxElement": "SPDXRef-maven-com.mysql.clusterj-clusterj-jpatest-7.1.16-SNAPSHOT-75c946",
+        "relationshipType": "DEPENDS_ON"
+      },
+      {
+        "spdxElementId": "SPDXRef-github-facebook-mysql-5.6-fb-mysql-8.0.32-735fff",
+        "relatedSpdxElement": "SPDXRef-maven-org.antlr-antlr-3.2-75c946",
+        "relationshipType": "DEPENDS_ON"
+      },
+      {
+        "spdxElementId": "SPDXRef-github-facebook-mysql-5.6-fb-mysql-8.0.32-735fff",
+        "relatedSpdxElement": "SPDXRef-maven-com.mysql.clusterj-clusterj-tie-7.1.16-SNAPSHOT-75c946",
+        "relationshipType": "DEPENDS_ON"
+      },
+      {
+        "spdxElementId": "SPDXRef-github-facebook-mysql-5.6-fb-mysql-8.0.32-735fff",
+        "relatedSpdxElement": "SPDXRef-maven-org.apache.maven.plugins-maven-surefire-plugin-75c946",
+        "relationshipType": "DEPENDS_ON"
+      },
+      {
+        "spdxElementId": "SPDXRef-github-facebook-mysql-5.6-fb-mysql-8.0.32-735fff",
+        "relatedSpdxElement": "SPDXRef-maven-org.apache.maven.plugins-maven-enforcer-plugin-2.0.6-75c946",
+        "relationshipType": "DEPENDS_ON"
+      },
+      {
+        "spdxElementId": "SPDXRef-github-facebook-mysql-5.6-fb-mysql-8.0.32-735fff",
+        "relatedSpdxElement": "SPDXRef-maven-mysql-driver-5.1.10-75c946",
+        "relationshipType": "DEPENDS_ON"
+      },
+      {
+        "spdxElementId": "SPDXRef-github-facebook-mysql-5.6-fb-mysql-8.0.32-735fff",
+        "relatedSpdxElement": "SPDXRef-maven-org.antlr-antlr3-maven-plugin-3.2-75c946",
+        "relationshipType": "DEPENDS_ON"
+      },
+      {
+        "spdxElementId": "SPDXRef-github-facebook-mysql-5.6-fb-mysql-8.0.32-735fff",
+        "relatedSpdxElement": "SPDXRef-maven-com.mysql.clusterj-clusterj-core-75c946",
+        "relationshipType": "DEPENDS_ON"
+      },
+      {
+        "spdxElementId": "SPDXRef-github-facebook-mysql-5.6-fb-mysql-8.0.32-735fff",
+        "relatedSpdxElement": "SPDXRef-maven-com.mysql.clusterj-clusterj-test-75c946",
+        "relationshipType": "DEPENDS_ON"
+      },
+      {
+        "spdxElementId": "SPDXRef-github-facebook-mysql-5.6-fb-mysql-8.0.32-735fff",
+        "relatedSpdxElement": "SPDXRef-maven-org.antlr-antlr-75c946",
+        "relationshipType": "DEPENDS_ON"
+      },
+      {
+        "spdxElementId": "SPDXRef-github-facebook-mysql-5.6-fb-mysql-8.0.32-735fff",
+        "relatedSpdxElement": "SPDXRef-maven-org.apache.felix-maven-bundle-plugin-1.4.0-75c946",
+        "relationshipType": "DEPENDS_ON"
+      },
+      {
+        "spdxElementId": "SPDXRef-github-facebook-mysql-5.6-fb-mysql-8.0.32-735fff",
+        "relatedSpdxElement": "SPDXRef-maven-junit-junit-75c946",
+        "relationshipType": "DEPENDS_ON"
+      },
+      {
+        "spdxElementId": "SPDXRef-github-facebook-mysql-5.6-fb-mysql-8.0.32-735fff",
+        "relatedSpdxElement": "SPDXRef-maven-com.mysql.clusterj-clusterj-api-75c946",
+        "relationshipType": "DEPENDS_ON"
+      },
+      {
+        "spdxElementId": "SPDXRef-github-facebook-mysql-5.6-fb-mysql-8.0.32-735fff",
+        "relatedSpdxElement": "SPDXRef-maven-mysql-mysql-connector-java-75c946",
+        "relationshipType": "DEPENDS_ON"
+      },
+      {
+        "spdxElementId": "SPDXRef-github-facebook-mysql-5.6-fb-mysql-8.0.32-735fff",
+        "relatedSpdxElement": "SPDXRef-maven-org.apache.openjpa-openjpa-2.1.0-75c946",
+        "relationshipType": "DEPENDS_ON"
+      },
+      {
+        "spdxElementId": "SPDXRef-github-facebook-mysql-5.6-fb-mysql-8.0.32-735fff",
+        "relatedSpdxElement": "SPDXRef-maven-junit-junit-4.13.1-75c946",
+        "relationshipType": "DEPENDS_ON"
+      },
+      {
+        "spdxElementId": "SPDXRef-github-facebook-mysql-5.6-fb-mysql-8.0.32-735fff",
+        "relatedSpdxElement": "SPDXRef-maven-ndbj-ndbj-0.7.3-75c946",
+        "relationshipType": "DEPENDS_ON"
+      },
+      {
+        "spdxElementId": "SPDXRef-github-facebook-mysql-5.6-fb-mysql-8.0.32-735fff",
+        "relatedSpdxElement": "SPDXRef-maven-com.mysql.clusterj-clusterj-tie-75c946",
+        "relationshipType": "DEPENDS_ON"
+      },
+      {
+        "spdxElementId": "SPDXRef-github-facebook-mysql-5.6-fb-mysql-8.0.32-735fff",
+        "relatedSpdxElement": "SPDXRef-maven-org.apache.openjpa-openjpa-75c946",
+        "relationshipType": "DEPENDS_ON"
+      },
+      {
+        "spdxElementId": "SPDXRef-github-facebook-mysql-5.6-fb-mysql-8.0.32-735fff",
+        "relatedSpdxElement": "SPDXRef-maven-com.mysql.clusterj-clusterj-api-7.1.16-SNAPSHOT-75c946",
+        "relationshipType": "DEPENDS_ON"
+      },
+      {
+        "spdxElementId": "SPDXRef-github-facebook-mysql-5.6-fb-mysql-8.0.32-735fff",
+        "relatedSpdxElement": "SPDXRef-maven-com.mysql.clusterj-clusterj-test-7.1.16-SNAPSHOT-75c946",
+        "relationshipType": "DEPENDS_ON"
+      },
+      {
+        "spdxElementId": "SPDXRef-github-facebook-mysql-5.6-fb-mysql-8.0.32-735fff",
+        "relatedSpdxElement": "SPDXRef-maven-org.apache.maven.plugins-maven-compiler-plugin-75c946",
+        "relationshipType": "DEPENDS_ON"
+      },
+      {
+        "spdxElementId": "SPDXRef-github-facebook-mysql-5.6-fb-mysql-8.0.32-735fff",
+        "relatedSpdxElement": "SPDXRef-maven-geronimo-spec-geronimo-spec-jta-1.0.1B-rc4-75c946",
+        "relationshipType": "DEPENDS_ON"
+      },
+      {
+        "spdxElementId": "SPDXRef-github-facebook-mysql-5.6-fb-mysql-8.0.32-735fff",
+        "relatedSpdxElement": "SPDXRef-maven-ndbjtie-ndbjtie-7.1.16-SNAPSHOT-75c946",
+        "relationshipType": "DEPENDS_ON"
+      },
+      {
+        "spdxElementId": "SPDXRef-github-facebook-mysql-5.6-fb-mysql-8.0.32-735fff",
+        "relatedSpdxElement": "SPDXRef-maven-junit-junit-3.8.1-75c946",
+        "relationshipType": "DEPENDS_ON"
+      },
+      {
+        "spdxElementId": "SPDXRef-DOCUMENT",
+        "relatedSpdxElement": "SPDXRef-github-facebook-mysql-5.6-fb-mysql-8.0.32-735fff",
+        "relationshipType": "DESCRIBES"
+      }
+    ]
+  }
+}

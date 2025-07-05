@@ -1,0 +1,39 @@
+{
+  "sbom": {
+    "spdxVersion": "SPDX-2.3",
+    "dataLicense": "CC0-1.0",
+    "SPDXID": "SPDXRef-DOCUMENT",
+    "name": "com.github.microsoft/drumkit-wp",
+    "documentNamespace": "https://spdx.org/spdxdocs/protobom/7423a729-f0f4-4dc5-b153-f07f6783b3c4",
+    "creationInfo": {
+      "creators": [
+        "Tool: protobom-v0.0.0-20250703203817-48bceb9919d2+dirty",
+        "Tool: GitHub.com-Dependency-Graph"
+      ],
+      "created": "2025-07-05T10:02:38Z"
+    },
+    "packages": [
+      {
+        "name": "com.github.microsoft/drumkit-wp",
+        "SPDXID": "SPDXRef-github-microsoft-drumkit-wp-master-7c3be8",
+        "versionInfo": "master",
+        "downloadLocation": "git+https://github.com/microsoft/drumkit-wp",
+        "filesAnalyzed": false,
+        "externalRefs": [
+          {
+            "referenceCategory": "PACKAGE-MANAGER",
+            "referenceType": "purl",
+            "referenceLocator": "pkg:github/microsoft/drumkit-wp@master"
+          }
+        ]
+      }
+    ],
+    "relationships": [
+      {
+        "spdxElementId": "SPDXRef-DOCUMENT",
+        "relatedSpdxElement": "SPDXRef-github-microsoft-drumkit-wp-master-7c3be8",
+        "relationshipType": "DESCRIBES"
+      }
+    ]
+  }
+}

@@ -1,0 +1,306 @@
+{
+  "sbom": {
+    "spdxVersion": "SPDX-2.3",
+    "dataLicense": "CC0-1.0",
+    "SPDXID": "SPDXRef-DOCUMENT",
+    "name": "com.github.facebook/folly",
+    "documentNamespace": "https://spdx.org/spdxdocs/protobom/9f6e57be-c5f5-4996-9af4-8edf625a01b4",
+    "creationInfo": {
+      "creators": [
+        "Tool: protobom-v0.0.0-20250703203817-48bceb9919d2+dirty",
+        "Tool: GitHub.com-Dependency-Graph"
+      ],
+      "created": "2025-07-05T10:23:40Z"
+    },
+    "packages": [
+      {
+        "name": "actions/create-release",
+        "SPDXID": "SPDXRef-githubactions-actions-create-release-1..-75c946",
+        "versionInfo": "1.*.*",
+        "downloadLocation": "NOASSERTION",
+        "filesAnalyzed": false,
+        "externalRefs": [
+          {
+            "referenceCategory": "PACKAGE-MANAGER",
+            "referenceType": "purl",
+            "referenceLocator": "pkg:githubactions/actions/create-release@1.%2A.%2A"
+          }
+        ]
+      },
+      {
+        "name": "actions/upload-release-asset",
+        "SPDXID": "SPDXRef-githubactions-actions-upload-release-asset-1..-75c946",
+        "versionInfo": "1.*.*",
+        "downloadLocation": "NOASSERTION",
+        "filesAnalyzed": false,
+        "externalRefs": [
+          {
+            "referenceCategory": "PACKAGE-MANAGER",
+            "referenceType": "purl",
+            "referenceLocator": "pkg:githubactions/actions/upload-release-asset@1.%2A.%2A"
+          }
+        ]
+      },
+      {
+        "name": "docker/setup-buildx-action",
+        "SPDXID": "SPDXRef-githubactions-docker-setup-buildx-action-3..-75c946",
+        "versionInfo": "3.*.*",
+        "downloadLocation": "NOASSERTION",
+        "filesAnalyzed": false,
+        "externalRefs": [
+          {
+            "referenceCategory": "PACKAGE-MANAGER",
+            "referenceType": "purl",
+            "referenceLocator": "pkg:githubactions/docker/setup-buildx-action@3.%2A.%2A"
+          }
+        ]
+      },
+      {
+        "name": "actions/checkout",
+        "SPDXID": "SPDXRef-githubactions-actions-checkout-11bd71901bbe5b1630ceea73d27597364c9af683-75c946",
+        "versionInfo": "11bd71901bbe5b1630ceea73d27597364c9af683",
+        "downloadLocation": "NOASSERTION",
+        "filesAnalyzed": false,
+        "externalRefs": [
+          {
+            "referenceCategory": "PACKAGE-MANAGER",
+            "referenceType": "purl",
+            "referenceLocator": "pkg:githubactions/actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683"
+          }
+        ]
+      },
+      {
+        "name": "devcontainers/ci",
+        "SPDXID": "SPDXRef-githubactions-devcontainers-ci-8bf61b26e9c3a98f69cb6ce2f88d24ff59b785c6-75c946",
+        "versionInfo": "8bf61b26e9c3a98f69cb6ce2f88d24ff59b785c6",
+        "downloadLocation": "NOASSERTION",
+        "filesAnalyzed": false,
+        "externalRefs": [
+          {
+            "referenceCategory": "PACKAGE-MANAGER",
+            "referenceType": "purl",
+            "referenceLocator": "pkg:githubactions/devcontainers/ci@8bf61b26e9c3a98f69cb6ce2f88d24ff59b785c6"
+          }
+        ]
+      },
+      {
+        "name": "docker/login-action",
+        "SPDXID": "SPDXRef-githubactions-docker-login-action-74a5d142397b4f367a81961eba4e8cd7edddf772-75c946",
+        "versionInfo": "74a5d142397b4f367a81961eba4e8cd7edddf772",
+        "downloadLocation": "NOASSERTION",
+        "filesAnalyzed": false,
+        "externalRefs": [
+          {
+            "referenceCategory": "PACKAGE-MANAGER",
+            "referenceType": "purl",
+            "referenceLocator": "pkg:githubactions/docker/login-action@74a5d142397b4f367a81961eba4e8cd7edddf772"
+          }
+        ]
+      },
+      {
+        "name": "actions/cache/save",
+        "SPDXID": "SPDXRef-githubactions-actionscache-save-4..-75c946",
+        "versionInfo": "4.*.*",
+        "downloadLocation": "NOASSERTION",
+        "filesAnalyzed": false,
+        "externalRefs": [
+          {
+            "referenceCategory": "PACKAGE-MANAGER",
+            "referenceType": "purl",
+            "referenceLocator": "pkg:githubactions/actions/cache/save@4.%2A.%2A"
+          }
+        ]
+      },
+      {
+        "name": "actions/checkout",
+        "SPDXID": "SPDXRef-githubactions-actions-checkout-4..-75c946",
+        "versionInfo": "4.*.*",
+        "downloadLocation": "NOASSERTION",
+        "filesAnalyzed": false,
+        "externalRefs": [
+          {
+            "referenceCategory": "PACKAGE-MANAGER",
+            "referenceType": "purl",
+            "referenceLocator": "pkg:githubactions/actions/checkout@4.%2A.%2A"
+          }
+        ]
+      },
+      {
+        "name": "actions/upload-artifact",
+        "SPDXID": "SPDXRef-githubactions-actions-upload-artifact-4..-75c946",
+        "versionInfo": "4.*.*",
+        "downloadLocation": "NOASSERTION",
+        "filesAnalyzed": false,
+        "externalRefs": [
+          {
+            "referenceCategory": "PACKAGE-MANAGER",
+            "referenceType": "purl",
+            "referenceLocator": "pkg:githubactions/actions/upload-artifact@4.%2A.%2A"
+          }
+        ]
+      },
+      {
+        "name": "actions/cache/restore",
+        "SPDXID": "SPDXRef-githubactions-actionscache-restore-4..-75c946",
+        "versionInfo": "4.*.*",
+        "downloadLocation": "NOASSERTION",
+        "filesAnalyzed": false,
+        "externalRefs": [
+          {
+            "referenceCategory": "PACKAGE-MANAGER",
+            "referenceType": "purl",
+            "referenceLocator": "pkg:githubactions/actions/cache/restore@4.%2A.%2A"
+          }
+        ]
+      },
+      {
+        "name": "ocaml/setup-ocaml",
+        "SPDXID": "SPDXRef-githubactions-ocaml-setup-ocaml-2..-75c946",
+        "versionInfo": "2.*.*",
+        "downloadLocation": "NOASSERTION",
+        "filesAnalyzed": false,
+        "externalRefs": [
+          {
+            "referenceCategory": "PACKAGE-MANAGER",
+            "referenceType": "purl",
+            "referenceLocator": "pkg:githubactions/ocaml/setup-ocaml@2.%2A.%2A"
+          }
+        ]
+      },
+      {
+        "name": "facebook/install-dotslash",
+        "SPDXID": "SPDXRef-githubactions-facebook-install-dotslash-latest-75c946",
+        "versionInfo": "latest",
+        "downloadLocation": "NOASSERTION",
+        "filesAnalyzed": false,
+        "externalRefs": [
+          {
+            "referenceCategory": "PACKAGE-MANAGER",
+            "referenceType": "purl",
+            "referenceLocator": "pkg:githubactions/facebook/install-dotslash@latest"
+          }
+        ]
+      },
+      {
+        "name": "dtolnay/rust-toolchain",
+        "SPDXID": "SPDXRef-githubactions-dtolnay-rust-toolchain-stable-75c946",
+        "versionInfo": "stable",
+        "downloadLocation": "NOASSERTION",
+        "filesAnalyzed": false,
+        "externalRefs": [
+          {
+            "referenceCategory": "PACKAGE-MANAGER",
+            "referenceType": "purl",
+            "referenceLocator": "pkg:githubactions/dtolnay/rust-toolchain@stable"
+          }
+        ]
+      },
+      {
+        "name": "actions/setup-python",
+        "SPDXID": "SPDXRef-githubactions-actions-setup-python-5..-75c946",
+        "versionInfo": "5.*.*",
+        "downloadLocation": "NOASSERTION",
+        "filesAnalyzed": false,
+        "externalRefs": [
+          {
+            "referenceCategory": "PACKAGE-MANAGER",
+            "referenceType": "purl",
+            "referenceLocator": "pkg:githubactions/actions/setup-python@5.%2A.%2A"
+          }
+        ]
+      },
+      {
+        "name": "com.github.facebook/folly",
+        "SPDXID": "SPDXRef-github-facebook-folly-main-44de8d",
+        "versionInfo": "main",
+        "downloadLocation": "git+https://github.com/facebook/folly",
+        "filesAnalyzed": false,
+        "licenseDeclared": "Apache-2.0",
+        "externalRefs": [
+          {
+            "referenceCategory": "PACKAGE-MANAGER",
+            "referenceType": "purl",
+            "referenceLocator": "pkg:github/facebook/folly@main"
+          }
+        ]
+      }
+    ],
+    "relationships": [
+      {
+        "spdxElementId": "SPDXRef-github-facebook-folly-main-44de8d",
+        "relatedSpdxElement": "SPDXRef-githubactions-actions-checkout-11bd71901bbe5b1630ceea73d27597364c9af683-75c946",
+        "relationshipType": "DEPENDS_ON"
+      },
+      {
+        "spdxElementId": "SPDXRef-github-facebook-folly-main-44de8d",
+        "relatedSpdxElement": "SPDXRef-githubactions-docker-login-action-74a5d142397b4f367a81961eba4e8cd7edddf772-75c946",
+        "relationshipType": "DEPENDS_ON"
+      },
+      {
+        "spdxElementId": "SPDXRef-github-facebook-folly-main-44de8d",
+        "relatedSpdxElement": "SPDXRef-githubactions-actionscache-save-4..-75c946",
+        "relationshipType": "DEPENDS_ON"
+      },
+      {
+        "spdxElementId": "SPDXRef-github-facebook-folly-main-44de8d",
+        "relatedSpdxElement": "SPDXRef-githubactions-actions-checkout-4..-75c946",
+        "relationshipType": "DEPENDS_ON"
+      },
+      {
+        "spdxElementId": "SPDXRef-github-facebook-folly-main-44de8d",
+        "relatedSpdxElement": "SPDXRef-githubactions-actionscache-restore-4..-75c946",
+        "relationshipType": "DEPENDS_ON"
+      },
+      {
+        "spdxElementId": "SPDXRef-github-facebook-folly-main-44de8d",
+        "relatedSpdxElement": "SPDXRef-githubactions-facebook-install-dotslash-latest-75c946",
+        "relationshipType": "DEPENDS_ON"
+      },
+      {
+        "spdxElementId": "SPDXRef-github-facebook-folly-main-44de8d",
+        "relatedSpdxElement": "SPDXRef-githubactions-actions-upload-release-asset-1..-75c946",
+        "relationshipType": "DEPENDS_ON"
+      },
+      {
+        "spdxElementId": "SPDXRef-github-facebook-folly-main-44de8d",
+        "relatedSpdxElement": "SPDXRef-githubactions-docker-setup-buildx-action-3..-75c946",
+        "relationshipType": "DEPENDS_ON"
+      },
+      {
+        "spdxElementId": "SPDXRef-github-facebook-folly-main-44de8d",
+        "relatedSpdxElement": "SPDXRef-githubactions-devcontainers-ci-8bf61b26e9c3a98f69cb6ce2f88d24ff59b785c6-75c946",
+        "relationshipType": "DEPENDS_ON"
+      },
+      {
+        "spdxElementId": "SPDXRef-github-facebook-folly-main-44de8d",
+        "relatedSpdxElement": "SPDXRef-githubactions-actions-upload-artifact-4..-75c946",
+        "relationshipType": "DEPENDS_ON"
+      },
+      {
+        "spdxElementId": "SPDXRef-github-facebook-folly-main-44de8d",
+        "relatedSpdxElement": "SPDXRef-githubactions-ocaml-setup-ocaml-2..-75c946",
+        "relationshipType": "DEPENDS_ON"
+      },
+      {
+        "spdxElementId": "SPDXRef-github-facebook-folly-main-44de8d",
+        "relatedSpdxElement": "SPDXRef-githubactions-dtolnay-rust-toolchain-stable-75c946",
+        "relationshipType": "DEPENDS_ON"
+      },
+      {
+        "spdxElementId": "SPDXRef-github-facebook-folly-main-44de8d",
+        "relatedSpdxElement": "SPDXRef-githubactions-actions-setup-python-5..-75c946",
+        "relationshipType": "DEPENDS_ON"
+      },
+      {
+        "spdxElementId": "SPDXRef-github-facebook-folly-main-44de8d",
+        "relatedSpdxElement": "SPDXRef-githubactions-actions-create-release-1..-75c946",
+        "relationshipType": "DEPENDS_ON"
+      },
+      {
+        "spdxElementId": "SPDXRef-DOCUMENT",
+        "relatedSpdxElement": "SPDXRef-github-facebook-folly-main-44de8d",
+        "relationshipType": "DESCRIBES"
+      }
+    ]
+  }
+}

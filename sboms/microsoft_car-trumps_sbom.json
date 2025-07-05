@@ -1,0 +1,39 @@
+{
+  "sbom": {
+    "spdxVersion": "SPDX-2.3",
+    "dataLicense": "CC0-1.0",
+    "SPDXID": "SPDXRef-DOCUMENT",
+    "name": "com.github.microsoft/car-trumps",
+    "documentNamespace": "https://spdx.org/spdxdocs/protobom/211f7b55-f097-49c2-b960-5627835440f6",
+    "creationInfo": {
+      "creators": [
+        "Tool: protobom-v0.0.0-20250703203817-48bceb9919d2+dirty",
+        "Tool: GitHub.com-Dependency-Graph"
+      ],
+      "created": "2025-07-05T10:02:37Z"
+    },
+    "packages": [
+      {
+        "name": "com.github.microsoft/car-trumps",
+        "SPDXID": "SPDXRef-github-microsoft-car-trumps-master-4cf6e2",
+        "versionInfo": "master",
+        "downloadLocation": "git+https://github.com/microsoft/car-trumps",
+        "filesAnalyzed": false,
+        "externalRefs": [
+          {
+            "referenceCategory": "PACKAGE-MANAGER",
+            "referenceType": "purl",
+            "referenceLocator": "pkg:github/microsoft/car-trumps@master"
+          }
+        ]
+      }
+    ],
+    "relationships": [
+      {
+        "spdxElementId": "SPDXRef-DOCUMENT",
+        "relatedSpdxElement": "SPDXRef-github-microsoft-car-trumps-master-4cf6e2",
+        "relationshipType": "DESCRIBES"
+      }
+    ]
+  }
+}

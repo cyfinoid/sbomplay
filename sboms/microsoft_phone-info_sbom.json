@@ -1,0 +1,59 @@
+{
+  "sbom": {
+    "spdxVersion": "SPDX-2.3",
+    "dataLicense": "CC0-1.0",
+    "SPDXID": "SPDXRef-DOCUMENT",
+    "name": "com.github.microsoft/phone-info",
+    "documentNamespace": "https://spdx.org/spdxdocs/protobom/8e7a75ea-326f-429b-92c4-dde4ccbcc393",
+    "creationInfo": {
+      "creators": [
+        "Tool: protobom-v0.0.0-20250703203817-48bceb9919d2+dirty",
+        "Tool: GitHub.com-Dependency-Graph"
+      ],
+      "created": "2025-07-05T10:02:39Z"
+    },
+    "packages": [
+      {
+        "name": "LumiaSensorCoreSDK",
+        "SPDXID": "SPDXRef-nuget-LumiaSensorCoreSDK-0.9.1.3-75c946",
+        "versionInfo": "0.9.1.3",
+        "downloadLocation": "NOASSERTION",
+        "filesAnalyzed": false,
+        "copyrightText": "(c) 2008 VeriSign, Inc., Copyright (c) 2012-2013 Nokia Corporation and/or its subsidiary(-ies)., Copyright (c) 2013, Copyright (c) 2013 Nokia Corporation and/or its subsidiary(-ies)., Copyright (c) 2013-2014, Microsoft Mobile.",
+        "externalRefs": [
+          {
+            "referenceCategory": "PACKAGE-MANAGER",
+            "referenceType": "purl",
+            "referenceLocator": "pkg:nuget/LumiaSensorCoreSDK@0.9.1.3"
+          }
+        ]
+      },
+      {
+        "name": "com.github.microsoft/phone-info",
+        "SPDXID": "SPDXRef-github-microsoft-phone-info-master-9e7ed6",
+        "versionInfo": "master",
+        "downloadLocation": "git+https://github.com/microsoft/phone-info",
+        "filesAnalyzed": false,
+        "externalRefs": [
+          {
+            "referenceCategory": "PACKAGE-MANAGER",
+            "referenceType": "purl",
+            "referenceLocator": "pkg:github/microsoft/phone-info@master"
+          }
+        ]
+      }
+    ],
+    "relationships": [
+      {
+        "spdxElementId": "SPDXRef-github-microsoft-phone-info-master-9e7ed6",
+        "relatedSpdxElement": "SPDXRef-nuget-LumiaSensorCoreSDK-0.9.1.3-75c946",
+        "relationshipType": "DEPENDS_ON"
+      },
+      {
+        "spdxElementId": "SPDXRef-DOCUMENT",
+        "relatedSpdxElement": "SPDXRef-github-microsoft-phone-info-master-9e7ed6",
+        "relationshipType": "DESCRIBES"
+      }
+    ]
+  }
+}

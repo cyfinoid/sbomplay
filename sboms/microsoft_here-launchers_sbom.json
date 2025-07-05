@@ -1,0 +1,59 @@
+{
+  "sbom": {
+    "spdxVersion": "SPDX-2.3",
+    "dataLicense": "CC0-1.0",
+    "SPDXID": "SPDXRef-DOCUMENT",
+    "name": "com.github.microsoft/here-launchers",
+    "documentNamespace": "https://spdx.org/spdxdocs/protobom/cc8fd1d4-66d7-488d-b502-6903ef93d15e",
+    "creationInfo": {
+      "creators": [
+        "Tool: protobom-v0.0.0-20250703203817-48bceb9919d2+dirty",
+        "Tool: GitHub.com-Dependency-Graph"
+      ],
+      "created": "2025-07-05T10:02:29Z"
+    },
+    "packages": [
+      {
+        "name": "WPtoolkit",
+        "SPDXID": "SPDXRef-nuget-WPtoolkit-4.2012.10.30-75c946",
+        "versionInfo": "4.2012.10.30",
+        "downloadLocation": "NOASSERTION",
+        "filesAnalyzed": false,
+        "copyrightText": "(c) 2008 VeriSign, Inc., (c) Copyright Microsoft Corporation., NCopyright 2006 Microsoft Corporation",
+        "externalRefs": [
+          {
+            "referenceCategory": "PACKAGE-MANAGER",
+            "referenceType": "purl",
+            "referenceLocator": "pkg:nuget/WPtoolkit@4.2012.10.30"
+          }
+        ]
+      },
+      {
+        "name": "com.github.microsoft/here-launchers",
+        "SPDXID": "SPDXRef-github-microsoft-here-launchers-master-89f6c8",
+        "versionInfo": "master",
+        "downloadLocation": "git+https://github.com/microsoft/here-launchers",
+        "filesAnalyzed": false,
+        "externalRefs": [
+          {
+            "referenceCategory": "PACKAGE-MANAGER",
+            "referenceType": "purl",
+            "referenceLocator": "pkg:github/microsoft/here-launchers@master"
+          }
+        ]
+      }
+    ],
+    "relationships": [
+      {
+        "spdxElementId": "SPDXRef-github-microsoft-here-launchers-master-89f6c8",
+        "relatedSpdxElement": "SPDXRef-nuget-WPtoolkit-4.2012.10.30-75c946",
+        "relationshipType": "DEPENDS_ON"
+      },
+      {
+        "spdxElementId": "SPDXRef-DOCUMENT",
+        "relatedSpdxElement": "SPDXRef-github-microsoft-here-launchers-master-89f6c8",
+        "relationshipType": "DESCRIBES"
+      }
+    ]
+  }
+}

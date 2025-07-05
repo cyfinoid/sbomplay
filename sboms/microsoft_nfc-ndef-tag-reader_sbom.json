@@ -1,0 +1,39 @@
+{
+  "sbom": {
+    "spdxVersion": "SPDX-2.3",
+    "dataLicense": "CC0-1.0",
+    "SPDXID": "SPDXRef-DOCUMENT",
+    "name": "com.github.microsoft/nfc-ndef-tag-reader",
+    "documentNamespace": "https://spdx.org/spdxdocs/protobom/2b744d7f-1bcc-4cc8-aae6-c4ac9866661c",
+    "creationInfo": {
+      "creators": [
+        "Tool: protobom-v0.0.0-20250703203817-48bceb9919d2+dirty",
+        "Tool: GitHub.com-Dependency-Graph"
+      ],
+      "created": "2025-07-05T10:02:36Z"
+    },
+    "packages": [
+      {
+        "name": "com.github.microsoft/nfc-ndef-tag-reader",
+        "SPDXID": "SPDXRef-github-microsoft-nfc-ndef-tag-reader-master-ecb013",
+        "versionInfo": "master",
+        "downloadLocation": "git+https://github.com/microsoft/nfc-ndef-tag-reader",
+        "filesAnalyzed": false,
+        "externalRefs": [
+          {
+            "referenceCategory": "PACKAGE-MANAGER",
+            "referenceType": "purl",
+            "referenceLocator": "pkg:github/microsoft/nfc-ndef-tag-reader@master"
+          }
+        ]
+      }
+    ],
+    "relationships": [
+      {
+        "spdxElementId": "SPDXRef-DOCUMENT",
+        "relatedSpdxElement": "SPDXRef-github-microsoft-nfc-ndef-tag-reader-master-ecb013",
+        "relationshipType": "DESCRIBES"
+      }
+    ]
+  }
+}

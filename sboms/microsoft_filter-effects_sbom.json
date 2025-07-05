@@ -1,0 +1,78 @@
+{
+  "sbom": {
+    "spdxVersion": "SPDX-2.3",
+    "dataLicense": "CC0-1.0",
+    "SPDXID": "SPDXRef-DOCUMENT",
+    "name": "com.github.microsoft/filter-effects",
+    "documentNamespace": "https://spdx.org/spdxdocs/protobom/b2162d56-e40f-46ae-9f42-b6264730cbff",
+    "creationInfo": {
+      "creators": [
+        "Tool: protobom-v0.0.0-20250703203817-48bceb9919d2+dirty",
+        "Tool: GitHub.com-Dependency-Graph"
+      ],
+      "created": "2025-07-05T10:02:25Z"
+    },
+    "packages": [
+      {
+        "name": "LumiaImagingSDK",
+        "SPDXID": "SPDXRef-nuget-LumiaImagingSDK-2.0.184-75c946",
+        "versionInfo": "2.0.184",
+        "downloadLocation": "NOASSERTION",
+        "filesAnalyzed": false,
+        "copyrightText": "(c) 2008 VeriSign, Inc., (c) Microsoft 2024, Copyright (c) 1992-2008 The University of Tennessee, Copyright (c) 1992-2008 The University of Tennessee., Copyright (c) 2012-2014, Microsoft, Copyright (c) 2012-2015, Microsoft, Copyright (c) 2012-2015, Microsoft., Copyright 1990 - 1998, 2000 by AT&T, Lucent Technologies and Bellcore, Copyright 1990 - 1998, 2000 by AT&T, Lucent Technologies and Bellcore., Copyright WrapNonExceptionThrows RSDS, Copyright WrapNonExceptionThrows RSDSl, Copyright WrapNonExceptionThrows RSDSl M",
+        "externalRefs": [
+          {
+            "referenceCategory": "PACKAGE-MANAGER",
+            "referenceType": "purl",
+            "referenceLocator": "pkg:nuget/LumiaImagingSDK@2.0.184"
+          }
+        ]
+      },
+      {
+        "name": "NokiaImagingSDK",
+        "SPDXID": "SPDXRef-nuget-NokiaImagingSDK-1.1.177-75c946",
+        "versionInfo": "1.1.177",
+        "downloadLocation": "NOASSERTION",
+        "filesAnalyzed": false,
+        "externalRefs": [
+          {
+            "referenceCategory": "PACKAGE-MANAGER",
+            "referenceType": "purl",
+            "referenceLocator": "pkg:nuget/NokiaImagingSDK@1.1.177"
+          }
+        ]
+      },
+      {
+        "name": "com.github.microsoft/filter-effects",
+        "SPDXID": "SPDXRef-github-microsoft-filter-effects-master-462556",
+        "versionInfo": "master",
+        "downloadLocation": "git+https://github.com/microsoft/filter-effects",
+        "filesAnalyzed": false,
+        "externalRefs": [
+          {
+            "referenceCategory": "PACKAGE-MANAGER",
+            "referenceType": "purl",
+            "referenceLocator": "pkg:github/microsoft/filter-effects@master"
+          }
+        ]
+      }
+    ],
+    "relationships": [
+      {
+        "spdxElementId": "SPDXRef-github-microsoft-filter-effects-master-462556",
+        "relatedSpdxElement": "SPDXRef-nuget-LumiaImagingSDK-2.0.184-75c946",
+        "relationshipType": "DEPENDS_ON"
+      },
+      {
+        "spdxElementId": "SPDXRef-github-microsoft-filter-effects-master-462556",
+        "relatedSpdxElement": "SPDXRef-nuget-NokiaImagingSDK-1.1.177-75c946",
+        "relationshipType": "DEPENDS_ON"
+      },
+      {
+        "spdxElementId": "SPDXRef-DOCUMENT",
+        "relatedSpdxElement": "SPDXRef-github-microsoft-filter-effects-master-462556",
+        "relationshipType": "DESCRIBES"
+      }
+    ]
+  }
+}

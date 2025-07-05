@@ -1,0 +1,58 @@
+{
+  "sbom": {
+    "spdxVersion": "SPDX-2.3",
+    "dataLicense": "CC0-1.0",
+    "SPDXID": "SPDXRef-DOCUMENT",
+    "name": "com.github.microsoft/weekly-planner-wp",
+    "documentNamespace": "https://spdx.org/spdxdocs/protobom/beff6029-48f9-4d1a-afd0-df480bd6cf2e",
+    "creationInfo": {
+      "creators": [
+        "Tool: protobom-v0.0.0-20250703203817-48bceb9919d2+dirty",
+        "Tool: GitHub.com-Dependency-Graph"
+      ],
+      "created": "2025-07-05T10:02:31Z"
+    },
+    "packages": [
+      {
+        "name": "WPtoolkit",
+        "SPDXID": "SPDXRef-nuget-WPtoolkit-4.2013.08.16-75c946",
+        "versionInfo": "4.2013.08.16",
+        "downloadLocation": "NOASSERTION",
+        "filesAnalyzed": false,
+        "externalRefs": [
+          {
+            "referenceCategory": "PACKAGE-MANAGER",
+            "referenceType": "purl",
+            "referenceLocator": "pkg:nuget/WPtoolkit@4.2013.08.16"
+          }
+        ]
+      },
+      {
+        "name": "com.github.microsoft/weekly-planner-wp",
+        "SPDXID": "SPDXRef-github-microsoft-weekly-planner-wp-master-fa9b8d",
+        "versionInfo": "master",
+        "downloadLocation": "git+https://github.com/microsoft/weekly-planner-wp",
+        "filesAnalyzed": false,
+        "externalRefs": [
+          {
+            "referenceCategory": "PACKAGE-MANAGER",
+            "referenceType": "purl",
+            "referenceLocator": "pkg:github/microsoft/weekly-planner-wp@master"
+          }
+        ]
+      }
+    ],
+    "relationships": [
+      {
+        "spdxElementId": "SPDXRef-github-microsoft-weekly-planner-wp-master-fa9b8d",
+        "relatedSpdxElement": "SPDXRef-nuget-WPtoolkit-4.2013.08.16-75c946",
+        "relationshipType": "DEPENDS_ON"
+      },
+      {
+        "spdxElementId": "SPDXRef-DOCUMENT",
+        "relatedSpdxElement": "SPDXRef-github-microsoft-weekly-planner-wp-master-fa9b8d",
+        "relationshipType": "DESCRIBES"
+      }
+    ]
+  }
+}

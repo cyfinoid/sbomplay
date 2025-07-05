@@ -1,0 +1,39 @@
+{
+  "sbom": {
+    "spdxVersion": "SPDX-2.3",
+    "dataLicense": "CC0-1.0",
+    "SPDXID": "SPDXRef-DOCUMENT",
+    "name": "com.github.microsoft/plcrashreporter",
+    "documentNamespace": "https://spdx.org/spdxdocs/protobom/ef821033-4dfd-4ee3-b94a-bbad8cafcb73",
+    "creationInfo": {
+      "creators": [
+        "Tool: protobom-v0.0.0-20250703203817-48bceb9919d2+dirty",
+        "Tool: GitHub.com-Dependency-Graph"
+      ],
+      "created": "2025-07-05T10:02:23Z"
+    },
+    "packages": [
+      {
+        "name": "com.github.microsoft/plcrashreporter",
+        "SPDXID": "SPDXRef-github-microsoft-plcrashreporter-master-dcbbe7",
+        "versionInfo": "master",
+        "downloadLocation": "git+https://github.com/microsoft/plcrashreporter",
+        "filesAnalyzed": false,
+        "externalRefs": [
+          {
+            "referenceCategory": "PACKAGE-MANAGER",
+            "referenceType": "purl",
+            "referenceLocator": "pkg:github/microsoft/plcrashreporter@master"
+          }
+        ]
+      }
+    ],
+    "relationships": [
+      {
+        "spdxElementId": "SPDXRef-DOCUMENT",
+        "relatedSpdxElement": "SPDXRef-github-microsoft-plcrashreporter-master-dcbbe7",
+        "relationshipType": "DESCRIBES"
+      }
+    ]
+  }
+}
