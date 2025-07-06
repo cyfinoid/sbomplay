@@ -7,6 +7,7 @@ echo "🔄 Updating production files..."
 # Clean and copy files
 rm -rf docs/*
 cp index.html docs/
+cp view.html docs/
 cp -r js docs/
 cp -r css docs/
 

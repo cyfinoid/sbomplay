@@ -112,9 +112,12 @@
                             <button class="btn btn-primary" onclick="startAnalysis()" id="analyzeBtn">
                                 <i class="fas fa-play me-2"></i>Start Analysis
                             </button>
-                            <button class="btn btn-outline-secondary" onclick="app.displayOrganizationsOverview()" id="showStoredBtn">
+                            <a href="view.html" class="btn btn-outline-secondary">
                                 <i class="fas fa-database me-2"></i>Stored
-                            </button>
+                            </a>
+                            <a href="view.html" class="btn btn-outline-info">
+                                <i class="fas fa-search me-2"></i>Explore
+                            </a>
                         </div>
                     </div>
                 </div>
@@ -154,9 +157,59 @@
             </div>
         </div>
 
-        <!-- Detailed View Container -->
-        <div id="view-container" style="display: none;">
-            <!-- Detailed views will be loaded here -->
+
+
+        <!-- Cyfinoid Software Supply Chain Security Section -->
+        <div class="card mb-4 border-primary">
+            <div class="card-header bg-primary text-white">
+                <h5 class="mb-0">
+                    <i class="fas fa-shield-alt me-2"></i>Software Supply Chain Security Expertise
+                </h5>
+            </div>
+            <div class="card-body">
+                <div class="row">
+                    <div class="col-md-8">
+                        <h6 class="text-primary">About Cyfinoid Research</h6>
+                        <p>
+                            SBOM Play is developed by <strong>Cyfinoid Research</strong>, a leading cybersecurity research 
+                            company specializing in software supply chain security. Our expertise spans across Android security, 
+                            cloud security, and comprehensive software supply chain protection.
+                        </p>
+                        <p>
+                            Software supply chain security is about ensuring the code and tools you rely on—like open-source 
+                            packages, third-party services, and build pipelines—haven't been tampered with. Attackers often 
+                            target weak links in the systems you trust rather than your code directly.
+                        </p>
+                        <div class="alert alert-info">
+                            <h6><i class="fas fa-graduation-cap me-2"></i>Professional Training</h6>
+                            <p class="mb-2">
+                                Cyfinoid offers comprehensive training programs in software supply chain security, including:
+                            </p>
+                            <ul class="mb-0">
+                                <li><strong>Attack & Defend Software Supply Chain</strong> - Hands-on training at major security conferences</li>
+                                <li><strong>Attacking CI/CD Pipelines</strong> - Advanced techniques for securing build processes</li>
+                                <li><strong>Multi-Cloud Infrastructure Security</strong> - Protecting cloud-native applications</li>
+                            </ul>
+                        </div>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="text-center">
+                            <div class="mb-3">
+                                <i class="fas fa-shield-alt fa-3x text-primary"></i>
+                            </div>
+                            <h6 class="text-primary">Learn More</h6>
+                            <p class="text-muted small">
+                                Discover how to secure your software supply chain with professional training and research.
+                            </p>
+                            <a href="https://cyfinoid.com/software-supply-chain-security/" 
+                               target="_blank" 
+                               class="btn btn-primary">
+                                <i class="fas fa-external-link-alt me-2"></i>Visit Cyfinoid
+                            </a>
+                        </div>
+                    </div>
+                </div>
+            </div>
         </div>
 
         <!-- About Section -->
@@ -179,6 +232,13 @@
                     <li><strong>Persistent Storage:</strong> Results saved in browser storage</li>
                     <li><strong>Rate Limit Aware:</strong> Handles GitHub API limits intelligently</li>
                 </ul>
+                <div class="alert alert-light mt-3">
+                    <small class="text-muted">
+                        <i class="fas fa-code me-1"></i>
+                        Developed by <a href="https://cyfinoid.com" target="_blank">Cyfinoid Research</a> - 
+                        Leading experts in software supply chain security
+                    </small>
+                </div>
             </div>
         </div>
 
@@ -216,6 +276,44 @@
             </div>
         </div>
     </div>
+
+    <!-- Footer -->
+    <footer class="bg-light mt-5 py-4">
+        <div class="container">
+            <div class="row">
+                <div class="col-md-6">
+                    <h6 class="text-primary">SBOM Play</h6>
+                    <p class="text-muted small mb-0">
+                        A client-side tool for analyzing Software Bill of Materials from GitHub organizations and users.
+                        All processing happens in your browser for maximum privacy and security.
+                    </p>
+                </div>
+                <div class="col-md-6 text-md-end">
+                    <h6 class="text-primary">Developed by Cyfinoid Research</h6>
+                    <p class="text-muted small mb-2">
+                        Leading experts in software supply chain security, Android security, and cloud security.
+                    </p>
+                    <div class="d-flex gap-2 justify-content-md-end">
+                        <a href="https://cyfinoid.com" target="_blank" class="btn btn-outline-primary btn-sm">
+                            <i class="fas fa-globe me-1"></i>Website
+                        </a>
+                        <a href="https://cyfinoid.com/software-supply-chain-security/" target="_blank" class="btn btn-outline-primary btn-sm">
+                            <i class="fas fa-shield-alt me-1"></i>Supply Chain Security
+                        </a>
+                    </div>
+                </div>
+            </div>
+            <hr class="my-3">
+            <div class="text-center">
+                <small class="text-muted">
+                    © 2025 Cyfinoid Research. All rights reserved. | 
+                    <a href="https://github.com/cyfinoid/sbomplay" target="_blank" class="text-muted">
+                        <i class="fab fa-github me-1"></i>View on GitHub
+                    </a>
+                </small>
+            </div>
+        </div>
+    </footer>
 
     <!-- Scripts -->
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>

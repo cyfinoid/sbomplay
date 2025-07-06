@@ -23,6 +23,10 @@ class StorageManager {
             // Save current analysis
             localStorage.setItem(this.storageKey, JSON.stringify(analysisData));
 
+            // Save organization-specific data with unique key
+            const orgKey = `sbomplay_org_${orgName}`;
+            localStorage.setItem(orgKey, JSON.stringify(analysisData));
+
             // Add to organizations list
             this.addToOrganizations(orgName, timestamp, data);
 
@@ -43,8 +47,12 @@ class StorageManager {
     loadAnalysisData() {
         try {
             const data = localStorage.getItem(this.storageKey);
+            console.log('🔍 Storage - loadAnalysisData - raw data:', data);
+            
             if (data) {
-                return JSON.parse(data);
+                const parsedData = JSON.parse(data);
+                console.log('🔍 Storage - loadAnalysisData - parsed data:', parsedData);
+                return parsedData;
             }
             return null;
         } catch (error) {
@@ -58,9 +66,18 @@ class StorageManager {
      */
     loadAnalysisDataForOrganization(orgName) {
         try {
+            // Try to load from organization-specific key first
+            const orgKey = `sbomplay_org_${orgName}`;
+            const orgData = localStorage.getItem(orgKey);
+            
+            if (orgData) {
+                return JSON.parse(orgData);
+            }
+            
+            // Fallback to organizations list
             const organizations = this.getOrganizations();
-            const orgData = organizations.find(org => org.organization === orgName);
-            return orgData || null;
+            const orgDataFromList = organizations.find(org => org.organization === orgName);
+            return orgDataFromList || null;
         } catch (error) {
             console.error('❌ Failed to load organization data:', error);
             return null;
@@ -117,6 +134,10 @@ class StorageManager {
      */
     removeOrganizationData(orgName) {
         try {
+            // Remove organization-specific data
+            const orgKey = `sbomplay_org_${orgName}`;
+            localStorage.removeItem(orgKey);
+            
             const organizations = this.getOrganizations();
             const filteredOrganizations = organizations.filter(org => org.organization !== orgName);
             localStorage.setItem(this.organizationsKey, JSON.stringify(filteredOrganizations));
@@ -337,7 +358,25 @@ class StorageManager {
             return 0;
         }
     }
+
+    /**
+     * Get all organizations (alias for getOrganizations)
+     */
+    getAllOrganizations() {
+        return this.getOrganizations();
+    }
+
+    /**
+     * Get organization data by name
+     */
+    getOrganizationData(orgName) {
+        return this.loadAnalysisDataForOrganization(orgName);
+    }
 }
 
 // Export for use in other modules
-window.StorageManager = StorageManager; 
+window.StorageManager = StorageManager;
+
+// Create global instance
+const storageManager = new StorageManager();
+window.storageManager = storageManager; 

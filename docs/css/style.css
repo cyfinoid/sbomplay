@@ -750,4 +750,228 @@ body {
 .repository-list::-webkit-scrollbar-thumb:hover,
 .dependency-grid::-webkit-scrollbar-thumb:hover {
     background: #a8a8a8;
+}
+
+/* Category Breakdown */
+.category-breakdown {
+    margin: 2rem 0;
+    padding: 1.5rem;
+    background: #f8f9fa;
+    border-radius: 8px;
+}
+
+.category-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 1rem;
+    margin-top: 1rem;
+}
+
+.category-card {
+    padding: 1.5rem;
+    border-radius: 8px;
+    text-align: center;
+    border: 2px solid transparent;
+    transition: all 0.3s ease;
+}
+
+.category-card.code {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+}
+
+.category-card.workflow {
+    background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+    color: white;
+}
+
+.category-card.infrastructure {
+    background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
+    color: white;
+}
+
+.category-card.unknown {
+    background: linear-gradient(135deg, #43e97b 0%, #38f9d7 100%);
+    color: white;
+}
+
+.category-number {
+    font-size: 2rem;
+    font-weight: bold;
+    margin: 0.5rem 0;
+}
+
+.category-detail {
+    font-size: 0.9rem;
+    opacity: 0.9;
+}
+
+/* Language Breakdown */
+.language-breakdown {
+    margin: 2rem 0;
+    padding: 1.5rem;
+    background: #f8f9fa;
+    border-radius: 8px;
+}
+
+.language-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 1rem;
+    margin-top: 1rem;
+}
+
+.language-card {
+    padding: 1rem;
+    background: white;
+    border-radius: 8px;
+    text-align: center;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    border-left: 4px solid #007bff;
+}
+
+.language-number {
+    font-size: 1.5rem;
+    font-weight: bold;
+    color: #007bff;
+    margin: 0.5rem 0;
+}
+
+.language-detail {
+    font-size: 0.8rem;
+    color: #6c757d;
+}
+
+/* Filter Buttons */
+.filter-buttons {
+    margin-bottom: 1rem;
+    display: flex;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+}
+
+.filter-buttons .btn {
+    font-size: 0.8rem;
+    padding: 0.25rem 0.75rem;
+}
+
+/* Dependency Category Badges */
+.dep-category {
+    font-size: 0.7rem;
+    padding: 0.2rem 0.5rem;
+    border-radius: 12px;
+    background: #e9ecef;
+    color: #495057;
+    text-transform: uppercase;
+    font-weight: bold;
+}
+
+.dependency-item.code .dep-category,
+.dependency-card.code .dep-category {
+    background: #667eea;
+    color: white;
+}
+
+.dependency-item.workflow .dep-category,
+.dependency-card.workflow .dep-category {
+    background: #f093fb;
+    color: white;
+}
+
+.dependency-item.infrastructure .dep-category,
+.dependency-card.infrastructure .dep-category {
+    background: #4facfe;
+    color: white;
+}
+
+.dependency-item.unknown .dep-category,
+.dependency-card.unknown .dep-category {
+    background: #43e97b;
+    color: white;
+}
+
+/* Repository Category Badges */
+.repo-categories {
+    display: flex;
+    gap: 0.25rem;
+    margin-top: 0.5rem;
+}
+
+.badge {
+    font-size: 0.7rem;
+    padding: 0.2rem 0.5rem;
+    border-radius: 12px;
+    font-weight: bold;
+}
+
+.badge-code {
+    background: #667eea;
+    color: white;
+}
+
+.badge-workflow {
+    background: #f093fb;
+    color: white;
+}
+
+.badge-infrastructure {
+    background: #4facfe;
+    color: white;
+}
+
+/* Dependency Details Badges */
+.badge-code {
+    background: #667eea;
+    color: white;
+}
+
+.badge-workflow {
+    background: #f093fb;
+    color: white;
+}
+
+.badge-infrastructure {
+    background: #4facfe;
+    color: white;
+}
+
+.badge-unknown {
+    background: #43e97b;
+    color: white;
+}
+
+/* Enhanced dependency items with category styling */
+.dependency-item.code,
+.dependency-card.code {
+    border-left: 4px solid #667eea;
+}
+
+.dependency-item.workflow,
+.dependency-card.workflow {
+    border-left: 4px solid #f093fb;
+}
+
+.dependency-item.infrastructure,
+.dependency-card.infrastructure {
+    border-left: 4px solid #4facfe;
+}
+
+.dependency-item.unknown,
+.dependency-card.unknown {
+    border-left: 4px solid #43e97b;
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+    .category-grid {
+        grid-template-columns: repeat(2, 1fr);
+    }
+    
+    .language-grid {
+        grid-template-columns: repeat(2, 1fr);
+    }
+    
+    .filter-buttons {
+        justify-content: center;
+    }
 } 
