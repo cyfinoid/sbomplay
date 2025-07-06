@@ -325,39 +325,48 @@ class ViewManager {
                 <div class="category-grid">
                     <div class="category-card code">
                         <h4>💻 Code Dependencies</h4>
-                        <div class="category-number">${categoryStats.code.count || 0}</div>
-                        <div class="category-detail">${categoryStats.code.uniqueDependencies || 0} unique</div>
+                        <div class="category-number">${typeof categoryStats.code === 'object' ? (categoryStats.code.count || 0) : (categoryStats.code || 0)}</div>
+                        <div class="category-detail">${typeof categoryStats.code === 'object' ? (categoryStats.code.uniqueDependencies || 0) : 'N/A'} unique</div>
                     </div>
                     <div class="category-card workflow">
                         <h4>⚙️ Workflow Dependencies</h4>
-                        <div class="category-number">${categoryStats.workflow.count || 0}</div>
-                        <div class="category-detail">${categoryStats.workflow.uniqueDependencies || 0} unique</div>
+                        <div class="category-number">${typeof categoryStats.workflow === 'object' ? (categoryStats.workflow.count || 0) : (categoryStats.workflow || 0)}</div>
+                        <div class="category-detail">${typeof categoryStats.workflow === 'object' ? (categoryStats.workflow.uniqueDependencies || 0) : 'N/A'} unique</div>
                     </div>
                     <div class="category-card infrastructure">
                         <h4>🏗️ Infrastructure Dependencies</h4>
-                        <div class="category-number">${categoryStats.infrastructure.count || 0}</div>
-                        <div class="category-detail">${categoryStats.infrastructure.uniqueDependencies || 0} unique</div>
+                        <div class="category-number">${typeof categoryStats.infrastructure === 'object' ? (categoryStats.infrastructure.count || 0) : (categoryStats.infrastructure || 0)}</div>
+                        <div class="category-detail">${typeof categoryStats.infrastructure === 'object' ? (categoryStats.infrastructure.uniqueDependencies || 0) : 'N/A'} unique</div>
                     </div>
                     <div class="category-card unknown">
                         <h4>❓ Unknown Dependencies</h4>
-                        <div class="category-number">${categoryStats.unknown.count || 0}</div>
-                        <div class="category-detail">${categoryStats.unknown.uniqueDependencies || 0} unique</div>
+                        <div class="category-number">${typeof categoryStats.unknown === 'object' ? (categoryStats.unknown.count || 0) : (categoryStats.unknown || 0)}</div>
+                        <div class="category-detail">${typeof categoryStats.unknown === 'object' ? (categoryStats.unknown.uniqueDependencies || 0) : 'N/A'} unique</div>
                     </div>
                 </div>
             </div>
             ` : ''}
 
-            ${languageStats && languageStats.length > 0 ? `
+            ${languageStats ? `
             <div class="language-breakdown">
                 <h3>🌐 Programming Languages</h3>
                 <div class="language-grid">
-                    ${languageStats.slice(0, 6).map(lang => `
-                        <div class="language-card">
-                            <h4>${lang.language}</h4>
-                            <div class="language-number">${lang.count}</div>
-                            <div class="language-detail">${lang.uniqueDependencies} unique deps</div>
-                        </div>
-                    `).join('')}
+                    ${Array.isArray(languageStats) ? 
+                        languageStats.slice(0, 6).map(lang => `
+                            <div class="language-card">
+                                <h4>${lang.language}</h4>
+                                <div class="language-number">${lang.count}</div>
+                                <div class="language-detail">${lang.uniqueDependencies} unique deps</div>
+                            </div>
+                        `).join('') :
+                        Object.entries(languageStats).slice(0, 6).map(([lang, count]) => `
+                            <div class="language-card">
+                                <h4>${lang}</h4>
+                                <div class="language-number">${count}</div>
+                                <div class="language-detail">N/A unique deps</div>
+                            </div>
+                        `).join('')
+                    }
                 </div>
             </div>
             ` : ''}
