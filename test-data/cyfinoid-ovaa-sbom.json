@@ -1,0 +1,287 @@
+{
+  "sbom": {
+    "spdxVersion": "SPDX-2.3",
+    "dataLicense": "CC0-1.0",
+    "SPDXID": "SPDXRef-DOCUMENT",
+    "name": "com.github.cyfinoid/ovaa",
+    "documentNamespace": "https://spdx.org/spdxdocs/protobom/3f3dfa32-c368-4fe2-ab2d-80547a3e836b",
+    "creationInfo": {
+      "creators": [
+        "Tool: protobom-v0.0.0-20250703203817-48bceb9919d2+dirty",
+        "Tool: GitHub.com-Dependency-Graph"
+      ],
+      "created": "2025-07-06T14:59:29Z"
+    },
+    "packages": [
+      {
+        "name": "trufflesecurity/trufflehog",
+        "SPDXID": "SPDXRef-githubactions-trufflesecurity-trufflehog-e6846ede549dfadc0643b7fc2f56d3783395217a-75c946",
+        "versionInfo": "e6846ede549dfadc0643b7fc2f56d3783395217a",
+        "downloadLocation": "NOASSERTION",
+        "filesAnalyzed": false,
+        "externalRefs": [
+          {
+            "referenceCategory": "PACKAGE-MANAGER",
+            "referenceType": "purl",
+            "referenceLocator": "pkg:githubactions/trufflesecurity/trufflehog@e6846ede549dfadc0643b7fc2f56d3783395217a"
+          }
+        ]
+      },
+      {
+        "name": "actions/setup-java",
+        "SPDXID": "SPDXRef-githubactions-actions-setup-java-cd89f46ac9d01407894225f350157564c9c7cee2-75c946",
+        "versionInfo": "cd89f46ac9d01407894225f350157564c9c7cee2",
+        "downloadLocation": "NOASSERTION",
+        "filesAnalyzed": false,
+        "externalRefs": [
+          {
+            "referenceCategory": "PACKAGE-MANAGER",
+            "referenceType": "purl",
+            "referenceLocator": "pkg:githubactions/actions/setup-java@cd89f46ac9d01407894225f350157564c9c7cee2"
+          }
+        ]
+      },
+      {
+        "name": "actions/checkout",
+        "SPDXID": "SPDXRef-githubactions-actions-checkout-c85c95e3d7251135ab7dc9ce3241c5835cc595a9-75c946",
+        "versionInfo": "c85c95e3d7251135ab7dc9ce3241c5835cc595a9",
+        "downloadLocation": "NOASSERTION",
+        "filesAnalyzed": false,
+        "externalRefs": [
+          {
+            "referenceCategory": "PACKAGE-MANAGER",
+            "referenceType": "purl",
+            "referenceLocator": "pkg:githubactions/actions/checkout@c85c95e3d7251135ab7dc9ce3241c5835cc595a9"
+          }
+        ]
+      },
+      {
+        "name": "github/codeql-action/analyze",
+        "SPDXID": "SPDXRef-githubactions-githubcodeql-action-analyze-0ba4244466797eb048eb91a6cd43d5c03ca8bd05-75c946",
+        "versionInfo": "0ba4244466797eb048eb91a6cd43d5c03ca8bd05",
+        "downloadLocation": "NOASSERTION",
+        "filesAnalyzed": false,
+        "externalRefs": [
+          {
+            "referenceCategory": "PACKAGE-MANAGER",
+            "referenceType": "purl",
+            "referenceLocator": "pkg:githubactions/github/codeql-action/analyze@0ba4244466797eb048eb91a6cd43d5c03ca8bd05"
+          }
+        ]
+      },
+      {
+        "name": "github/codeql-action/init",
+        "SPDXID": "SPDXRef-githubactions-githubcodeql-action-init-0ba4244466797eb048eb91a6cd43d5c03ca8bd05-75c946",
+        "versionInfo": "0ba4244466797eb048eb91a6cd43d5c03ca8bd05",
+        "downloadLocation": "NOASSERTION",
+        "filesAnalyzed": false,
+        "externalRefs": [
+          {
+            "referenceCategory": "PACKAGE-MANAGER",
+            "referenceType": "purl",
+            "referenceLocator": "pkg:githubactions/github/codeql-action/init@0ba4244466797eb048eb91a6cd43d5c03ca8bd05"
+          }
+        ]
+      },
+      {
+        "name": "github/codeql-action/autobuild",
+        "SPDXID": "SPDXRef-githubactions-githubcodeql-action-autobuild-0ba4244466797eb048eb91a6cd43d5c03ca8bd05-75c946",
+        "versionInfo": "0ba4244466797eb048eb91a6cd43d5c03ca8bd05",
+        "downloadLocation": "NOASSERTION",
+        "filesAnalyzed": false,
+        "externalRefs": [
+          {
+            "referenceCategory": "PACKAGE-MANAGER",
+            "referenceType": "purl",
+            "referenceLocator": "pkg:githubactions/github/codeql-action/autobuild@0ba4244466797eb048eb91a6cd43d5c03ca8bd05"
+          }
+        ]
+      },
+      {
+        "name": "actions/setup-python",
+        "SPDXID": "SPDXRef-githubactions-actions-setup-python-61a6322f88396a6271a6ee3565807d608ecaddd1-75c946",
+        "versionInfo": "61a6322f88396a6271a6ee3565807d608ecaddd1",
+        "downloadLocation": "NOASSERTION",
+        "filesAnalyzed": false,
+        "externalRefs": [
+          {
+            "referenceCategory": "PACKAGE-MANAGER",
+            "referenceType": "purl",
+            "referenceLocator": "pkg:githubactions/actions/setup-python@61a6322f88396a6271a6ee3565807d608ecaddd1"
+          }
+        ]
+      },
+      {
+        "name": "github/codeql-action/upload-sarif",
+        "SPDXID": "SPDXRef-githubactions-githubcodeql-action-upload-sarif-0ba4244466797eb048eb91a6cd43d5c03ca8bd05-75c946",
+        "versionInfo": "0ba4244466797eb048eb91a6cd43d5c03ca8bd05",
+        "downloadLocation": "NOASSERTION",
+        "filesAnalyzed": false,
+        "externalRefs": [
+          {
+            "referenceCategory": "PACKAGE-MANAGER",
+            "referenceType": "purl",
+            "referenceLocator": "pkg:githubactions/github/codeql-action/upload-sarif@0ba4244466797eb048eb91a6cd43d5c03ca8bd05"
+          }
+        ]
+      },
+      {
+        "name": "MobSF/mobsfscan",
+        "SPDXID": "SPDXRef-githubactions-MobSF-mobsfscan-acccb546d61c892354c613c1862b6e0f7b5940ca-75c946",
+        "versionInfo": "acccb546d61c892354c613c1862b6e0f7b5940ca",
+        "downloadLocation": "NOASSERTION",
+        "filesAnalyzed": false,
+        "externalRefs": [
+          {
+            "referenceCategory": "PACKAGE-MANAGER",
+            "referenceType": "purl",
+            "referenceLocator": "pkg:githubactions/MobSF/mobsfscan@acccb546d61c892354c613c1862b6e0f7b5940ca"
+          }
+        ]
+      },
+      {
+        "name": "ossf/scorecard-action",
+        "SPDXID": "SPDXRef-githubactions-ossf-scorecard-action-e38b1902ae4f44df626f11ba0734b14fb91f8f86-75c946",
+        "versionInfo": "e38b1902ae4f44df626f11ba0734b14fb91f8f86",
+        "downloadLocation": "NOASSERTION",
+        "filesAnalyzed": false,
+        "externalRefs": [
+          {
+            "referenceCategory": "PACKAGE-MANAGER",
+            "referenceType": "purl",
+            "referenceLocator": "pkg:githubactions/ossf/scorecard-action@e38b1902ae4f44df626f11ba0734b14fb91f8f86"
+          }
+        ]
+      },
+      {
+        "name": "actions/upload-artifact",
+        "SPDXID": "SPDXRef-githubactions-actions-upload-artifact-0b7f8abb1508181956e8e162db84b466c27e18ce-75c946",
+        "versionInfo": "0b7f8abb1508181956e8e162db84b466c27e18ce",
+        "downloadLocation": "NOASSERTION",
+        "filesAnalyzed": false,
+        "externalRefs": [
+          {
+            "referenceCategory": "PACKAGE-MANAGER",
+            "referenceType": "purl",
+            "referenceLocator": "pkg:githubactions/actions/upload-artifact@0b7f8abb1508181956e8e162db84b466c27e18ce"
+          }
+        ]
+      },
+      {
+        "name": "actions/checkout",
+        "SPDXID": "SPDXRef-githubactions-actions-checkout-a12a3943b4bdde767164f792f33f40b04645d846-75c946",
+        "versionInfo": "a12a3943b4bdde767164f792f33f40b04645d846",
+        "downloadLocation": "NOASSERTION",
+        "filesAnalyzed": false,
+        "externalRefs": [
+          {
+            "referenceCategory": "PACKAGE-MANAGER",
+            "referenceType": "purl",
+            "referenceLocator": "pkg:githubactions/actions/checkout@a12a3943b4bdde767164f792f33f40b04645d846"
+          }
+        ]
+      },
+      {
+        "name": "github/codeql-action/upload-sarif",
+        "SPDXID": "SPDXRef-githubactions-githubcodeql-action-upload-sarif-5f532563584d71fdef14ee64d17bafb34f751ce5-75c946",
+        "versionInfo": "5f532563584d71fdef14ee64d17bafb34f751ce5",
+        "downloadLocation": "NOASSERTION",
+        "filesAnalyzed": false,
+        "externalRefs": [
+          {
+            "referenceCategory": "PACKAGE-MANAGER",
+            "referenceType": "purl",
+            "referenceLocator": "pkg:githubactions/github/codeql-action/upload-sarif@5f532563584d71fdef14ee64d17bafb34f751ce5"
+          }
+        ]
+      },
+      {
+        "name": "com.github.cyfinoid/ovaa",
+        "SPDXID": "SPDXRef-github-cyfinoid-ovaa-master-82c46d",
+        "versionInfo": "master",
+        "downloadLocation": "git+https://github.com/cyfinoid/ovaa",
+        "filesAnalyzed": false,
+        "licenseDeclared": "BSD-2-Clause",
+        "externalRefs": [
+          {
+            "referenceCategory": "PACKAGE-MANAGER",
+            "referenceType": "purl",
+            "referenceLocator": "pkg:github/cyfinoid/ovaa@master"
+          }
+        ]
+      }
+    ],
+    "relationships": [
+      {
+        "spdxElementId": "SPDXRef-github-cyfinoid-ovaa-master-82c46d",
+        "relatedSpdxElement": "SPDXRef-githubactions-trufflesecurity-trufflehog-e6846ede549dfadc0643b7fc2f56d3783395217a-75c946",
+        "relationshipType": "DEPENDS_ON"
+      },
+      {
+        "spdxElementId": "SPDXRef-github-cyfinoid-ovaa-master-82c46d",
+        "relatedSpdxElement": "SPDXRef-githubactions-actions-setup-java-cd89f46ac9d01407894225f350157564c9c7cee2-75c946",
+        "relationshipType": "DEPENDS_ON"
+      },
+      {
+        "spdxElementId": "SPDXRef-github-cyfinoid-ovaa-master-82c46d",
+        "relatedSpdxElement": "SPDXRef-githubactions-actions-checkout-c85c95e3d7251135ab7dc9ce3241c5835cc595a9-75c946",
+        "relationshipType": "DEPENDS_ON"
+      },
+      {
+        "spdxElementId": "SPDXRef-github-cyfinoid-ovaa-master-82c46d",
+        "relatedSpdxElement": "SPDXRef-githubactions-githubcodeql-action-init-0ba4244466797eb048eb91a6cd43d5c03ca8bd05-75c946",
+        "relationshipType": "DEPENDS_ON"
+      },
+      {
+        "spdxElementId": "SPDXRef-github-cyfinoid-ovaa-master-82c46d",
+        "relatedSpdxElement": "SPDXRef-githubactions-githubcodeql-action-autobuild-0ba4244466797eb048eb91a6cd43d5c03ca8bd05-75c946",
+        "relationshipType": "DEPENDS_ON"
+      },
+      {
+        "spdxElementId": "SPDXRef-github-cyfinoid-ovaa-master-82c46d",
+        "relatedSpdxElement": "SPDXRef-githubactions-actions-setup-python-61a6322f88396a6271a6ee3565807d608ecaddd1-75c946",
+        "relationshipType": "DEPENDS_ON"
+      },
+      {
+        "spdxElementId": "SPDXRef-github-cyfinoid-ovaa-master-82c46d",
+        "relatedSpdxElement": "SPDXRef-githubactions-actions-checkout-a12a3943b4bdde767164f792f33f40b04645d846-75c946",
+        "relationshipType": "DEPENDS_ON"
+      },
+      {
+        "spdxElementId": "SPDXRef-github-cyfinoid-ovaa-master-82c46d",
+        "relatedSpdxElement": "SPDXRef-githubactions-githubcodeql-action-analyze-0ba4244466797eb048eb91a6cd43d5c03ca8bd05-75c946",
+        "relationshipType": "DEPENDS_ON"
+      },
+      {
+        "spdxElementId": "SPDXRef-github-cyfinoid-ovaa-master-82c46d",
+        "relatedSpdxElement": "SPDXRef-githubactions-githubcodeql-action-upload-sarif-0ba4244466797eb048eb91a6cd43d5c03ca8bd05-75c946",
+        "relationshipType": "DEPENDS_ON"
+      },
+      {
+        "spdxElementId": "SPDXRef-github-cyfinoid-ovaa-master-82c46d",
+        "relatedSpdxElement": "SPDXRef-githubactions-MobSF-mobsfscan-acccb546d61c892354c613c1862b6e0f7b5940ca-75c946",
+        "relationshipType": "DEPENDS_ON"
+      },
+      {
+        "spdxElementId": "SPDXRef-github-cyfinoid-ovaa-master-82c46d",
+        "relatedSpdxElement": "SPDXRef-githubactions-ossf-scorecard-action-e38b1902ae4f44df626f11ba0734b14fb91f8f86-75c946",
+        "relationshipType": "DEPENDS_ON"
+      },
+      {
+        "spdxElementId": "SPDXRef-github-cyfinoid-ovaa-master-82c46d",
+        "relatedSpdxElement": "SPDXRef-githubactions-actions-upload-artifact-0b7f8abb1508181956e8e162db84b466c27e18ce-75c946",
+        "relationshipType": "DEPENDS_ON"
+      },
+      {
+        "spdxElementId": "SPDXRef-github-cyfinoid-ovaa-master-82c46d",
+        "relatedSpdxElement": "SPDXRef-githubactions-githubcodeql-action-upload-sarif-5f532563584d71fdef14ee64d17bafb34f751ce5-75c946",
+        "relationshipType": "DEPENDS_ON"
+      },
+      {
+        "spdxElementId": "SPDXRef-DOCUMENT",
+        "relatedSpdxElement": "SPDXRef-github-cyfinoid-ovaa-master-82c46d",
+        "relationshipType": "DESCRIBES"
+      }
+    ]
+  }
+} 

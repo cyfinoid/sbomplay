@@ -187,7 +187,7 @@ dist/
 build/
 
 # Production folder is included in version control for GitHub Pages deployment
-# prod/
+# docs/
 
 # Browser storage (auto-generated)
 client-storage/

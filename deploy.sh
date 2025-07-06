@@ -8,10 +8,10 @@ echo "🚀 Deploying SBOM Play..."
 ./update-prod.sh
 
 # Stage production files
-git add prod/
+git add docs/
 
 # Generate commit message based on changes
-if git diff --cached --name-only | grep -q "prod/"; then
+if git diff --cached --name-only | grep -q "docs/"; then
     # Get list of changed files in main directory
     CHANGED_FILES=$(git diff --name-only HEAD~1 2>/dev/null || echo "initial")
     

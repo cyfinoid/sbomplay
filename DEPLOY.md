@@ -20,7 +20,7 @@ This automatically:
 ./update-prod.sh
 
 # 2. Commit and deploy (with signing and meaningful message)
-git add prod/
+git add docs/
 git commit -S -m "deploy: update SBOM Play production files"
 git push
 ```
@@ -30,7 +30,7 @@ git push
 1. Go to repository Settings → Pages
 2. Source: Deploy from a branch
 3. Branch: `main` (or your default)
-4. Folder: `/prod`
+4. Folder: `/docs`
 5. Save
 
 Your site: `https://yourusername.github.io/sbomplay/`
@@ -39,7 +39,7 @@ Your site: `https://yourusername.github.io/sbomplay/`
 
 - [ ] Test locally: `open index.html`
 - [ ] Deploy: `./deploy.sh` (automatic) or manual steps below
-- [ ] Test production: `open prod/index.html`
+- [ ] Test production: `open docs/index.html`
 
 ## 🎯 File Structure
 
@@ -48,7 +48,7 @@ sbomplay/
 ├── index.html              # Main app
 ├── js/                     # JavaScript
 ├── css/                    # Styles
-├── prod/                   # Production (for GitHub Pages)
+├── docs/                   # Production (for GitHub Pages)
 ├── test-*.html            # Optional tests
 ├── deploy.sh              # Automatic deployment script
 └── README.md              # Documentation

@@ -491,6 +491,9 @@ class SBOMPlayApp {
                 <div class="col-md-6">
                     <h6>Actions</h6>
                     <div class="d-grid gap-2">
+                        <button class="btn btn-primary btn-sm" onclick="app.showDetailedView()">
+                            <i class="fas fa-chart-line me-2"></i>View Details
+                        </button>
                         <button class="btn btn-outline-primary btn-sm" onclick="app.exportResults()">
                             <i class="fas fa-download me-2"></i>Export Data
                         </button>
@@ -557,6 +560,23 @@ class SBOMPlayApp {
             this.storageManager.exportData(currentData, filename);
         } else {
             this.showAlert('No data to export', 'warning');
+        }
+    }
+
+    /**
+     * Show detailed view for current analysis
+     */
+    showDetailedView() {
+        const currentData = this.storageManager.loadAnalysisData();
+        if (currentData) {
+            // Hide results section and show view container
+            document.getElementById('resultsSection').style.display = 'none';
+            document.getElementById('view-container').style.display = 'block';
+            
+            // Show organization overview
+            viewManager.showOrganizationOverview(currentData);
+        } else {
+            this.showAlert('No data available for detailed view', 'warning');
         }
     }
 

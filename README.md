@@ -34,8 +34,8 @@ A web-based tool for analyzing Software Bill of Materials (SBOM) data from GitHu
    
    Or manually:
    ```bash
-   ./update-prod.sh                    # Copy to prod folder
-   git add prod/                       # Stage changes
+   ./update-prod.sh                    # Copy to docs folder
+   git add docs/                       # Stage changes
    git commit -S -m "deploy: update SBOM Play production files"   # Commit with signing
    git push                            # Deploy to GitHub Pages
    ```
@@ -44,7 +44,7 @@ A web-based tool for analyzing Software Bill of Materials (SBOM) data from GitHu
 1. Go to repository Settings → Pages
 2. Source: Deploy from a branch
 3. Branch: `main` (or your default)
-4. Folder: `/prod`
+4. Folder: `/docs`
 5. Your site will be at: `https://yourusername.github.io/sbomplay/`
 
 ## Recent Fixes
@@ -148,7 +148,7 @@ sbomplay/
 │   └── storage-manager.js
 ├── css/                    # CSS files
 │   └── style.css
-├── prod/                   # Production deployment (for GitHub Pages)
+├── docs/                   # Production deployment (for GitHub Pages)
 ├── test-*.html            # Optional test files
 └── legacy/                 # Old Python scripts (deprecated)
 ```
