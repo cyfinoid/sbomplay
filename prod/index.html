@@ -1,0 +1,222 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SBOM Play - Client-Side Analysis</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <link href="css/style.css" rel="stylesheet">
+</head>
+<body>
+    <!-- Navigation -->
+    <nav class="navbar navbar-expand-lg navbar-dark bg-primary">
+        <div class="container">
+            <a class="navbar-brand" href="#">
+                <i class="fas fa-cubes me-2"></i>SBOM Play
+            </a>
+            <div class="navbar-nav ms-auto">
+                <a class="nav-link" href="#about">About</a>
+                <a class="nav-link" href="#help">Help</a>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Main Content -->
+    <div class="container mt-4">
+        <!-- Client-Side Disclaimer -->
+        <div class="alert alert-info" role="alert">
+            <h5><i class="fas fa-info-circle me-2"></i>Client-Side Processing</h5>
+            <p class="mb-0">
+                <strong>All processing happens in your browser.</strong> No data is sent to any server. 
+                Your GitHub token (if provided) is used only for API requests and is not stored locally.
+            </p>
+        </div>
+
+        <!-- Resume Analysis Section -->
+        <div id="resumeSection" class="card mb-4" style="display: none;">
+            <div class="card-header bg-warning text-dark">
+                <h5 class="mb-0">
+                    <i class="fas fa-clock me-2"></i>Resume Analysis
+                </h5>
+            </div>
+            <div class="card-body">
+                <p>You have a pending analysis that was interrupted by a rate limit. You can resume it now.</p>
+                <div id="resumeInfo"></div>
+                <div class="d-flex gap-2">
+                    <button class="btn btn-warning" onclick="app.resumeAnalysis()">
+                        <i class="fas fa-play me-2"></i>Resume Analysis
+                    </button>
+                    <button class="btn btn-outline-secondary" onclick="app.clearRateLimitState()">
+                        <i class="fas fa-times me-2"></i>Clear State
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- GitHub Token Input -->
+        <div class="card mb-4">
+            <div class="card-header">
+                <h5 class="mb-0">
+                    <i class="fab fa-github me-2"></i>GitHub Authentication (Optional)
+                </h5>
+            </div>
+            <div class="card-body">
+                <div class="alert alert-warning alert-sm mb-3">
+                    <i class="fas fa-exclamation-triangle me-2"></i>
+                    <strong>Note:</strong> GitHub tokens are not saved or persisted. You will need to provide your token each time you use the application.
+                </div>
+                <div class="row">
+                    <div class="col-md-8">
+                        <label for="githubToken" class="form-label">GitHub Personal Access Token</label>
+                        <input type="password" class="form-control" id="githubToken" 
+                               placeholder="ghp_xxxxxxxxxxxxxxxxxxxx (optional)">
+                        <div class="form-text">
+                            <i class="fas fa-info-circle me-1"></i>
+                            Optional: Provides higher rate limits (5,000 vs 60 requests/hour). 
+                            <a href="https://github.com/settings/tokens" target="_blank">Create token here</a>
+                        </div>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="d-flex align-items-end h-100">
+                            <button class="btn btn-outline-primary" onclick="saveToken()">
+                                <i class="fas fa-check me-2"></i>Set Token
+                            </button>
+                        </div>
+                    </div>
+                </div>
+                <div id="tokenStatus" class="mt-2"></div>
+            </div>
+        </div>
+
+        <!-- Organization Input -->
+        <div class="card mb-4">
+            <div class="card-header">
+                <h5 class="mb-0">
+                    <i class="fas fa-search me-2"></i>Analyze GitHub Organization or User
+                </h5>
+            </div>
+            <div class="card-body">
+                <div class="row">
+                    <div class="col-md-8">
+                        <label for="orgName" class="form-label">Organization or User Name</label>
+                        <input type="text" class="form-control" id="orgName" 
+                               placeholder="e.g., microsoft, facebook, torvalds">
+                        <div class="form-text">
+                            <i class="fas fa-info-circle me-1"></i>
+                            Enter a GitHub organization name or username to analyze
+                        </div>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="d-flex align-items-end h-100 gap-2">
+                            <button class="btn btn-primary" onclick="startAnalysis()" id="analyzeBtn">
+                                <i class="fas fa-play me-2"></i>Start Analysis
+                            </button>
+                            <button class="btn btn-outline-secondary" onclick="app.displayOrganizationsOverview()" id="showStoredBtn">
+                                <i class="fas fa-database me-2"></i>Stored
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Analysis Progress -->
+        <div id="progressSection" class="card mb-4" style="display: none;">
+            <div class="card-header">
+                <h5 class="mb-0">
+                    <i class="fas fa-spinner fa-spin me-2"></i>Analysis Progress
+                </h5>
+            </div>
+            <div class="card-body">
+                <div class="progress mb-3" style="height: 2rem;">
+                    <div class="progress-bar progress-bar-striped progress-bar-animated" 
+                         id="progressBar" role="progressbar" style="width: 0%">
+                        0%
+                    </div>
+                </div>
+                <div id="progressText" class="text-muted">
+                    Initializing analysis...
+                </div>
+                <div id="rateLimitInfo" class="mt-2"></div>
+            </div>
+        </div>
+
+        <!-- Results Section -->
+        <div id="resultsSection" class="card mb-4" style="display: none;">
+            <div class="card-header">
+                <h5 class="mb-0">
+                    <i class="fas fa-chart-bar me-2"></i>Analysis Results
+                </h5>
+            </div>
+            <div class="card-body">
+                <div id="resultsContent"></div>
+            </div>
+        </div>
+
+        <!-- About Section -->
+        <div id="about" class="card mb-4">
+            <div class="card-header">
+                <h5 class="mb-0">
+                    <i class="fas fa-info-circle me-2"></i>About SBOM Play
+                </h5>
+            </div>
+            <div class="card-body">
+                <p>
+                    SBOM Play is a client-side tool for analyzing Software Bill of Materials (SBOM) 
+                    from GitHub organizations and users. It processes dependency data locally in your browser 
+                    and stores results in your browser's local storage.
+                </p>
+                <h6>Key Features:</h6>
+                <ul>
+                    <li><strong>Privacy-First:</strong> All processing happens in your browser</li>
+                    <li><strong>No Server Required:</strong> Works entirely client-side</li>
+                    <li><strong>Persistent Storage:</strong> Results saved in browser storage</li>
+                    <li><strong>Rate Limit Aware:</strong> Handles GitHub API limits intelligently</li>
+                </ul>
+            </div>
+        </div>
+
+        <!-- Help Section -->
+        <div id="help" class="card mb-4">
+            <div class="card-header">
+                <h5 class="mb-0">
+                    <i class="fas fa-question-circle me-2"></i>Help & Tips
+                </h5>
+            </div>
+            <div class="card-body">
+                <h6>Getting Started:</h6>
+                <ol>
+                    <li>Optionally add a GitHub token for higher rate limits</li>
+                    <li>Enter a GitHub organization name or username</li>
+                    <li>Click "Start Analysis" and wait for processing</li>
+                    <li>View results and export data as needed</li>
+                </ol>
+                
+                <h6>Rate Limits:</h6>
+                <ul>
+                    <li><strong>Without token:</strong> 60 requests/hour</li>
+                    <li><strong>With token:</strong> 5,000 requests/hour</li>
+                    <li>The tool will automatically wait for rate limit resets</li>
+                    <li>Analysis state is preserved during rate limit waits</li>
+                    <li><strong>Note:</strong> GitHub tokens are not saved and must be provided each session</li>
+                </ul>
+                
+                <h6>Data Storage:</h6>
+                <ul>
+                    <li>All data is stored in your browser's local storage</li>
+                    <li>Data persists between browser sessions</li>
+                    <li>You can clear data using browser settings</li>
+                </ul>
+            </div>
+        </div>
+    </div>
+
+    <!-- Scripts -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="js/github-client.js"></script>
+    <script src="js/sbom-processor.js"></script>
+    <script src="js/storage-manager.js"></script>
+    <script src="js/app.js"></script>
+</body>
+</html> 
