@@ -266,6 +266,26 @@ class ViewManager {
         console.log('📂 All Repositories:', allRepos);
         console.log('📊 Category Stats:', categoryStats);
         console.log('🌐 Language Stats:', languageStats);
+        
+        // Debug category stats structure
+        if (categoryStats) {
+            console.log('🔍 Category Stats Debug:');
+            Object.entries(categoryStats).forEach(([key, value]) => {
+                console.log(`  ${key}:`, value, `(type: ${typeof value})`);
+            });
+        }
+        
+        // Debug language stats structure
+        if (languageStats) {
+            console.log('🔍 Language Stats Debug:');
+            if (Array.isArray(languageStats)) {
+                console.log('  Array format:', languageStats);
+            } else {
+                Object.entries(languageStats).forEach(([key, value]) => {
+                    console.log(`  ${key}:`, value, `(type: ${typeof value})`);
+                });
+            }
+        }
 
         // Validate data structure
         if (!stats || !topDeps || !topRepos || !allDeps || !allRepos) {
