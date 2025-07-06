@@ -292,10 +292,10 @@ class SBOMPlayApp {
      * Start analysis
      */
     async startAnalysis() {
-        const orgName = document.getElementById('orgName').value.trim();
+        const ownerName = document.getElementById('orgName').value.trim();
         
-        if (!orgName) {
-            this.showAlert('Please enter an organization name', 'warning');
+        if (!ownerName) {
+            this.showAlert('Please enter an organization or user name', 'warning');
             return;
         }
 
@@ -306,8 +306,8 @@ class SBOMPlayApp {
         this.isAnalyzing = true;
         this.sbomProcessor.reset();
         
-        // Store current organization for rate limit state
-        localStorage.setItem('current_analysis_org', orgName);
+        // Store current owner for rate limit state
+        localStorage.setItem('current_analysis_org', ownerName);
         
         // Update UI
         document.getElementById('analyzeBtn').disabled = true;
@@ -323,10 +323,10 @@ class SBOMPlayApp {
 
             // Fetch repositories
             this.updateProgress(10, 'Fetching repositories...');
-            const repositories = await this.githubClient.getRepositories(orgName);
+            const repositories = await this.githubClient.getRepositories(ownerName);
             
             if (repositories.length === 0) {
-                this.showAlert('No public repositories found for this organization', 'info');
+                this.showAlert('No public repositories found for this organization or user', 'info');
                 this.finishAnalysis();
                 return;
             }
@@ -335,6 +335,10 @@ class SBOMPlayApp {
             this.updateProgress(20, `Found ${repositories.length} repositories. Starting SBOM analysis...`);
 
             // Process each repository
+            let successfulRepos = 0;
+            let failedRepos = 0;
+            let reposWithDeps = 0;
+            
             for (let i = 0; i < repositories.length; i++) {
                 const repo = repositories[i];
                 const owner = repo.owner.login;
@@ -349,12 +353,23 @@ class SBOMPlayApp {
                     if (sbomData) {
                         const success = this.sbomProcessor.processSBOM(owner, name, sbomData);
                         this.sbomProcessor.updateProgress(success);
+                        if (success) {
+                            successfulRepos++;
+                            const repoData = this.sbomProcessor.repositories.get(`${owner}/${name}`);
+                            if (repoData && repoData.totalDependencies > 0) {
+                                reposWithDeps++;
+                            }
+                        } else {
+                            failedRepos++;
+                        }
                     } else {
                         this.sbomProcessor.updateProgress(false);
+                        failedRepos++;
                     }
                 } catch (error) {
                     console.error(`Error processing ${owner}/${name}:`, error);
                     this.sbomProcessor.updateProgress(false);
+                    failedRepos++;
                 }
 
                 // Add small delay to be respectful to GitHub API
@@ -365,11 +380,26 @@ class SBOMPlayApp {
             this.updateProgress(95, 'Generating analysis results...');
             const results = this.sbomProcessor.exportData();
             
+            // Log summary
+            console.log(`📊 Analysis Summary for ${ownerName}:`);
+            console.log(`   Total repositories: ${repositories.length}`);
+            console.log(`   Successful: ${successfulRepos}`);
+            console.log(`   Failed: ${failedRepos}`);
+            console.log(`   With dependencies: ${reposWithDeps}`);
+            
+            if (reposWithDeps === 0) {
+                console.log(`⚠️  No repositories with dependencies found. This could be because:`);
+                console.log(`   1. Dependency Graph is not enabled on the repositories`);
+                console.log(`   2. Repositories don't have dependency files (package.json, requirements.txt, etc.)`);
+                console.log(`   3. Authentication is required for private repositories`);
+                console.log(`   4. Rate limiting prevented access to some repositories`);
+            }
+            
             // Save to storage
-            this.storageManager.saveAnalysisData(orgName, results);
+            this.storageManager.saveAnalysisData(ownerName, results);
             
             // Display results
-            this.displayResults(results, orgName);
+            this.displayResults(results, ownerName);
             
             this.updateProgress(100, 'Analysis complete!');
             
@@ -412,7 +442,7 @@ class SBOMPlayApp {
     /**
      * Display analysis results
      */
-    displayResults(results, orgName) {
+    displayResults(results, ownerName) {
         const resultsSection = document.getElementById('resultsSection');
         const resultsContent = document.getElementById('resultsContent');
         
@@ -420,12 +450,34 @@ class SBOMPlayApp {
         const topDeps = results.topDependencies.slice(0, 10);
         const topRepos = results.topRepositories.slice(0, 10);
         
+        // Check if no dependencies were found
+        const noDependenciesFound = stats.totalDependencies === 0;
+        
+        let troubleshootingInfo = '';
+        if (noDependenciesFound) {
+            troubleshootingInfo = `
+                <div class="alert alert-warning">
+                    <h6><i class="fas fa-exclamation-triangle me-2"></i>No Dependencies Found</h6>
+                    <p class="mb-2">The analysis found 0 dependencies. This could be due to:</p>
+                    <ul class="mb-2">
+                        <li>Dependency Graph not enabled on repositories</li>
+                        <li>Repositories don't have dependency files (package.json, requirements.txt, etc.)</li>
+                        <li>Authentication required for private repositories</li>
+                        <li>Rate limiting prevented access</li>
+                    </ul>
+                    <p class="mb-0"><strong>Tip:</strong> Check the browser console for detailed error messages.</p>
+                </div>
+            `;
+        }
+        
         resultsContent.innerHTML = `
+            ${troubleshootingInfo}
+            
             <div class="row mb-4">
                 <div class="col-md-6">
                     <h6>Analysis Summary</h6>
                     <table class="table table-sm">
-                        <tr><td>Organization:</td><td><strong>${orgName}</strong></td></tr>
+                        <tr><td>Owner:</td><td><strong>${ownerName}</strong></td></tr>
                         <tr><td>Total Repositories:</td><td>${stats.totalRepositories}</td></tr>
                         <tr><td>Processed:</td><td>${stats.processedRepositories}</td></tr>
                         <tr><td>Successful:</td><td class="text-success">${stats.successfulRepositories}</td></tr>
@@ -448,6 +500,7 @@ class SBOMPlayApp {
                 </div>
             </div>
             
+            ${noDependenciesFound ? '' : `
             <div class="row">
                 <div class="col-md-6">
                     <h6>Top Dependencies</h6>
@@ -487,6 +540,7 @@ class SBOMPlayApp {
                     </div>
                 </div>
             </div>
+            `}
         `;
         
         resultsSection.style.display = 'block';

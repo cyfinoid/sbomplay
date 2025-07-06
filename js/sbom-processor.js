@@ -16,8 +16,11 @@ class SBOMProcessor {
      */
     processSBOM(owner, repo, sbomData) {
         if (!sbomData || !sbomData.sbom || !sbomData.sbom.packages) {
+            console.log(`⚠️  Invalid SBOM data for ${owner}/${repo}`);
             return false;
         }
+
+        console.log(`🔍 Processing SBOM for ${owner}/${repo}: ${sbomData.sbom.packages.length} packages found`);
 
         const repoKey = `${owner}/${repo}`;
         const repoData = {
@@ -27,17 +30,30 @@ class SBOMProcessor {
             totalDependencies: 0
         };
 
+        let processedPackages = 0;
+        let skippedPackages = 0;
+
         // Process each package in the SBOM
-        sbomData.sbom.packages.forEach(pkg => {
-            if (pkg.name && pkg.version) {
-                const depKey = `${pkg.name}@${pkg.version}`;
+        sbomData.sbom.packages.forEach((pkg, index) => {
+            // GitHub SBOM uses 'versionInfo' instead of 'version'
+            const version = pkg.versionInfo || pkg.version;
+            
+            // Skip the main repository package (it's not a dependency)
+            if (pkg.name === `com.github.${owner}/${repo}` || pkg.name === `${owner}/${repo}`) {
+                console.log(`  ⏭️  Skipping main repository package: ${pkg.name}`);
+                return;
+            }
+            
+            if (pkg.name && version) {
+                const depKey = `${pkg.name}@${version}`;
                 repoData.dependencies.add(depKey);
+                processedPackages++;
                 
                 // Track global dependency usage
                 if (!this.dependencies.has(depKey)) {
                     this.dependencies.set(depKey, {
                         name: pkg.name,
-                        version: pkg.version,
+                        version: version,
                         repositories: new Set(),
                         count: 0
                     });
@@ -46,11 +62,26 @@ class SBOMProcessor {
                 const dep = this.dependencies.get(depKey);
                 dep.repositories.add(repoKey);
                 dep.count++;
+                
+                // Log first few packages for debugging
+                if (index < 3) {
+                    console.log(`  📦 Package ${index + 1}: ${pkg.name}@${version}`);
+                }
+            } else {
+                skippedPackages++;
+                if (!pkg.name) {
+                    console.log(`⚠️  Package missing name in ${owner}/${repo}`);
+                } else if (!version) {
+                    console.log(`⚠️  Package missing version in ${owner}/${repo}: ${pkg.name}`);
+                }
             }
         });
 
         repoData.totalDependencies = repoData.dependencies.size;
         this.repositories.set(repoKey, repoData);
+        
+        console.log(`📦 Processed ${repoKey}: ${processedPackages} packages, ${skippedPackages} skipped, ${repoData.totalDependencies} unique dependencies`);
+        
         return true;
     }
 

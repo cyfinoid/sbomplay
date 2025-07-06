@@ -48,24 +48,40 @@ class GitHubClient {
     }
 
     /**
-     * Get repositories for an organization
+     * Get repositories for an organization or user
      */
-    async getRepositories(orgName) {
-        const url = `${this.baseUrl}/orgs/${orgName}/repos`;
-        const response = await this.makeRequest(url);
+    async getRepositories(ownerName) {
+        // Try organization endpoint first
+        let url = `${this.baseUrl}/orgs/${ownerName}/repos`;
+        let response = await this.makeRequest(url);
         
-        if (!response.ok) {
-            if (response.status === 404) {
-                throw new Error(`Organization '${orgName}' not found`);
-            } else if (response.status === 403) {
-                throw new Error('Access denied. The organization might be private or require authentication.');
-            } else {
-                throw new Error(`Failed to fetch repositories: ${response.status} ${response.statusText}`);
+        if (response.ok) {
+            console.log(`✅ Found organization: ${ownerName}`);
+            const repos = await response.json();
+            return repos.filter(repo => repo.visibility === 'public');
+        }
+        
+        // If organization fails, try user endpoint
+        if (response.status === 404) {
+            console.log(`ℹ️  Not found as organization, trying as user: ${ownerName}`);
+            url = `${this.baseUrl}/users/${ownerName}/repos`;
+            response = await this.makeRequest(url);
+            
+            if (response.ok) {
+                console.log(`✅ Found user: ${ownerName}`);
+                const repos = await response.json();
+                return repos.filter(repo => repo.visibility === 'public');
             }
         }
         
-        const repos = await response.json();
-        return repos.filter(repo => repo.visibility === 'public');
+        // If both fail, throw appropriate error
+        if (response.status === 404) {
+            throw new Error(`Organization or user '${ownerName}' not found`);
+        } else if (response.status === 403) {
+            throw new Error('Access denied. The organization/user might be private or require authentication.');
+        } else {
+            throw new Error(`Failed to fetch repositories: ${response.status} ${response.statusText}`);
+        }
     }
 
     /**
@@ -77,7 +93,7 @@ class GitHubClient {
         
         if (!response.ok) {
             if (response.status === 404) {
-                console.log(`ℹ️  SBOM not available for ${owner}/${repo} (dependency graph not enabled)`);
+                console.log(`ℹ️  SBOM not available for ${owner}/${repo} (dependency graph not enabled or repository not found)`);
                 return null;
             } else if (response.status === 403) {
                 console.log(`⚠️  Access denied for ${owner}/${repo} (private repository or insufficient permissions)`);
@@ -88,13 +104,28 @@ class GitHubClient {
             } else if (response.status === 422) {
                 console.log(`ℹ️  SBOM not available for ${owner}/${repo} (dependency graph not enabled)`);
                 return null;
+            } else if (response.status === 429) {
+                console.log(`⏳ Rate limit exceeded for ${owner}/${repo}, will retry later`);
+                return null;
             } else {
                 console.log(`⚠️  SBOM not available for ${owner}/${repo}: ${response.status} ${response.statusText}`);
                 return null;
             }
         }
         
-        return await response.json();
+        const sbomData = await response.json();
+        
+        // Validate SBOM data structure
+        if (!sbomData || !sbomData.sbom || !sbomData.sbom.packages) {
+            console.log(`ℹ️  SBOM data is empty for ${owner}/${repo}`);
+            return null;
+        }
+        
+        // Log success with dependency count
+        const packageCount = sbomData.sbom.packages.length;
+        console.log(`✅ SBOM fetched for ${owner}/${repo}: ${packageCount} packages found`);
+        
+        return sbomData;
     }
 
     /**
