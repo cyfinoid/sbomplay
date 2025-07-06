@@ -107,4 +107,4 @@ All SBOM files follow the standard GitHub SBOM API response format:
 
 ## Test Page
 
-See `test-with-real-data.html` for a comprehensive demonstration of how to use these test files. 
+See `../test-unified.html` for a comprehensive testing suite that uses these test files. 
