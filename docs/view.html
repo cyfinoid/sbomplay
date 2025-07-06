@@ -277,6 +277,9 @@
                                     <button class="btn btn-primary btn-sm" onclick="explorerApp.showCombinedView()">
                                         <i class="fas fa-chart-line me-2"></i>View Combined
                                     </button>
+                                    <button class="btn btn-outline-info btn-sm ms-1" onclick="explorerApp.debugCombinedData()">
+                                        <i class="fas fa-bug me-1"></i>Debug
+                                    </button>
                                 </div>
                             </div>
                         </div>
@@ -390,6 +393,11 @@
                 if (combinedData) {
                     console.log('Loading combined view:', combinedData);
                     
+                    // Debug: Show raw combined data
+                    console.log('🔍 Combined Data Debug:');
+                    console.log('Category Stats:', combinedData.data.categoryStats);
+                    console.log('Language Stats:', combinedData.data.languageStats);
+                    
                     // Show view container
                     document.getElementById('view-container').style.display = 'block';
                     
@@ -397,6 +405,25 @@
                     this.viewManager.showOrganizationOverview(combinedData);
                 } else {
                     this.showAlert('No data available for combined view', 'warning');
+                }
+            }
+
+            /**
+             * Debug combined data structure
+             */
+            debugCombinedData() {
+                const combinedData = this.storageManager.getCombinedData();
+                if (combinedData) {
+                    console.log('🔍 Combined Data Structure:');
+                    console.log('Full combined data:', combinedData);
+                    console.log('Category Stats:', combinedData.data.categoryStats);
+                    console.log('Language Stats:', combinedData.data.languageStats);
+                    
+                    // Show raw data in view container
+                    document.getElementById('view-container').style.display = 'block';
+                    this.viewManager.showRawData(combinedData);
+                } else {
+                    this.showAlert('No combined data available for debugging', 'warning');
                 }
             }
 
