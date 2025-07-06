@@ -21,6 +21,7 @@ class SBOMPlayApp {
         this.loadPreviousResults();
         this.setupEventListeners();
         this.checkRateLimitState();
+        this.displayOrganizationsOverview();
     }
 
     /**
@@ -247,12 +248,12 @@ class SBOMPlayApp {
     }
 
     /**
-     * Load previous analysis results
+     * Load previous results
      */
     loadPreviousResults() {
-        const savedData = this.storageManager.loadAnalysisData();
-        if (savedData) {
-            this.displayResults(savedData.data, savedData.organization);
+        const data = this.storageManager.loadAnalysisData();
+        if (data) {
+            this.displayResults(data.data, data.organization);
         }
     }
 
@@ -547,42 +548,44 @@ class SBOMPlayApp {
     }
 
     /**
-     * Export results
+     * Export current results
      */
     exportResults() {
-        const savedData = this.storageManager.loadAnalysisData();
-        if (savedData) {
-            const filename = `sbom-analysis-${savedData.organization}-${new Date().toISOString().split('T')[0]}.json`;
-            this.storageManager.exportData(savedData.data, filename);
+        const currentData = this.storageManager.loadAnalysisData();
+        if (currentData) {
+            const filename = `sbom-analysis-${currentData.organization}-${new Date().toISOString().split('T')[0]}.json`;
+            this.storageManager.exportData(currentData, filename);
+        } else {
+            this.showAlert('No data to export', 'warning');
         }
     }
 
     /**
-     * Clear all data
+     * Clear current data
      */
     clearData() {
-        if (confirm('Are you sure you want to clear all stored data? This cannot be undone.')) {
-            this.storageManager.clearAllData();
-            this.githubClient.clearRateLimitState();
-            document.getElementById('resultsSection').style.display = 'none';
-            this.showAlert('All data cleared successfully', 'success');
+        const currentData = this.storageManager.loadAnalysisData();
+        if (currentData) {
+            if (confirm(`Are you sure you want to remove data for ${currentData.organization}?`)) {
+                this.storageManager.removeOrganizationData(currentData.organization);
+                document.getElementById('resultsSection').style.display = 'none';
+                this.displayOrganizationsOverview();
+                this.showAlert('Data cleared successfully', 'success');
+            }
+        } else {
+            this.showAlert('No data to clear', 'warning');
         }
     }
 
     /**
-     * Finish analysis
+     * Finish analysis and reset UI
      */
     finishAnalysis() {
         this.isAnalyzing = false;
         document.getElementById('analyzeBtn').disabled = false;
         
-        // Clear current organization from storage
-        localStorage.removeItem('current_analysis_org');
-        
-        // Hide progress after a delay
-        setTimeout(() => {
-            document.getElementById('progressSection').style.display = 'none';
-        }, 2000);
+        // Refresh organizations overview
+        this.displayOrganizationsOverview();
     }
 
     /**
@@ -612,6 +615,171 @@ class SBOMPlayApp {
      */
     sleep(ms) {
         return new Promise(resolve => setTimeout(resolve, ms));
+    }
+
+    /**
+     * Display organizations overview
+     */
+    displayOrganizationsOverview() {
+        const storageInfo = this.storageManager.getStorageInfo();
+        
+        if (storageInfo.organizationsCount === 0) {
+            return;
+        }
+
+        // Create organizations section if it doesn't exist
+        let orgSection = document.getElementById('organizationsSection');
+        if (!orgSection) {
+            orgSection = document.createElement('div');
+            orgSection.id = 'organizationsSection';
+            orgSection.className = 'card mb-4';
+            orgSection.innerHTML = `
+                <div class="card-header">
+                    <h5 class="mb-0">
+                        <i class="fas fa-database me-2"></i>Stored Analyses
+                    </h5>
+                </div>
+                <div class="card-body">
+                    <div id="organizationsContent"></div>
+                </div>
+            `;
+            
+            // Insert after the organization input card
+            const orgInputCard = document.querySelector('.card:nth-child(3)');
+            orgInputCard.parentNode.insertBefore(orgSection, orgInputCard.nextSibling);
+        }
+
+        const content = document.getElementById('organizationsContent');
+        const organizations = storageInfo.organizations;
+        
+        let html = `
+            <div class="row mb-3">
+                <div class="col-md-6">
+                    <h6>Stored Organizations (${organizations.length})</h6>
+                </div>
+                <div class="col-md-6 text-end">
+                    <button class="btn btn-outline-primary btn-sm" onclick="app.exportAllData()">
+                        <i class="fas fa-download me-2"></i>Export All
+                    </button>
+                    <button class="btn btn-outline-danger btn-sm" onclick="app.clearAllData()">
+                        <i class="fas fa-trash me-2"></i>Clear All
+                    </button>
+                </div>
+            </div>
+        `;
+
+        if (organizations.length > 0) {
+            html += `
+                <div class="table-responsive">
+                    <table class="table table-sm">
+                        <thead>
+                            <tr>
+                                <th>Organization</th>
+                                <th>Repositories</th>
+                                <th>Dependencies</th>
+                                <th>Last Updated</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+            `;
+
+            organizations.forEach(org => {
+                const date = new Date(org.timestamp).toLocaleDateString();
+                const time = new Date(org.timestamp).toLocaleTimeString();
+                
+                html += `
+                    <tr>
+                        <td><strong>${org.name}</strong></td>
+                        <td><span class="badge bg-primary">${org.repositories}</span></td>
+                        <td><span class="badge bg-success">${org.dependencies}</span></td>
+                        <td><small>${date} ${time}</small></td>
+                        <td>
+                            <button class="btn btn-outline-primary btn-sm" onclick="app.loadOrganizationData('${org.name}')">
+                                <i class="fas fa-eye me-1"></i>View
+                            </button>
+                            <button class="btn btn-outline-danger btn-sm" onclick="app.removeOrganizationData('${org.name}')">
+                                <i class="fas fa-trash me-1"></i>Remove
+                            </button>
+                        </td>
+                    </tr>
+                `;
+            });
+
+            html += `
+                        </tbody>
+                    </table>
+                </div>
+            `;
+        }
+
+        content.innerHTML = html;
+        orgSection.style.display = 'block';
+    }
+
+    /**
+     * Load organization data
+     */
+    loadOrganizationData(orgName) {
+        const data = this.storageManager.loadAnalysisDataForOrganization(orgName);
+        if (data) {
+            this.displayResults(data.data, data.organization);
+            document.getElementById('orgName').value = orgName;
+            
+            // Scroll to results
+            document.getElementById('resultsSection').scrollIntoView({ behavior: 'smooth' });
+        } else {
+            this.showAlert(`No data found for ${orgName}`, 'warning');
+        }
+    }
+
+    /**
+     * Remove organization data
+     */
+    removeOrganizationData(orgName) {
+        if (confirm(`Are you sure you want to remove all data for ${orgName}?`)) {
+            const success = this.storageManager.removeOrganizationData(orgName);
+            if (success) {
+                this.showAlert(`Data for ${orgName} has been removed`, 'success');
+                this.displayOrganizationsOverview();
+                
+                // If this was the currently displayed data, clear the results
+                const currentData = this.storageManager.loadAnalysisData();
+                if (currentData && currentData.organization === orgName) {
+                    document.getElementById('resultsSection').style.display = 'none';
+                }
+            } else {
+                this.showAlert(`Failed to remove data for ${orgName}`, 'danger');
+            }
+        }
+    }
+
+    /**
+     * Export all data
+     */
+    exportAllData() {
+        const success = this.storageManager.exportAllData();
+        if (success) {
+            this.showAlert('All data exported successfully', 'success');
+        } else {
+            this.showAlert('Failed to export all data', 'danger');
+        }
+    }
+
+    /**
+     * Clear all data
+     */
+    clearAllData() {
+        if (confirm('Are you sure you want to clear all stored data? This action cannot be undone.')) {
+            const success = this.storageManager.clearAllData();
+            if (success) {
+                this.showAlert('All data cleared successfully', 'success');
+                document.getElementById('resultsSection').style.display = 'none';
+                document.getElementById('organizationsSection').style.display = 'none';
+            } else {
+                this.showAlert('Failed to clear data', 'danger');
+            }
+        }
     }
 }
 

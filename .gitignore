@@ -161,3 +161,36 @@ cython_debug/
 #  option (not recommended) you can uncomment the following to ignore the entire idea folder.
 #.idea/
 .DS_Store
+
+# Test files (development only)
+test-*.html
+
+# Development files
+*.log
+*.tmp
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Node modules (if any)
+node_modules/
+
+# Build artifacts
+dist/
+build/
+
+# Production folder is included in version control for GitHub Pages deployment
+# prod/
+
+# Browser storage (auto-generated)
+client-storage/
+
+# Legacy Python environment
+legacy/venv/

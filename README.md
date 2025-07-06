@@ -10,14 +10,42 @@ A web-based tool for analyzing Software Bill of Materials (SBOM) data from GitHu
 - Export analysis results as JSON
 - Rate limit handling and recovery
 - Persistent storage of analysis results
+- Multi-organization storage: Keep data for all analyzed organizations until manually cleared
+- Organization management: View, load, and remove individual organization data
+- Bulk export: Export all stored analyses at once
 
-## Usage
+## Quick Start
 
 1. Open `index.html` in your web browser
 2. Optionally enter a GitHub Personal Access Token for better rate limits
 3. Enter an organization name or username to analyze
 4. Click "Analyze Organization or User" to start the analysis
 5. View results and export data as needed
+
+## Development & Deployment
+
+### Development Workflow
+1. **Work in main folder** - Edit `index.html`, `js/`, `css/` files directly
+2. **Test locally** - Open `index.html` in browser to test
+3. **Deploy when ready**:
+   ```bash
+   ./deploy.sh                    # Automatic deployment with meaningful commit
+   ```
+   
+   Or manually:
+   ```bash
+   ./update-prod.sh                    # Copy to prod folder
+   git add prod/                       # Stage changes
+   git commit -S -m "deploy: update SBOM Play production files"   # Commit with signing
+   git push                            # Deploy to GitHub Pages
+   ```
+
+### GitHub Pages Setup
+1. Go to repository Settings → Pages
+2. Source: Deploy from a branch
+3. Branch: `main` (or your default)
+4. Folder: `/prod`
+5. Your site will be at: `https://yourusername.github.io/sbomplay/`
 
 ## Recent Fixes
 
@@ -26,6 +54,14 @@ The tool now correctly processes GitHub's SBOM data format. The issue was that G
 
 ### Organization and User Support (Added)
 The tool now supports analyzing both GitHub organizations and individual users. It automatically detects whether the input is an organization or user and uses the appropriate API endpoint.
+
+### Multi-Organization Storage (Added)
+The tool now maintains data for all analyzed organizations and users until manually cleared. Features include:
+- **Persistent Storage**: All analysis data is saved and persists between sessions
+- **Organization Overview**: View all stored analyses with statistics
+- **Individual Management**: Load, view, or remove specific organization data
+- **Bulk Operations**: Export all data or clear all stored analyses
+- **Smart Updates**: Re-analyzing an organization updates existing data instead of creating duplicates
 
 ## Troubleshooting
 
@@ -79,12 +115,6 @@ Repositories need to have dependency files for the Dependency Graph to work:
 3. **Check Repository Settings**: Verify repositories have dependency files
 4. **Monitor Console**: Check browser console for detailed error messages
 
-## Testing
-
-You can test the SBOM processing with the included test files:
-- `test-github-api.html` - Test GitHub API access and SBOM availability
-- `test-sbom-fix.html` - Test the SBOM processing logic with sample data
-
 ## Technical Details
 
 - Uses GitHub's Dependency Graph API
@@ -111,19 +141,16 @@ You can test the SBOM processing with the included test files:
 ```
 sbomplay/
 ├── index.html              # Main application
-├── css/
-│   └── style.css          # Application styles
-├── js/
-│   ├── app.js             # Main application logic
-│   ├── github-client.js   # GitHub API client
-│   ├── sbom-processor.js  # SBOM analysis logic
-│   └── storage-manager.js # Local storage management
-├── legacy/
-│   └── scripts/           # Legacy Python scripts
-│       ├── sbom-play.py
-│       └── generate_top_dependency_report.py
-├── dev.sh                 # Development startup script
-└── README.md              # This file
+├── js/                     # JavaScript files
+│   ├── app.js
+│   ├── github-client.js
+│   ├── sbom-processor.js
+│   └── storage-manager.js
+├── css/                    # CSS files
+│   └── style.css
+├── prod/                   # Production deployment (for GitHub Pages)
+├── test-*.html            # Optional test files
+└── legacy/                 # Old Python scripts (deprecated)
 ```
 
 ## License
