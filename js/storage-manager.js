@@ -372,6 +372,153 @@ class StorageManager {
     getOrganizationData(orgName) {
         return this.loadAnalysisDataForOrganization(orgName);
     }
+
+    /**
+     * Get combined data from all organizations
+     */
+    getCombinedData() {
+        try {
+            const organizations = this.getOrganizations();
+            if (organizations.length === 0) {
+                return null;
+            }
+
+            // Collect all data from organizations
+            const allData = [];
+            for (const org of organizations) {
+                const orgData = this.getOrganizationData(org.organization);
+                if (orgData && orgData.data) {
+                    allData.push(orgData);
+                }
+            }
+
+            if (allData.length === 0) {
+                return null;
+            }
+
+            // Combine the data
+            const combinedData = this.combineOrganizationData(allData);
+            return {
+                organization: 'All Organizations Combined',
+                timestamp: new Date().toISOString(),
+                data: combinedData
+            };
+        } catch (error) {
+            console.error('❌ Failed to get combined data:', error);
+            return null;
+        }
+    }
+
+    /**
+     * Combine data from multiple organizations
+     */
+    combineOrganizationData(organizationsData) {
+        const combined = {
+            statistics: {
+                totalRepositories: 0,
+                processedRepositories: 0,
+                successfulRepositories: 0,
+                failedRepositories: 0,
+                repositoriesWithDependencies: 0,
+                totalDependencies: 0,
+                averageDependenciesPerRepo: 0
+            },
+            topDependencies: [],
+            topRepositories: [],
+            allDependencies: [],
+            allRepositories: [],
+            categoryStats: {},
+            languageStats: {}
+        };
+
+        // Aggregate statistics
+        for (const orgData of organizationsData) {
+            const stats = orgData.data.statistics;
+            combined.statistics.totalRepositories += stats.totalRepositories;
+            combined.statistics.processedRepositories += stats.processedRepositories;
+            combined.statistics.successfulRepositories += stats.successfulRepositories;
+            combined.statistics.failedRepositories += stats.failedRepositories;
+            combined.statistics.repositoriesWithDependencies += stats.repositoriesWithDependencies;
+            combined.statistics.totalDependencies += stats.totalDependencies;
+        }
+
+        // Calculate average dependencies per repo
+        if (combined.statistics.repositoriesWithDependencies > 0) {
+            combined.statistics.averageDependenciesPerRepo = 
+                Math.round(combined.statistics.totalDependencies / combined.statistics.repositoriesWithDependencies);
+        }
+
+        // Combine dependencies across all organizations
+        const dependencyMap = new Map();
+        const repoMap = new Map();
+
+        for (const orgData of organizationsData) {
+            const orgName = orgData.organization;
+            
+            // Process all dependencies
+            if (orgData.data.allDependencies) {
+                for (const dep of orgData.data.allDependencies) {
+                    const key = `${dep.name}@${dep.version}`;
+                    if (dependencyMap.has(key)) {
+                        const existing = dependencyMap.get(key);
+                        existing.count += dep.count;
+                        existing.repositories = [...new Set([...existing.repositories, ...dep.repositories])];
+                    } else {
+                        dependencyMap.set(key, {
+                            ...dep,
+                            repositories: [...dep.repositories]
+                        });
+                    }
+                }
+            }
+
+            // Process all repositories
+            if (orgData.data.allRepositories) {
+                for (const repo of orgData.data.allRepositories) {
+                    const repoKey = `${repo.owner}/${repo.name}`;
+                    if (repoMap.has(repoKey)) {
+                        const existing = repoMap.get(repoKey);
+                        existing.totalDependencies += repo.totalDependencies;
+                        existing.owner = repo.owner;
+                        existing.name = repo.name;
+                    } else {
+                        repoMap.set(repoKey, {
+                            ...repo,
+                            owner: repo.owner,
+                            name: repo.name
+                        });
+                    }
+                }
+            }
+        }
+
+        // Convert maps to arrays and sort
+        combined.allDependencies = Array.from(dependencyMap.values())
+            .sort((a, b) => b.count - a.count);
+
+        combined.topDependencies = combined.allDependencies.slice(0, 50);
+
+        combined.allRepositories = Array.from(repoMap.values())
+            .sort((a, b) => b.totalDependencies - a.totalDependencies);
+
+        combined.topRepositories = combined.allRepositories.slice(0, 50);
+
+        // Combine category and language stats
+        for (const orgData of organizationsData) {
+            if (orgData.data.categoryStats) {
+                for (const [category, count] of Object.entries(orgData.data.categoryStats)) {
+                    combined.categoryStats[category] = (combined.categoryStats[category] || 0) + count;
+                }
+            }
+            if (orgData.data.languageStats) {
+                for (const [language, count] of Object.entries(orgData.data.languageStats)) {
+                    combined.languageStats[language] = (combined.languageStats[language] || 0) + count;
+                }
+            }
+        }
+
+        return combined;
+    }
 }
 
 // Export for use in other modules
