@@ -30,7 +30,30 @@ class ViewManager {
     showDependencyDetailsFromIndex(index, organization) {
         console.log('Showing dependency details from index:', index, 'for org:', organization);
         
-        // Get data from storage
+        // Handle combined data
+        if (organization === 'All Organizations Combined') {
+            const combinedData = storageManager.getCombinedData();
+            if (!combinedData) {
+                console.error('Combined data not found');
+                this.showError('Combined data not found');
+                return;
+            }
+            
+            const topDeps = combinedData.data.topDependencies || [];
+            if (index < 0 || index >= topDeps.length) {
+                console.error('Invalid dependency index:', index);
+                this.showError('Invalid dependency index');
+                return;
+            }
+            
+            const dependency = topDeps[index];
+            console.log('Retrieved dependency from combined data:', dependency);
+            
+            this.showDependencyDetails(dependency, combinedData);
+            return;
+        }
+        
+        // Get data from storage for individual organization
         const orgData = storageManager.getOrganizationData(organization);
         if (!orgData) {
             console.error('Organization data not found:', organization);
@@ -73,7 +96,30 @@ class ViewManager {
     showRepositoryDetailsFromIndex(index, organization) {
         console.log('Showing repository details from index:', index, 'for org:', organization);
         
-        // Get data from storage
+        // Handle combined data
+        if (organization === 'All Organizations Combined') {
+            const combinedData = storageManager.getCombinedData();
+            if (!combinedData) {
+                console.error('Combined data not found');
+                this.showError('Combined data not found');
+                return;
+            }
+            
+            const topRepos = combinedData.data.topRepositories || [];
+            if (index < 0 || index >= topRepos.length) {
+                console.error('Invalid repository index:', index);
+                this.showError('Invalid repository index');
+                return;
+            }
+            
+            const repo = topRepos[index];
+            console.log('Retrieved repository from combined data:', repo);
+            
+            this.showRepositoryDetails(repo, combinedData);
+            return;
+        }
+        
+        // Get data from storage for individual organization
         const orgData = storageManager.getOrganizationData(organization);
         if (!orgData) {
             console.error('Organization data not found:', organization);
@@ -100,7 +146,30 @@ class ViewManager {
     showRepositoryDetailsFromAllReposIndex(index, organization) {
         console.log('Showing repository details from all repos index:', index, 'for org:', organization);
         
-        // Get data from storage
+        // Handle combined data
+        if (organization === 'All Organizations Combined') {
+            const combinedData = storageManager.getCombinedData();
+            if (!combinedData) {
+                console.error('Combined data not found');
+                this.showError('Combined data not found');
+                return;
+            }
+            
+            const allRepos = combinedData.data.allRepositories || [];
+            if (index < 0 || index >= allRepos.length) {
+                console.error('Invalid repository index:', index);
+                this.showError('Invalid repository index');
+                return;
+            }
+            
+            const repo = allRepos[index];
+            console.log('Retrieved repository from combined data:', repo);
+            
+            this.showRepositoryDetails(repo, combinedData);
+            return;
+        }
+        
+        // Get data from storage for individual organization
         const orgData = storageManager.getOrganizationData(organization);
         if (!orgData) {
             console.error('Organization data not found:', organization);
@@ -127,7 +196,30 @@ class ViewManager {
     showDependencyDetailsFromAllDepsIndex(index, organization) {
         console.log('Showing dependency details from all deps index:', index, 'for org:', organization);
         
-        // Get data from storage
+        // Handle combined data
+        if (organization === 'All Organizations Combined') {
+            const combinedData = storageManager.getCombinedData();
+            if (!combinedData) {
+                console.error('Combined data not found');
+                this.showError('Combined data not found');
+                return;
+            }
+            
+            const allDeps = combinedData.data.allDependencies || [];
+            if (index < 0 || index >= allDeps.length) {
+                console.error('Invalid dependency index:', index);
+                this.showError('Invalid dependency index');
+                return;
+            }
+            
+            const dependency = allDeps[index];
+            console.log('Retrieved dependency from combined data:', dependency);
+            
+            this.showDependencyDetails(dependency, combinedData);
+            return;
+        }
+        
+        // Get data from storage for individual organization
         const orgData = storageManager.getOrganizationData(organization);
         if (!orgData) {
             console.error('Organization data not found:', organization);
@@ -286,6 +378,12 @@ class ViewManager {
                 });
             }
         }
+        
+        // Special handling for combined data (when org name is "All Organizations Combined")
+        const isCombinedView = orgData.organization === 'All Organizations Combined';
+        if (isCombinedView) {
+            console.log('🔍 Combined view detected - applying special handling for category/language stats');
+        }
 
         // Validate data structure
         if (!stats || !topDeps || !topRepos || !allDeps || !allRepos) {
@@ -345,23 +443,43 @@ class ViewManager {
                 <div class="category-grid">
                     <div class="category-card code">
                         <h4>💻 Code Dependencies</h4>
-                        <div class="category-number">${typeof categoryStats.code === 'object' ? (categoryStats.code.count || 0) : (categoryStats.code || 0)}</div>
-                        <div class="category-detail">${typeof categoryStats.code === 'object' ? (categoryStats.code.uniqueDependencies || 0) : 'N/A'} unique</div>
+                        <div class="category-number">${isCombinedView ? 
+                            (parseInt(categoryStats.code) || 0) : 
+                            (typeof categoryStats.code === 'object' ? (categoryStats.code.count || 0) : (categoryStats.code || 0))
+                        }</div>
+                        <div class="category-detail">${isCombinedView ? 'N/A' : 
+                            (typeof categoryStats.code === 'object' ? (categoryStats.code.uniqueDependencies || 0) : 'N/A')
+                        } unique</div>
                     </div>
                     <div class="category-card workflow">
                         <h4>⚙️ Workflow Dependencies</h4>
-                        <div class="category-number">${typeof categoryStats.workflow === 'object' ? (categoryStats.workflow.count || 0) : (categoryStats.workflow || 0)}</div>
-                        <div class="category-detail">${typeof categoryStats.workflow === 'object' ? (categoryStats.workflow.uniqueDependencies || 0) : 'N/A'} unique</div>
+                        <div class="category-number">${isCombinedView ? 
+                            (parseInt(categoryStats.workflow) || 0) : 
+                            (typeof categoryStats.workflow === 'object' ? (categoryStats.workflow.count || 0) : (categoryStats.workflow || 0))
+                        }</div>
+                        <div class="category-detail">${isCombinedView ? 'N/A' : 
+                            (typeof categoryStats.workflow === 'object' ? (categoryStats.workflow.uniqueDependencies || 0) : 'N/A')
+                        } unique</div>
                     </div>
                     <div class="category-card infrastructure">
                         <h4>🏗️ Infrastructure Dependencies</h4>
-                        <div class="category-number">${typeof categoryStats.infrastructure === 'object' ? (categoryStats.infrastructure.count || 0) : (categoryStats.infrastructure || 0)}</div>
-                        <div class="category-detail">${typeof categoryStats.infrastructure === 'object' ? (categoryStats.infrastructure.uniqueDependencies || 0) : 'N/A'} unique</div>
+                        <div class="category-number">${isCombinedView ? 
+                            (parseInt(categoryStats.infrastructure) || 0) : 
+                            (typeof categoryStats.infrastructure === 'object' ? (categoryStats.infrastructure.count || 0) : (categoryStats.infrastructure || 0))
+                        }</div>
+                        <div class="category-detail">${isCombinedView ? 'N/A' : 
+                            (typeof categoryStats.infrastructure === 'object' ? (categoryStats.infrastructure.uniqueDependencies || 0) : 'N/A')
+                        } unique</div>
                     </div>
                     <div class="category-card unknown">
                         <h4>❓ Unknown Dependencies</h4>
-                        <div class="category-number">${typeof categoryStats.unknown === 'object' ? (categoryStats.unknown.count || 0) : (categoryStats.unknown || 0)}</div>
-                        <div class="category-detail">${typeof categoryStats.unknown === 'object' ? (categoryStats.unknown.uniqueDependencies || 0) : 'N/A'} unique</div>
+                        <div class="category-number">${isCombinedView ? 
+                            (parseInt(categoryStats.unknown) || 0) : 
+                            (typeof categoryStats.unknown === 'object' ? (categoryStats.unknown.count || 0) : (categoryStats.unknown || 0))
+                        }</div>
+                        <div class="category-detail">${isCombinedView ? 'N/A' : 
+                            (typeof categoryStats.unknown === 'object' ? (categoryStats.unknown.uniqueDependencies || 0) : 'N/A')
+                        } unique</div>
                     </div>
                 </div>
             </div>
@@ -382,8 +500,8 @@ class ViewManager {
                         Object.entries(languageStats).slice(0, 6).map(([lang, count]) => `
                             <div class="language-card">
                                 <h4>${lang}</h4>
-                                <div class="language-number">${count}</div>
-                                <div class="language-detail">N/A unique deps</div>
+                                <div class="language-number">${isCombinedView ? (parseInt(count) || 0) : count}</div>
+                                <div class="language-detail">${isCombinedView ? 'N/A' : 'N/A'} unique deps</div>
                             </div>
                         `).join('')
                     }
