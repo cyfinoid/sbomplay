@@ -3,9 +3,8 @@
  */
 class StorageManager {
     constructor() {
-        this.storageKey = 'sbomplay_data';
-        this.historyKey = 'sbomplay_history';
         this.organizationsKey = 'sbomplay_organizations';
+        this.historyKey = 'sbomplay_history';
     }
 
     /**
@@ -20,14 +19,7 @@ class StorageManager {
                 data: data
             };
 
-            // Save current analysis
-            localStorage.setItem(this.storageKey, JSON.stringify(analysisData));
-
-            // Save organization-specific data with unique key
-            const orgKey = `sbomplay_org_${orgName}`;
-            localStorage.setItem(orgKey, JSON.stringify(analysisData));
-
-            // Add to organizations list
+            // Add to organizations list (this is the single source of truth)
             this.addToOrganizations(orgName, timestamp, data);
 
             // Add to history
@@ -42,17 +34,19 @@ class StorageManager {
     }
 
     /**
-     * Load analysis data from local storage
+     * Load analysis data from local storage (for backward compatibility)
      */
     loadAnalysisData() {
         try {
-            const data = localStorage.getItem(this.storageKey);
-            console.log('🔍 Storage - loadAnalysisData - raw data:', data);
-            
-            if (data) {
-                const parsedData = JSON.parse(data);
-                console.log('🔍 Storage - loadAnalysisData - parsed data:', parsedData);
-                return parsedData;
+            // Try to get the most recent analysis from organizations list
+            const organizations = this.getOrganizations();
+            if (organizations.length > 0) {
+                // Return the most recent analysis
+                const mostRecent = organizations.reduce((latest, current) => 
+                    new Date(current.timestamp) > new Date(latest.timestamp) ? current : latest
+                );
+                console.log('🔍 Storage - loadAnalysisData - most recent data:', mostRecent);
+                return mostRecent;
             }
             return null;
         } catch (error) {
@@ -66,18 +60,10 @@ class StorageManager {
      */
     loadAnalysisDataForOrganization(orgName) {
         try {
-            // Try to load from organization-specific key first
-            const orgKey = `sbomplay_org_${orgName}`;
-            const orgData = localStorage.getItem(orgKey);
-            
-            if (orgData) {
-                return JSON.parse(orgData);
-            }
-            
-            // Fallback to organizations list
+            // Get from organizations list (single source of truth)
             const organizations = this.getOrganizations();
-            const orgDataFromList = organizations.find(org => org.organization === orgName);
-            return orgDataFromList || null;
+            const orgData = organizations.find(org => org.organization === orgName);
+            return orgData || null;
         } catch (error) {
             console.error('❌ Failed to load organization data:', error);
             return null;
@@ -134,10 +120,7 @@ class StorageManager {
      */
     removeOrganizationData(orgName) {
         try {
-            // Remove organization-specific data
-            const orgKey = `sbomplay_org_${orgName}`;
-            localStorage.removeItem(orgKey);
-            
+            // Remove from organizations list
             const organizations = this.getOrganizations();
             const filteredOrganizations = organizations.filter(org => org.organization !== orgName);
             localStorage.setItem(this.organizationsKey, JSON.stringify(filteredOrganizations));
@@ -198,9 +181,17 @@ class StorageManager {
      */
     clearAllData() {
         try {
-            localStorage.removeItem(this.storageKey);
             localStorage.removeItem(this.historyKey);
             localStorage.removeItem(this.organizationsKey);
+            
+            // Clean up any legacy organization-specific keys
+            const keys = Object.keys(localStorage);
+            keys.forEach(key => {
+                if (key.startsWith('sbomplay_org_')) {
+                    localStorage.removeItem(key);
+                }
+            });
+            
             console.log('✅ All data cleared from local storage');
             return true;
         } catch (error) {
@@ -275,23 +266,20 @@ class StorageManager {
      */
     getStorageInfo() {
         try {
-            const currentData = localStorage.getItem(this.storageKey);
             const historyData = localStorage.getItem(this.historyKey);
             const organizationsData = localStorage.getItem(this.organizationsKey);
             
-            const currentSize = currentData ? new Blob([currentData]).size : 0;
             const historySize = historyData ? new Blob([historyData]).size : 0;
             const organizationsSize = organizationsData ? new Blob([organizationsData]).size : 0;
-            const totalSize = currentSize + historySize + organizationsSize;
+            const totalSize = historySize + organizationsSize;
             
             const organizations = this.getOrganizations();
             
             return {
-                currentDataSize: currentSize,
                 historyDataSize: historySize,
                 organizationsDataSize: organizationsSize,
                 totalSize: totalSize,
-                hasData: currentData !== null,
+                hasData: organizations.length > 0,
                 historyCount: this.getHistory().length,
                 organizationsCount: organizations.length,
                 organizations: organizations.map(org => ({
@@ -304,7 +292,6 @@ class StorageManager {
         } catch (error) {
             console.error('❌ Failed to get storage info:', error);
             return {
-                currentDataSize: 0,
                 historyDataSize: 0,
                 organizationsDataSize: 0,
                 totalSize: 0,
@@ -504,18 +491,44 @@ class StorageManager {
         combined.topRepositories = combined.allRepositories.slice(0, 50);
 
         // Combine category and language stats
+        console.log('🔍 Storage Manager - Combining category and language stats...');
         for (const orgData of organizationsData) {
+            console.log(`Processing org: ${orgData.organization}`);
+            
             if (orgData.data.categoryStats) {
-                for (const [category, count] of Object.entries(orgData.data.categoryStats)) {
+                console.log('Category stats for', orgData.organization, ':', orgData.data.categoryStats);
+                for (const [category, value] of Object.entries(orgData.data.categoryStats)) {
+                    // Handle both object format (with count property) and simple number format
+                    let count = 0;
+                    if (typeof value === 'object' && value !== null && value.count !== undefined) {
+                        count = value.count;
+                        console.log(`  ${category}: object format, count = ${count}`);
+                    } else {
+                        count = parseInt(value) || 0;
+                        console.log(`  ${category}: simple format, count = ${count}`);
+                    }
                     combined.categoryStats[category] = (combined.categoryStats[category] || 0) + count;
                 }
             }
             if (orgData.data.languageStats) {
-                for (const [language, count] of Object.entries(orgData.data.languageStats)) {
+                console.log('Language stats for', orgData.organization, ':', orgData.data.languageStats);
+                for (const [language, value] of Object.entries(orgData.data.languageStats)) {
+                    // Handle both object format (with count property) and simple number format
+                    let count = 0;
+                    if (typeof value === 'object' && value !== null && value.count !== undefined) {
+                        count = value.count;
+                        console.log(`  ${language}: object format, count = ${count}`);
+                    } else {
+                        count = parseInt(value) || 0;
+                        console.log(`  ${language}: simple format, count = ${count}`);
+                    }
                     combined.languageStats[language] = (combined.languageStats[language] || 0) + count;
                 }
             }
         }
+        
+        console.log('Final combined category stats:', combined.categoryStats);
+        console.log('Final combined language stats:', combined.languageStats);
 
         return combined;
     }

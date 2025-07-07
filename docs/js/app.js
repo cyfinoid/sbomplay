@@ -21,6 +21,12 @@ class SBOMPlayApp {
         this.loadPreviousResults();
         this.setupEventListeners();
         this.checkRateLimitState();
+        
+        // Show results section if there are stored organizations
+        const storageInfo = this.storageManager.getStorageInfo();
+        if (storageInfo.organizationsCount > 0) {
+            document.getElementById('resultsSection').style.display = 'block';
+        }
     }
 
     /**
@@ -253,6 +259,9 @@ class SBOMPlayApp {
         const data = this.storageManager.loadAnalysisData();
         if (data) {
             this.displayResults(data.data, data.organization);
+        } else {
+            // Show overview of stored organizations even if no current analysis
+            this.displayResults(null, null);
         }
     }
 
@@ -446,106 +455,120 @@ class SBOMPlayApp {
         const resultsSection = document.getElementById('resultsSection');
         const resultsContent = document.getElementById('resultsContent');
         
-        const stats = results.statistics;
-        const topDeps = results.topDependencies.slice(0, 10);
-        const topRepos = results.topRepositories.slice(0, 10);
+        // Get storage info to show all organizations
+        const storageInfo = this.storageManager.getStorageInfo();
+        const organizations = storageInfo.organizations;
         
-        // Check if no dependencies were found
-        const noDependenciesFound = stats.totalDependencies === 0;
+        // Get combined stats if multiple organizations exist
+        const combinedData = organizations.length > 1 ? this.storageManager.getCombinedData() : null;
         
-        let troubleshootingInfo = '';
-        if (noDependenciesFound) {
-            troubleshootingInfo = `
-                <div class="alert alert-warning">
-                    <h6><i class="fas fa-exclamation-triangle me-2"></i>No Dependencies Found</h6>
-                    <p class="mb-2">The analysis found 0 dependencies. This could be due to:</p>
-                    <ul class="mb-2">
-                        <li>Dependency Graph not enabled on repositories</li>
-                        <li>Repositories don't have dependency files (package.json, requirements.txt, etc.)</li>
-                        <li>Authentication required for private repositories</li>
-                        <li>Rate limiting prevented access</li>
-                    </ul>
-                    <p class="mb-0"><strong>Tip:</strong> Check the browser console for detailed error messages.</p>
+        let html = '';
+        
+        // Note: Analysis completion is handled by the progress section
+        // The results section focuses on stored data overview
+        
+        // Show stored organizations overview
+        if (organizations.length > 0) {
+            html += `
+                <div class="row mb-4">
+                    <div class="col-12">
+                        <h6><i class="fas fa-database me-2"></i>Stored Organizations (${organizations.length})</h6>
+                        <div class="table-responsive">
+                            <table class="table table-sm">
+                                <thead>
+                                    <tr>
+                                        <th>Organization</th>
+                                        <th>Repositories</th>
+                                        <th>Dependencies</th>
+                                        <th>Last Updated</th>
+                                        <th>Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    ${organizations.map(org => {
+                                        const date = new Date(org.timestamp).toLocaleDateString();
+                                        const time = new Date(org.timestamp).toLocaleTimeString();
+                                        return `
+                                            <tr>
+                                                <td><strong>${org.name}</strong></td>
+                                                <td><span class="badge bg-primary">${org.repositories}</span></td>
+                                                <td><span class="badge bg-success">${org.dependencies}</span></td>
+                                                <td><small>${date} ${time}</small></td>
+                                                <td>
+                                                    <a href="view.html" class="btn btn-outline-primary btn-sm">
+                                                        <i class="fas fa-eye me-1"></i>View
+                                                    </a>
+                                                </td>
+                                            </tr>
+                                        `;
+                                    }).join('')}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
                 </div>
             `;
         }
         
-        resultsContent.innerHTML = `
-            ${troubleshootingInfo}
+        // Show combined analysis if multiple organizations exist
+        if (combinedData && organizations.length > 1) {
+            const combinedStats = combinedData.data.statistics;
+            const combinedTopDeps = combinedData.data.topDependencies.slice(0, 5);
             
-            <div class="row mb-4">
-                <div class="col-md-6">
-                    <h6>Analysis Summary</h6>
-                    <table class="table table-sm">
-                        <tr><td>Owner:</td><td><strong>${ownerName}</strong></td></tr>
-                        <tr><td>Total Repositories:</td><td>${stats.totalRepositories}</td></tr>
-                        <tr><td>Processed:</td><td>${stats.processedRepositories}</td></tr>
-                        <tr><td>Successful:</td><td class="text-success">${stats.successfulRepositories}</td></tr>
-                        <tr><td>Failed:</td><td class="text-danger">${stats.failedRepositories}</td></tr>
-                        <tr><td>With Dependencies:</td><td>${stats.repositoriesWithDependencies}</td></tr>
-                        <tr><td>Total Dependencies:</td><td>${stats.totalDependencies}</td></tr>
-                        <tr><td>Avg per Repo:</td><td>${stats.averageDependenciesPerRepo}</td></tr>
-                    </table>
-                </div>
-                <div class="col-md-6">
-                    <h6>Actions</h6>
-                    <div class="d-grid gap-2">
-                        <a href="view.html" class="btn btn-primary btn-sm">
-                            <i class="fas fa-chart-line me-2"></i>View Details
-                        </a>
-                        <button class="btn btn-outline-primary btn-sm" onclick="app.exportResults()">
-                            <i class="fas fa-download me-2"></i>Export Data
-                        </button>
-                        <button class="btn btn-outline-danger btn-sm" onclick="app.clearData()">
-                            <i class="fas fa-trash me-2"></i>Clear Data
-                        </button>
-                    </div>
-                </div>
-            </div>
-            
-            ${noDependenciesFound ? '' : `
-            <div class="row">
-                <div class="col-md-6">
-                    <h6>Top Dependencies</h6>
-                    <div class="dependencies-chart">
-                        ${topDeps.map(dep => `
-                            <div class="dependency-bar">
-                                <div class="dependency-info">
-                                    <span class="dependency-name">${dep.name}@${dep.version}</span>
-                                    <span class="dependency-count">${dep.count}</span>
+            html += `
+                <div class="row mb-4">
+                    <div class="col-12">
+                        <div class="alert alert-info">
+                            <h6><i class="fas fa-layer-group me-2"></i>Combined Analysis Summary</h6>
+                            <p class="mb-2">Aggregated data from all ${organizations.length} organizations</p>
+                            <div class="row">
+                                <div class="col-md-6">
+                                    <table class="table table-sm">
+                                        <tr><td>Total Organizations:</td><td><strong>${organizations.length}</strong></td></tr>
+                                        <tr><td>Total Repositories:</td><td>${combinedStats.totalRepositories}</td></tr>
+                                        <tr><td>Total Dependencies:</td><td>${combinedStats.totalDependencies}</td></tr>
+                                        <tr><td>Avg per Repo:</td><td>${combinedStats.averageDependenciesPerRepo}</td></tr>
+                                    </table>
                                 </div>
-                                <div class="dependency-progress">
-                                    <div class="progress-fill" style="width: ${(dep.count / topDeps[0].count) * 100}%"></div>
+                                <div class="col-md-6">
+                                    <h6>Top Combined Dependencies</h6>
+                                    <div class="dependencies-chart">
+                                        ${combinedTopDeps.map(dep => `
+                                            <div class="dependency-bar">
+                                                <div class="dependency-info">
+                                                    <span class="dependency-name">${dep.name}@${dep.version}</span>
+                                                    <span class="dependency-count">${dep.count}</span>
+                                                </div>
+                                                <div class="dependency-progress">
+                                                    <div class="progress-fill" style="width: ${(dep.count / combinedTopDeps[0].count) * 100}%"></div>
+                                                </div>
+                                            </div>
+                                        `).join('')}
+                                    </div>
                                 </div>
                             </div>
-                        `).join('')}
+                            <div class="mt-3">
+                                <a href="view.html" class="btn btn-primary btn-sm">
+                                    <i class="fas fa-chart-line me-2"></i>View Combined Details
+                                </a>
+                            </div>
+                        </div>
                     </div>
                 </div>
-                <div class="col-md-6">
-                    <h6>Top Repositories</h6>
-                    <div class="table-responsive">
-                        <table class="table table-sm">
-                            <thead>
-                                <tr>
-                                    <th>Repository</th>
-                                    <th>Dependencies</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                ${topRepos.map(repo => `
-                                    <tr>
-                                        <td><code>${repo.owner}/${repo.name}</code></td>
-                                        <td><span class="badge bg-primary">${repo.totalDependencies}</span></td>
-                                    </tr>
-                                `).join('')}
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
-            </div>
-            `}
-        `;
+            `;
+        }
         
+        // Show no data message if no organizations stored
+        if (organizations.length === 0) {
+            html += `
+                <div class="alert alert-info">
+                    <h6><i class="fas fa-info-circle me-2"></i>No Stored Analyses</h6>
+                    <p class="mb-2">You haven't analyzed any organizations yet. Start your first analysis above!</p>
+                </div>
+            `;
+        }
+        
+        resultsContent.innerHTML = html;
         resultsSection.style.display = 'block';
     }
 
@@ -572,7 +595,7 @@ class SBOMPlayApp {
         if (currentData) {
             if (confirm(`Are you sure you want to remove data for ${currentData.organization}?`)) {
                 this.storageManager.removeOrganizationData(currentData.organization);
-                document.getElementById('resultsSection').style.display = 'none';
+                this.displayResults(null, null); // Refresh display
                 this.showAlert('Data cleared successfully', 'success');
             }
         } else {
