@@ -18,6 +18,8 @@ class SBOMPlayApp {
     initializeApp() {
         this.loadSavedToken();
         this.checkStorageAvailability();
+        this.showStorageStatus();
+        this.showStorageStatusIndicator();
         this.loadPreviousResults();
         this.setupEventListeners();
         this.checkRateLimitState();
@@ -244,12 +246,27 @@ class SBOMPlayApp {
     }
 
     /**
-     * Check if local storage is available
+     * Check if local storage is available and show status
      */
     checkStorageAvailability() {
         if (!this.storageManager.isStorageAvailable()) {
             this.showAlert('Local storage is not available. Some features may not work properly.', 'warning');
+            return false;
         }
+        
+        // Show storage status
+        const storageInfo = this.storageManager.showStorageStatus();
+        if (storageInfo) {
+            const usagePercent = (storageInfo.totalSize / storageInfo.maxStorageSize) * 100;
+            
+            if (usagePercent > 90) {
+                this.showAlert('Storage is nearly full! Please export your data and clear old analyses.', 'danger');
+            } else if (usagePercent > 70) {
+                this.showAlert('Storage usage is high. Consider exporting data to free up space.', 'warning');
+            }
+        }
+        
+        return true;
     }
 
     /**
@@ -404,8 +421,16 @@ class SBOMPlayApp {
                 console.log(`   4. Rate limiting prevented access to some repositories`);
             }
             
-            // Save to storage
-            this.storageManager.saveAnalysisData(ownerName, results);
+            // Save to storage with better error handling
+            const saveSuccess = this.storageManager.saveAnalysisData(ownerName, results);
+            if (!saveSuccess) {
+                console.warn('⚠️ Failed to save analysis data to storage');
+                this.showAlert('Analysis completed but failed to save to storage. Consider exporting your data and clearing old analyses.', 'warning');
+            } else {
+                // Update storage indicators after successful save
+                this.showStorageStatus();
+                this.showStorageStatusIndicator();
+            }
             
             // Display results
             this.displayResults(results, ownerName);
@@ -600,6 +625,192 @@ class SBOMPlayApp {
             }
         } else {
             this.showAlert('No data to clear', 'warning');
+        }
+    }
+
+    /**
+     * Show storage status in UI
+     */
+    showStorageStatus() {
+        const storageInfo = this.storageManager.getStorageInfo();
+        const storageStatusDiv = document.getElementById('storageStatus');
+        
+        if (storageInfo) {
+            const usagePercent = (storageInfo.totalSize / storageInfo.maxStorageSize) * 100;
+            const usageClass = usagePercent > 90 ? 'danger' : usagePercent > 70 ? 'warning' : 'success';
+            
+            storageStatusDiv.innerHTML = `
+                <div class="alert alert-${usageClass}">
+                    <h6><i class="fas fa-hdd me-2"></i>Storage Status</h6>
+                    <div class="row">
+                        <div class="col-md-6">
+                            <strong>Usage:</strong> ${(storageInfo.totalSize / 1024 / 1024).toFixed(2)}MB / ${(storageInfo.maxStorageSize / 1024 / 1024).toFixed(2)}MB (${usagePercent.toFixed(1)}%)
+                        </div>
+                        <div class="col-md-6">
+                            <strong>Available:</strong> ${(storageInfo.availableSpace / 1024 / 1024).toFixed(2)}MB
+                        </div>
+                    </div>
+                    <div class="row mt-2">
+                        <div class="col-md-6">
+                            <strong>Organizations:</strong> ${storageInfo.organizationsCount}
+                        </div>
+                        <div class="col-md-6">
+                            <strong>History Entries:</strong> ${storageInfo.historyCount}
+                        </div>
+                    </div>
+                    ${usagePercent > 80 ? '<div class="mt-2"><strong>⚠️ Warning:</strong> Storage usage is high. Consider exporting data.</div>' : ''}
+                </div>
+            `;
+        } else {
+            storageStatusDiv.innerHTML = `
+                <div class="alert alert-warning">
+                    <i class="fas fa-exclamation-triangle me-2"></i>
+                    Unable to retrieve storage status
+                </div>
+            `;
+        }
+    }
+
+    /**
+     * Show storage status indicator in header
+     */
+    showStorageStatusIndicator() {
+        const storageInfo = this.storageManager.getStorageInfo();
+        const indicatorDiv = document.getElementById('storageStatusIndicator');
+        const statusTextDiv = document.getElementById('storageStatusText');
+        
+        if (storageInfo && storageInfo.hasData) {
+            const usagePercent = (storageInfo.totalSize / storageInfo.maxStorageSize) * 100;
+            let statusClass = 'text-muted';
+            let statusIcon = 'fas fa-hdd';
+            
+            if (usagePercent > 90) {
+                statusClass = 'text-danger';
+                statusIcon = 'fas fa-exclamation-triangle';
+            } else if (usagePercent > 70) {
+                statusClass = 'text-warning';
+                statusIcon = 'fas fa-exclamation-circle';
+            } else if (usagePercent > 30) {
+                statusClass = 'text-info';
+                statusIcon = 'fas fa-info-circle';
+            }
+            
+            statusTextDiv.innerHTML = `
+                <i class="${statusIcon} me-1"></i>
+                <span class="${statusClass}">
+                    ${(storageInfo.totalSize / 1024 / 1024).toFixed(2)}MB used (${usagePercent.toFixed(1)}%) - 
+                    ${storageInfo.organizationsCount} organizations stored
+                </span>
+            `;
+            
+            indicatorDiv.style.display = 'block';
+        } else {
+            indicatorDiv.style.display = 'none';
+        }
+    }
+
+    /**
+     * Export all data
+     */
+    exportAllData() {
+        try {
+            const filename = `sbom-all-data-${new Date().toISOString().split('T')[0]}.json`;
+            this.storageManager.exportAllData(filename);
+            this.showAlert('All data exported successfully', 'success');
+        } catch (error) {
+            console.error('Export failed:', error);
+            this.showAlert('Failed to export data', 'danger');
+        }
+    }
+
+    /**
+     * Clear old data (keep only recent)
+     */
+    clearOldData() {
+        if (confirm('This will remove old analysis data while keeping the most recent. Continue?')) {
+            try {
+                const storageInfo = this.storageManager.getStorageInfo();
+                const organizations = storageInfo.organizations;
+                
+                if (organizations.length <= 3) {
+                    this.showAlert('Not enough data to clear. Keep at least 3 recent analyses.', 'info');
+                    return;
+                }
+                
+                // Keep only the 3 most recent organizations
+                organizations.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+                const toRemove = organizations.slice(3);
+                
+                let removedCount = 0;
+                for (const org of toRemove) {
+                    if (this.storageManager.removeOrganizationData(org.name)) {
+                        removedCount++;
+                    }
+                }
+                
+                this.showAlert(`Cleared ${removedCount} old analyses. Kept 3 most recent.`, 'success');
+                this.displayResults(null, null); // Refresh display
+                this.showStorageStatus(); // Update storage status
+                this.showStorageStatusIndicator(); // Update header indicator
+            } catch (error) {
+                console.error('Clear old data failed:', error);
+                this.showAlert('Failed to clear old data', 'danger');
+            }
+        }
+    }
+
+    /**
+     * Clear all data
+     */
+    clearAllData() {
+        if (confirm('Are you sure you want to clear ALL stored data? This action cannot be undone.')) {
+            try {
+                this.storageManager.clearAllData();
+                this.showAlert('All data cleared successfully', 'success');
+                this.displayResults(null, null); // Refresh display
+                this.showStorageStatus(); // Update storage status
+                this.showStorageStatusIndicator(); // Update header indicator
+            } catch (error) {
+                console.error('Clear all data failed:', error);
+                this.showAlert('Failed to clear all data', 'danger');
+            }
+        }
+    }
+
+    /**
+     * Test storage quota management
+     */
+    testStorageQuota() {
+        try {
+            const testResults = this.storageManager.testStorageQuota();
+            if (testResults) {
+                console.log('🧪 Storage quota test results:', testResults);
+                this.showAlert(`Storage test completed. Check console for details. Compression ratio: ${testResults.compressionRatio.toFixed(1)}%`, 'info');
+            } else {
+                this.showAlert('Storage test failed. Check console for details.', 'warning');
+            }
+        } catch (error) {
+            console.error('Storage test failed:', error);
+            this.showAlert('Storage test failed', 'danger');
+        }
+    }
+
+    /**
+     * Migrate old data to new compressed format
+     */
+    migrateOldData() {
+        try {
+            const migratedCount = this.storageManager.migrateOldData();
+            if (migratedCount > 0) {
+                this.showAlert(`Successfully migrated ${migratedCount} organizations to compressed format.`, 'success');
+                this.showStorageStatus(); // Update storage status
+                this.showStorageStatusIndicator(); // Update header indicator
+            } else {
+                this.showAlert('No old data found to migrate. All data is already in compressed format.', 'info');
+            }
+        } catch (error) {
+            console.error('Migration failed:', error);
+            this.showAlert('Failed to migrate old data', 'danger');
         }
     }
 
