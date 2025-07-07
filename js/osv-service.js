@@ -100,10 +100,9 @@ class OSVService {
      */
     async queryVulnerabilitiesBatch(packages) {
         if (packages.length === 0) return [];
-        
+        const MAX_BATCH = 100; // OSV API limit
         try {
             console.log(`🔍 OSV: Batch querying ${packages.length} packages`);
-            
             // Filter out invalid packages and create proper queries
             const validQueries = packages
                 .filter(pkg => pkg.name && pkg.version && pkg.name.trim() && pkg.version.trim())
@@ -122,30 +121,40 @@ class OSVService {
                 return packages.map(() => ({ vulns: [] }));
             }
 
-            console.log(`🔍 OSV: Sending ${validQueries.length} valid queries`);
-            console.log('🔍 OSV: Ecosystems being sent:', validQueries.map(q => `${q.package.name} (${q.package.ecosystem})`));
-            console.log('Sample query:', validQueries[0]);
-
-            const response = await fetch(`${this.baseUrl}/v1/querybatch`, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify({ queries: validQueries })
-            });
-
-            if (!response.ok) {
-                const errorText = await response.text();
-                console.error(`❌ OSV: API Response:`, errorText);
-                throw new Error(`OSV API error: ${response.status} ${response.statusText} - ${errorText}`);
+            // Split into chunks of 100
+            const chunks = [];
+            for (let i = 0; i < validQueries.length; i += MAX_BATCH) {
+                chunks.push(validQueries.slice(i, i + MAX_BATCH));
             }
 
-            const data = await response.json();
-            console.log(`✅ OSV: Batch query completed, found vulnerabilities for ${data.results?.length || 0} packages`);
-            
+            let allResults = [];
+            for (let idx = 0; idx < chunks.length; idx++) {
+                const chunk = chunks[idx];
+                console.log(`🔍 OSV: Sending chunk ${idx + 1}/${chunks.length} with ${chunk.length} queries`);
+                const response = await fetch(`${this.baseUrl}/v1/querybatch`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ queries: chunk })
+                });
+
+                if (!response.ok) {
+                    const errorText = await response.text();
+                    console.error(`❌ OSV: API Response (chunk ${idx + 1}):`, errorText);
+                    throw new Error(`OSV API error: ${response.status} ${response.statusText} - ${errorText}`);
+                }
+
+                const data = await response.json();
+                if (data.results && Array.isArray(data.results)) {
+                    allResults = allResults.concat(data.results);
+                }
+            }
+
+            console.log(`✅ OSV: Batch query completed, found vulnerabilities for ${allResults.length} packages`);
             // Debug: Log sample vulnerability structure from batch query
-            if (data.results && data.results.length > 0) {
-                const sampleResult = data.results.find(r => r.vulns && r.vulns.length > 0);
+            if (allResults && allResults.length > 0) {
+                const sampleResult = allResults.find(r => r.vulns && r.vulns.length > 0);
                 if (sampleResult) {
                     console.log('🔍 OSV: Sample batch query vulnerability structure:', {
                         id: sampleResult.vulns[0].id,
@@ -156,8 +165,7 @@ class OSVService {
                     });
                 }
             }
-            
-            return data.results || [];
+            return allResults;
         } catch (error) {
             console.error(`❌ OSV: Batch query error:`, error);
             return packages.map(() => ({ vulns: [] }));
@@ -577,8 +585,6 @@ class OSVService {
                 });
             }
         }
-
-
 
         console.log(`🔍 OSV: Final severity for ${vulnerability.id}: ${highestSeverity}`);
         return highestSeverity;
