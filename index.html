@@ -37,6 +37,23 @@
             </p>
         </div>
 
+        <!-- Storage Status Indicator -->
+        <div id="storageStatusIndicator" class="alert alert-light" role="alert" style="display: none;">
+            <div class="d-flex justify-content-between align-items-center">
+                <div>
+                    <h6 class="mb-1"><i class="fas fa-hdd me-2"></i>Storage Status</h6>
+                    <div id="storageStatusText" class="small text-muted">
+                        Loading storage information...
+                    </div>
+                </div>
+                <div>
+                    <button class="btn btn-outline-primary btn-sm" onclick="app.showStorageStatus()">
+                        <i class="fas fa-cog me-1"></i>Manage
+                    </button>
+                </div>
+            </div>
+        </div>
+
         <!-- Resume Analysis Section -->
         <div id="resumeSection" class="card mb-4" style="display: none;">
             <div class="card-header bg-warning text-dark">
@@ -123,6 +140,44 @@
                                 <i class="fas fa-search me-2"></i>Explore
                             </a>
                         </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Storage Management -->
+        <div class="card mb-4">
+            <div class="card-header">
+                <h5 class="mb-0">
+                    <i class="fas fa-hdd me-2"></i>Storage Management
+                </h5>
+            </div>
+            <div class="card-body">
+                <div id="storageStatus" class="mb-3">
+                    <!-- Storage status will be populated by JavaScript -->
+                </div>
+                <div class="row">
+                    <div class="col-md-6">
+                        <button class="btn btn-outline-primary btn-sm" onclick="app.showStorageStatus()">
+                            <i class="fas fa-info-circle me-2"></i>Check Storage Status
+                        </button>
+                        <button class="btn btn-outline-success btn-sm" onclick="app.exportAllData()">
+                            <i class="fas fa-download me-2"></i>Export All Data
+                        </button>
+                        <button class="btn btn-outline-info btn-sm" onclick="app.testStorageQuota()">
+                            <i class="fas fa-vial me-2"></i>Test Storage
+                        </button>
+                        <button class="btn btn-outline-secondary btn-sm" onclick="app.migrateOldData()">
+                            <i class="fas fa-sync me-2"></i>Migrate Data
+                        </button>
+                    </div>
+                    <div class="col-md-6 text-end">
+                        <button class="btn btn-outline-warning btn-sm" onclick="app.clearOldData()">
+                            <i class="fas fa-broom me-2"></i>Clear Old Data
+                        </button>
+                        <button class="btn btn-outline-danger btn-sm" onclick="app.clearAllData()">
+                            <i class="fas fa-trash me-2"></i>Clear All Data
+                        </button>
                     </div>
                 </div>
             </div>

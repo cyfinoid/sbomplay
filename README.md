@@ -63,6 +63,43 @@ The tool now maintains data for all analyzed organizations and users until manua
 - **Bulk Operations**: Export all data or clear all stored analyses
 - **Smart Updates**: Re-analyzing an organization updates existing data instead of creating duplicates
 
+## Storage Management
+
+### Local Storage Quota
+
+SBOM Play uses browser localStorage to store analysis data. localStorage has a 5MB limit, which can be exceeded with large analyses. The tool includes several features to manage this:
+
+#### Automatic Features
+- **Data Compression**: Large data is automatically compressed to save space
+- **Quota Monitoring**: Real-time storage usage tracking
+- **Automatic Cleanup**: Old data is automatically removed when quota is exceeded
+- **Smart Limits**: Maximum 10 organizations and 20 history entries stored
+
+#### Manual Management
+- **Storage Status**: Check current usage and available space
+- **Export Data**: Export all data before clearing to preserve results
+- **Clear Old Data**: Remove old analyses while keeping recent ones
+- **Clear All Data**: Complete reset of stored data
+
+#### Storage Warnings
+The tool will show warnings when:
+- Storage usage exceeds 70% (warning)
+- Storage usage exceeds 90% (danger)
+- Quota is exceeded during save (error)
+
+### Storage Quota Exceeded Error
+
+If you encounter a "QuotaExceededError", the tool will:
+1. Attempt to compress the data
+2. Clean up old history entries
+3. Remove oldest organizations if needed
+4. Show a user-friendly error message if cleanup fails
+
+**To resolve:**
+1. Export your current data using "Export All Data"
+2. Clear old analyses using "Clear Old Data"
+3. Try the analysis again
+
 ## Troubleshooting
 
 ### No Dependencies Found

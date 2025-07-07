@@ -41,6 +41,44 @@
             </div>
         </div>
 
+        <!-- Storage Management -->
+        <div class="card mb-4">
+            <div class="card-header">
+                <h5 class="mb-0">
+                    <i class="fas fa-hdd me-2"></i>Storage Management
+                </h5>
+            </div>
+            <div class="card-body">
+                <div id="storageStatus" class="mb-3">
+                    <!-- Storage status will be populated by JavaScript -->
+                </div>
+                <div class="row">
+                    <div class="col-md-6">
+                        <button class="btn btn-outline-primary btn-sm" onclick="explorerApp.showStorageStatus()">
+                            <i class="fas fa-info-circle me-2"></i>Check Storage Status
+                        </button>
+                        <button class="btn btn-outline-success btn-sm" onclick="explorerApp.exportAllData()">
+                            <i class="fas fa-download me-2"></i>Export All Data
+                        </button>
+                        <button class="btn btn-outline-info btn-sm" onclick="explorerApp.testStorageQuota()">
+                            <i class="fas fa-vial me-2"></i>Test Storage
+                        </button>
+                        <button class="btn btn-outline-secondary btn-sm" onclick="explorerApp.migrateOldData()">
+                            <i class="fas fa-sync me-2"></i>Migrate Data
+                        </button>
+                    </div>
+                    <div class="col-md-6 text-end">
+                        <button class="btn btn-outline-warning btn-sm" onclick="explorerApp.clearOldData()">
+                            <i class="fas fa-broom me-2"></i>Clear Old Data
+                        </button>
+                        <button class="btn btn-outline-danger btn-sm" onclick="explorerApp.clearAllData()">
+                            <i class="fas fa-trash me-2"></i>Clear All Data
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
         <!-- Stored Analyses Section -->
         <div id="organizationsSection" class="card mb-4">
             <div class="card-header">
@@ -224,6 +262,7 @@
             }
 
             init() {
+                this.showStorageStatus();
                 this.displayOrganizationsOverview();
             }
 
@@ -436,6 +475,7 @@
                     if (success) {
                         this.showAlert(`Data for ${orgName} has been removed`, 'success');
                         this.displayOrganizationsOverview();
+                        this.showStorageStatus(); // Update storage status
                         
                         // If this was the currently displayed data, clear the view
                         document.getElementById('view-container').style.display = 'none';
@@ -468,9 +508,125 @@
                         document.getElementById('view-container').style.display = 'none';
                         document.getElementById('organizationsSection').style.display = 'none';
                         document.getElementById('noDataSection').style.display = 'block';
+                        this.showStorageStatus(); // Update storage status
                     } else {
                         this.showAlert('Failed to clear data', 'danger');
                     }
+                }
+            }
+
+            /**
+             * Show storage status in UI
+             */
+            showStorageStatus() {
+                const storageInfo = this.storageManager.getStorageInfo();
+                const storageStatusDiv = document.getElementById('storageStatus');
+                
+                if (storageInfo) {
+                    const usagePercent = (storageInfo.totalSize / storageInfo.maxStorageSize) * 100;
+                    const usageClass = usagePercent > 90 ? 'danger' : usagePercent > 70 ? 'warning' : 'success';
+                    
+                    storageStatusDiv.innerHTML = `
+                        <div class="alert alert-${usageClass}">
+                            <h6><i class="fas fa-hdd me-2"></i>Storage Status</h6>
+                            <div class="row">
+                                <div class="col-md-6">
+                                    <strong>Usage:</strong> ${(storageInfo.totalSize / 1024 / 1024).toFixed(2)}MB / ${(storageInfo.maxStorageSize / 1024 / 1024).toFixed(2)}MB (${usagePercent.toFixed(1)}%)
+                                </div>
+                                <div class="col-md-6">
+                                    <strong>Available:</strong> ${(storageInfo.availableSpace / 1024 / 1024).toFixed(2)}MB
+                                </div>
+                            </div>
+                            <div class="row mt-2">
+                                <div class="col-md-6">
+                                    <strong>Organizations:</strong> ${storageInfo.organizationsCount}
+                                </div>
+                                <div class="col-md-6">
+                                    <strong>History Entries:</strong> ${storageInfo.historyCount}
+                                </div>
+                            </div>
+                            ${usagePercent > 80 ? '<div class="mt-2"><strong>⚠️ Warning:</strong> Storage usage is high. Consider exporting data.</div>' : ''}
+                        </div>
+                    `;
+                } else {
+                    storageStatusDiv.innerHTML = `
+                        <div class="alert alert-warning">
+                            <i class="fas fa-exclamation-triangle me-2"></i>
+                            Unable to retrieve storage status
+                        </div>
+                    `;
+                }
+            }
+
+            /**
+             * Clear old data (keep only recent)
+             */
+            clearOldData() {
+                if (confirm('This will remove old analysis data while keeping the most recent. Continue?')) {
+                    try {
+                        const storageInfo = this.storageManager.getStorageInfo();
+                        const organizations = storageInfo.organizations;
+                        
+                        if (organizations.length <= 3) {
+                            this.showAlert('Not enough data to clear. Keep at least 3 recent analyses.', 'info');
+                            return;
+                        }
+                        
+                        // Keep only the 3 most recent organizations
+                        organizations.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+                        const toRemove = organizations.slice(3);
+                        
+                        let removedCount = 0;
+                        for (const org of toRemove) {
+                            if (this.storageManager.removeOrganizationData(org.name)) {
+                                removedCount++;
+                            }
+                        }
+                        
+                        this.showAlert(`Cleared ${removedCount} old analyses. Kept 3 most recent.`, 'success');
+                        this.displayOrganizationsOverview(); // Refresh display
+                        this.showStorageStatus(); // Update storage status
+                    } catch (error) {
+                        console.error('Clear old data failed:', error);
+                        this.showAlert('Failed to clear old data', 'danger');
+                    }
+                }
+            }
+
+            /**
+             * Test storage quota management
+             */
+            testStorageQuota() {
+                try {
+                    const testResults = this.storageManager.testStorageQuota();
+                    if (testResults) {
+                        console.log('🧪 Storage quota test results:', testResults);
+                        this.showAlert(`Storage test completed. Check console for details. Compression ratio: ${testResults.compressionRatio.toFixed(1)}%`, 'info');
+                    } else {
+                        this.showAlert('Storage test failed. Check console for details.', 'warning');
+                    }
+                } catch (error) {
+                    console.error('Storage test failed:', error);
+                    this.showAlert('Storage test failed', 'danger');
+                }
+            }
+
+            /**
+             * Migrate old data to new compressed format
+             */
+            migrateOldData() {
+                try {
+                    const migratedCount = this.storageManager.migrateOldData();
+                    if (migratedCount > 0) {
+                        this.showAlert(`Successfully migrated ${migratedCount} organizations to compressed format.`, 'success');
+                        this.showStorageStatus(); // Update storage status
+                        this.displayOrganizationsOverview(); // Refresh display
+                    } else {
+                        this.showAlert('No old data found to migrate. All data is already in compressed format.', 'info');
+                    }
+                } catch (error) {
+                    console.error('Migration failed:', error);
+                    this.showAlert('Failed to migrate old data', 'danger');
                 }
             }
 

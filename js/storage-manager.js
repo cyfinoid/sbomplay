@@ -1,14 +1,152 @@
 /**
- * Storage Manager - Handles local storage operations
+ * Storage Manager - Handles local storage operations with quota management
  */
 class StorageManager {
     constructor() {
         this.organizationsKey = 'sbomplay_organizations';
         this.historyKey = 'sbomplay_history';
+        this.maxStorageSize = 4.5 * 1024 * 1024; // 4.5MB to leave some buffer
+        this.maxHistoryEntries = 20; // Reduced from 50 to save space
+        this.maxOrganizations = 10; // Limit number of organizations stored
     }
 
     /**
-     * Save analysis data to local storage
+     * Compress data using simple compression techniques
+     */
+    compressData(data) {
+        try {
+            // Remove unnecessary whitespace and use shorter property names
+            const compressed = JSON.stringify(data, null, 0);
+            
+            // For very large data, we can implement more aggressive compression
+            if (compressed.length > 1024 * 1024) { // If > 1MB
+                console.log('⚠️ Large data detected, applying aggressive compression');
+                // Remove detailed dependency lists for compression
+                const minimalData = {
+                    organization: data.organization,
+                    timestamp: data.timestamp,
+                    data: {
+                        statistics: data.data.statistics,
+                        topDependencies: data.data.topDependencies?.slice(0, 20) || [],
+                        topRepositories: data.data.topRepositories?.slice(0, 20) || [],
+                        categoryStats: data.data.categoryStats || {},
+                        languageStats: data.data.languageStats || {}
+                    }
+                };
+                return JSON.stringify(minimalData, null, 0);
+            }
+            
+            return compressed;
+        } catch (error) {
+            console.error('❌ Compression failed:', error);
+            // Fallback to basic compression
+            try {
+                return JSON.stringify(data, null, 0);
+            } catch (fallbackError) {
+                console.error('❌ Fallback compression also failed:', fallbackError);
+                throw new Error('Data compression failed completely');
+            }
+        }
+    }
+
+    /**
+     * Decompress data
+     */
+    decompressData(compressedData) {
+        try {
+            return JSON.parse(compressedData);
+        } catch (error) {
+            console.error('❌ Decompression failed:', error);
+            return null;
+        }
+    }
+
+    /**
+     * Check if we have enough storage space
+     */
+    hasEnoughStorage(dataSize) {
+        try {
+            const currentUsage = this.getCurrentStorageUsage();
+            const availableSpace = this.maxStorageSize - currentUsage;
+            return dataSize <= availableSpace;
+        } catch (error) {
+            console.error('❌ Failed to check storage space:', error);
+            return false;
+        }
+    }
+
+    /**
+     * Get current storage usage
+     */
+    getCurrentStorageUsage() {
+        try {
+            let totalSize = 0;
+            const keys = Object.keys(localStorage);
+            
+            for (const key of keys) {
+                const value = localStorage.getItem(key);
+                if (value) {
+                    totalSize += new Blob([value]).size;
+                }
+            }
+            
+            return totalSize;
+        } catch (error) {
+            console.error('❌ Failed to calculate storage usage:', error);
+            return 0;
+        }
+    }
+
+    /**
+     * Clean up old data to make space
+     */
+    cleanupOldData(requiredSpace) {
+        try {
+            console.log('🧹 Cleaning up old data to make space...');
+            
+            // First, try to clean up history
+            const history = this.getHistory();
+            if (history.length > this.maxHistoryEntries) {
+                const excessEntries = history.length - this.maxHistoryEntries;
+                history.splice(this.maxHistoryEntries, excessEntries);
+                localStorage.setItem(this.historyKey, JSON.stringify(history));
+                console.log(`🗑️ Removed ${excessEntries} old history entries`);
+            }
+
+            // If still not enough space, remove oldest organizations
+            const organizations = this.getOrganizations();
+            if (organizations.length > this.maxOrganizations) {
+                // Sort by timestamp and remove oldest
+                organizations.sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
+                const excessOrgs = organizations.length - this.maxOrganizations;
+                organizations.splice(0, excessOrgs);
+                localStorage.setItem(this.organizationsKey, JSON.stringify(organizations));
+                console.log(`🗑️ Removed ${excessOrgs} oldest organizations`);
+            }
+
+            // Check if we have enough space now
+            const currentUsage = this.getCurrentStorageUsage();
+            const availableSpace = this.maxStorageSize - currentUsage;
+            
+            if (availableSpace < requiredSpace) {
+                // Last resort: clear all data except the most recent organization
+                console.log('⚠️ Storage still full, clearing all data except most recent');
+                const mostRecent = organizations[organizations.length - 1];
+                this.clearAllData();
+                if (mostRecent) {
+                    this.addToOrganizations(mostRecent.organization, mostRecent.timestamp, mostRecent.data);
+                }
+            }
+
+            return this.getCurrentStorageUsage();
+        } catch (error) {
+            console.error('❌ Failed to cleanup old data:', error);
+            return 0;
+        }
+    }
+
+    /**
+     * Save analysis data to local storage with quota management
      */
     saveAnalysisData(orgName, data) {
         try {
@@ -19,8 +157,25 @@ class StorageManager {
                 data: data
             };
 
+            // Compress the data
+            const compressedData = this.compressData(analysisData);
+            const dataSize = new Blob([compressedData]).size;
+
+            console.log(`📊 Data size: ${(dataSize / 1024 / 1024).toFixed(2)}MB`);
+
+            // Check if we have enough space
+            if (!this.hasEnoughStorage(dataSize)) {
+                console.log('⚠️ Storage quota exceeded, attempting cleanup...');
+                this.cleanupOldData(dataSize);
+                
+                // Check again after cleanup
+                if (!this.hasEnoughStorage(dataSize)) {
+                    throw new Error('Storage quota exceeded even after cleanup. Please export and clear some data.');
+                }
+            }
+
             // Add to organizations list (this is the single source of truth)
-            this.addToOrganizations(orgName, timestamp, data);
+            this.addToOrganizations(orgName, timestamp, data, compressedData);
 
             // Add to history
             this.addToHistory(orgName, timestamp, data);
@@ -29,6 +184,12 @@ class StorageManager {
             return true;
         } catch (error) {
             console.error('❌ Failed to save data:', error);
+            
+            // Show user-friendly error message
+            if (error.message.includes('Storage quota exceeded')) {
+                alert('Storage quota exceeded! Please export your data and clear some old analyses to continue.');
+            }
+            
             return false;
         }
     }
@@ -45,7 +206,16 @@ class StorageManager {
                 const mostRecent = organizations.reduce((latest, current) => 
                     new Date(current.timestamp) > new Date(latest.timestamp) ? current : latest
                 );
-                console.log('🔍 Storage - loadAnalysisData - most recent data:', mostRecent);
+                
+                // Get the full data for the most recent organization
+                const fullData = this.getFullOrganizationData(mostRecent.organization);
+                if (fullData) {
+                    console.log('🔍 Storage - loadAnalysisData - most recent data:', fullData);
+                    return fullData;
+                }
+                
+                // Fallback to metadata if full data not available
+                console.log('🔍 Storage - loadAnalysisData - most recent metadata:', mostRecent);
                 return mostRecent;
             }
             return null;
@@ -60,7 +230,13 @@ class StorageManager {
      */
     loadAnalysisDataForOrganization(orgName) {
         try {
-            // Get from organizations list (single source of truth)
+            // Try to get full decompressed data first
+            const fullData = this.getFullOrganizationData(orgName);
+            if (fullData) {
+                return fullData;
+            }
+            
+            // Fallback to organizations list
             const organizations = this.getOrganizations();
             const orgData = organizations.find(org => org.organization === orgName);
             return orgData || null;
@@ -76,7 +252,21 @@ class StorageManager {
     getOrganizations() {
         try {
             const data = localStorage.getItem(this.organizationsKey);
-            return data ? JSON.parse(data) : [];
+            const organizations = data ? JSON.parse(data) : [];
+            
+            // Handle backward compatibility for old format
+            return organizations.map(org => {
+                // If org has the old format with full data, convert to new format
+                if (org.data && org.data.statistics) {
+                    return {
+                        organization: org.organization,
+                        timestamp: org.timestamp,
+                        statistics: org.data.statistics
+                    };
+                }
+                // If already in new format, return as is
+                return org;
+            });
         } catch (error) {
             console.error('❌ Failed to load organizations:', error);
             return [];
@@ -84,32 +274,74 @@ class StorageManager {
     }
 
     /**
+     * Get full organization data (decompressed)
+     */
+    getFullOrganizationData(orgName) {
+        try {
+            const compressedData = localStorage.getItem(`compressed_${orgName}`);
+            if (compressedData) {
+                return this.decompressData(compressedData);
+            }
+            
+            // Fallback to old format if compressed data not found
+            // This handles backward compatibility for data stored before compression
+            const organizations = this.getOrganizations();
+            const orgData = organizations.find(org => org.organization === orgName);
+            
+            // If we found metadata but no compressed data, try to reconstruct
+            if (orgData && orgData.statistics) {
+                console.log('⚠️ Found metadata but no compressed data for', orgName, '- this is expected for old data');
+                // Return a minimal structure for backward compatibility
+                return {
+                    organization: orgName,
+                    timestamp: orgData.timestamp,
+                    data: {
+                        statistics: orgData.statistics,
+                        topDependencies: [],
+                        topRepositories: [],
+                        allDependencies: [],
+                        allRepositories: [],
+                        categoryStats: {},
+                        languageStats: {}
+                    }
+                };
+            }
+            
+            return orgData || null;
+        } catch (error) {
+            console.error('❌ Failed to load full organization data:', error);
+            return null;
+        }
+    }
+
+    /**
      * Add analysis to organizations list
      */
-    addToOrganizations(orgName, timestamp, data) {
+    addToOrganizations(orgName, timestamp, data, compressedData) {
         try {
             const organizations = this.getOrganizations();
             
             // Check if organization already exists
             const existingIndex = organizations.findIndex(org => org.organization === orgName);
             
+            // Create metadata-only entry (without the full data object)
+            const metadata = {
+                organization: orgName,
+                timestamp: timestamp,
+                statistics: data.statistics // Store only the statistics for quick access
+            };
+            
             if (existingIndex !== -1) {
-                // Update existing organization data
-                organizations[existingIndex] = {
-                    organization: orgName,
-                    timestamp: timestamp,
-                    data: data
-                };
+                // Update existing organization metadata
+                organizations[existingIndex] = metadata;
             } else {
-                // Add new organization
-                organizations.push({
-                    organization: orgName,
-                    timestamp: timestamp,
-                    data: data
-                });
+                // Add new organization metadata
+                organizations.push(metadata);
             }
 
+            // Store the compressed data separately
             localStorage.setItem(this.organizationsKey, JSON.stringify(organizations));
+            localStorage.setItem(`compressed_${orgName}`, compressedData);
         } catch (error) {
             console.error('❌ Failed to save to organizations:', error);
         }
@@ -124,6 +356,9 @@ class StorageManager {
             const organizations = this.getOrganizations();
             const filteredOrganizations = organizations.filter(org => org.organization !== orgName);
             localStorage.setItem(this.organizationsKey, JSON.stringify(filteredOrganizations));
+            
+            // Remove compressed data
+            localStorage.removeItem(`compressed_${orgName}`);
             
             // Also remove from history
             const history = this.getHistory();
@@ -184,10 +419,10 @@ class StorageManager {
             localStorage.removeItem(this.historyKey);
             localStorage.removeItem(this.organizationsKey);
             
-            // Clean up any legacy organization-specific keys
+            // Clean up any legacy organization-specific keys and compressed data
             const keys = Object.keys(localStorage);
             keys.forEach(key => {
-                if (key.startsWith('sbomplay_org_')) {
+                if (key.startsWith('sbomplay_org_') || key.startsWith('compressed_')) {
                     localStorage.removeItem(key);
                 }
             });
@@ -271,22 +506,34 @@ class StorageManager {
             
             const historySize = historyData ? new Blob([historyData]).size : 0;
             const organizationsSize = organizationsData ? new Blob([organizationsData]).size : 0;
-            const totalSize = historySize + organizationsSize;
             
+            // Calculate compressed data size
+            let compressedDataSize = 0;
             const organizations = this.getOrganizations();
+            for (const org of organizations) {
+                const compressedData = localStorage.getItem(`compressed_${org.organization}`);
+                if (compressedData) {
+                    compressedDataSize += new Blob([compressedData]).size;
+                }
+            }
+            
+            const totalSize = historySize + organizationsSize + compressedDataSize;
             
             return {
                 historyDataSize: historySize,
                 organizationsDataSize: organizationsSize,
+                compressedDataSize: compressedDataSize,
                 totalSize: totalSize,
+                maxStorageSize: this.maxStorageSize,
+                availableSpace: this.maxStorageSize - totalSize,
                 hasData: organizations.length > 0,
                 historyCount: this.getHistory().length,
                 organizationsCount: organizations.length,
                 organizations: organizations.map(org => ({
                     name: org.organization,
                     timestamp: org.timestamp,
-                    repositories: org.data.statistics.totalRepositories,
-                    dependencies: org.data.statistics.totalDependencies
+                    repositories: org.statistics.totalRepositories,
+                    dependencies: org.statistics.totalDependencies
                 }))
             };
         } catch (error) {
@@ -294,7 +541,10 @@ class StorageManager {
             return {
                 historyDataSize: 0,
                 organizationsDataSize: 0,
+                compressedDataSize: 0,
                 totalSize: 0,
+                maxStorageSize: this.maxStorageSize,
+                availableSpace: this.maxStorageSize,
                 hasData: false,
                 historyCount: 0,
                 organizationsCount: 0,
@@ -347,6 +597,180 @@ class StorageManager {
     }
 
     /**
+     * Get storage management recommendations
+     */
+    getStorageRecommendations() {
+        try {
+            const storageInfo = this.getStorageInfo();
+            const recommendations = [];
+            
+            if (storageInfo.totalSize > this.maxStorageSize * 0.8) {
+                recommendations.push({
+                    type: 'warning',
+                    message: 'Storage is nearly full. Consider exporting and clearing old data.',
+                    action: 'export_and_clear'
+                });
+            }
+            
+            if (storageInfo.organizationsCount > this.maxOrganizations * 0.8) {
+                recommendations.push({
+                    type: 'info',
+                    message: `You have ${storageInfo.organizationsCount} organizations stored. Consider removing old ones.`,
+                    action: 'review_organizations'
+                });
+            }
+            
+            if (storageInfo.historyCount > this.maxHistoryEntries * 0.8) {
+                recommendations.push({
+                    type: 'info',
+                    message: `You have ${storageInfo.historyCount} history entries. Old entries will be automatically cleaned up.`,
+                    action: 'review_history'
+                });
+            }
+            
+            return {
+                recommendations: recommendations,
+                storageInfo: storageInfo
+            };
+        } catch (error) {
+            console.error('❌ Failed to get storage recommendations:', error);
+            return {
+                recommendations: [],
+                storageInfo: null
+            };
+        }
+    }
+
+    /**
+     * Show storage status to user
+     */
+    showStorageStatus() {
+        try {
+            const storageInfo = this.getStorageInfo();
+            const usagePercent = (storageInfo.totalSize / storageInfo.maxStorageSize) * 100;
+            
+            console.log(`📊 Storage Status:`);
+            console.log(`   Total Usage: ${(storageInfo.totalSize / 1024 / 1024).toFixed(2)}MB / ${(storageInfo.maxStorageSize / 1024 / 1024).toFixed(2)}MB (${usagePercent.toFixed(1)}%)`);
+            console.log(`   Available: ${(storageInfo.availableSpace / 1024 / 1024).toFixed(2)}MB`);
+            console.log(`   Organizations: ${storageInfo.organizationsCount}`);
+            console.log(`   History Entries: ${storageInfo.historyCount}`);
+            
+            if (usagePercent > 80) {
+                console.warn('⚠️ Storage usage is high. Consider exporting data.');
+            }
+            
+            return storageInfo;
+        } catch (error) {
+            console.error('❌ Failed to show storage status:', error);
+            return null;
+        }
+    }
+
+    /**
+     * Test storage quota management (for debugging)
+     */
+    testStorageQuota() {
+        try {
+            console.log('🧪 Testing storage quota management...');
+            
+            // Test current storage status
+            const currentStatus = this.getStorageInfo();
+            console.log('Current storage status:', currentStatus);
+            
+            // Test compression
+            const testData = {
+                organization: 'test-org',
+                timestamp: new Date().toISOString(),
+                data: {
+                    statistics: {
+                        totalRepositories: 100,
+                        totalDependencies: 5000
+                    },
+                    topDependencies: Array.from({length: 100}, (_, i) => ({
+                        name: `test-dep-${i}`,
+                        version: '1.0.0',
+                        count: Math.floor(Math.random() * 100)
+                    })),
+                    topRepositories: Array.from({length: 50}, (_, i) => ({
+                        name: `test-repo-${i}`,
+                        totalDependencies: Math.floor(Math.random() * 200)
+                    }))
+                }
+            };
+            
+            const compressed = this.compressData(testData);
+            const compressedSize = new Blob([compressed]).size;
+            console.log(`Test data compressed size: ${(compressedSize / 1024).toFixed(2)}KB`);
+            
+            // Test storage space check
+            const hasSpace = this.hasEnoughStorage(compressedSize);
+            console.log(`Has enough space for test data: ${hasSpace}`);
+            
+            return {
+                currentStatus,
+                testDataSize: compressedSize,
+                hasSpace,
+                compressionRatio: (compressedSize / (JSON.stringify(testData).length)) * 100
+            };
+        } catch (error) {
+            console.error('❌ Storage quota test failed:', error);
+            return null;
+        }
+    }
+
+    /**
+     * Migrate old data to new compressed format
+     */
+    migrateOldData() {
+        try {
+            console.log('🔄 Migrating old data to new compressed format...');
+            
+            const organizations = this.getOrganizations();
+            let migratedCount = 0;
+            
+            for (const org of organizations) {
+                // Check if this organization has old format data (full data in organizations list)
+                const oldData = localStorage.getItem(this.organizationsKey);
+                if (oldData) {
+                    const oldOrgs = JSON.parse(oldData);
+                    const oldOrg = oldOrgs.find(o => o.organization === org.organization);
+                    
+                    if (oldOrg && oldOrg.data) {
+                        console.log(`🔄 Migrating ${org.organization} to compressed format...`);
+                        
+                        // Compress the old data
+                        const compressedData = this.compressData(oldOrg);
+                        
+                        // Store compressed data
+                        localStorage.setItem(`compressed_${org.organization}`, compressedData);
+                        
+                        // Update the organizations list to use new format
+                        const updatedOrgs = oldOrgs.map(o => {
+                            if (o.organization === org.organization) {
+                                return {
+                                    organization: o.organization,
+                                    timestamp: o.timestamp,
+                                    statistics: o.data.statistics
+                                };
+                            }
+                            return o;
+                        });
+                        
+                        localStorage.setItem(this.organizationsKey, JSON.stringify(updatedOrgs));
+                        migratedCount++;
+                    }
+                }
+            }
+            
+            console.log(`✅ Migrated ${migratedCount} organizations to compressed format`);
+            return migratedCount;
+        } catch (error) {
+            console.error('❌ Failed to migrate old data:', error);
+            return 0;
+        }
+    }
+
+    /**
      * Get all organizations (alias for getOrganizations)
      */
     getAllOrganizations() {
@@ -373,7 +797,7 @@ class StorageManager {
             // Collect all data from organizations
             const allData = [];
             for (const org of organizations) {
-                const orgData = this.getOrganizationData(org.organization);
+                const orgData = this.getFullOrganizationData(org.organization);
                 if (orgData && orgData.data) {
                     allData.push(orgData);
                 }
@@ -512,17 +936,28 @@ class StorageManager {
             }
             if (orgData.data.languageStats) {
                 console.log('Language stats for', orgData.organization, ':', orgData.data.languageStats);
-                for (const [language, value] of Object.entries(orgData.data.languageStats)) {
-                    // Handle both object format (with count property) and simple number format
-                    let count = 0;
-                    if (typeof value === 'object' && value !== null && value.count !== undefined) {
-                        count = value.count;
-                        console.log(`  ${language}: object format, count = ${count}`);
-                    } else {
-                        count = parseInt(value) || 0;
-                        console.log(`  ${language}: simple format, count = ${count}`);
+                
+                // Handle language stats as array (from sbom-processor.js)
+                if (Array.isArray(orgData.data.languageStats)) {
+                    for (const langStat of orgData.data.languageStats) {
+                        const language = langStat.language;
+                        const count = langStat.count;
+                        combined.languageStats[language] = (combined.languageStats[language] || 0) + count;
+                        console.log(`  ${language}: array format, count = ${count}`);
                     }
-                    combined.languageStats[language] = (combined.languageStats[language] || 0) + count;
+                } else {
+                    // Handle as object (fallback for old format)
+                    for (const [language, value] of Object.entries(orgData.data.languageStats)) {
+                        let count = 0;
+                        if (typeof value === 'object' && value !== null && value.count !== undefined) {
+                            count = value.count;
+                            console.log(`  ${language}: object format, count = ${count}`);
+                        } else {
+                            count = parseInt(value) || 0;
+                            console.log(`  ${language}: simple format, count = ${count}`);
+                        }
+                        combined.languageStats[language] = (combined.languageStats[language] || 0) + count;
+                    }
                 }
             }
         }

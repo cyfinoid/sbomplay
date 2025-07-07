@@ -500,8 +500,8 @@ class ViewManager {
                         Object.entries(languageStats).slice(0, 6).map(([lang, count]) => `
                             <div class="language-card">
                                 <h4>${lang}</h4>
-                                <div class="language-number">${isCombinedView ? (parseInt(count) || 0) : count}</div>
-                                <div class="language-detail">${isCombinedView ? 'N/A' : 'N/A'} unique deps</div>
+                                <div class="language-number">${count}</div>
+                                <div class="language-detail">N/A unique deps</div>
                             </div>
                         `).join('')
                     }
