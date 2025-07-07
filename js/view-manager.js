@@ -385,8 +385,17 @@ class ViewManager {
             console.log('🔍 Combined view detected - applying special handling for category/language stats');
         }
 
-        // Validate data structure
-        if (!stats || !topDeps || !topRepos || !allDeps || !allRepos) {
+        // Validate data structure - be more flexible for large datasets
+        const hasValidData = stats && (
+            (topDeps && topDeps.length > 0) || 
+            (topRepos && topRepos.length > 0) || 
+            (allDeps && allDeps.length > 0) || 
+            (allRepos && allRepos.length > 0) ||
+            (stats.totalRepositories > 0) ||
+            (stats.totalDependencies > 0)
+        );
+
+        if (!hasValidData) {
             console.error('❌ Invalid data structure in orgData:', orgData);
             return `
                 <div class="view-header">
@@ -395,6 +404,20 @@ class ViewManager {
                     </button>
                     <h2>📊 ${orgData.organization} - Dependency Overview</h2>
                     <p class="text-muted">Analyzed on ${new Date(orgData.timestamp).toLocaleString()}</p>
+                    <div class="mt-2">
+                        <button class="btn btn-primary btn-sm" onclick="viewManager.runBatchVulnerabilityQuery('${orgData.organization}')">
+                            <i class="fas fa-shield-alt"></i> Vulnerability Scan (All Repos)
+                        </button>
+                        <button class="btn btn-info btn-sm" onclick="viewManager.showVulnerabilityCacheStats()">
+                            <i class="fas fa-database"></i> Cache Stats
+                        </button>
+                        <button class="btn btn-warning btn-sm" onclick="viewManager.clearVulnerabilityCache()">
+                            <i class="fas fa-trash"></i> Clear Cache
+                        </button>
+                        <button class="btn btn-secondary btn-sm" onclick="viewManager.showCentralizedVulnerabilityStats()">
+                            <i class="fas fa-server"></i> Centralized Storage
+                        </button>
+                    </div>
                 </div>
                 <div class="alert alert-warning">
                     <h6>⚠️ Data Processing Issue</h6>
@@ -417,6 +440,20 @@ class ViewManager {
                 </button>
                 <h2>📊 ${orgData.organization} - Dependency Overview</h2>
                 <p class="text-muted">Analyzed on ${new Date(orgData.timestamp).toLocaleString()}</p>
+                <div class="mt-2">
+                    <button class="btn btn-primary btn-sm" onclick="viewManager.runBatchVulnerabilityQuery('${orgData.organization}')">
+                        <i class="fas fa-shield-alt"></i> Vulnerability Scan (All Repos)
+                    </button>
+                    <button class="btn btn-info btn-sm" onclick="viewManager.showVulnerabilityCacheStats()">
+                        <i class="fas fa-database"></i> Cache Stats
+                    </button>
+                    <button class="btn btn-warning btn-sm" onclick="viewManager.clearVulnerabilityCache()">
+                        <i class="fas fa-trash"></i> Clear Cache
+                    </button>
+                    <button class="btn btn-secondary btn-sm" onclick="viewManager.showCentralizedVulnerabilityStats()">
+                        <i class="fas fa-server"></i> Centralized Storage
+                    </button>
+                </div>
             </div>
 
             <div class="stats-grid">
@@ -436,6 +473,8 @@ class ViewManager {
                     <div class="stat-detail">${stats.failedRepositories || 0} failed</div>
                 </div>
             </div>
+
+
 
             ${categoryStats ? `
             <div class="category-breakdown">
@@ -511,7 +550,7 @@ class ViewManager {
 
             <div class="view-sections">
                 <div class="section">
-                    <h3>🏆 Top Dependencies (${topDeps.length})</h3>
+                    <h3>🏆 Top Dependencies (${topDeps ? topDeps.length : 0})</h3>
                     <div class="filter-buttons">
                         <button class="btn btn-sm btn-outline-primary" onclick="viewManager.filterDependenciesByCategory('all')">All</button>
                         <button class="btn btn-sm btn-outline-primary" onclick="viewManager.filterDependenciesByCategory('code')">Code</button>
@@ -519,21 +558,33 @@ class ViewManager {
                         <button class="btn btn-sm btn-outline-primary" onclick="viewManager.filterDependenciesByCategory('infrastructure')">Infrastructure</button>
                     </div>
                     <div class="dependency-list" id="top-dependencies">
-                        ${topDeps.length > 0 ? topDeps.slice(0, 10).map((dep, index) => `
-                            <div class="dependency-item ${dep.category?.type || 'unknown'}" onclick="viewManager.showDependencyDetailsFromIndex(${index}, '${orgData.organization}')">
-                                <div class="dep-name">${dep.name || 'Unknown'}</div>
-                                <div class="dep-version">${dep.version || 'Unknown'}</div>
-                                <div class="dep-count">${dep.count || 0} repos</div>
-                                <div class="dep-category">${dep.category?.type || 'unknown'}</div>
+                        ${topDeps && topDeps.length > 0 ? topDeps.slice(0, 10).map((dep, index) => `
+                            <div class="dependency-item ${dep.category?.type || 'unknown'}">
+                                <div class="dep-content" onclick="viewManager.showDependencyDetailsFromIndex(${index}, '${orgData.organization}')">
+                                    <div class="dep-name">${dep.name || 'Unknown'}</div>
+                                    <div class="dep-version">${dep.version || 'Unknown'}</div>
+                                    <div class="dep-count">${dep.count || 0} repos</div>
+                                    <div class="dep-category">${dep.category?.type || 'unknown'}</div>
+                                </div>
+                                <div class="dep-actions">
+                                    <button class="btn btn-sm btn-outline-primary" onclick="viewManager.queryVulnerabilityForDependency('${dep.name}', '${dep.version}', '${orgData.organization}')" title="Query vulnerabilities">
+                                        <i class="fas fa-shield-alt"></i>
+                                    </button>
+                                    ${!orgData.data.vulnerabilityAnalysis ? `
+                                    <button class="btn btn-sm btn-outline-success" onclick="viewManager.quickScanDependency('${dep.name}', '${dep.version}', '${orgData.organization}')" title="Quick scan for vulnerabilities">
+                                        <i class="fas fa-bolt"></i>
+                                    </button>
+                                    ` : ''}
+                                </div>
                             </div>
                         `).join('') : '<p class="text-muted">No dependencies found</p>'}
                     </div>
                 </div>
 
                 <div class="section">
-                    <h3>📁 Top Repositories (${topRepos.length})</h3>
+                    <h3>📁 Top Repositories (${topRepos ? topRepos.length : 0})</h3>
                     <div class="repository-list">
-                        ${topRepos.length > 0 ? topRepos.slice(0, 10).map((repo, index) => `
+                        ${topRepos && topRepos.length > 0 ? topRepos.slice(0, 10).map((repo, index) => `
                             <div class="repository-item" onclick="viewManager.showRepositoryDetailsFromIndex(${index}, '${orgData.organization}')">
                                 <div class="repo-name">${repo.owner || 'Unknown'}/${repo.name || 'Unknown'}</div>
                                 <div class="repo-deps">${repo.totalDependencies || 0} deps</div>
@@ -549,22 +600,152 @@ class ViewManager {
                     </div>
                 </div>
 
-                <div class="section">
-                    <h3>📊 All Dependencies (${allDeps.length})</h3>
-                    <div class="search-box">
-                        <input type="text" id="dep-search" placeholder="Search dependencies..." onkeyup="viewManager.filterDependencies()">
-                    </div>
-                    <div class="dependency-grid" id="all-dependencies">
-                        ${allDeps.length > 0 ? allDeps.map((dep, index) => `
-                            <div class="dependency-card ${dep.category?.type || 'unknown'}" onclick="viewManager.showDependencyDetailsFromAllDepsIndex(${index}, '${orgData.organization}')">
+                </div>
+            </div>
+
+            ${allDeps && allDeps.length > 0 ? `
+            <div class="all-dependencies">
+                <h3>📊 All Dependencies (${allDeps.length})</h3>
+                <div class="search-box">
+                    <input type="text" id="dep-search" placeholder="Search dependencies..." onkeyup="viewManager.filterDependencies()">
+                </div>
+                <div class="filter-buttons">
+                    <button class="btn btn-outline-primary btn-sm" onclick="viewManager.filterDependenciesByCategory('all')">All</button>
+                    <button class="btn btn-outline-primary btn-sm" onclick="viewManager.filterDependenciesByCategory('code')">Code</button>
+                    <button class="btn btn-outline-primary btn-sm" onclick="viewManager.filterDependenciesByCategory('workflow')">Workflow</button>
+                    <button class="btn btn-outline-primary btn-sm" onclick="viewManager.filterDependenciesByCategory('infrastructure')">Infrastructure</button>
+                    <button class="btn btn-outline-primary btn-sm" onclick="viewManager.filterDependenciesByCategory('unknown')">Unknown</button>
+                </div>
+                <div class="dependency-grid" id="all-dependencies">
+                    ${allDeps.map((dep, index) => `
+                        <div class="dependency-card ${dep.category ? dep.category.type : 'unknown'}">
+                            <div class="dep-content" onclick="viewManager.showDependencyDetailsFromAllDepsIndex(${index}, '${orgData.organization}')">
                                 <div class="dep-name">${dep.name || 'Unknown'}</div>
                                 <div class="dep-version">${dep.version || 'Unknown'}</div>
                                 <div class="dep-count">${dep.count || 0} repos</div>
                                 <div class="dep-category">${dep.category?.type || 'unknown'}</div>
                             </div>
-                        `).join('') : '<p class="text-muted">No dependencies found</p>'}
+                            <div class="dep-actions">
+                                <button class="btn btn-sm btn-outline-primary" onclick="viewManager.queryVulnerabilityForDependency('${dep.name}', '${dep.version}', '${orgData.organization}')" title="Query vulnerabilities">
+                                    <i class="fas fa-shield-alt"></i>
+                                </button>
+                                ${!orgData.data.vulnerabilityAnalysis ? `
+                                <button class="btn btn-sm btn-outline-success" onclick="viewManager.quickScanDependency('${dep.name}', '${dep.version}', '${orgData.organization}')" title="Quick scan for vulnerabilities">
+                                    <i class="fas fa-bolt"></i>
+                                </button>
+                                ` : ''}
+                            </div>
+                        </div>
+                    `).join('')}
+                </div>
+            </div>
+            ` : ''}
+
+            <div class="vulnerability-breakdown">
+                <h3>🔒 Vulnerability Analysis</h3>
+                ${orgData.data.vulnerabilityAnalysis ? `
+                <div class="vulnerability-actions mb-3">
+                    <button class="btn btn-primary btn-sm" onclick="viewManager.runBatchVulnerabilityQuery('${orgData.organization}')">
+                        <i class="fas fa-search"></i> Re-run Batch Vulnerability Query
+                    </button>
+                    <button class="btn btn-info btn-sm" onclick="viewManager.showVulnerabilityCacheStats()">
+                        <i class="fas fa-database"></i> Cache Stats
+                    </button>
+                    <button class="btn btn-warning btn-sm" onclick="viewManager.clearVulnerabilityCache()">
+                        <i class="fas fa-trash"></i> Clear Cache
+                    </button>
+                </div>
+                <div class="vulnerability-stats">
+                    <div class="vuln-stat-card critical">
+                        <h4>🚨 Critical</h4>
+                        <div class="vuln-number">${orgData.data.vulnerabilityAnalysis.criticalVulnerabilities || 0}</div>
+                        <div class="vuln-detail">vulnerabilities</div>
+                    </div>
+                    <div class="vuln-stat-card high">
+                        <h4>⚠️ High</h4>
+                        <div class="vuln-number">${orgData.data.vulnerabilityAnalysis.highVulnerabilities || 0}</div>
+                        <div class="vuln-detail">vulnerabilities</div>
+                    </div>
+                    <div class="vuln-stat-card medium">
+                        <h4>⚡ Medium</h4>
+                        <div class="vuln-number">${orgData.data.vulnerabilityAnalysis.mediumVulnerabilities || 0}</div>
+                        <div class="vuln-detail">vulnerabilities</div>
+                    </div>
+                    <div class="vuln-stat-card low">
+                        <h4>ℹ️ Low</h4>
+                        <div class="vuln-number">${orgData.data.vulnerabilityAnalysis.lowVulnerabilities || 0}</div>
+                        <div class="vuln-detail">vulnerabilities</div>
+                    </div>
+                    <div class="vuln-stat-card total">
+                        <h4>📊 Total</h4>
+                        <div class="vuln-number">${orgData.data.vulnerabilityAnalysis.vulnerablePackages || 0}</div>
+                        <div class="vuln-detail">vulnerable packages</div>
+                    </div>
+                    <div class="vuln-stat-card rate">
+                        <h4>📈 Rate</h4>
+                        <div class="vuln-number">${orgData.data.vulnerabilityAnalysis.vulnerabilityRate || 0}%</div>
+                        <div class="vuln-detail">vulnerability rate</div>
                     </div>
                 </div>
+                ${orgData.data.vulnerabilityAnalysis.vulnerableDependencies && orgData.data.vulnerabilityAnalysis.vulnerableDependencies.length > 0 ? `
+                <div class="vulnerable-dependencies">
+                    <h4>🚨 Vulnerable Dependencies</h4>
+                    <div class="vulnerable-deps-list">
+                        ${orgData.data.vulnerabilityAnalysis.vulnerableDependencies.slice(0, 10).map(dep => `
+                            <div class="vulnerable-dep-item">
+                                <div class="vuln-dep-info">
+                                    <div class="vuln-dep-name">${dep.name}@${dep.version}</div>
+                                    <div class="vuln-dep-count">${dep.vulnerabilities.length} vulnerabilities</div>
+                                    <div class="vuln-severity-badges">
+                                        ${dep.vulnerabilities.map(vuln => {
+                                            if (!vuln || typeof vuln !== 'object') return '';
+                                            
+                                            const severity = window.osvService ? window.osvService.getHighestSeverity(vuln) : 'UNKNOWN';
+                                            const tooltip = `${vuln.id || 'Unknown ID'}\n${vuln.summary || 'No summary'}`;
+                                            
+                                            // Map MODERATE to MEDIUM for CSS class consistency
+                                            const cssSeverity = severity.toLowerCase() === 'moderate' ? 'medium' : severity.toLowerCase();
+                                            return `
+                                                <span class="badge severity-${cssSeverity} clickable-severity-badge" 
+                                                      title="${tooltip}" 
+                                                      onclick="viewManager.showVulnerabilityDetails('${dep.name}', '${dep.version}', [${JSON.stringify(vuln).replace(/"/g, '&quot;')}])">
+                                                    ${severity}
+                                                </span>
+                                            `;
+                                        }).join('')}
+                                    </div>
+                                </div>
+                                <div class="vuln-dep-actions">
+                                    <button class="btn btn-sm btn-outline-info" onclick="viewManager.showVulnerabilityDetails('${dep.name}', '${dep.version}', ${JSON.stringify(dep.vulnerabilities).replace(/"/g, '&quot;')})">
+                                        <i class="fas fa-eye me-1"></i>View Details
+                                    </button>
+                                </div>
+                            </div>
+                        `).join('')}
+                    </div>
+                </div>
+                ` : ''}
+                ` : `
+                <div class="vulnerability-actions mb-3">
+                    <button class="btn btn-primary btn-sm" onclick="viewManager.runBatchVulnerabilityQuery('${orgData.organization}')">
+                        <i class="fas fa-search"></i> Run Initial Vulnerability Analysis
+                    </button>
+                    <button class="btn btn-info btn-sm" onclick="viewManager.showVulnerabilityCacheStats()">
+                        <i class="fas fa-database"></i> Cache Stats
+                    </button>
+                    <button class="btn btn-warning btn-sm" onclick="viewManager.clearVulnerabilityCache()">
+                        <i class="fas fa-trash"></i> Clear Cache
+                    </button>
+                    <button class="btn btn-success btn-sm" onclick="window.osvService.testVulnerabilityDetails()">
+                        <i class="fas fa-eye"></i> Test External Links
+                    </button>
+                </div>
+                <div class="alert alert-info">
+                    <h6>📋 No Vulnerability Analysis Yet</h6>
+                    <p>This organization hasn't been analyzed for vulnerabilities yet. Click "Run Initial Vulnerability Analysis" to scan all dependencies for known vulnerabilities.</p>
+                    <p><strong>Note:</strong> This will query the OSV API for each dependency and may take a few minutes depending on the number of dependencies.</p>
+                </div>
+                `}
             </div>
         `;
     }
@@ -637,6 +818,21 @@ class ViewManager {
                 </div>
 
                 <div class="detail-section">
+                    <h3>🔍 Security Analysis</h3>
+                    <div class="mt-3">
+                        <button class="btn btn-primary btn-sm" onclick="viewManager.quickScanDependency('${dependency.name}', '${dependency.version}', '${orgData.organization}')">
+                            <i class="fas fa-shield-alt"></i> Quick Vulnerability Scan
+                        </button>
+                        <button class="btn btn-info btn-sm" onclick="viewManager.showVulnerabilityCacheStats()">
+                            <i class="fas fa-database"></i> Cache Stats
+                        </button>
+                        <button class="btn btn-warning btn-sm" onclick="viewManager.clearVulnerabilityCache()">
+                            <i class="fas fa-trash"></i> Clear Cache
+                        </button>
+                    </div>
+                </div>
+
+                <div class="detail-section">
                     <h3>🔍 Future Enhancements</h3>
                     <div class="enhancement-list">
                         <div class="enhancement-item">
@@ -646,10 +842,6 @@ class ViewManager {
                         <div class="enhancement-item">
                             <span class="enhancement-icon">📊</span>
                             <span>NPM download statistics</span>
-                        </div>
-                        <div class="enhancement-item">
-                            <span class="enhancement-icon">⚠️</span>
-                            <span>Security vulnerability data</span>
                         </div>
                         <div class="enhancement-item">
                             <span class="enhancement-icon">📈</span>
@@ -692,6 +884,17 @@ class ViewManager {
                             <label>Total Dependencies:</label>
                             <span>${repo.totalDependencies}</span>
                         </div>
+                    </div>
+                    <div class="mt-3">
+                        <button class="btn btn-primary btn-sm" onclick="viewManager.runRepositoryVulnerabilityQuery('${repo.owner}', '${repo.name}', '${orgData.organization}')">
+                            <i class="fas fa-shield-alt"></i> Vulnerability Scan (This Repo)
+                        </button>
+                        <button class="btn btn-info btn-sm" onclick="viewManager.showVulnerabilityCacheStats()">
+                            <i class="fas fa-database"></i> Cache Stats
+                        </button>
+                        <button class="btn btn-warning btn-sm" onclick="viewManager.clearVulnerabilityCache()">
+                            <i class="fas fa-trash"></i> Clear Cache
+                        </button>
                     </div>
                 </div>
 
@@ -849,6 +1052,543 @@ class ViewManager {
                 <pre class="bg-light p-3 rounded" style="max-height: 400px; overflow-y: auto;">${JSON.stringify(orgData, null, 2)}</pre>
             </div>
         `;
+    }
+
+    /**
+     * Run batch vulnerability query for an organization
+     */
+    async runBatchVulnerabilityQuery(organization) {
+        if (!window.osvService) {
+            this.showAlert('OSV Service not available', 'warning');
+            return;
+        }
+
+        try {
+            // Get organization data
+            const orgData = storageManager.getOrganizationData(organization);
+            if (!orgData || !orgData.data.allDependencies) {
+                this.showAlert('No dependencies found for analysis', 'warning');
+                return;
+            }
+
+            // Show loading state
+            this.showAlert('Running batch vulnerability query...', 'info');
+            
+            // Convert dependencies to the format expected by OSV service
+            const dependencies = orgData.data.allDependencies.map(dep => ({
+                name: dep.name,
+                version: dep.version
+            }));
+
+            // Run vulnerability analysis
+            const vulnerabilityAnalysis = await window.osvService.analyzeDependencies(dependencies);
+            
+            // Update the organization data with new vulnerability analysis
+            orgData.data.vulnerabilityAnalysis = vulnerabilityAnalysis;
+            orgData.timestamp = new Date().toISOString();
+            
+            // Save updated data
+            storageManager.saveAnalysisData(organization, orgData.data);
+            
+            // Refresh the view
+            this.showOrganizationOverview(orgData);
+            
+            this.showAlert(`Vulnerability analysis complete! Found ${vulnerabilityAnalysis.vulnerablePackages} vulnerable packages.`, 'success');
+            
+        } catch (error) {
+            console.error('Batch vulnerability query failed:', error);
+            this.showAlert(`Vulnerability analysis failed: ${error.message}`, 'danger');
+        }
+    }
+
+    /**
+     * Query vulnerability for a specific dependency
+     */
+    async queryVulnerabilityForDependency(packageName, version, organization) {
+        if (!window.osvService) {
+            this.showAlert('OSV Service not available', 'warning');
+            return;
+        }
+
+        try {
+            // Show loading state
+            this.showAlert(`Querying vulnerabilities for ${packageName}@${version}...`, 'info');
+            
+            // Query the vulnerability
+            const result = await window.osvService.queryVulnerabilities(packageName, version);
+            const vulns = result.vulns || [];
+            
+            // Display results
+            let message = `Found ${vulns.length} vulnerabilities for ${packageName}@${version}`;
+            let alertType = 'success';
+            
+            if (vulns.length > 0) {
+                const criticalCount = vulns.filter(v => window.osvService.getHighestSeverity(v) === 'CRITICAL').length;
+                const highCount = vulns.filter(v => window.osvService.getHighestSeverity(v) === 'HIGH').length;
+                
+                if (criticalCount > 0) {
+                    alertType = 'danger';
+                    message += ` (${criticalCount} critical, ${highCount} high)`;
+                } else if (highCount > 0) {
+                    alertType = 'warning';
+                    message += ` (${highCount} high)`;
+                } else {
+                    alertType = 'info';
+                }
+            }
+            
+            this.showAlert(message, alertType);
+            
+            // Show detailed results in a modal or expandable section
+            if (vulns.length > 0) {
+                this.showVulnerabilityDetails(packageName, version, vulns);
+            }
+            
+        } catch (error) {
+            console.error('Vulnerability query failed:', error);
+            this.showAlert(`Vulnerability query failed: ${error.message}`, 'danger');
+        }
+    }
+
+    /**
+     * Show vulnerability details for a specific package
+     */
+    showVulnerabilityDetails(packageName, version, vulnerabilities) {
+        // Ensure vulnerabilities is an array
+        if (!Array.isArray(vulnerabilities)) {
+            vulnerabilities = [vulnerabilities];
+        }
+
+        // Filter out invalid vulnerabilities
+        vulnerabilities = vulnerabilities.filter(vuln => vuln && typeof vuln === 'object');
+
+        if (vulnerabilities.length === 0) {
+            this.showAlert('No valid vulnerabilities found', 'warning');
+            return;
+        }
+        const modal = document.createElement('div');
+        modal.className = 'modal fade';
+        modal.id = 'vulnerabilityModal';
+        
+        // Create a more descriptive title
+        let modalTitle = `🔒 Vulnerabilities for ${packageName}@${version}`;
+        if (vulnerabilities.length === 1) {
+            const vuln = vulnerabilities[0];
+            const severity = window.osvService ? window.osvService.getHighestSeverity(vuln) : 'UNKNOWN';
+            modalTitle = `🔒 ${severity} Vulnerability: ${vuln.id || 'Unknown ID'} - ${packageName}@${version}`;
+        } else if (vulnerabilities.length > 1) {
+            const severities = [...new Set(vulnerabilities.map(v => 
+                window.osvService ? window.osvService.getHighestSeverity(v) : 'UNKNOWN'
+            ))];
+            if (severities.length === 1) {
+                modalTitle = `🔒 ${severities[0]} Vulnerabilities (${vulnerabilities.length}) - ${packageName}@${version}`;
+            }
+        }
+        
+        modal.innerHTML = `
+            <div class="modal-dialog modal-lg">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h5 class="modal-title">${modalTitle}</h5>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                    </div>
+                    <div class="modal-body">
+                        <div class="vulnerability-list">
+                            ${vulnerabilities.map(vuln => {
+                                // Defensive programming: ensure vuln is valid
+                                if (!vuln || typeof vuln !== 'object') {
+                                    console.warn('⚠️ ViewManager: Invalid vulnerability object:', vuln);
+                                    return '';
+                                }
+                                
+                                const severity = window.osvService ? window.osvService.getHighestSeverity(vuln) : 'UNKNOWN';
+                                return `
+                                    <div class="alert alert-${this.getSeverityClass(severity)}">
+                                        <h6>${vuln.id || 'Unknown'} - ${severity}</h6>
+                                        <p><strong>Summary:</strong> ${vuln.summary || 'No summary available'}</p>
+                                        <p><strong>Details:</strong> ${vuln.details || 'No details available'}</p>
+                                        <p><strong>Published:</strong> ${vuln.published ? new Date(vuln.published).toLocaleDateString() : 'Unknown'}</p>
+                                        ${vuln.references && Array.isArray(vuln.references) && vuln.references.length > 0 ? `
+                                        <div class="mt-2">
+                                            <strong>External Links:</strong>
+                                            <div class="vulnerability-references">
+                                                ${vuln.references.map(ref => `
+                                                    <a href="${ref.url}" target="_blank" class="btn btn-sm btn-outline-primary me-1 mb-1">
+                                                        <i class="fas fa-external-link-alt me-1"></i>${ref.type}
+                                                    </a>
+                                                `).join('')}
+                                            </div>
+                                        </div>` : ''
+                                        }
+                                    </div>
+                                `;
+                            }).join('')}
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                    </div>
+                </div>
+            </div>
+        `;
+        
+        document.body.appendChild(modal);
+        const modalInstance = new bootstrap.Modal(modal);
+        modalInstance.show();
+        
+        // Clean up modal after it's hidden
+        modal.addEventListener('hidden.bs.modal', () => {
+            document.body.removeChild(modal);
+        });
+    }
+
+
+
+
+
+    /**
+     * Show vulnerability cache statistics
+     */
+    showVulnerabilityCacheStats() {
+        if (!window.osvService) {
+            this.showAlert('OSV Service not available', 'warning');
+            return;
+        }
+
+        const stats = window.osvService.getCacheStats();
+        const centralizedStats = window.storageManager ? window.storageManager.getVulnerabilityStorageStats() : null;
+        
+        let message = `In-memory cache: ${stats.size} entries. Cached packages: ${stats.entries.slice(0, 5).join(', ')}${stats.entries.length > 5 ? '...' : ''}`;
+        
+        if (centralizedStats) {
+            message += `\nCentralized storage: ${centralizedStats.totalPackages} packages (${centralizedStats.sizeInMB}MB). Sample: ${centralizedStats.packages.slice(0, 3).join(', ')}${centralizedStats.packages.length > 3 ? '...' : ''}`;
+        }
+        
+        this.showAlert(message, 'info');
+    }
+
+    /**
+     * Clear vulnerability cache
+     */
+    clearVulnerabilityCache() {
+        if (!window.osvService) {
+            this.showAlert('OSV Service not available', 'warning');
+            return;
+        }
+
+        // Clear in-memory cache
+        window.osvService.clearCache();
+        
+        // Clear centralized storage
+        if (window.storageManager) {
+            window.storageManager.clearVulnerabilityData();
+        }
+        
+        this.showAlert('Vulnerability cache and centralized storage cleared', 'success');
+    }
+
+    /**
+     * Show centralized vulnerability storage statistics
+     */
+    showCentralizedVulnerabilityStats() {
+        if (!window.storageManager) {
+            this.showAlert('Storage Manager not available', 'warning');
+            return;
+        }
+
+        const stats = window.storageManager.getVulnerabilityStorageStats();
+        const keys = window.storageManager.getAllVulnerabilityKeys();
+        
+        const modal = document.createElement('div');
+        modal.className = 'modal fade';
+        modal.id = 'centralizedVulnModal';
+        modal.innerHTML = `
+            <div class="modal-dialog modal-lg">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h5 class="modal-title">🔒 Centralized Vulnerability Storage</h5>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                    </div>
+                    <div class="modal-body">
+                        <div class="row mb-3">
+                            <div class="col-md-3">
+                                <div class="text-center">
+                                    <h4 class="text-primary">${stats.totalPackages}</h4>
+                                    <small>Total Packages</small>
+                                </div>
+                            </div>
+                            <div class="col-md-3">
+                                <div class="text-center">
+                                    <h4 class="text-info">${stats.sizeInMB}MB</h4>
+                                    <small>Storage Size</small>
+                                </div>
+                            </div>
+                            <div class="col-md-3">
+                                <div class="text-center">
+                                    <h4 class="text-success">${keys.length}</h4>
+                                    <small>Unique Keys</small>
+                                </div>
+                            </div>
+                            <div class="col-md-3">
+                                <div class="text-center">
+                                    <button class="btn btn-warning btn-sm" onclick="viewManager.cleanupOldVulnerabilityData()">
+                                        <i class="fas fa-broom"></i> Cleanup Old
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <h6>Stored Packages (${keys.length}):</h6>
+                        <div class="vulnerability-keys-list" style="max-height: 300px; overflow-y: auto;">
+                            ${keys.map(key => `
+                                <div class="alert alert-light py-2 mb-1">
+                                    <small>${key}</small>
+                                </div>
+                            `).join('')}
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                        <button type="button" class="btn btn-danger" onclick="viewManager.clearCentralizedVulnerabilityData()">
+                            <i class="fas fa-trash"></i> Clear All Data
+                        </button>
+                    </div>
+                </div>
+            </div>
+        `;
+        
+        document.body.appendChild(modal);
+        const modalInstance = new bootstrap.Modal(modal);
+        modalInstance.show();
+        
+        // Clean up modal after it's hidden
+        modal.addEventListener('hidden.bs.modal', () => {
+            document.body.removeChild(modal);
+        });
+    }
+
+    /**
+     * Clean up old vulnerability data
+     */
+    cleanupOldVulnerabilityData() {
+        if (!window.storageManager) {
+            this.showAlert('Storage Manager not available', 'warning');
+            return;
+        }
+
+        const cleanedCount = window.storageManager.cleanupOldVulnerabilityData();
+        this.showAlert(`Cleaned up ${cleanedCount} old vulnerability entries (older than 30 days)`, 'success');
+        
+        // Refresh the modal if it's open
+        const modal = document.getElementById('centralizedVulnModal');
+        if (modal) {
+            const modalInstance = bootstrap.Modal.getInstance(modal);
+            if (modalInstance) {
+                modalInstance.hide();
+                setTimeout(() => this.showCentralizedVulnerabilityStats(), 100);
+            }
+        }
+    }
+
+    /**
+     * Clear centralized vulnerability data
+     */
+    clearCentralizedVulnerabilityData() {
+        if (!window.storageManager) {
+            this.showAlert('Storage Manager not available', 'warning');
+            return;
+        }
+
+        if (confirm('Are you sure you want to clear all centralized vulnerability data? This action cannot be undone.')) {
+            window.storageManager.clearVulnerabilityData();
+            this.showAlert('All centralized vulnerability data cleared', 'success');
+            
+            // Close the modal
+            const modal = document.getElementById('centralizedVulnModal');
+            if (modal) {
+                const modalInstance = bootstrap.Modal.getInstance(modal);
+                if (modalInstance) {
+                    modalInstance.hide();
+                }
+            }
+        }
+    }
+
+    /**
+     * Get Bootstrap alert class for severity
+     */
+    getSeverityClass(severity) {
+        switch (severity) {
+            case 'CRITICAL': return 'danger';
+            case 'HIGH': return 'warning';
+            case 'MEDIUM': return 'info';
+            case 'LOW': return 'success';
+            default: return 'secondary';
+        }
+    }
+
+    /**
+     * Show alert message
+     */
+    showAlert(message, type) {
+        // Create alert element
+        const alertDiv = document.createElement('div');
+        alertDiv.className = `alert alert-${type} alert-dismissible fade show`;
+        alertDiv.innerHTML = `
+            ${message}
+            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+        `;
+        
+        // Add to page
+        const container = document.getElementById('view-container');
+        container.insertBefore(alertDiv, container.firstChild);
+        
+        // Auto-remove after 5 seconds
+        setTimeout(() => {
+            if (alertDiv.parentNode) {
+                alertDiv.remove();
+            }
+        }, 5000);
+    }
+
+    /**
+     * Quick scan a dependency for vulnerabilities
+     */
+    async quickScanDependency(packageName, version, organization) {
+        if (!window.osvService) {
+            this.showAlert('OSV Service not available', 'warning');
+            return;
+        }
+
+        try {
+            // Show loading state
+            this.showAlert(`Quick scanning for vulnerabilities for ${packageName}@${version}...`, 'info');
+            
+            // Query the vulnerability
+            const result = await window.osvService.queryVulnerabilities(packageName, version);
+            const vulns = result.vulns || [];
+            
+            // Display results
+            let message = `Found ${vulns.length} vulnerabilities for ${packageName}@${version}`;
+            let alertType = 'success';
+            
+            if (vulns.length > 0) {
+                const criticalCount = vulns.filter(v => window.osvService.getHighestSeverity(v) === 'CRITICAL').length;
+                const highCount = vulns.filter(v => window.osvService.getHighestSeverity(v) === 'HIGH').length;
+                
+                if (criticalCount > 0) {
+                    alertType = 'danger';
+                    message += ` (${criticalCount} critical, ${highCount} high)`;
+                } else if (highCount > 0) {
+                    alertType = 'warning';
+                    message += ` (${highCount} high)`;
+                } else {
+                    alertType = 'info';
+                }
+            }
+            
+            this.showAlert(message, alertType);
+            
+            // Show detailed results in a modal or expandable section
+            if (vulns.length > 0) {
+                this.showVulnerabilityDetails(packageName, version, vulns);
+            }
+            
+        } catch (error) {
+            console.error('Quick scan failed:', error);
+            this.showAlert(`Quick scan failed: ${error.message}`, 'danger');
+        }
+    }
+
+    /**
+     * Run batch vulnerability query for a repository
+     */
+    async runRepositoryVulnerabilityQuery(owner, repoName, organization) {
+        if (!window.osvService) {
+            this.showAlert('OSV Service not available', 'warning');
+            return;
+        }
+        try {
+            // Get organization data
+            const orgData = storageManager.getOrganizationData(organization);
+            if (!orgData || !orgData.data.allRepositories) {
+                this.showAlert('No repository data found', 'warning');
+                return;
+            }
+            // Find the repository
+            const repo = orgData.data.allRepositories.find(r => r.owner === owner && r.name === repoName);
+            if (!repo || !repo.dependencies) {
+                this.showAlert('No dependencies found for this repository', 'warning');
+                return;
+            }
+            // Show loading state
+            this.showAlert(`Running vulnerability scan for ${owner}/${repoName}...`, 'info');
+            // Prepare dependencies
+            const dependencies = repo.dependencies.map(depKey => {
+                const [name, version] = depKey.split('@');
+                return { name, version };
+            });
+            // Run vulnerability analysis (leverages cache)
+            const analysis = await window.osvService.analyzeDependencies(dependencies);
+            // Show results in a modal
+            this.showRepositoryVulnerabilityResults(owner, repoName, analysis);
+            this.showAlert(`Vulnerability scan complete! Found ${analysis.vulnerablePackages} vulnerable packages.`, 'success');
+        } catch (error) {
+            console.error('Repository vulnerability query failed:', error);
+            this.showAlert(`Vulnerability scan failed: ${error.message}`, 'danger');
+        }
+    }
+
+    /**
+     * Show repository vulnerability results in a modal
+     */
+    showRepositoryVulnerabilityResults(owner, repoName, analysis) {
+        const modal = document.createElement('div');
+        modal.className = 'modal fade';
+        modal.id = 'repoVulnModal';
+        const stats = window.osvService.getVulnerabilityStats(analysis);
+        modal.innerHTML = `
+            <div class="modal-dialog modal-lg">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h5 class="modal-title">🔒 Vulnerability Results for ${owner}/${repoName}</h5>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                    </div>
+                    <div class="modal-body">
+                        <div class="row">
+                            <div class="col-md-2"><div class="text-center"><h4 class="text-danger">${stats.criticalCount}</h4><small>Critical</small></div></div>
+                            <div class="col-md-2"><div class="text-center"><h4 class="text-warning">${stats.highCount}</h4><small>High</small></div></div>
+                            <div class="col-md-2"><div class="text-center"><h4 class="text-info">${stats.mediumCount}</h4><small>Medium</small></div></div>
+                            <div class="col-md-2"><div class="text-center"><h4 class="text-success">${stats.lowCount}</h4><small>Low</small></div></div>
+                            <div class="col-md-2"><div class="text-center"><h4>${stats.vulnerablePackages}</h4><small>Vulnerable</small></div></div>
+                            <div class="col-md-2"><div class="text-center"><h4>${stats.vulnerabilityRate}%</h4><small>Rate</small></div></div>
+                        </div>
+                        ${analysis.vulnerableDependencies && analysis.vulnerableDependencies.length > 0 ? `
+                        <h6 class="mt-3">Vulnerable Dependencies</h6>
+                        ${analysis.vulnerableDependencies.map(dep => `
+                            <div class="alert alert-warning">
+                                <strong>${dep.name}@${dep.version}</strong> - ${dep.vulnerabilities.length} vulnerabilities
+                                <div class="mt-2">
+                                    ${dep.vulnerabilities.map(vuln => 
+                                        `<span class="badge bg-${this.getSeverityClass(vuln.severity)}">${vuln.severity}</span>`
+                                    ).join(' ')}
+                                </div>
+                            </div>
+                        `).join('')}
+                        ` : '<div class="alert alert-success mt-3">No vulnerable dependencies found.</div>'}
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                    </div>
+                </div>
+            </div>
+        `;
+        document.body.appendChild(modal);
+        const modalInstance = new bootstrap.Modal(modal);
+        modalInstance.show();
+        modal.addEventListener('hidden.bs.modal', () => {
+            document.body.removeChild(modal);
+        });
     }
 }
 
