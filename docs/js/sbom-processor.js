@@ -147,7 +147,8 @@ class SBOMProcessor {
                         repositories: new Set(),
                         count: 0,
                         category: category,
-                        languages: new Set([category.language])
+                        languages: new Set([category.language]),
+                        originalPackage: pkg  // Store original package data for PURL extraction
                     });
                 }
                 
@@ -358,7 +359,8 @@ class SBOMProcessor {
             count: dep.count,
             repositories: Array.from(dep.repositories),
             category: dep.category,
-            languages: Array.from(dep.languages)
+            languages: Array.from(dep.languages),
+            originalPackage: dep.originalPackage  // Include original package data
         }));
         const allRepos = Array.from(this.repositories.values()).map(repo => ({
             name: repo.name,
@@ -383,7 +385,8 @@ class SBOMProcessor {
             allDependencies: allDeps,
             allRepositories: allRepos,
             categoryStats: this.getDependencyCategoryStats(),
-            languageStats: this.getLanguageStats()
+            languageStats: this.getLanguageStats(),
+            vulnerabilityAnalysis: this.vulnerabilityAnalysis || null
         };
     }
 
@@ -416,6 +419,36 @@ class SBOMProcessor {
      */
     setTotalRepositories(count) {
         this.totalRepos = count;
+    }
+
+    /**
+     * Analyze vulnerabilities for all dependencies
+     */
+    async analyzeVulnerabilities() {
+        if (!window.osvService) {
+            console.warn('⚠️ OSV Service not available');
+            return null;
+        }
+
+        try {
+            console.log('🔍 SBOM Processor: Starting vulnerability analysis...');
+            
+            // Convert dependencies to the format expected by OSV service
+            const dependencies = Array.from(this.dependencies.values()).map(dep => ({
+                name: dep.name,
+                version: dep.version,
+                pkg: dep.originalPackage  // Pass original package data for PURL extraction
+            }));
+
+            // Analyze vulnerabilities
+            this.vulnerabilityAnalysis = await window.osvService.analyzeDependencies(dependencies);
+            
+            console.log('✅ SBOM Processor: Vulnerability analysis complete');
+            return this.vulnerabilityAnalysis;
+        } catch (error) {
+            console.error('❌ SBOM Processor: Vulnerability analysis failed:', error);
+            return null;
+        }
     }
 }
 

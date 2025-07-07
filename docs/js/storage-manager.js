@@ -5,6 +5,7 @@ class StorageManager {
     constructor() {
         this.organizationsKey = 'sbomplay_organizations';
         this.historyKey = 'sbomplay_history';
+        this.vulnerabilitiesKey = 'sbomplay_vulnerabilities';
         this.maxStorageSize = 4.5 * 1024 * 1024; // 4.5MB to leave some buffer
         this.maxHistoryEntries = 20; // Reduced from 50 to save space
         this.maxOrganizations = 10; // Limit number of organizations stored
@@ -966,6 +967,126 @@ class StorageManager {
         console.log('Final combined language stats:', combined.languageStats);
 
         return combined;
+    }
+
+    /**
+     * Save vulnerability data to centralized storage
+     */
+    saveVulnerabilityData(packageKey, vulnerabilityData) {
+        try {
+            const vulnerabilities = this.getVulnerabilityData();
+            vulnerabilities[packageKey] = {
+                ...vulnerabilityData,
+                timestamp: new Date().toISOString()
+            };
+            
+            localStorage.setItem(this.vulnerabilitiesKey, JSON.stringify(vulnerabilities));
+            console.log(`✅ Saved vulnerability data for ${packageKey}`);
+            return true;
+        } catch (error) {
+            console.error('❌ Failed to save vulnerability data:', error);
+            return false;
+        }
+    }
+
+    /**
+     * Get vulnerability data from centralized storage
+     */
+    getVulnerabilityData() {
+        try {
+            const data = localStorage.getItem(this.vulnerabilitiesKey);
+            return data ? JSON.parse(data) : {};
+        } catch (error) {
+            console.error('❌ Failed to get vulnerability data:', error);
+            return {};
+        }
+    }
+
+    /**
+     * Get vulnerability data for a specific package
+     */
+    getVulnerabilityDataForPackage(packageKey) {
+        const vulnerabilities = this.getVulnerabilityData();
+        return vulnerabilities[packageKey] || null;
+    }
+
+    /**
+     * Check if vulnerability data exists for a package
+     */
+    hasVulnerabilityData(packageKey) {
+        const vulnerabilities = this.getVulnerabilityData();
+        return packageKey in vulnerabilities;
+    }
+
+    /**
+     * Get all vulnerability data keys
+     */
+    getAllVulnerabilityKeys() {
+        const vulnerabilities = this.getVulnerabilityData();
+        return Object.keys(vulnerabilities);
+    }
+
+    /**
+     * Clear all vulnerability data
+     */
+    clearVulnerabilityData() {
+        try {
+            localStorage.removeItem(this.vulnerabilitiesKey);
+            console.log('✅ Cleared all vulnerability data');
+            return true;
+        } catch (error) {
+            console.error('❌ Failed to clear vulnerability data:', error);
+            return false;
+        }
+    }
+
+    /**
+     * Get vulnerability storage statistics
+     */
+    getVulnerabilityStorageStats() {
+        const vulnerabilities = this.getVulnerabilityData();
+        const keys = Object.keys(vulnerabilities);
+        const totalSize = new Blob([JSON.stringify(vulnerabilities)]).size;
+        
+        return {
+            totalPackages: keys.length,
+            totalSize: totalSize,
+            sizeInMB: (totalSize / 1024 / 1024).toFixed(2),
+            packages: keys.slice(0, 10) // First 10 packages for display
+        };
+    }
+
+    /**
+     * Clean up old vulnerability data (older than 30 days)
+     */
+    cleanupOldVulnerabilityData() {
+        try {
+            const vulnerabilities = this.getVulnerabilityData();
+            const thirtyDaysAgo = new Date();
+            thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+            
+            let cleanedCount = 0;
+            const cleanedVulnerabilities = {};
+            
+            for (const [key, data] of Object.entries(vulnerabilities)) {
+                const dataDate = new Date(data.timestamp);
+                if (dataDate > thirtyDaysAgo) {
+                    cleanedVulnerabilities[key] = data;
+                } else {
+                    cleanedCount++;
+                }
+            }
+            
+            if (cleanedCount > 0) {
+                localStorage.setItem(this.vulnerabilitiesKey, JSON.stringify(cleanedVulnerabilities));
+                console.log(`🧹 Cleaned up ${cleanedCount} old vulnerability entries`);
+            }
+            
+            return cleanedCount;
+        } catch (error) {
+            console.error('❌ Failed to cleanup old vulnerability data:', error);
+            return 0;
+        }
     }
 }
 

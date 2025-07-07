@@ -403,8 +403,22 @@ class SBOMPlayApp {
             }
 
             // Generate results
-            this.updateProgress(95, 'Generating analysis results...');
+            this.updateProgress(90, 'Generating analysis results...');
             const results = this.sbomProcessor.exportData();
+            
+            // Run vulnerability analysis if OSV service is available
+            if (window.osvService && reposWithDeps > 0) {
+                this.updateProgress(95, 'Analyzing vulnerabilities...');
+                try {
+                    const vulnerabilityAnalysis = await this.sbomProcessor.analyzeVulnerabilities();
+                    if (vulnerabilityAnalysis) {
+                        results.vulnerabilityAnalysis = vulnerabilityAnalysis;
+                        console.log('🔍 Vulnerability Analysis Results:', vulnerabilityAnalysis);
+                    }
+                } catch (error) {
+                    console.error('❌ Vulnerability analysis failed:', error);
+                }
+            }
             
             // Log summary
             console.log(`📊 Analysis Summary for ${ownerName}:`);
