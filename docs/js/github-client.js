@@ -52,24 +52,24 @@ class GitHubClient {
      */
     async getRepositories(ownerName) {
         // Try organization endpoint first
-        let url = `${this.baseUrl}/orgs/${ownerName}/repos`;
+        let url = `${this.baseUrl}/orgs/${ownerName}/repos?per_page=100`;
         let response = await this.makeRequest(url);
         
         if (response.ok) {
             console.log(`✅ Found organization: ${ownerName}`);
-            const repos = await response.json();
+            const repos = await this.getAllPages(url);
             return repos.filter(repo => repo.visibility === 'public');
         }
         
         // If organization fails, try user endpoint
         if (response.status === 404) {
             console.log(`ℹ️  Not found as organization, trying as user: ${ownerName}`);
-            url = `${this.baseUrl}/users/${ownerName}/repos`;
+            url = `${this.baseUrl}/users/${ownerName}/repos?per_page=100`;
             response = await this.makeRequest(url);
             
             if (response.ok) {
                 console.log(`✅ Found user: ${ownerName}`);
-                const repos = await response.json();
+                const repos = await this.getAllPages(url);
                 return repos.filter(repo => repo.visibility === 'public');
             }
         }
@@ -82,6 +82,42 @@ class GitHubClient {
         } else {
             throw new Error(`Failed to fetch repositories: ${response.status} ${response.statusText}`);
         }
+    }
+
+    /**
+     * Get all pages from a paginated API endpoint
+     */
+    async getAllPages(url) {
+        const allRepos = [];
+        let currentUrl = url;
+        
+        while (currentUrl) {
+            console.log(`📄 Fetching page: ${currentUrl}`);
+            const response = await this.makeRequest(currentUrl);
+            
+            if (!response.ok) {
+                throw new Error(`Failed to fetch repositories: ${response.status} ${response.statusText}`);
+            }
+            
+            const repos = await response.json();
+            allRepos.push(...repos);
+            
+            // Check for next page
+            const linkHeader = response.headers.get('Link');
+            if (linkHeader) {
+                const nextMatch = linkHeader.match(/<([^>]+)>;\s*rel="next"/);
+                if (nextMatch) {
+                    currentUrl = nextMatch[1];
+                } else {
+                    currentUrl = null; // No next page
+                }
+            } else {
+                currentUrl = null; // No Link header, assume single page
+            }
+        }
+        
+        console.log(`📊 Total repositories fetched: ${allRepos.length}`);
+        return allRepos;
     }
 
     /**
