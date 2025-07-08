@@ -419,6 +419,20 @@ class SBOMPlayApp {
                     console.error('❌ Vulnerability analysis failed:', error);
                 }
             }
+
+            // Run license compliance analysis
+            if (reposWithDeps > 0) {
+                this.updateProgress(97, 'Analyzing license compliance...');
+                try {
+                    const licenseAnalysis = this.sbomProcessor.analyzeLicenseCompliance();
+                    if (licenseAnalysis) {
+                        results.licenseAnalysis = licenseAnalysis;
+                        console.log('🔍 License Compliance Analysis Results:', licenseAnalysis);
+                    }
+                } catch (error) {
+                    console.error('❌ License compliance analysis failed:', error);
+                }
+            }
             
             // Log summary
             console.log(`📊 Analysis Summary for ${ownerName}:`);

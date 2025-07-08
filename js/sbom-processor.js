@@ -10,6 +10,9 @@ class SBOMProcessor {
         this.successfulRepos = 0;
         this.failedRepos = 0;
         
+        // Initialize license processor
+        this.licenseProcessor = new LicenseProcessor();
+        
         // Categorization mappings
         this.purlTypeMap = {
             'pypi': { type: 'code', language: 'Python', ecosystem: 'PyPI' },
@@ -386,7 +389,8 @@ class SBOMProcessor {
             allRepositories: allRepos,
             categoryStats: this.getDependencyCategoryStats(),
             languageStats: this.getLanguageStats(),
-            vulnerabilityAnalysis: this.vulnerabilityAnalysis || null
+            vulnerabilityAnalysis: this.vulnerabilityAnalysis || null,
+            licenseAnalysis: this.licenseAnalysis || null
         };
     }
 
@@ -449,6 +453,61 @@ class SBOMProcessor {
             console.error('❌ SBOM Processor: Vulnerability analysis failed:', error);
             return null;
         }
+    }
+
+    /**
+     * Analyze license compliance for all dependencies
+     */
+    analyzeLicenseCompliance() {
+        try {
+            console.log('🔍 SBOM Processor: Starting license compliance analysis...');
+            
+            // Convert dependencies to the format expected by license processor
+            const dependencies = Array.from(this.dependencies.values()).map(dep => ({
+                name: dep.name,
+                version: dep.version,
+                originalPackage: dep.originalPackage
+            }));
+
+            // Generate license compliance report
+            this.licenseAnalysis = this.licenseProcessor.generateComplianceReport(dependencies);
+            
+            console.log('✅ SBOM Processor: License compliance analysis complete');
+            return this.licenseAnalysis;
+        } catch (error) {
+            console.error('❌ SBOM Processor: License compliance analysis failed:', error);
+            return null;
+        }
+    }
+
+    /**
+     * Get license statistics for visualization
+     */
+    getLicenseStats() {
+        if (!this.licenseAnalysis) {
+            return null;
+        }
+        return this.licenseProcessor.getLicenseStats(Array.from(this.dependencies.values()));
+    }
+
+    /**
+     * Get license conflicts
+     */
+    getLicenseConflicts() {
+        if (!this.licenseAnalysis) {
+            return [];
+        }
+        return this.licenseAnalysis.conflicts;
+    }
+
+    /**
+     * Get high-risk dependencies
+     */
+    getHighRiskDependencies() {
+        if (!this.licenseAnalysis) {
+            return [];
+        }
+        return this.licenseAnalysis.highRiskDependencies;
     }
 }
 
