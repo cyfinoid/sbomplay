@@ -444,6 +444,9 @@ class ViewManager {
                     <button class="btn btn-primary btn-sm" onclick="viewManager.runBatchVulnerabilityQuery('${orgData.organization}')">
                         <i class="fas fa-shield-alt"></i> Vulnerability Scan (All Repos)
                     </button>
+                    <button class="btn btn-success btn-sm" onclick="viewManager.runLicenseComplianceCheck('${orgData.organization}')">
+                        <i class="fas fa-gavel"></i> License Compliance Check
+                    </button>
                     <button class="btn btn-info btn-sm" onclick="viewManager.showVulnerabilityCacheStats()">
                         <i class="fas fa-database"></i> Cache Stats
                     </button>
@@ -744,9 +747,126 @@ class ViewManager {
                     <h6>📋 No Vulnerability Analysis Yet</h6>
                     <p>This organization hasn't been analyzed for vulnerabilities yet. Click "Run Initial Vulnerability Analysis" to scan all dependencies for known vulnerabilities.</p>
                     <p><strong>Note:</strong> This will query the OSV API for each dependency and may take a few minutes depending on the number of dependencies.</p>
+                            </div>
+        `}
+    </div>
+
+            <div class="license-breakdown">
+                <h3>⚖️ License Compliance Analysis</h3>
+                ${orgData.data.licenseAnalysis ? `
+                <div class="license-stats">
+                    <div class="license-stat-card permissive clickable-license-card" 
+                         title="${this.getLicenseRepositoriesTooltip(orgData, 'permissive')}"
+                         onclick="viewManager.showLicenseRepositories('${orgData.organization}', 'permissive')">
+                        <h4>✅ Permissive</h4>
+                        <div class="license-number">${orgData.data.licenseAnalysis.summary?.categoryBreakdown?.permissive || 0}</div>
+                        <div class="license-detail">low risk</div>
+                    </div>
+                    <div class="license-stat-card copyleft clickable-license-card" 
+                         title="${this.getLicenseRepositoriesTooltip(orgData, 'copyleft')}"
+                         onclick="viewManager.showLicenseRepositories('${orgData.organization}', 'copyleft')">
+                        <h4>⚠️ Copyleft</h4>
+                        <div class="license-number">${orgData.data.licenseAnalysis.summary?.categoryBreakdown?.copyleft || 0}</div>
+                        <div class="license-detail">high risk</div>
+                    </div>
+                    <div class="license-stat-card proprietary clickable-license-card" 
+                         title="${this.getLicenseRepositoriesTooltip(orgData, 'proprietary')}"
+                         onclick="viewManager.showLicenseRepositories('${orgData.organization}', 'proprietary')">
+                        <h4>🔒 Proprietary</h4>
+                        <div class="license-number">${orgData.data.licenseAnalysis.summary?.categoryBreakdown?.proprietary || 0}</div>
+                        <div class="license-detail">medium risk</div>
+                    </div>
+                    <div class="license-stat-card unknown clickable-license-card" 
+                         title="${this.getLicenseRepositoriesTooltip(orgData, 'unknown')}"
+                         onclick="viewManager.showLicenseRepositories('${orgData.organization}', 'unknown')">
+                        <h4>❓ Unknown</h4>
+                        <div class="license-number">${orgData.data.licenseAnalysis.summary?.categoryBreakdown?.unknown || 0}</div>
+                        <div class="license-detail">high risk</div>
+                    </div>
+                    <div class="license-stat-card total clickable-license-card" 
+                         title="${this.getLicenseRepositoriesTooltip(orgData, 'total')}"
+                         onclick="viewManager.showLicenseRepositories('${orgData.organization}', 'total')">
+                        <h4>📊 Total</h4>
+                        <div class="license-number">${orgData.data.licenseAnalysis.summary?.licensedDependencies || 0}</div>
+                        <div class="license-detail">licensed deps</div>
+                    </div>
+                    <div class="license-stat-card unlicensed clickable-license-card" 
+                         title="${this.getLicenseRepositoriesTooltip(orgData, 'unlicensed')}"
+                         onclick="viewManager.showLicenseRepositories('${orgData.organization}', 'unlicensed')">
+                        <h4>🚨 Unlicensed</h4>
+                        <div class="license-number">${orgData.data.licenseAnalysis.summary?.unlicensedDependencies || 0}</div>
+                        <div class="license-detail">unlicensed deps</div>
+                    </div>
+                </div>
+                
+                ${orgData.data.licenseAnalysis.conflicts && orgData.data.licenseAnalysis.conflicts.length > 0 ? `
+                <div class="license-conflicts">
+                    <h4>🚨 License Conflicts</h4>
+                    <div class="license-conflicts-list">
+                        ${orgData.data.licenseAnalysis.conflicts.slice(0, 5).map(conflict => `
+                            <div class="license-conflict-item">
+                                <div class="conflict-info">
+                                    <div class="conflict-type">${conflict.type}</div>
+                                    <div class="conflict-description">${conflict.description}</div>
+                                    <div class="conflict-licenses">
+                                        ${conflict.licenses.map(license => `<span class="badge badge-license">${license}</span>`).join('')}
+                                    </div>
+                                </div>
+                            </div>
+                        `).join('')}
+                    </div>
+                </div>
+                ` : ''}
+                
+                ${orgData.data.licenseAnalysis.highRiskDependencies && orgData.data.licenseAnalysis.highRiskDependencies.length > 0 ? `
+                <div class="high-risk-licenses">
+                    <h4>⚠️ High-Risk Licenses</h4>
+                    <div class="high-risk-list">
+                        ${orgData.data.licenseAnalysis.highRiskDependencies.slice(0, 10).map(dep => `
+                            <div class="high-risk-item">
+                                <div class="risk-info">
+                                    <div class="risk-name">${dep.name}@${dep.version}</div>
+                                    <div class="risk-license">${dep.license}</div>
+                                    <div class="risk-category">${dep.category}</div>
+                                    ${dep.warnings && dep.warnings.length > 0 ? `
+                                    <div class="risk-warnings">
+                                        ${dep.warnings.map(warning => `<span class="badge badge-warning">${warning}</span>`).join('')}
+                                    </div>
+                                    ` : ''}
+                                </div>
+                            </div>
+                        `).join('')}
+                    </div>
+                </div>
+                ` : ''}
+                
+                ${orgData.data.licenseAnalysis.recommendations && orgData.data.licenseAnalysis.recommendations.length > 0 ? `
+                <div class="license-recommendations">
+                    <h4>💡 Recommendations</h4>
+                    <div class="recommendations-list">
+                        ${orgData.data.licenseAnalysis.recommendations.map(rec => `
+                            <div class="recommendation-item ${rec.type}">
+                                <div class="rec-priority">${rec.priority}</div>
+                                <div class="rec-message">${rec.message}</div>
+                            </div>
+                        `).join('')}
+                    </div>
+                </div>
+                ` : ''}
+                ` : `
+                <div class="alert alert-info">
+                    <h6>📋 No License Analysis Yet</h6>
+                    <p>This organization hasn't been analyzed for license compliance yet. License analysis is performed automatically during the SBOM processing.</p>
+                    <p><strong>Note:</strong> License analysis includes detection of copyleft licenses, license conflicts, and compliance recommendations.</p>
+                    <div class="mt-3">
+                        <button class="btn btn-success btn-sm" onclick="viewManager.runLicenseComplianceCheck('${orgData.organization}')">
+                            <i class="fas fa-gavel"></i> Run License Compliance Check
+                        </button>
+                    </div>
                 </div>
                 `}
             </div>
+        </div>
         `;
     }
 
@@ -830,6 +950,84 @@ class ViewManager {
                             <i class="fas fa-trash"></i> Clear Cache
                         </button>
                     </div>
+                </div>
+
+                <div class="detail-section">
+                    <h3>⚖️ License Information</h3>
+                    ${orgData.data.licenseAnalysis ? `
+                    <div class="license-info">
+                        ${(() => {
+                            // Find this dependency in the license analysis
+                            const highRiskDep = orgData.data.licenseAnalysis.highRiskDependencies?.find(dep => 
+                                dep.name === dependency.name && dep.version === dependency.version
+                            );
+                            
+                            if (highRiskDep) {
+                                return `
+                                <div class="alert alert-warning">
+                                    <h6>⚠️ High-Risk License Detected</h6>
+                                    <div class="license-details">
+                                        <div class="license-name"><strong>License:</strong> ${highRiskDep.license}</div>
+                                        <div class="license-category"><strong>Category:</strong> ${highRiskDep.category}</div>
+                                        ${highRiskDep.warnings && highRiskDep.warnings.length > 0 ? `
+                                        <div class="license-warnings">
+                                            <strong>Warnings:</strong>
+                                            <ul>
+                                                ${highRiskDep.warnings.map(warning => `<li>${warning}</li>`).join('')}
+                                            </ul>
+                                        </div>
+                                        ` : ''}
+                                    </div>
+                                </div>
+                                `;
+                            } else {
+                                // Check if it's in the license families
+                                const licenseFamilies = orgData.data.licenseAnalysis.licenseFamilies;
+                                if (licenseFamilies) {
+                                    for (const [familyName, deps] of licenseFamilies.entries()) {
+                                        const familyDep = deps.find(dep => 
+                                            dep.name === dependency.name && dep.version === dependency.version
+                                        );
+                                        if (familyDep) {
+                                            return `
+                                            <div class="alert alert-info">
+                                                <h6>📋 License Information</h6>
+                                                <div class="license-details">
+                                                    <div class="license-family"><strong>Family:</strong> ${familyName}</div>
+                                                    <div class="license-name"><strong>License:</strong> ${familyDep.licenseInfo?.license || 'Unknown'}</div>
+                                                    <div class="license-category"><strong>Category:</strong> ${familyDep.licenseInfo?.category || 'Unknown'}</div>
+                                                    <div class="license-risk"><strong>Risk Level:</strong> ${familyDep.licenseInfo?.risk || 'Unknown'}</div>
+                                                    ${familyDep.licenseInfo?.description ? `
+                                                    <div class="license-description"><strong>Description:</strong> ${familyDep.licenseInfo.description}</div>
+                                                    ` : ''}
+                                                </div>
+                                            </div>
+                                            `;
+                                        }
+                                    }
+                                }
+                                
+                                return `
+                                <div class="alert alert-secondary">
+                                    <h6>📋 License Information</h6>
+                                    <p>No specific license information available for this dependency in the current analysis.</p>
+                                    <p><em>Note: License analysis is performed during SBOM processing. If this dependency was added after the initial analysis, license information may not be available.</em></p>
+                                </div>
+                                `;
+                            }
+                        })()}
+                    </div>
+                    ` : `
+                    <div class="alert alert-info">
+                        <h6>📋 No License Analysis Available</h6>
+                        <p>License analysis hasn't been performed for this organization yet. License information will be available after the next analysis run.</p>
+                        <div class="mt-3">
+                            <button class="btn btn-success btn-sm" onclick="viewManager.runLicenseComplianceCheck('${orgData.organization}')">
+                                <i class="fas fa-gavel"></i> Run License Compliance Check
+                            </button>
+                        </div>
+                    </div>
+                    `}
                 </div>
 
                 <div class="detail-section">
@@ -1080,8 +1278,15 @@ class ViewManager {
                 version: dep.version
             }));
 
-            // Run vulnerability analysis
-            const vulnerabilityAnalysis = await window.osvService.analyzeDependencies(dependencies);
+            // Run vulnerability analysis with incremental saving
+            const vulnerabilityAnalysis = await window.osvService.analyzeDependenciesWithIncrementalSaving(
+                dependencies,
+                organization,
+                (progressPercent, message) => {
+                    // Update progress during vulnerability analysis
+                    console.log(`Vulnerability analysis progress: ${progressPercent}% - ${message}`);
+                }
+            );
             
             // Update the organization data with new vulnerability analysis
             orgData.data.vulnerabilityAnalysis = vulnerabilityAnalysis;
@@ -1589,6 +1794,268 @@ class ViewManager {
         modal.addEventListener('hidden.bs.modal', () => {
             document.body.removeChild(modal);
         });
+    }
+
+    /**
+     * Run license compliance check for an organization
+     */
+    async runLicenseComplianceCheck(organization) {
+        try {
+            // Get organization data
+            const orgData = storageManager.getOrganizationData(organization);
+            if (!orgData || !orgData.data.allDependencies) {
+                this.showAlert('No dependencies found for license analysis', 'warning');
+                return;
+            }
+
+            // Show loading state
+            this.showAlert('Running license compliance check...', 'info');
+            
+            // Convert dependencies to the format expected by license processor
+            const dependencies = orgData.data.allDependencies.map(dep => ({
+                name: dep.name,
+                version: dep.version,
+                originalPackage: dep.originalPackage || {
+                    licenseConcluded: 'UNKNOWN',
+                    copyrightText: 'NOASSERTION'
+                }
+            }));
+
+            // Create a license processor directly
+            if (typeof LicenseProcessor === 'undefined') {
+                this.showAlert('License processor not available. Please ensure license-processor.js is loaded.', 'danger');
+                return;
+            }
+            
+            const licenseProcessor = new LicenseProcessor();
+            
+            // Generate license compliance report
+            const licenseAnalysis = licenseProcessor.generateComplianceReport(dependencies);
+            
+            if (licenseAnalysis) {
+                // Update the organization data with new license analysis
+                orgData.data.licenseAnalysis = licenseAnalysis;
+                orgData.timestamp = new Date().toISOString();
+                
+                // Save updated data
+                storageManager.saveAnalysisData(organization, orgData.data);
+                
+                // Refresh the view
+                this.showOrganizationOverview(orgData);
+                
+                this.showAlert(`License compliance check complete! Found ${licenseAnalysis.summary.licensedDependencies} licensed dependencies and ${licenseAnalysis.summary.unlicensedDependencies} unlicensed dependencies.`, 'success');
+            } else {
+                this.showAlert('License compliance check failed', 'danger');
+            }
+            
+        } catch (error) {
+            console.error('License compliance check failed:', error);
+            this.showAlert(`License compliance check failed: ${error.message}`, 'danger');
+        }
+    }
+
+    /**
+     * Get tooltip text for license repositories
+     */
+    getLicenseRepositoriesTooltip(orgData, licenseType) {
+        if (!orgData.data.licenseAnalysis || !orgData.data.allDependencies) {
+            return 'No license data available';
+        }
+
+        const licenseProcessor = new LicenseProcessor();
+        const dependencies = orgData.data.allDependencies;
+        const repositories = new Set();
+
+        dependencies.forEach(dep => {
+            const licenseInfo = licenseProcessor.parseLicense(dep.originalPackage);
+            let matches = false;
+
+            switch (licenseType) {
+                case 'permissive':
+                    matches = licenseInfo.category === 'permissive';
+                    break;
+                case 'copyleft':
+                    matches = licenseInfo.category === 'copyleft';
+                    break;
+                case 'proprietary':
+                    matches = licenseInfo.category === 'proprietary';
+                    break;
+                case 'unknown':
+                    matches = licenseInfo.category === 'unknown' || !licenseInfo.license || licenseInfo.license === 'NOASSERTION';
+                    break;
+                case 'total':
+                    matches = licenseInfo.license && licenseInfo.license !== 'NOASSERTION';
+                    break;
+                case 'unlicensed':
+                    matches = !licenseInfo.license || licenseInfo.license === 'NOASSERTION';
+                    break;
+            }
+
+            if (matches) {
+                // Find repositories that use this dependency
+                orgData.data.allRepositories.forEach(repo => {
+                    if (repo.dependencies.some(depKey => depKey === `${dep.name}@${dep.version}`)) {
+                        repositories.add(`${repo.owner}/${repo.name}`);
+                    }
+                });
+            }
+        });
+
+        const repoList = Array.from(repositories).slice(0, 5);
+        const remaining = repositories.size - repoList.length;
+        
+        let tooltip = `Repositories with ${licenseType} licenses:\n${repoList.join('\n')}`;
+        if (remaining > 0) {
+            tooltip += `\n... and ${remaining} more`;
+        }
+        
+        return tooltip;
+    }
+
+    /**
+     * Show repositories for a specific license type
+     */
+    showLicenseRepositories(organization, licenseType) {
+        const orgData = storageManager.getOrganizationData(organization);
+        if (!orgData || !orgData.data.licenseAnalysis) {
+            this.showAlert('No license analysis data available', 'warning');
+            return;
+        }
+
+        const licenseProcessor = new LicenseProcessor();
+        const dependencies = orgData.data.allDependencies;
+        const licenseRepos = new Map(); // Map of repo -> dependencies with this license
+
+        dependencies.forEach(dep => {
+            const licenseInfo = licenseProcessor.parseLicense(dep.originalPackage);
+            let matches = false;
+
+            switch (licenseType) {
+                case 'permissive':
+                    matches = licenseInfo.category === 'permissive';
+                    break;
+                case 'copyleft':
+                    matches = licenseInfo.category === 'copyleft';
+                    break;
+                case 'proprietary':
+                    matches = licenseInfo.category === 'proprietary';
+                    break;
+                case 'unknown':
+                    matches = licenseInfo.category === 'unknown' || !licenseInfo.license || licenseInfo.license === 'NOASSERTION';
+                    break;
+                case 'total':
+                    matches = licenseInfo.license && licenseInfo.license !== 'NOASSERTION';
+                    break;
+                case 'unlicensed':
+                    matches = !licenseInfo.license || licenseInfo.license === 'NOASSERTION';
+                    break;
+            }
+
+            if (matches) {
+                // Find repositories that use this dependency
+                orgData.data.allRepositories.forEach(repo => {
+                    if (repo.dependencies.some(depKey => depKey === `${dep.name}@${dep.version}`)) {
+                        const repoKey = `${repo.owner}/${repo.name}`;
+                        if (!licenseRepos.has(repoKey)) {
+                            licenseRepos.set(repoKey, []);
+                        }
+                        licenseRepos.get(repoKey).push({
+                            name: dep.name,
+                            version: dep.version,
+                            license: licenseInfo.license || 'Unknown',
+                            category: licenseInfo.category
+                        });
+                    }
+                });
+            }
+        });
+
+        // Generate HTML for the license repositories view
+        const licenseTypeNames = {
+            'permissive': 'Permissive Licenses',
+            'copyleft': 'Copyleft Licenses',
+            'proprietary': 'Proprietary Licenses',
+            'unknown': 'Unknown Licenses',
+            'total': 'All Licensed Dependencies',
+            'unlicensed': 'Unlicensed Dependencies'
+        };
+
+        const licenseTypeIcons = {
+            'permissive': '✅',
+            'copyleft': '⚠️',
+            'proprietary': '🔒',
+            'unknown': '❓',
+            'total': '📊',
+            'unlicensed': '🚨'
+        };
+
+        let html = `
+            <div class="view-header">
+                <button class="btn btn-secondary" onclick="viewManager.showOrganizationOverviewFromStorage('${organization}')">
+                    ← Back to Overview
+                </button>
+                <h2>${licenseTypeIcons[licenseType]} ${licenseTypeNames[licenseType]}</h2>
+                <p class="text-muted">Found in ${licenseRepos.size} repositories</p>
+            </div>
+
+            <div class="license-repositories">
+                <div class="license-repos-list">
+        `;
+
+        if (licenseRepos.size === 0) {
+            html += `
+                <div class="alert alert-info">
+                    <h6>📋 No Repositories Found</h6>
+                    <p>No repositories were found with ${licenseType} licenses in this organization.</p>
+                </div>
+            `;
+        } else {
+            // Sort repositories by number of dependencies
+            const sortedRepos = Array.from(licenseRepos.entries())
+                .sort((a, b) => b[1].length - a[1].length);
+
+            sortedRepos.forEach(([repoKey, deps]) => {
+                const [owner, name] = repoKey.split('/');
+                const repo = orgData.data.allRepositories.find(r => r.owner === owner && r.name === name);
+                
+                html += `
+                    <div class="license-repo-item">
+                        <div class="repo-header">
+                            <h4>${repoKey}</h4>
+                            <span class="badge bg-primary">${deps.length} ${licenseType} dependencies</span>
+                        </div>
+                        <div class="repo-dependencies">
+                            ${deps.slice(0, 5).map(dep => `
+                                <div class="license-dep-item">
+                                    <span class="dep-name">${dep.name}@${dep.version}</span>
+                                    <span class="badge badge-license">${dep.license}</span>
+                                    <span class="badge badge-${dep.category}">${dep.category}</span>
+                                </div>
+                            `).join('')}
+                            ${deps.length > 5 ? `
+                                <div class="license-dep-more">
+                                    <em>... and ${deps.length - 5} more dependencies</em>
+                                </div>
+                            ` : ''}
+                        </div>
+                        <div class="repo-actions">
+                            <button class="btn btn-outline-primary btn-sm" onclick="viewManager.showRepositoryDetailsFromAllReposIndex(${orgData.data.allRepositories.findIndex(r => r.owner === owner && r.name === name)}, '${organization}')">
+                                <i class="fas fa-eye me-1"></i>View Repository
+                            </button>
+                        </div>
+                    </div>
+                `;
+            });
+        }
+
+        html += `
+                </div>
+            </div>
+        `;
+
+        // Show the view
+        document.getElementById('view-container').innerHTML = html;
+        document.getElementById('view-container').style.display = 'block';
     }
 }
 

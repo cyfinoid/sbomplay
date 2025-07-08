@@ -430,6 +430,138 @@ class OSVService {
     }
 
     /**
+     * Analyze dependencies for vulnerabilities with incremental saving
+     */
+    async analyzeDependenciesWithIncrementalSaving(dependencies, orgName, onProgress = null) {
+        console.log(`🔍 OSV: Analyzing ${dependencies.length} dependencies for vulnerabilities with incremental saving`);
+        
+        const packages = dependencies.map(dep => ({
+            name: dep.name,
+            version: dep.version,
+            ecosystem: dep.pkg ? this.extractEcosystemFromPurl(dep.pkg) : this.detectEcosystemFromName(dep.name)
+        }));
+
+        // Try batch query first for quick vulnerability detection
+        let results = await this.queryVulnerabilitiesBatch(packages);
+        
+        // Check if batch query returned minimal data (just id and modified)
+        const hasMinimalData = results.some(result => 
+            result.vulns && result.vulns.length > 0 && 
+            result.vulns[0] && Object.keys(result.vulns[0]).length <= 3
+        );
+        
+        // If batch query failed, returned no results, or returned minimal data, fall back to individual queries
+        if (!results || results.length === 0 || hasMinimalData) {
+            console.log('⚠️ OSV: Batch query returned minimal data, falling back to individual queries for full details');
+            results = await this.queryVulnerabilitiesIndividually(packages);
+        }
+        
+        const vulnerabilityAnalysis = {
+            totalPackages: dependencies.length,
+            vulnerablePackages: 0,
+            totalVulnerabilities: 0,
+            criticalVulnerabilities: 0,
+            highVulnerabilities: 0,
+            mediumVulnerabilities: 0,
+            lowVulnerabilities: 0,
+            vulnerableDependencies: []
+        };
+
+        dependencies.forEach((dep, index) => {
+            const vulnResult = results[index];
+            const vulnerabilities = vulnResult?.vulns || [];
+            
+            // Save to centralized storage if vulnerabilities found
+            if (vulnerabilities.length > 0 && window.storageManager) {
+                const cacheKey = `${dep.name}@${dep.version}`;
+                window.storageManager.saveVulnerabilityData(cacheKey, {
+                    data: vulnResult,
+                    packageName: dep.name,
+                    version: dep.version,
+                    ecosystem: dep.ecosystem
+                });
+            }
+            
+            if (vulnerabilities.length > 0) {
+                vulnerabilityAnalysis.vulnerablePackages++;
+                vulnerabilityAnalysis.totalVulnerabilities += vulnerabilities.length;
+                
+                // Debug: Log first vulnerability structure
+                if (vulnerabilities.length > 0) {
+                    console.log(`🔍 OSV: Sample vulnerability for ${dep.name}:`, {
+                        id: vulnerabilities[0].id,
+                        severity: vulnerabilities[0].severity,
+                        severityType: typeof vulnerabilities[0].severity,
+                        database_specific: vulnerabilities[0].database_specific,
+                        database_specific_severity: vulnerabilities[0].database_specific?.severity
+                    });
+                }
+                
+                // Analyze severity levels
+                vulnerabilities.forEach(vuln => {
+                    const severity = this.getHighestSeverity(vuln);
+                    switch (severity) {
+                        case 'CRITICAL':
+                            vulnerabilityAnalysis.criticalVulnerabilities++;
+                            break;
+                        case 'HIGH':
+                            vulnerabilityAnalysis.highVulnerabilities++;
+                            break;
+                        case 'MEDIUM':
+                            vulnerabilityAnalysis.mediumVulnerabilities++;
+                            break;
+                        case 'LOW':
+                            vulnerabilityAnalysis.lowVulnerabilities++;
+                            break;
+                    }
+                });
+
+                // Add to vulnerable dependencies list
+                vulnerabilityAnalysis.vulnerableDependencies.push({
+                    name: dep.name,
+                    version: dep.version,
+                    vulnerabilities: vulnerabilities.map(vuln => {
+                        const severity = this.getHighestSeverity(vuln);
+                        console.log(`🔍 OSV: Mapped vulnerability ${vuln.id} severity: ${severity}`);
+                        return {
+                            id: vuln.id,
+                            summary: vuln.summary,
+                            details: vuln.details,
+                            severity: severity,
+                            published: vuln.published,
+                            modified: vuln.modified,
+                            references: vuln.references || []
+                        };
+                    })
+                });
+            }
+
+            // Save incrementally every 10 dependencies
+            if ((index + 1) % 10 === 0 || index === dependencies.length - 1) {
+                console.log(`💾 OSV: Saving incremental vulnerability data (${index + 1}/${dependencies.length} dependencies processed)`);
+                
+                if (window.storageManager && orgName) {
+                    const saveSuccess = window.storageManager.updateAnalysisWithVulnerabilities(orgName, vulnerabilityAnalysis);
+                    if (saveSuccess) {
+                        console.log(`✅ OSV: Incremental vulnerability data saved for ${orgName}`);
+                    } else {
+                        console.warn(`⚠️ OSV: Failed to save incremental vulnerability data for ${orgName}`);
+                    }
+                }
+
+                // Call progress callback if provided
+                if (onProgress) {
+                    const progressPercent = ((index + 1) / dependencies.length) * 100;
+                    onProgress(progressPercent, `Processed ${index + 1}/${dependencies.length} dependencies for vulnerabilities`);
+                }
+            }
+        });
+
+        console.log(`✅ OSV: Analysis complete - ${vulnerabilityAnalysis.vulnerablePackages} vulnerable packages found`);
+        return vulnerabilityAnalysis;
+    }
+
+    /**
      * Query vulnerabilities individually as fallback
      */
     async queryVulnerabilitiesIndividually(packages) {

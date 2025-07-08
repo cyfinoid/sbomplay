@@ -53,7 +53,7 @@ This project expands the SBOM consumption and visualization platform to include 
 - [ ] Aggregate SBOMs by business unit, product line, or vertical.
 - [ ] Flag duplicated functionality (e.g., multiple JSON parsers).
 - [ ] Spot opportunity for standardizing core libraries or runtimes.
-- [ ] Identify “keystone” libraries across the org (critical mass usage).
+- [ ] Identify "keystone" libraries across the org (critical mass usage).
 - [ ] Export insights as JSON, Graph data, or Excel sheets.
 
 ---
@@ -76,6 +76,22 @@ This project expands the SBOM consumption and visualization platform to include 
 - [ ] Generate lifecycle timelines for shared dependencies.
 - [ ] Provide quarterly reports on dependency freshness, bloat, or decay.
 - [ ] Surface team or app-specific dependency behavior patterns.
+
+---
+
+### 🔌 API Integrations & External Data Enrichment
+
+- [ ] **Security Scorecards API Integration** (https://api.securityscorecards.dev/)
+  - [ ] Fetch security scorecards for repositories and dependencies.
+  - [ ] Display security posture scores alongside dependency analysis.
+  - [ ] Integrate security metrics into procurement and vendor evaluation workflows.
+  - [ ] Provide security score trends and historical data for components.
+  - [ ] Enable security-aware dependency selection and risk assessment.
+- [ ] **Additional API Integrations**
+  - [ ] GitHub API for repository metadata and activity metrics.
+  - [ ] NPM/PyPI APIs for package popularity and maintenance status.
+  - [ ] License detection APIs for enhanced license compliance analysis.
+  - [ ] Dependency health APIs for maintenance and support status.
 
 ---
 

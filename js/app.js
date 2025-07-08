@@ -359,6 +359,11 @@ class SBOMPlayApp {
 
             this.sbomProcessor.setTotalRepositories(repositories.length);
             this.updateProgress(20, `Found ${repositories.length} repositories. Starting SBOM analysis...`);
+            
+            // Show partial data info if we have many repositories
+            if (repositories.length > 10) {
+                document.getElementById('partialDataInfo').style.display = 'block';
+            }
 
             // Process each repository
             let successfulRepos = 0;
@@ -398,6 +403,34 @@ class SBOMPlayApp {
                     failedRepos++;
                 }
 
+                // Save incrementally every 10 repositories
+                if ((i + 1) % 10 === 0 || i === repositories.length - 1) {
+                    console.log(`💾 Saving incremental data (${i + 1}/${repositories.length} repositories processed)`);
+                    
+                    const partialData = this.sbomProcessor.exportPartialData();
+                    const isComplete = (i === repositories.length - 1);
+                    
+                    const saveSuccess = this.storageManager.saveIncrementalAnalysisData(ownerName, partialData, isComplete);
+                    if (saveSuccess) {
+                        console.log(`✅ Incremental data saved for ${ownerName} (${isComplete ? 'complete' : 'partial'})`);
+                        
+                        // Check data size and warn if too large
+                        const sizeCheck = this.storageManager.checkDataSizeAndWarn(ownerName);
+                        if (sizeCheck.isLarge) {
+                            this.showAlert(sizeCheck.message, 'warning');
+                        }
+                        
+                        // Clear memory after successful save to prevent DOM from holding unnecessary data
+                        this.sbomProcessor.clearMemoryAfterSave();
+                        
+                        // Update storage indicators
+                        this.showStorageStatus();
+                        this.showStorageStatusIndicator();
+                    } else {
+                        console.warn(`⚠️ Failed to save incremental data for ${ownerName}`);
+                    }
+                }
+
                 // Add small delay to be respectful to GitHub API
                 await this.sleep(100);
             }
@@ -410,7 +443,24 @@ class SBOMPlayApp {
             if (window.osvService && reposWithDeps > 0) {
                 this.updateProgress(95, 'Analyzing vulnerabilities...');
                 try {
-                    const vulnerabilityAnalysis = await this.sbomProcessor.analyzeVulnerabilities();
+                    // Convert dependencies to the format expected by OSV service
+                    const dependencies = Array.from(this.sbomProcessor.dependencies.values()).map(dep => ({
+                        name: dep.name,
+                        version: dep.version,
+                        pkg: dep.originalPackage  // Pass original package data for PURL extraction
+                    }));
+
+                    // Use incremental vulnerability analysis
+                    const vulnerabilityAnalysis = await window.osvService.analyzeDependenciesWithIncrementalSaving(
+                        dependencies, 
+                        ownerName,
+                        (progressPercent, message) => {
+                            // Update progress during vulnerability analysis
+                            const overallProgress = 95 + (progressPercent * 0.02); // Use 2% of total progress for vulnerability analysis
+                            this.updateProgress(overallProgress, message);
+                        }
+                    );
+                    
                     if (vulnerabilityAnalysis) {
                         results.vulnerabilityAnalysis = vulnerabilityAnalysis;
                         console.log('🔍 Vulnerability Analysis Results:', vulnerabilityAnalysis);
@@ -462,6 +512,14 @@ class SBOMPlayApp {
             
             // Display results
             this.displayResults(results, ownerName);
+            
+            // Show message about partial data availability
+            if (repositories.length > 10) {
+                this.showAlert(
+                    `Analysis complete! Data was saved incrementally every 10 repositories, so you can start exploring results even during long analyses.`,
+                    'success'
+                );
+            }
             
             this.updateProgress(100, 'Analysis complete!');
             
@@ -848,6 +906,8 @@ class SBOMPlayApp {
     finishAnalysis() {
         this.isAnalyzing = false;
         document.getElementById('analyzeBtn').disabled = false;
+        document.getElementById('progressSection').style.display = 'none';
+        document.getElementById('partialDataInfo').style.display = 'none';
     }
 
     /**

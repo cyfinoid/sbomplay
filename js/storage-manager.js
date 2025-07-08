@@ -1088,6 +1088,286 @@ class StorageManager {
             return 0;
         }
     }
+
+    /**
+     * Save incremental analysis data (every 10 repositories)
+     */
+    saveIncrementalAnalysisData(orgName, partialData, isComplete = false) {
+        try {
+            const timestamp = new Date().toISOString();
+            
+            // Get existing data to merge with
+            const existingData = this.getFullOrganizationData(orgName);
+            let mergedData;
+            
+            if (existingData && existingData.data) {
+                // Merge with existing data
+                mergedData = this.mergeAnalysisData(existingData.data, partialData);
+                console.log(`🔄 Merging incremental data with existing data for ${orgName}`);
+            } else {
+                // First save, use partial data as is
+                mergedData = partialData;
+                console.log(`🆕 First incremental save for ${orgName}`);
+            }
+
+            const analysisData = {
+                organization: orgName,
+                timestamp: timestamp,
+                data: mergedData,
+                isComplete: isComplete
+            };
+
+            // Compress the data
+            const compressedData = this.compressData(analysisData);
+            const dataSize = new Blob([compressedData]).size;
+
+            console.log(`📊 Incremental data size: ${(dataSize / 1024 / 1024).toFixed(2)}MB`);
+
+            // Check if we have enough space
+            if (!this.hasEnoughStorage(dataSize)) {
+                console.log('⚠️ Storage quota exceeded during incremental save, attempting cleanup...');
+                this.cleanupOldData(dataSize);
+                
+                // Check again after cleanup
+                if (!this.hasEnoughStorage(dataSize)) {
+                    throw new Error('Storage quota exceeded even after cleanup. Please export and clear some data.');
+                }
+            }
+
+            // Add to organizations list (this is the single source of truth)
+            this.addToOrganizations(orgName, timestamp, mergedData, compressedData);
+
+            // Add to history only when complete
+            if (isComplete) {
+                this.addToHistory(orgName, timestamp, mergedData);
+            }
+
+            console.log(`✅ Incremental analysis data saved to local storage (${isComplete ? 'complete' : 'partial'})`);
+            return true;
+        } catch (error) {
+            console.error('❌ Failed to save incremental data:', error);
+            
+            // Show user-friendly error message
+            if (error.message.includes('Storage quota exceeded')) {
+                alert('Storage quota exceeded! Please export your data and clear some old analyses to continue.');
+            }
+            
+            return false;
+        }
+    }
+
+    /**
+     * Merge partial analysis data with existing data
+     */
+    mergeAnalysisData(existingData, newData) {
+        try {
+            const merged = { ...existingData };
+            
+            // Merge statistics
+            if (newData.statistics) {
+                merged.statistics = {
+                    ...merged.statistics,
+                    ...newData.statistics,
+                    // Update processed counts
+                    processedRepositories: Math.max(merged.statistics.processedRepositories || 0, newData.statistics.processedRepositories || 0),
+                    successfulRepositories: Math.max(merged.statistics.successfulRepositories || 0, newData.statistics.successfulRepositories || 0),
+                    failedRepositories: Math.max(merged.statistics.failedRepositories || 0, newData.statistics.failedRepositories || 0)
+                };
+            }
+            
+            // Merge dependencies (avoid duplicates)
+            if (newData.allDependencies) {
+                const existingDeps = new Map();
+                if (merged.allDependencies) {
+                    merged.allDependencies.forEach(dep => {
+                        existingDeps.set(`${dep.name}@${dep.version}`, dep);
+                    });
+                }
+                
+                // Add new dependencies
+                newData.allDependencies.forEach(dep => {
+                    const key = `${dep.name}@${dep.version}`;
+                    if (!existingDeps.has(key)) {
+                        existingDeps.set(key, dep);
+                    } else {
+                        // Merge repositories if dependency already exists
+                        const existing = existingDeps.get(key);
+                        const newRepos = new Set(dep.repositories || []);
+                        const existingRepos = new Set(existing.repositories || []);
+                        existing.repositories = Array.from(new Set([...existingRepos, ...newRepos]));
+                        existing.count = Math.max(existing.count || 0, dep.count || 0);
+                    }
+                });
+                
+                merged.allDependencies = Array.from(existingDeps.values());
+            }
+            
+            // Merge repositories (avoid duplicates)
+            if (newData.allRepositories) {
+                const existingRepos = new Map();
+                if (merged.allRepositories) {
+                    merged.allRepositories.forEach(repo => {
+                        existingRepos.set(`${repo.owner}/${repo.name}`, repo);
+                    });
+                }
+                
+                // Add new repositories
+                newData.allRepositories.forEach(repo => {
+                    const key = `${repo.owner}/${repo.name}`;
+                    if (!existingRepos.has(key)) {
+                        existingRepos.set(key, repo);
+                    }
+                });
+                
+                merged.allRepositories = Array.from(existingRepos.values());
+            }
+            
+            // Merge top dependencies (keep the most recent top 20)
+            if (newData.topDependencies) {
+                const allDeps = new Map();
+                if (merged.topDependencies) {
+                    merged.topDependencies.forEach(dep => {
+                        allDeps.set(`${dep.name}@${dep.version}`, dep);
+                    });
+                }
+                
+                newData.topDependencies.forEach(dep => {
+                    const key = `${dep.name}@${dep.version}`;
+                    if (!allDeps.has(key)) {
+                        allDeps.set(key, dep);
+                    }
+                });
+                
+                // Sort by count and take top 20
+                merged.topDependencies = Array.from(allDeps.values())
+                    .sort((a, b) => b.count - a.count)
+                    .slice(0, 20);
+            }
+            
+            // Merge top repositories (keep the most recent top 10)
+            if (newData.topRepositories) {
+                const allRepos = new Map();
+                if (merged.topRepositories) {
+                    merged.topRepositories.forEach(repo => {
+                        allRepos.set(`${repo.owner}/${repo.name}`, repo);
+                    });
+                }
+                
+                newData.topRepositories.forEach(repo => {
+                    const key = `${repo.owner}/${repo.name}`;
+                    if (!allRepos.has(key)) {
+                        allRepos.set(key, repo);
+                    }
+                });
+                
+                // Sort by dependency count and take top 10
+                merged.topRepositories = Array.from(allRepos.values())
+                    .sort((a, b) => b.totalDependencies - a.totalDependencies)
+                    .slice(0, 10);
+            }
+            
+            // Merge category stats
+            if (newData.categoryStats) {
+                merged.categoryStats = { ...merged.categoryStats, ...newData.categoryStats };
+            }
+            
+            // Merge language stats
+            if (newData.languageStats) {
+                merged.languageStats = { ...merged.languageStats, ...newData.languageStats };
+            }
+            
+            // Merge dependency distribution
+            if (newData.dependencyDistribution) {
+                merged.dependencyDistribution = { ...merged.dependencyDistribution, ...newData.dependencyDistribution };
+            }
+            
+            // Keep existing vulnerability and license analysis if not in new data
+            if (!newData.vulnerabilityAnalysis && merged.vulnerabilityAnalysis) {
+                // Keep existing vulnerability analysis
+            }
+            if (!newData.licenseAnalysis && merged.licenseAnalysis) {
+                // Keep existing license analysis
+            }
+            
+            console.log(`🔄 Merged analysis data: ${merged.allDependencies?.length || 0} dependencies, ${merged.allRepositories?.length || 0} repositories`);
+            return merged;
+        } catch (error) {
+            console.error('❌ Failed to merge analysis data:', error);
+            // Fallback to new data if merge fails
+            return newData;
+        }
+    }
+
+    /**
+     * Update existing analysis data with new vulnerability information
+     */
+    updateAnalysisWithVulnerabilities(orgName, vulnerabilityData) {
+        try {
+            // Get existing data
+            const existingData = this.getFullOrganizationData(orgName);
+            if (!existingData) {
+                console.warn('⚠️ No existing data found for organization:', orgName);
+                return false;
+            }
+
+            // Update with new vulnerability data
+            existingData.data.vulnerabilityAnalysis = vulnerabilityData;
+            existingData.timestamp = new Date().toISOString();
+
+            // Save updated data
+            return this.saveIncrementalAnalysisData(orgName, existingData.data, true);
+        } catch (error) {
+            console.error('❌ Failed to update analysis with vulnerabilities:', error);
+            return false;
+        }
+    }
+
+    /**
+     * Get partial analysis data for an organization
+     */
+    getPartialAnalysisData(orgName) {
+        try {
+            const fullData = this.getFullOrganizationData(orgName);
+            if (fullData && fullData.data) {
+                return {
+                    organization: orgName,
+                    timestamp: fullData.timestamp,
+                    data: fullData.data,
+                    isComplete: !fullData.data.vulnerabilityAnalysis // Consider incomplete if no vulnerability analysis
+                };
+            }
+            return null;
+        } catch (error) {
+            console.error('❌ Failed to get partial analysis data:', error);
+            return null;
+        }
+    }
+
+    /**
+     * Check if analysis data is getting too large and warn user
+     */
+    checkDataSizeAndWarn(orgName) {
+        try {
+            const fullData = this.getFullOrganizationData(orgName);
+            if (fullData && fullData.data) {
+                const dataSize = new Blob([JSON.stringify(fullData.data)]).size;
+                const sizeInMB = dataSize / 1024 / 1024;
+                
+                if (sizeInMB > 10) {
+                    console.warn(`⚠️ Analysis data for ${orgName} is large (${sizeInMB.toFixed(2)}MB). This may impact performance.`);
+                    return {
+                        isLarge: true,
+                        sizeInMB: sizeInMB,
+                        message: `Analysis data is ${sizeInMB.toFixed(2)}MB. Consider exporting and clearing old data for better performance.`
+                    };
+                }
+            }
+            return { isLarge: false };
+        } catch (error) {
+            console.error('❌ Failed to check data size:', error);
+            return { isLarge: false };
+        }
+    }
 }
 
 // Export for use in other modules
