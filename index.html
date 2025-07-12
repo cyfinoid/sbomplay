@@ -20,7 +20,7 @@
             </a>
             <div class="navbar-nav ms-auto">
                 <a class="nav-link" href="view.html">Explore</a>
-                <a class="nav-link" href="#about">About</a>
+                <a class="nav-link" href="settings.html">Settings</a>
                 <a class="nav-link" href="#help">Help</a>
             </div>
         </div>
@@ -75,41 +75,6 @@
             </div>
         </div>
 
-        <!-- GitHub Token Input -->
-        <div class="card mb-4">
-            <div class="card-header">
-                <h5 class="mb-0">
-                    <i class="fab fa-github me-2"></i>GitHub Authentication (Optional)
-                </h5>
-            </div>
-            <div class="card-body">
-                <div class="alert alert-warning alert-sm mb-3">
-                    <i class="fas fa-exclamation-triangle me-2"></i>
-                    <strong>Note:</strong> GitHub tokens are not saved or persisted. You will need to provide your token each time you use the application.
-                </div>
-                <div class="row">
-                    <div class="col-md-8">
-                        <label for="githubToken" class="form-label">GitHub Personal Access Token</label>
-                        <input type="password" class="form-control" id="githubToken" 
-                               placeholder="ghp_xxxxxxxxxxxxxxxxxxxx (optional)">
-                        <div class="form-text">
-                            <i class="fas fa-info-circle me-1"></i>
-                            Optional: Provides higher rate limits (5,000 vs 60 requests/hour). 
-                            <a href="https://github.com/settings/tokens" target="_blank">Create token here</a>
-                        </div>
-                    </div>
-                    <div class="col-md-4">
-                        <div class="d-flex align-items-end h-100">
-                            <button class="btn btn-outline-primary" onclick="saveToken()">
-                                <i class="fas fa-check me-2"></i>Set Token
-                            </button>
-                        </div>
-                    </div>
-                </div>
-                <div id="tokenStatus" class="mt-2"></div>
-            </div>
-        </div>
-
         <!-- Organization Input -->
         <div class="card mb-4">
             <div class="card-header">
@@ -145,41 +110,39 @@
             </div>
         </div>
 
-        <!-- Storage Management -->
+
+        <!-- GitHub Token Input -->
         <div class="card mb-4">
             <div class="card-header">
                 <h5 class="mb-0">
-                    <i class="fas fa-hdd me-2"></i>Storage Management
+                    <i class="fab fa-github me-2"></i>GitHub Authentication (Optional)
                 </h5>
             </div>
             <div class="card-body">
-                <div id="storageStatus" class="mb-3">
-                    <!-- Storage status will be populated by JavaScript -->
+                <div class="alert alert-warning alert-sm mb-3">
+                    <i class="fas fa-exclamation-triangle me-2"></i>
+                    <strong>Note:</strong> GitHub tokens are not saved or persisted. You will need to provide your token each time you use the application.
                 </div>
                 <div class="row">
-                    <div class="col-md-6">
-                        <button class="btn btn-outline-primary btn-sm" onclick="app.showStorageStatus()">
-                            <i class="fas fa-info-circle me-2"></i>Check Storage Status
-                        </button>
-                        <button class="btn btn-outline-success btn-sm" onclick="app.exportAllData()">
-                            <i class="fas fa-download me-2"></i>Export All Data
-                        </button>
-                        <button class="btn btn-outline-info btn-sm" onclick="app.testStorageQuota()">
-                            <i class="fas fa-vial me-2"></i>Test Storage
-                        </button>
-                        <button class="btn btn-outline-secondary btn-sm" onclick="app.migrateOldData()">
-                            <i class="fas fa-sync me-2"></i>Migrate Data
-                        </button>
+                    <div class="col-md-8">
+                        <label for="githubToken" class="form-label">GitHub Personal Access Token</label>
+                        <input type="password" class="form-control" id="githubToken" 
+                               placeholder="ghp_xxxxxxxxxxxxxxxxxxxx (optional)">
+                        <div class="form-text">
+                            <i class="fas fa-info-circle me-1"></i>
+                            Optional: Provides higher rate limits (5,000 vs 60 requests/hour). 
+                            <a href="https://github.com/settings/tokens" target="_blank">Create token here</a>
+                        </div>
                     </div>
-                    <div class="col-md-6 text-end">
-                        <button class="btn btn-outline-warning btn-sm" onclick="app.clearOldData()">
-                            <i class="fas fa-broom me-2"></i>Clear Old Data
-                        </button>
-                        <button class="btn btn-outline-danger btn-sm" onclick="app.clearAllData()">
-                            <i class="fas fa-trash me-2"></i>Clear All Data
-                        </button>
+                    <div class="col-md-4">
+                        <div class="d-flex align-items-end h-100">
+                            <button class="btn btn-outline-primary" onclick="saveToken()">
+                                <i class="fas fa-check me-2"></i>Set Token
+                            </button>
+                        </div>
                     </div>
                 </div>
+                <div id="tokenStatus" class="mt-2"></div>
             </div>
         </div>
 
