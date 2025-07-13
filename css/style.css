@@ -487,8 +487,6 @@ body {
 
 /* Dependency List */
 .dependency-list {
-    max-height: 400px;
-    overflow-y: auto;
 }
 
 .dependency-item {
@@ -510,6 +508,7 @@ body {
 .dep-content {
     flex: 1;
     cursor: pointer;
+    word-break: break-all;
 }
 
 .dep-actions {
@@ -586,8 +585,6 @@ body {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(350px, 1fr));
     gap: 0.75rem;
-    max-height: 400px;
-    overflow-y: auto;
 }
 
 .dependency-card {
@@ -611,6 +608,7 @@ body {
 .dependency-card .dep-content {
     flex: 1;
     cursor: pointer;
+    word-break: break-all;
 }
 
 .dependency-card .dep-actions {
