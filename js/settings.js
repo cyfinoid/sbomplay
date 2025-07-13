@@ -24,16 +24,35 @@ class SettingsApp {
      */
     setupEventListeners() {
         // Token input validation
-        document.getElementById('githubToken').addEventListener('input', (e) => {
-            const token = e.target.value.trim();
-            if (token && !token.startsWith('ghp_')) {
-                this.updateTokenStatus('Token should start with "ghp_"', 'warning');
-            } else if (token) {
-                this.updateTokenStatus('Token format looks valid', 'success');
-            } else {
-                this.updateTokenStatus('', '');
-            }
-        });
+        const tokenInput = document.getElementById('githubToken');
+        if (tokenInput) {
+            tokenInput.addEventListener('input', (e) => {
+                const token = e.target.value.trim();
+                if (token && !token.startsWith('ghp_')) {
+                    this.updateTokenStatus('Token should start with "ghp_"', 'warning');
+                } else if (token) {
+                    this.updateTokenStatus('Token format looks valid', 'success');
+                } else {
+                    this.updateTokenStatus('', '');
+                }
+            });
+        }
+    }
+
+    /**
+     * Toggle token section visibility
+     */
+    toggleTokenSection() {
+        const tokenSection = document.getElementById('tokenSectionBody');
+        const toggleIcon = document.getElementById('tokenToggleIcon');
+        
+        if (tokenSection.style.display === 'none') {
+            tokenSection.style.display = 'block';
+            toggleIcon.className = 'fas fa-chevron-up';
+        } else {
+            tokenSection.style.display = 'none';
+            toggleIcon.className = 'fas fa-chevron-down';
+        }
     }
 
     /**
@@ -220,9 +239,82 @@ class SettingsApp {
                 this.storageManager.clearAllData();
                 this.showAlert('All data cleared successfully!', 'success');
                 this.showStorageStatus(); // Refresh display
+                this.displayOrganizationsOverview(); // Refresh display
             } catch (error) {
                 this.showAlert(`Failed to clear data: ${error.message}`, 'danger');
             }
+        }
+    }
+
+    /**
+     * Clear old data (keep only recent)
+     */
+    clearOldData() {
+        if (confirm('This will remove old analysis data while keeping the most recent. Continue?')) {
+            try {
+                const storageInfo = this.storageManager.getStorageInfo();
+                const organizations = storageInfo.organizations;
+                
+                if (organizations.length <= 3) {
+                    this.showAlert('Not enough data to clear. Keep at least 3 recent analyses.', 'info');
+                    return;
+                }
+                
+                // Keep only the 3 most recent organizations
+                organizations.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+                const toRemove = organizations.slice(3);
+                
+                let removedCount = 0;
+                for (const org of toRemove) {
+                    if (this.storageManager.removeOrganizationData(org.name)) {
+                        removedCount++;
+                    }
+                }
+                
+                this.showAlert(`Cleared ${removedCount} old analyses. Kept 3 most recent.`, 'success');
+                this.displayOrganizationsOverview(); // Refresh display
+                this.showStorageStatus(); // Update storage status
+            } catch (error) {
+                console.error('Clear old data failed:', error);
+                this.showAlert('Failed to clear old data', 'danger');
+            }
+        }
+    }
+
+    /**
+     * Test storage quota management
+     */
+    testStorageQuota() {
+        try {
+            const testResults = this.storageManager.testStorageQuota();
+            if (testResults) {
+                console.log('🧪 Storage quota test results:', testResults);
+                this.showAlert(`Storage test completed. Check console for details. Compression ratio: ${testResults.compressionRatio.toFixed(1)}%`, 'info');
+            } else {
+                this.showAlert('Storage test failed. Check console for details.', 'warning');
+            }
+        } catch (error) {
+            console.error('Storage test failed:', error);
+            this.showAlert('Storage test failed', 'danger');
+        }
+    }
+
+    /**
+     * Migrate old data to new compressed format
+     */
+    migrateOldData() {
+        try {
+            const migratedCount = this.storageManager.migrateOldData();
+            if (migratedCount > 0) {
+                this.showAlert(`Successfully migrated ${migratedCount} organizations to compressed format.`, 'success');
+                this.showStorageStatus(); // Update storage status
+                this.displayOrganizationsOverview(); // Refresh display
+            } else {
+                this.showAlert('No old data found to migrate. All data is already in compressed format.', 'info');
+            }
+        } catch (error) {
+            console.error('Migration failed:', error);
+            this.showAlert('Failed to migrate old data', 'danger');
         }
     }
 
@@ -344,8 +436,8 @@ class SettingsApp {
         const data = this.storageManager.loadAnalysisDataForOrganization(orgName);
         if (data) {
             console.log('Loading detailed view for:', orgName, data);
-            // Redirect to view.html with organization parameter
-            window.location.href = `view.html?org=${encodeURIComponent(orgName)}`;
+            // Redirect to stats.html with organization parameter
+            window.location.href = `stats.html?org=${encodeURIComponent(orgName)}`;
         } else {
             this.showAlert(`No detailed data found for ${orgName}`, 'warning');
         }
@@ -358,8 +450,8 @@ class SettingsApp {
         const combinedData = this.storageManager.getCombinedData();
         if (combinedData) {
             console.log('Loading combined view:', combinedData);
-            // Redirect to view.html with combined parameter
-            window.location.href = 'view.html?combined=true';
+            // Redirect to stats.html with combined parameter
+            window.location.href = 'stats.html?combined=true';
         } else {
             this.showAlert('No data available for combined view', 'warning');
         }

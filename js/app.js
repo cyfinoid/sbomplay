@@ -637,7 +637,6 @@ class SBOMPlayApp {
                                         <th>Repositories</th>
                                         <th>Dependencies</th>
                                         <th>Last Updated</th>
-                                        <th>Actions</th>
                                     </tr>
                                 </thead>
                                 <tbody>
@@ -650,11 +649,6 @@ class SBOMPlayApp {
                                                 <td><span class="badge bg-primary">${org.repositories}</span></td>
                                                 <td><span class="badge bg-success">${org.dependencies}</span></td>
                                                 <td><small>${date} ${time}</small></td>
-                                                <td>
-                                                    <a href="view.html" class="btn btn-outline-primary btn-sm">
-                                                        <i class="fas fa-eye me-1"></i>View
-                                                    </a>
-                                                </td>
                                             </tr>
                                         `;
                                     }).join('')}
@@ -666,53 +660,7 @@ class SBOMPlayApp {
             `;
         }
         
-        // Show combined analysis if multiple organizations exist
-        if (combinedData && organizations.length > 1) {
-            const combinedStats = combinedData.data.statistics;
-            const combinedTopDeps = combinedData.data.topDependencies.slice(0, 5);
-            
-            html += `
-                <div class="row mb-4">
-                    <div class="col-12">
-                        <div class="alert alert-info">
-                            <h6><i class="fas fa-layer-group me-2"></i>Combined Analysis Summary</h6>
-                            <p class="mb-2">Aggregated data from all ${organizations.length} organizations</p>
-                            <div class="row">
-                                <div class="col-md-6">
-                                    <table class="table table-sm">
-                                        <tr><td>Total Organizations:</td><td><strong>${organizations.length}</strong></td></tr>
-                                        <tr><td>Total Repositories:</td><td>${combinedStats.totalRepositories}</td></tr>
-                                        <tr><td>Total Dependencies:</td><td>${combinedStats.totalDependencies}</td></tr>
-                                        <tr><td>Avg per Repo:</td><td>${combinedStats.averageDependenciesPerRepo}</td></tr>
-                                    </table>
-                                </div>
-                                <div class="col-md-6">
-                                    <h6>Top Combined Dependencies</h6>
-                                    <div class="dependencies-chart">
-                                        ${combinedTopDeps.map(dep => `
-                                            <div class="dependency-bar">
-                                                <div class="dependency-info">
-                                                    <span class="dependency-name">${dep.name}@${dep.version}</span>
-                                                    <span class="dependency-count">${dep.count}</span>
-                                                </div>
-                                                <div class="dependency-progress">
-                                                    <div class="progress-fill" style="width: ${(dep.count / combinedTopDeps[0].count) * 100}%"></div>
-                                                </div>
-                                            </div>
-                                        `).join('')}
-                                    </div>
-                                </div>
-                            </div>
-                            <div class="mt-3">
-                                <a href="view.html" class="btn btn-primary btn-sm">
-                                    <i class="fas fa-chart-line me-2"></i>View Combined Details
-                                </a>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            `;
-        }
+
         
         // Show no data message if no organizations stored
         if (organizations.length === 0) {

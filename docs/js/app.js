@@ -534,7 +534,7 @@ class SBOMPlayApp {
                                                 <td><span class="badge bg-success">${org.dependencies}</span></td>
                                                 <td><small>${date} ${time}</small></td>
                                                 <td>
-                                                    <a href="view.html" class="btn btn-outline-primary btn-sm">
+                                                    <a href="stats.html" class="btn btn-outline-primary btn-sm">
                                                         <i class="fas fa-eye me-1"></i>View
                                                     </a>
                                                 </td>
@@ -587,7 +587,7 @@ class SBOMPlayApp {
                                 </div>
                             </div>
                             <div class="mt-3">
-                                <a href="view.html" class="btn btn-primary btn-sm">
+                                <a href="stats.html" class="btn btn-primary btn-sm">
                                     <i class="fas fa-chart-line me-2"></i>View Combined Details
                                 </a>
                             </div>

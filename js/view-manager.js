@@ -2909,4 +2909,115 @@ class ViewManager {
             ` : ''}
         `;
     }
+
+    generateVulnerabilityAnalysisHTML(orgData) {
+        // Extracted from generateOverviewHTML: vulnerability section only
+        return `
+        <div id="vulnerability-section" class="independent-section">
+            <div class="vulnerability-breakdown">
+                <h3>🔒 Vulnerability Analysis</h3>
+                ${orgData.data.vulnerabilityAnalysis ? `
+                <div class="vulnerability-actions mb-3">
+                    <button class="btn btn-primary btn-sm" onclick="viewManager.runBatchVulnerabilityQuery('${orgData.organization}')">
+                        <i class="fas fa-search"></i> Re-run Batch Vulnerability Query
+                    </button>
+                    <button class="btn btn-info btn-sm" onclick="viewManager.showVulnerabilityCacheStats()">
+                        <i class="fas fa-database"></i> Cache Stats
+                    </button>
+                    <button class="btn btn-warning btn-sm" onclick="viewManager.clearVulnerabilityCache()">
+                        <i class="fas fa-trash"></i> Clear Cache
+                    </button>
+                </div>
+                <div class="vulnerability-stats">
+                    <div class="vuln-stat-card critical">
+                        <h4>🚨 Critical</h4>
+                        <div class="vuln-number">${orgData.data.vulnerabilityAnalysis.criticalVulnerabilities || 0}</div>
+                        <div class="vuln-detail">vulnerabilities</div>
+                    </div>
+                    <div class="vuln-stat-card high">
+                        <h4>⚠️ High</h4>
+                        <div class="vuln-number">${orgData.data.vulnerabilityAnalysis.highVulnerabilities || 0}</div>
+                        <div class="vuln-detail">vulnerabilities</div>
+                    </div>
+                    <div class="vuln-stat-card medium">
+                        <h4>⚡ Medium</h4>
+                        <div class="vuln-number">${orgData.data.vulnerabilityAnalysis.mediumVulnerabilities || 0}</div>
+                        <div class="vuln-detail">vulnerabilities</div>
+                    </div>
+                    <div class="vuln-stat-card low">
+                        <h4>ℹ️ Low</h4>
+                        <div class="vuln-number">${orgData.data.vulnerabilityAnalysis.lowVulnerabilities || 0}</div>
+                        <div class="vuln-detail">vulnerabilities</div>
+                    </div>
+                    <div class="vuln-stat-card total">
+                        <h4>📊 Total</h4>
+                        <div class="vuln-number">${orgData.data.vulnerabilityAnalysis.vulnerablePackages || 0}</div>
+                        <div class="vuln-detail">vulnerable packages</div>
+                    </div>
+                    <div class="vuln-stat-card rate">
+                        <h4>📈 Rate</h4>
+                        <div class="vuln-number">${orgData.data.vulnerabilityAnalysis.vulnerabilityRate || 0}%</div>
+                        <div class="vuln-detail">vulnerability rate</div>
+                    </div>
+                </div>
+                ${orgData.data.vulnerabilityAnalysis.vulnerableDependencies && orgData.data.vulnerabilityAnalysis.vulnerableDependencies.length > 0 ? `
+                <div class="vulnerable-dependencies">
+                    <h4>🚨 Vulnerable Dependencies</h4>
+                    <div class="vulnerable-deps-list">
+                        ${orgData.data.vulnerabilityAnalysis.vulnerableDependencies.slice(0, 10).map(dep => `
+                            <div class="vulnerable-dep-item">
+                                <div class="vuln-dep-info">
+                                    <div class="vuln-dep-name">${dep.name}@${dep.version}</div>
+                                    <div class="vuln-dep-count">${dep.vulnerabilities.length} vulnerabilities</div>
+                                    <div class="vuln-severity-badges">
+                                        ${dep.vulnerabilities.map(vuln => {
+                                            if (!vuln || typeof vuln !== 'object') return '';
+                                            const severity = window.osvService ? window.osvService.getHighestSeverity(vuln) : 'UNKNOWN';
+                                            const tooltip = `${vuln.id || 'Unknown ID'}\n${vuln.summary || 'No summary'}`;
+                                            const cssSeverity = severity.toLowerCase() === 'moderate' ? 'medium' : severity.toLowerCase();
+                                            return `
+                                                <span class="badge severity-${cssSeverity} clickable-severity-badge" 
+                                                      title="${tooltip}" 
+                                                      onclick="viewManager.showVulnerabilityDetails('${dep.name}', '${dep.version}', [${JSON.stringify(vuln).replace(/"/g, '&quot;')}])">
+                                                    ${severity}
+                                                </span>
+                                            `;
+                                        }).join('')}
+                                    </div>
+                                </div>
+                                <div class="vuln-dep-actions">
+                                    <button class="btn btn-sm btn-outline-info" onclick="viewManager.showVulnerabilityDetails('${dep.name}', '${dep.version}', ${JSON.stringify(dep.vulnerabilities).replace(/"/g, '&quot;')})">
+                                        <i class="fas fa-eye me-1"></i>View Details
+                                    </button>
+                                </div>
+                            </div>
+                        `).join('')}
+                    </div>
+                </div>
+                ` : ''}
+                ` : `
+                <div class="vulnerability-actions mb-3">
+                    <button class="btn btn-primary btn-sm" onclick="viewManager.runBatchVulnerabilityQuery('${orgData.organization}')">
+                        <i class="fas fa-search"></i> Run Initial Vulnerability Analysis
+                    </button>
+                    <button class="btn btn-info btn-sm" onclick="viewManager.showVulnerabilityCacheStats()">
+                        <i class="fas fa-database"></i> Cache Stats
+                    </button>
+                    <button class="btn btn-warning btn-sm" onclick="viewManager.clearVulnerabilityCache()">
+                        <i class="fas fa-trash"></i> Clear Cache
+                    </button>
+                    <button class="btn btn-success btn-sm" onclick="window.osvService.testVulnerabilityDetails()">
+                        <i class="fas fa-eye"></i> Test External Links
+                    </button>
+                </div>
+                <div class="alert alert-info">
+                    <h6>📋 No Vulnerability Analysis Yet</h6>
+                    <p>This organization hasn't been analyzed for vulnerabilities yet. Click "Run Initial Vulnerability Analysis" to scan all dependencies for known vulnerabilities.</p>
+                    <p><strong>Note:</strong> This will query the OSV API for each dependency and may take a few minutes depending on the number of dependencies.</p>
+                </div>
+                `}
+            </div>
+        </div>
+        `;
+    }
 }

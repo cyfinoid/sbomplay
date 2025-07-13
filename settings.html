@@ -17,7 +17,7 @@
             </a>
             <div class="navbar-nav ms-auto">
                 <a class="nav-link" href="index.html">Analysis</a>
-                <a class="nav-link" href="view.html">Explore</a>
+                <a class="nav-link" href="stats.html">Stats</a>
                 <a class="nav-link" href="license-compliance.html">License</a>
                 <a class="nav-link" href="vuln.html">Vulnerabilities</a>
                 <a class="nav-link" href="deps.html">Dependencies</a>
@@ -82,6 +82,40 @@
                         </button>
                     </div>
                 </div>
+            </div>
+        </div>
+
+        <!-- GitHub Token Input -->
+        <div class="card mb-4">
+            <div class="card-header" style="cursor: pointer;" onclick="settingsApp.toggleTokenSection()">
+                <h5 class="mb-0 d-flex justify-content-between align-items-center">
+                    <span>
+                        <i class="fab fa-github me-2"></i>GitHub Authentication (Optional)
+                    </span>
+                    <i class="fas fa-chevron-down" id="tokenToggleIcon"></i>
+                </h5>
+            </div>
+            <div class="card-body" id="tokenSectionBody" style="display: none;">
+                <div class="alert alert-warning alert-sm mb-3">
+                    <i class="fas fa-exclamation-triangle me-2"></i>
+                    <strong>Note:</strong> GitHub tokens are not saved or persisted. You will need to provide your token each time you use the application.
+                </div>
+                <div class="row">
+                    <div class="col-md-8">
+                        <label for="githubToken" class="form-label">GitHub Personal Access Token (Optional: Provides higher rate limits)<sup>*</sup>&nbsp; <a href="https://github.com/settings/tokens" target="_blank">Create token here</a></label>
+                        <input type="password" class="form-control" id="githubToken" 
+                               placeholder="ghp_xxxxxxxxxxxxxxxxxxxx (optional)">
+                        
+                    </div>
+                    <div class="col-md-4">
+                        <div class="d-flex align-items-end h-100">
+                            <button class="btn btn-outline-primary" onclick="settingsApp.saveToken()">
+                                <i class="fas fa-check me-2"></i>Set Token
+                            </button>
+                        </div>
+                    </div>
+                </div>
+                <div id="tokenStatus" class="mt-2"></div>
             </div>
         </div>
 

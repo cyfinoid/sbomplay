@@ -840,7 +840,11 @@ class StorageManager {
             allDependencies: [],
             allRepositories: [],
             categoryStats: {},
-            languageStats: {}
+            languageStats: {},
+            vulnerabilities: [],
+            licenses: [],
+            vulnerabilityAnalysis: null,
+            licenseAnalysis: null
         };
 
         // Aggregate statistics
@@ -961,10 +965,34 @@ class StorageManager {
                     }
                 }
             }
+            
+            // Combine vulnerabilities
+            if (orgData.data.vulnerabilities) {
+                console.log('Vulnerabilities for', orgData.organization, ':', orgData.data.vulnerabilities.length);
+                combined.vulnerabilities.push(...orgData.data.vulnerabilities);
+            }
+            
+            // Combine licenses
+            if (orgData.data.licenses) {
+                console.log('Licenses for', orgData.organization, ':', orgData.data.licenses.length);
+                combined.licenses.push(...orgData.data.licenses);
+            }
+
+            // Combine vulnerability analysis
+            if (orgData.data.vulnerabilityAnalysis) {
+                combined.vulnerabilityAnalysis = orgData.data.vulnerabilityAnalysis;
+            }
+
+            // Combine license analysis
+            if (orgData.data.licenseAnalysis) {
+                combined.licenseAnalysis = orgData.data.licenseAnalysis;
+            }
         }
         
         console.log('Final combined category stats:', combined.categoryStats);
         console.log('Final combined language stats:', combined.languageStats);
+        console.log('Final combined vulnerabilities:', combined.vulnerabilities.length);
+        console.log('Final combined licenses:', combined.licenses.length);
 
         return combined;
     }
