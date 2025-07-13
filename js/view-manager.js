@@ -505,7 +505,9 @@ class ViewManager {
                                 // Check if it's in the license families
                                 const licenseFamilies = orgData.data.licenseAnalysis.licenseFamilies;
                                 if (licenseFamilies) {
-                                    for (const [familyName, deps] of licenseFamilies.entries()) {
+                                    // Handle both Map and Object structures
+                                    const entries = licenseFamilies instanceof Map ? licenseFamilies.entries() : Object.entries(licenseFamilies);
+                                    for (const [familyName, deps] of entries) {
                                         const familyDep = deps.find(dep => 
                                             dep.name === dependency.name && dep.version === dependency.version
                                         );
