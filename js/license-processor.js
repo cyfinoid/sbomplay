@@ -7,13 +7,19 @@ class LicenseProcessor {
         this.licenseCategories = {
             // Permissive licenses (low risk)
             permissive: {
-                licenses: ['MIT', 'Apache-2.0', 'BSD-2-Clause', 'BSD-3-Clause', 'ISC', 'Unlicense', 'CC0-1.0'],
+                licenses: ['MIT', 'Apache-2.0', 'BSD-2-Clause', 'BSD-3-Clause', 'ISC', 'Unlicense', 'CC0-1.0', 'WTFPL', 'Zlib', 'Boost-1.0', 'Ruby'],
                 risk: 'low',
                 description: 'Permissive licenses that allow commercial use with minimal restrictions'
             },
+            // Lesser GPL licenses (medium risk - more permissive than GPL but still copyleft)
+            lgpl: {
+                licenses: ['LGPL-2.1', 'LGPL-3.0'],
+                risk: 'medium',
+                description: 'Lesser GPL licenses that are more permissive than GPL but still have some copyleft requirements'
+            },
             // Copyleft licenses (medium-high risk)
             copyleft: {
-                licenses: ['GPL-2.0', 'GPL-3.0', 'LGPL-2.1', 'LGPL-3.0', 'AGPL-3.0', 'MPL-2.0'],
+                licenses: ['GPL-2.0', 'GPL-3.0', 'GPL-2.0-only', 'GPL-2.0-or-later', 'GPL-3.0-only', 'GPL-3.0-or-later', 'AGPL-3.0', 'MPL-2.0'],
                 risk: 'high',
                 description: 'Copyleft licenses that may require source code disclosure'
             },
@@ -33,15 +39,27 @@ class LicenseProcessor {
 
         // License compatibility matrix
         this.compatibilityMatrix = {
-            'MIT': ['MIT', 'Apache-2.0', 'BSD-2-Clause', 'BSD-3-Clause', 'ISC', 'Unlicense'],
-            'Apache-2.0': ['MIT', 'Apache-2.0', 'BSD-2-Clause', 'BSD-3-Clause', 'ISC', 'Unlicense'],
-            'BSD-2-Clause': ['MIT', 'Apache-2.0', 'BSD-2-Clause', 'BSD-3-Clause', 'ISC', 'Unlicense'],
-            'BSD-3-Clause': ['MIT', 'Apache-2.0', 'BSD-2-Clause', 'BSD-3-Clause', 'ISC', 'Unlicense'],
+            // Permissive licenses are generally compatible with each other
+            'MIT': ['MIT', 'Apache-2.0', 'BSD-2-Clause', 'BSD-3-Clause', 'ISC', 'Unlicense', 'CC0-1.0', 'WTFPL'],
+            'Apache-2.0': ['MIT', 'Apache-2.0', 'BSD-2-Clause', 'BSD-3-Clause', 'ISC', 'Unlicense', 'CC0-1.0', 'WTFPL'],
+            'BSD-2-Clause': ['MIT', 'Apache-2.0', 'BSD-2-Clause', 'BSD-3-Clause', 'ISC', 'Unlicense', 'CC0-1.0', 'WTFPL'],
+            'BSD-3-Clause': ['MIT', 'Apache-2.0', 'BSD-2-Clause', 'BSD-3-Clause', 'ISC', 'Unlicense', 'CC0-1.0', 'WTFPL'],
+            'ISC': ['MIT', 'Apache-2.0', 'BSD-2-Clause', 'BSD-3-Clause', 'ISC', 'Unlicense', 'CC0-1.0', 'WTFPL', 'Ruby'],
+            'Unlicense': ['MIT', 'Apache-2.0', 'BSD-2-Clause', 'BSD-3-Clause', 'ISC', 'Unlicense', 'CC0-1.0', 'WTFPL', 'Ruby'],
+            'CC0-1.0': ['MIT', 'Apache-2.0', 'BSD-2-Clause', 'BSD-3-Clause', 'ISC', 'Unlicense', 'CC0-1.0', 'WTFPL', 'Ruby'],
+            'WTFPL': ['MIT', 'Apache-2.0', 'BSD-2-Clause', 'BSD-3-Clause', 'ISC', 'Unlicense', 'CC0-1.0', 'WTFPL', 'Ruby'],
+            'Ruby': ['MIT', 'Apache-2.0', 'BSD-2-Clause', 'BSD-3-Clause', 'ISC', 'Unlicense', 'CC0-1.0', 'WTFPL', 'Ruby'],
+            
+            // Copyleft licenses have more restrictions
             'GPL-2.0': ['GPL-2.0', 'GPL-3.0'],
             'GPL-3.0': ['GPL-3.0'],
+            'GPL-2.0-only': ['GPL-2.0', 'GPL-3.0'],
+            'GPL-2.0-or-later': ['GPL-2.0', 'GPL-3.0'],
+            'GPL-3.0-only': ['GPL-3.0'],
+            'GPL-3.0-or-later': ['GPL-3.0'],
             'AGPL-3.0': ['AGPL-3.0'],
-            'LGPL-2.1': ['LGPL-2.1', 'LGPL-3.0', 'GPL-2.0', 'GPL-3.0'],
-            'LGPL-3.0': ['LGPL-3.0', 'GPL-3.0'],
+            'LGPL-2.1': ['LGPL-2.1', 'LGPL-3.0', 'GPL-2.0', 'GPL-3.0', 'MIT', 'Apache-2.0', 'BSD-2-Clause', 'BSD-3-Clause', 'ISC', 'Unlicense', 'CC0-1.0', 'WTFPL', 'Ruby'],
+            'LGPL-3.0': ['LGPL-3.0', 'GPL-3.0', 'MIT', 'Apache-2.0', 'BSD-2-Clause', 'BSD-3-Clause', 'ISC', 'Unlicense', 'CC0-1.0', 'WTFPL', 'Ruby'],
             'MPL-2.0': ['MPL-2.0', 'GPL-2.0', 'GPL-3.0', 'LGPL-2.1', 'LGPL-3.0']
         };
 
@@ -150,10 +168,15 @@ class LicenseProcessor {
      * Check if two licenses are compatible
      */
     areLicensesCompatible(license1, license2) {
-        // Handle complex licenses
+        // Same license is always compatible
+        if (license1 === license2) {
+            return true;
+        }
+
+        // Handle complex license expressions
         if (license1.includes(' AND ') || license1.includes(' OR ') ||
             license2.includes(' AND ') || license2.includes(' OR ')) {
-            return false; // Conservative approach for complex licenses
+            return this.areComplexLicensesCompatible(license1, license2);
         }
 
         // Check compatibility matrix
@@ -164,8 +187,74 @@ class LicenseProcessor {
             return this.compatibilityMatrix[license2].includes(license1);
         }
 
-        // If not in matrix, assume incompatible
-        return false;
+        // For licenses not in the matrix, use a more permissive approach
+        // Only flag as incompatible if we know they conflict
+        const knownIncompatiblePairs = [
+            ['GPL-2.0', 'GPL-3.0'], // Different GPL versions
+            ['GPL-2.0', 'AGPL-3.0'], // GPL vs AGPL
+            ['GPL-3.0', 'AGPL-3.0'], // GPL vs AGPL
+            ['LGPL-2.1', 'LGPL-3.0'], // Different LGPL versions
+            ['MPL-1.0', 'MPL-2.0'], // Different MPL versions
+            ['Apache-1.0', 'Apache-2.0'], // Different Apache versions
+        ];
+
+        // Check if this is a known incompatible pair
+        for (const [lic1, lic2] of knownIncompatiblePairs) {
+            if ((license1 === lic1 && license2 === lic2) || 
+                (license1 === lic2 && license2 === lic1)) {
+                return false;
+            }
+        }
+
+        // For unknown combinations, assume compatible (more permissive)
+        // This prevents false positives for common permissive licenses
+        return true;
+    }
+
+    /**
+     * Check compatibility for complex license expressions
+     */
+    areComplexLicensesCompatible(license1, license2) {
+        // Parse complex licenses into individual components
+        const components1 = this.parseComplexLicense(license1);
+        const components2 = this.parseComplexLicense(license2);
+
+        // Check if any component from license1 is compatible with any component from license2
+        for (const comp1 of components1) {
+            for (const comp2 of components2) {
+                if (this.areLicensesCompatible(comp1, comp2)) {
+                    return true; // At least one combination is compatible
+                }
+            }
+        }
+
+        return false; // No compatible combinations found
+    }
+
+    /**
+     * Parse complex license expression into individual licenses
+     */
+    parseComplexLicense(licenseExpression) {
+        // Split by AND/OR and clean up
+        const components = licenseExpression
+            .split(/\s+(?:AND|OR)\s+/i)
+            .map(comp => comp.trim())
+            .filter(comp => comp.length > 0);
+
+        // Handle special cases and normalize
+        return components.map(comp => {
+            // Handle version suffixes like "-only", "-or-later"
+            if (comp.includes('-only') || comp.includes('-or-later')) {
+                return comp; // Keep as-is for now
+            }
+            
+            // Handle language-specific licenses like "Ruby"
+            if (comp === 'Ruby') {
+                return 'Ruby'; // Ruby license is generally permissive
+            }
+
+            return comp;
+        });
     }
 
     /**

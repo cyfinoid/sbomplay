@@ -24,21 +24,27 @@
 
     <!-- Main Content -->
     <div class="container mt-4">
-        <!-- Header -->
-        <div class="row mb-4">
-            <div class="col-12">
-                <div class="d-flex justify-content-between align-items-center">
-                    <div>
-                        <h1>🔍 SBOM Data Explorer</h1>
-                        <p class="text-muted">Explore and navigate through your stored SBOM analyses</p>
-                    </div>
-                    <div>
-                        <a href="index.html" class="btn btn-outline-primary">
-                            <i class="fas fa-arrow-left me-2"></i>Back to Analysis
-                        </a>
-                    </div>
-                </div>
-            </div>
+        <!-- Tab Navigation -->
+        <ul class="nav nav-tabs mb-4" id="analysisTabs">
+            <li class="nav-item">
+                <a class="nav-link active" id="tab-license" href="#license-compliance">License Compliance</a>
+            </li>
+            <li class="nav-item">
+                <a class="nav-link" id="tab-vuln" href="#vulnerability-analysis">Vulnerability Analysis</a>
+            </li>
+            <li class="nav-item">
+                <a class="nav-link" id="tab-deps" href="#dependency-overview">Dependency Overview</a>
+            </li>
+        </ul>
+        <!-- Page Containers -->
+        <div id="license-compliance-page">
+            <!-- License Compliance content will be rendered here by JS -->
+        </div>
+        <div id="vulnerability-analysis-page" style="display:none;">
+            <!-- Vulnerability Analysis content will be rendered here by JS -->
+        </div>
+        <div id="dependency-overview-page" style="display:none;">
+            <!-- Dependency Overview content will be rendered here by JS -->
         </div>
 
         <!-- Storage Management -->
@@ -660,5 +666,31 @@
             explorerApp = new SBOMExplorerApp();
         });
     </script>
+    <script>
+// Tab switching logic
+function showTab(tab) {
+    document.getElementById('license-compliance-page').style.display = (tab === 'license-compliance') ? '' : 'none';
+    document.getElementById('vulnerability-analysis-page').style.display = (tab === 'vulnerability-analysis') ? '' : 'none';
+    document.getElementById('dependency-overview-page').style.display = (tab === 'dependency-overview') ? '' : 'none';
+    document.getElementById('tab-license').classList.toggle('active', tab === 'license-compliance');
+    document.getElementById('tab-vuln').classList.toggle('active', tab === 'vulnerability-analysis');
+    document.getElementById('tab-deps').classList.toggle('active', tab === 'dependency-overview');
+}
+function handleHashChange() {
+    const hash = window.location.hash.replace('#', '');
+    if (hash === 'vulnerability-analysis') {
+        showTab('vulnerability-analysis');
+    } else if (hash === 'dependency-overview') {
+        showTab('dependency-overview');
+    } else {
+        showTab('license-compliance');
+    }
+}
+document.getElementById('tab-license').onclick = function() { window.location.hash = 'license-compliance'; return false; };
+document.getElementById('tab-vuln').onclick = function() { window.location.hash = 'vulnerability-analysis'; return false; };
+document.getElementById('tab-deps').onclick = function() { window.location.hash = 'dependency-overview'; return false; };
+window.addEventListener('hashchange', handleHashChange);
+document.addEventListener('DOMContentLoaded', handleHashChange);
+</script>
 </body>
 </html> 

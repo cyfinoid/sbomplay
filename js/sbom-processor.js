@@ -21,7 +21,7 @@ class SBOMProcessor {
             'nuget': { type: 'code', language: 'C#', ecosystem: 'NuGet' },
             'cargo': { type: 'code', language: 'Rust', ecosystem: 'Cargo' },
             'composer': { type: 'code', language: 'PHP', ecosystem: 'Composer' },
-            'go': { type: 'code', language: 'Go', ecosystem: 'Go Modules' },
+            'go': { type: 'code', language: 'Go', ecosystem: 'Go' },
             'githubactions': { type: 'workflow', language: 'YAML', ecosystem: 'GitHub Actions' },
             'github': { type: 'infrastructure', language: 'Various', ecosystem: 'GitHub' },
             'docker': { type: 'infrastructure', language: 'Various', ecosystem: 'Docker' },
@@ -51,7 +51,15 @@ class SBOMProcessor {
                 const purlParts = purl.split('/');
                 
                 if (purlParts.length >= 2) {
-                    const ecosystem = purlParts[0].replace('pkg:', '');
+                    let ecosystem = purlParts[0].replace('pkg:', '');
+                    
+                    // Map ecosystem names to OSV-compatible names
+                    const ecosystemMap = {
+                        'golang': 'go',
+                        'go': 'go'
+                    };
+                    
+                    ecosystem = ecosystemMap[ecosystem] || ecosystem;
                     const typeInfo = this.purlTypeMap[ecosystem];
                     
                     if (typeInfo) {

@@ -45,10 +45,11 @@ class OSVService {
             
             // Only include ecosystem for very confident matches
             const detectedEcosystem = this.detectEcosystemFromName(cleanName);
+            const mappedEcosystem = ecosystem ? this.mapEcosystemToOSV(ecosystem) : detectedEcosystem;
             const query = {
                 package: {
                     name: cleanName,
-                    ...(detectedEcosystem && { ecosystem: detectedEcosystem })
+                    ...(mappedEcosystem && { ecosystem: mappedEcosystem })
                 },
                 version: cleanVersion
             };
@@ -107,10 +108,11 @@ class OSVService {
             const validQueries = packages
                 .filter(pkg => pkg.name && pkg.version && pkg.name.trim() && pkg.version.trim())
                 .map(pkg => {
+                    const mappedEcosystem = pkg.ecosystem ? this.mapEcosystemToOSV(pkg.ecosystem) : null;
                     return {
                         package: {
                             name: pkg.name.trim(),
-                            ...(pkg.ecosystem && { ecosystem: pkg.ecosystem })
+                            ...(mappedEcosystem && { ecosystem: mappedEcosystem })
                         },
                         version: pkg.version.trim()
                     };
@@ -173,6 +175,32 @@ class OSVService {
     }
 
     /**
+     * Map ecosystem names to OSV-compatible names
+     */
+    mapEcosystemToOSV(ecosystem) {
+        if (!ecosystem) return null;
+        
+        const ecosystemMap = {
+            'golang': 'Go',
+            'go': 'Go',
+            'pypi': 'PyPI',
+            'npm': 'npm',
+            'maven': 'Maven',
+            'nuget': 'NuGet',
+            'cargo': 'cargo',
+            'composer': 'Packagist',
+            'githubactions': 'GitHub Actions',
+            'github': 'GitHub',
+            'docker': 'Docker',
+            'helm': 'Helm',
+            'terraform': 'Terraform',
+            'rubygems': 'RubyGems'
+        };
+        
+        return ecosystemMap[ecosystem.toLowerCase()] || ecosystem;
+    }
+
+    /**
      * Extract ecosystem from PURL or package data
      * Using only valid OSV ecosystem values
      */
@@ -199,6 +227,7 @@ class OSVService {
                         'cargo': 'cargo',
                         'composer': 'Packagist',
                         'go': 'Go',
+                        'golang': 'Go',  // Handle golang ecosystem from SBOM
                         'githubactions': 'GitHub Actions',
                         'github': 'GitHub',
                         'docker': 'Docker',
@@ -323,11 +352,15 @@ class OSVService {
     async analyzeDependencies(dependencies) {
         console.log(`🔍 OSV: Analyzing ${dependencies.length} dependencies for vulnerabilities`);
         
-        const packages = dependencies.map(dep => ({
-            name: dep.name,
-            version: dep.version,
-            ecosystem: dep.pkg ? this.extractEcosystemFromPurl(dep.pkg) : this.detectEcosystemFromName(dep.name)
-        }));
+        const packages = dependencies.map(dep => {
+            const detectedEcosystem = dep.pkg ? this.extractEcosystemFromPurl(dep.pkg) : this.detectEcosystemFromName(dep.name);
+            const mappedEcosystem = detectedEcosystem ? this.mapEcosystemToOSV(detectedEcosystem) : null;
+            return {
+                name: dep.name,
+                version: dep.version,
+                ecosystem: mappedEcosystem
+            };
+        });
 
         // Try batch query first for quick vulnerability detection
         let results = await this.queryVulnerabilitiesBatch(packages);
@@ -435,11 +468,15 @@ class OSVService {
     async analyzeDependenciesWithIncrementalSaving(dependencies, orgName, onProgress = null) {
         console.log(`🔍 OSV: Analyzing ${dependencies.length} dependencies for vulnerabilities with incremental saving`);
         
-        const packages = dependencies.map(dep => ({
-            name: dep.name,
-            version: dep.version,
-            ecosystem: dep.pkg ? this.extractEcosystemFromPurl(dep.pkg) : this.detectEcosystemFromName(dep.name)
-        }));
+        const packages = dependencies.map(dep => {
+            const detectedEcosystem = dep.pkg ? this.extractEcosystemFromPurl(dep.pkg) : this.detectEcosystemFromName(dep.name);
+            const mappedEcosystem = detectedEcosystem ? this.mapEcosystemToOSV(detectedEcosystem) : null;
+            return {
+                name: dep.name,
+                version: dep.version,
+                ecosystem: mappedEcosystem
+            };
+        });
 
         // Try batch query first for quick vulnerability detection
         let results = await this.queryVulnerabilitiesBatch(packages);

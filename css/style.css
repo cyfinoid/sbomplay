@@ -1376,20 +1376,182 @@ body {
     border-color: var(--bs-primary);
 }
 
+/* Remove the old ugly text overlay */
 .clickable-license-card::after {
-    content: '👆 Click to view repositories';
-    position: absolute;
-    bottom: 0.25rem;
-    left: 50%;
-    transform: translateX(-50%);
-    font-size: 0.75rem;
-    color: var(--bs-primary);
-    opacity: 0;
-    transition: opacity 0.2s ease;
+    display: none;
 }
 
-.clickable-license-card:hover::after {
+/* Enhanced license card tooltips */
+.license-card {
+    position: relative;
+    cursor: pointer;
+    transition: all 0.3s ease;
+}
+
+.license-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 8px 25px rgba(0,0,0,0.15);
+}
+
+.license-card:hover .license-tooltip {
     opacity: 1;
+    visibility: visible;
+    transform: translateX(-50%) translateY(0);
+}
+
+.license-tooltip {
+    position: absolute;
+    top: 100%;
+    left: 50%;
+    transform: translateX(-50%) translateY(-10px);
+    background: linear-gradient(135deg, #2c3e50 0%, #34495e 100%);
+    color: white;
+    padding: 20px;
+    border-radius: 12px;
+    font-size: 0.9em;
+    max-width: 350px;
+    min-width: 280px;
+    z-index: 1000;
+    opacity: 0;
+    visibility: hidden;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    pointer-events: auto;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.3);
+    border: 1px solid rgba(255,255,255,0.1);
+    backdrop-filter: blur(10px);
+}
+
+.license-tooltip::before {
+    content: '';
+    position: absolute;
+    top: -8px;
+    left: 50%;
+    transform: translateX(-50%);
+    border-left: 8px solid transparent;
+    border-right: 8px solid transparent;
+    border-bottom: 8px solid #2c3e50;
+}
+
+.license-tooltip::after {
+    content: '';
+    position: absolute;
+    top: -7px;
+    left: 50%;
+    transform: translateX(-50%);
+    border-left: 7px solid transparent;
+    border-right: 7px solid transparent;
+    border-bottom: 7px solid rgba(255,255,255,0.1);
+}
+
+.license-tooltip-content {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.license-tooltip-header {
+    font-weight: 600;
+    font-size: 1.1em;
+    color: #ecf0f1;
+    border-bottom: 1px solid rgba(255,255,255,0.2);
+    padding-bottom: 8px;
+    margin-bottom: 8px;
+}
+
+.license-tooltip-stats {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+    margin-bottom: 12px;
+}
+
+.license-tooltip-stat {
+    text-align: center;
+    padding: 8px;
+    background: rgba(255,255,255,0.1);
+    border-radius: 6px;
+    font-size: 0.85em;
+}
+
+.license-tooltip-stat-value {
+    font-weight: 600;
+    font-size: 1.2em;
+    color: #3498db;
+    display: block;
+}
+
+.license-tooltip-stat-label {
+    color: #bdc3c7;
+    font-size: 0.8em;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.license-tooltip-repos {
+    max-height: 120px;
+    overflow-y: auto;
+    border-top: 1px solid rgba(255,255,255,0.1);
+    padding-top: 8px;
+}
+
+.license-tooltip-repo {
+    padding: 6px 8px;
+    background: rgba(255,255,255,0.05);
+    border-radius: 4px;
+    margin-bottom: 4px;
+    font-size: 0.85em;
+    color: #ecf0f1;
+    border-left: 3px solid #3498db;
+}
+
+.license-tooltip-repo:last-child {
+    margin-bottom: 0;
+}
+
+.license-tooltip-footer {
+    margin-top: 12px;
+    padding-top: 8px;
+    border-top: 1px solid rgba(255,255,255,0.2);
+    text-align: center;
+}
+
+.license-tooltip-click {
+    background: linear-gradient(135deg, #3498db 0%, #2980b9 100%);
+    color: white;
+    padding: 8px 16px;
+    border-radius: 6px;
+    font-size: 0.85em;
+    font-weight: 500;
+    text-decoration: none;
+    display: inline-block;
+    transition: all 0.2s ease;
+    border: none;
+    cursor: pointer;
+}
+
+.license-tooltip-click:hover {
+    background: linear-gradient(135deg, #2980b9 0%, #1f5f8b 100%);
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(52, 152, 219, 0.3);
+}
+
+/* Scrollbar styling for tooltip */
+.license-tooltip-repos::-webkit-scrollbar {
+    width: 4px;
+}
+
+.license-tooltip-repos::-webkit-scrollbar-track {
+    background: rgba(255,255,255,0.1);
+    border-radius: 2px;
+}
+
+.license-tooltip-repos::-webkit-scrollbar-thumb {
+    background: rgba(255,255,255,0.3);
+    border-radius: 2px;
+}
+
+.license-tooltip-repos::-webkit-scrollbar-thumb:hover {
+    background: rgba(255,255,255,0.5);
 }
 
 .license-stat-card.permissive {
@@ -1545,14 +1707,13 @@ body {
 }
 
 .risk-license {
-    color: #6c757d;
+    color: #ffc107;
     font-size: 0.9rem;
 }
 
 .risk-category {
-    color: #dc3545;
-    font-weight: 500;
-    font-size: 0.8rem;
+    color: #6c757d;
+    font-size: 0.9em;
 }
 
 .risk-warnings {
@@ -1797,4 +1958,569 @@ body {
 .repo-actions {
     display: flex;
     justify-content: flex-end;
+}
+
+/* Independent Sections */
+.independent-section {
+    margin-top: 2rem;
+    padding: 1.5rem;
+    background: white;
+    border-radius: 0.5rem;
+    box-shadow: 0 0.125rem 0.25rem rgba(0, 0, 0, 0.075);
+    border: 1px solid var(--bs-border-color);
+}
+
+.independent-section .vulnerability-breakdown,
+.independent-section .license-breakdown {
+    margin: 0;
+    padding: 0;
+    background: transparent;
+    box-shadow: none;
+    border: none;
+}
+
+.independent-section .vulnerability-breakdown h3,
+.independent-section .license-breakdown h3 {
+    margin-bottom: 1.5rem;
+    color: #495057;
+    font-weight: 600;
+}
+
+/* License Compliance Details Styles */
+.conflict-details,
+.high-risk-details,
+.recommendation-details {
+    margin-top: 20px;
+}
+
+.conflict-summary,
+.dependency-summary,
+.recommendation-summary {
+    margin-bottom: 30px;
+}
+
+.affected-dependencies,
+.related-dependencies {
+    margin-bottom: 30px;
+}
+
+.dependency-list {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+    gap: 15px;
+    margin-top: 15px;
+}
+
+.dependency-item {
+    background: #f8f9fa;
+    border: 1px solid #dee2e6;
+    border-radius: 8px;
+    padding: 15px;
+    transition: all 0.2s ease;
+}
+
+.dependency-item:hover {
+    box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+    transform: translateY(-1px);
+}
+
+.dep-info {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.dep-name {
+    font-weight: 600;
+    color: #495057;
+    font-family: 'Courier New', monospace;
+}
+
+.dep-license {
+    color: #6c757d;
+    font-size: 0.9em;
+}
+
+.dep-category {
+    color: #6c757d;
+    font-size: 0.85em;
+    font-style: italic;
+}
+
+.dep-risk {
+    font-size: 0.85em;
+    font-weight: 500;
+}
+
+.affected-repositories {
+    margin-bottom: 30px;
+}
+
+.repository-list {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(400px, 1fr));
+    gap: 20px;
+    margin-top: 15px;
+}
+
+.repository-item {
+    background: #ffffff;
+    border: 1px solid #dee2e6;
+    border-radius: 8px;
+    padding: 20px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+    transition: all 0.2s ease;
+}
+
+.repository-item:hover {
+    box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+    transform: translateY(-2px);
+}
+
+.repo-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 15px;
+    padding-bottom: 10px;
+    border-bottom: 1px solid #e9ecef;
+}
+
+.repo-header h5 {
+    margin: 0;
+    color: #495057;
+    font-weight: 600;
+}
+
+.repo-dependencies {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.repo-dep-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 8px 12px;
+    background: #f8f9fa;
+    border-radius: 6px;
+    border-left: 3px solid #007bff;
+}
+
+.repo-dep-item .dep-name {
+    font-family: 'Courier New', monospace;
+    font-size: 0.9em;
+    color: #495057;
+}
+
+.repo-actions {
+    margin-top: 15px;
+    text-align: right;
+}
+
+.recommendation-list {
+    display: flex;
+    flex-direction: column;
+    gap: 15px;
+    margin-top: 15px;
+}
+
+.recommendation-item {
+    padding: 15px;
+    border-radius: 8px;
+    border-left: 4px solid;
+}
+
+.recommendation-item.warning {
+    background: #fff3cd;
+    border-left-color: #ffc107;
+}
+
+.recommendation-item.info {
+    background: #d1ecf1;
+    border-left-color: #17a2b8;
+}
+
+.recommendation-item.error {
+    background: #f8d7da;
+    border-left-color: #dc3545;
+}
+
+.rec-priority {
+    font-weight: 600;
+    margin-bottom: 5px;
+}
+
+.rec-message {
+    color: #495057;
+    line-height: 1.5;
+}
+
+/* Enhanced button styles for license actions */
+.conflict-actions,
+.risk-actions,
+.rec-actions {
+    margin-top: 10px;
+}
+
+.btn-outline-danger {
+    border-color: #dc3545;
+    color: #dc3545;
+}
+
+.btn-outline-danger:hover {
+    background-color: #dc3545;
+    border-color: #dc3545;
+    color: white;
+}
+
+.btn-outline-warning {
+    border-color: #ffc107;
+    color: #856404;
+}
+
+.btn-outline-warning:hover {
+    background-color: #ffc107;
+    border-color: #ffc107;
+    color: #212529;
+}
+
+.btn-outline-info {
+    border-color: #17a2b8;
+    color: #17a2b8;
+}
+
+.btn-outline-info:hover {
+    background-color: #17a2b8;
+    border-color: #17a2b8;
+    color: white;
+}
+
+/* License conflict item enhancements */
+.license-conflict-item {
+    background: #fff;
+    border: 1px solid #dee2e6;
+    border-radius: 8px;
+    padding: 20px;
+    margin-bottom: 15px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+    transition: all 0.2s ease;
+}
+
+.license-conflict-item:hover {
+    box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+    transform: translateY(-2px);
+}
+
+.conflict-info {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.conflict-type {
+    font-weight: 600;
+    color: #dc3545;
+    font-size: 1.1em;
+}
+
+.conflict-description {
+    color: #495057;
+    line-height: 1.5;
+}
+
+.conflict-licenses {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+/* High-risk license item enhancements */
+.high-risk-item {
+    background: #fff;
+    border: 1px solid #dee2e6;
+    border-radius: 8px;
+    padding: 20px;
+    margin-bottom: 15px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+    transition: all 0.2s ease;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.high-risk-item:hover {
+    box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+    transform: translateY(-2px);
+}
+
+.risk-info {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.risk-name {
+    font-weight: 600;
+    color: #495057;
+    font-family: 'Courier New', monospace;
+}
+
+.risk-license {
+    color: #ffc107;
+    font-weight: 500;
+}
+
+.risk-category {
+    color: #6c757d;
+    font-size: 0.9em;
+}
+
+.risk-warnings {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 5px;
+}
+
+/* Recommendation item enhancements */
+.recommendation-item {
+    background: #fff;
+    border: 1px solid #dee2e6;
+    border-radius: 8px;
+    padding: 20px;
+    margin-bottom: 15px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+    transition: all 0.2s ease;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.recommendation-item:hover {
+    box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+    transform: translateY(-2px);
+}
+
+.rec-priority {
+    font-weight: 600;
+    color: #495057;
+}
+
+.rec-message {
+    color: #6c757d;
+    line-height: 1.5;
+    flex: 1;
+    margin-right: 15px;
+}
+
+/* Responsive design for detailed views */
+@media (max-width: 768px) {
+    .dependency-list {
+        grid-template-columns: 1fr;
+    }
+    
+    .repository-list {
+        grid-template-columns: 1fr;
+    }
+    
+    .high-risk-item,
+    .recommendation-item {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 15px;
+    }
+    
+    .repo-header {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 10px;
+    }
+    
+    .repo-dep-item {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 5px;
+    }
+}
+
+/* License Repositories Slide-out Panel */
+.license-repositories-panel {
+    position: fixed;
+    top: 0;
+    right: -400px;
+    width: 400px;
+    height: 100vh;
+    background: #ffffff;
+    border-left: 1px solid #dee2e6;
+    box-shadow: -5px 0 15px rgba(0,0,0,0.1);
+    z-index: 1050;
+    transition: right 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    overflow-y: auto;
+}
+
+.license-repositories-panel.panel-open {
+    right: 0;
+}
+
+.panel-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 20px;
+    border-bottom: 1px solid #dee2e6;
+    background: #f8f9fa;
+    position: sticky;
+    top: 0;
+    z-index: 10;
+}
+
+.panel-header h4 {
+    margin: 0;
+    color: #495057;
+    font-weight: 600;
+}
+
+.panel-content {
+    padding: 20px;
+}
+
+.license-panel-stats {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 15px;
+    margin-bottom: 25px;
+}
+
+.license-panel-stats .stat-item {
+    text-align: center;
+    padding: 15px;
+    background: #f8f9fa;
+    border-radius: 8px;
+    border: 1px solid #dee2e6;
+}
+
+.license-panel-stats .stat-value {
+    display: block;
+    font-size: 1.5rem;
+    font-weight: 700;
+    color: #495057;
+    margin-bottom: 5px;
+}
+
+.license-panel-stats .stat-label {
+    font-size: 0.85rem;
+    color: #6c757d;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.license-panel-repositories,
+.license-panel-dependencies {
+    margin-bottom: 25px;
+}
+
+.license-panel-repositories h5,
+.license-panel-dependencies h5 {
+    margin-bottom: 15px;
+    color: #495057;
+    font-weight: 600;
+    border-bottom: 2px solid #e9ecef;
+    padding-bottom: 8px;
+}
+
+/* Modal improvements for license details */
+.modal-dialog.modal-lg {
+    max-width: 800px;
+}
+
+.modal-body {
+    max-height: 70vh;
+    overflow-y: auto;
+}
+
+.modal-body .dependency-list,
+.modal-body .repository-list {
+    max-height: 300px;
+    overflow-y: auto;
+}
+
+.modal-body .dependency-item,
+.modal-body .repository-item {
+    padding: 12px;
+    margin-bottom: 8px;
+    background: #f8f9fa;
+    border-radius: 6px;
+    border: 1px solid #dee2e6;
+}
+
+.modal-body .repo-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 8px;
+}
+
+.modal-body .repo-header h6 {
+    margin: 0;
+    font-weight: 600;
+    color: #495057;
+}
+
+.modal-body .repo-dependencies {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.modal-body .repo-dep-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 4px 8px;
+    background: #ffffff;
+    border-radius: 4px;
+    font-size: 0.85rem;
+}
+
+.modal-body .repo-actions {
+    margin-top: 8px;
+    text-align: right;
+}
+
+/* Responsive design for slide-out panel */
+@media (max-width: 768px) {
+    .license-repositories-panel {
+        width: 100%;
+        right: -100%;
+    }
+    
+    .license-panel-stats {
+        grid-template-columns: 1fr;
+    }
+    
+    .modal-dialog.modal-lg {
+        max-width: 95%;
+        margin: 10px auto;
+    }
+}
+
+/* Overlay for slide-out panel */
+.panel-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0,0,0,0.5);
+    z-index: 1040;
+    opacity: 0;
+    visibility: hidden;
+    transition: all 0.3s ease;
+}
+
+.panel-overlay.active {
+    opacity: 1;
+    visibility: visible;
 } 

@@ -18,16 +18,68 @@ class SBOMPlayApp {
     initializeApp() {
         this.loadSavedToken();
         this.checkStorageAvailability();
-        this.showStorageStatus();
-        this.showStorageStatusIndicator();
-        this.loadPreviousResults();
-        this.setupEventListeners();
-        this.checkRateLimitState();
+        
+        // Only initialize UI elements if they exist on the current page
+        if (document.getElementById('storageStatus')) {
+            this.showStorageStatus();
+        }
+        if (document.getElementById('storageStatusIndicator')) {
+            this.showStorageStatusIndicator();
+        }
+        if (document.getElementById('resultsSection')) {
+            this.loadPreviousResults();
+        }
+        if (document.getElementById('githubToken') && document.getElementById('orgName') && document.getElementById('analyzeBtn')) {
+            this.setupEventListeners();
+        }
+        if (document.getElementById('resumeSection')) {
+            this.checkRateLimitState();
+        }
+        if (document.getElementById('orgName')) {
+            this.handleURLParameters();
+        }
         
         // Show results section if there are stored organizations
         const storageInfo = this.storageManager.getStorageInfo();
-        if (storageInfo.organizationsCount > 0) {
+        if (storageInfo.organizationsCount > 0 && document.getElementById('resultsSection')) {
             document.getElementById('resultsSection').style.display = 'block';
+        }
+    }
+
+    /**
+     * Handle URL parameters for pre-filling and focusing
+     */
+    handleURLParameters() {
+        const urlParams = new URLSearchParams(window.location.search);
+        const orgParam = urlParams.get('org');
+        const focusParam = urlParams.get('focus');
+        
+        if (orgParam) {
+            // Pre-fill organization name
+            document.getElementById('orgName').value = orgParam;
+            
+            // Handle different focus types
+            if (focusParam) {
+                let message = '';
+                switch (focusParam) {
+                    case 'license':
+                        message = 'Organization pre-filled for license compliance analysis. Click "Start Analysis" to begin.';
+                        break;
+                    case 'deps':
+                        message = 'Organization pre-filled for dependency analysis. Click "Start Analysis" to begin.';
+                        break;
+                    case 'vuln':
+                        message = 'Organization pre-filled for vulnerability analysis. Click "Start Analysis" to begin.';
+                        break;
+                    default:
+                        message = 'Organization pre-filled. Click "Start Analysis" to begin.';
+                }
+                
+                this.showAlert(message, 'info');
+                
+                // Scroll to the organization input section
+                document.getElementById('orgName').scrollIntoView({ behavior: 'smooth', block: 'center' });
+            }
         }
     }
 
@@ -335,10 +387,14 @@ class SBOMPlayApp {
         // Store current owner for rate limit state
         localStorage.setItem('current_analysis_org', ownerName);
         
-        // Update UI
-        document.getElementById('analyzeBtn').disabled = true;
-        document.getElementById('progressSection').style.display = 'block';
-        document.getElementById('resultsSection').style.display = 'none';
+        // Update UI (only if elements exist)
+        const analyzeBtn = document.getElementById('analyzeBtn');
+        const progressSection = document.getElementById('progressSection');
+        const resultsSection = document.getElementById('resultsSection');
+        
+        if (analyzeBtn) analyzeBtn.disabled = true;
+        if (progressSection) progressSection.style.display = 'block';
+        if (resultsSection) resultsSection.style.display = 'none';
         
         this.updateProgress(0, 'Initializing analysis...');
 
@@ -361,8 +417,9 @@ class SBOMPlayApp {
             this.updateProgress(20, `Found ${repositories.length} repositories. Starting SBOM analysis...`);
             
             // Show partial data info if we have many repositories
-            if (repositories.length > 10) {
-                document.getElementById('partialDataInfo').style.display = 'block';
+            const partialDataInfo = document.getElementById('partialDataInfo');
+            if (repositories.length > 10 && partialDataInfo) {
+                partialDataInfo.style.display = 'block';
             }
 
             // Process each repository
@@ -538,9 +595,19 @@ class SBOMPlayApp {
         const progressBar = document.getElementById('progressBar');
         const progressText = document.getElementById('progressText');
         
-        progressBar.style.width = `${percentage}%`;
-        progressBar.textContent = `${Math.round(percentage)}%`;
-        progressText.textContent = message;
+        if (progressBar) {
+            progressBar.style.width = `${percentage}%`;
+            progressBar.textContent = `${Math.round(percentage)}%`;
+        }
+        
+        if (progressText) {
+            progressText.textContent = message;
+        }
+        
+        // Log progress for pages without UI elements
+        if (!progressBar && !progressText) {
+            console.log(`Progress: ${Math.round(percentage)}% - ${message}`);
+        }
     }
 
     /**
@@ -548,15 +615,17 @@ class SBOMPlayApp {
      */
     updateRateLimitInfo(info) {
         const rateLimitDiv = document.getElementById('rateLimitInfo');
-        const resetTime = new Date(info.reset * 1000).toLocaleTimeString();
-        
-        rateLimitDiv.innerHTML = `
-            <div class="alert alert-info alert-sm">
-                <strong>Rate Limit:</strong> ${info.remaining}/${info.limit} requests remaining
-                <br><strong>Reset Time:</strong> ${resetTime}
-                <br><strong>Authenticated:</strong> ${info.authenticated}
-            </div>
-        `;
+        if (rateLimitDiv) {
+            const resetTime = new Date(info.reset * 1000).toLocaleTimeString();
+            
+            rateLimitDiv.innerHTML = `
+                <div class="alert alert-info alert-sm">
+                    <strong>Rate Limit:</strong> ${info.remaining}/${info.limit} requests remaining
+                    <br><strong>Reset Time:</strong> ${resetTime}
+                    <br><strong>Authenticated:</strong> ${info.authenticated}
+                </div>
+            `;
+        }
     }
 
     /**
@@ -905,9 +974,14 @@ class SBOMPlayApp {
      */
     finishAnalysis() {
         this.isAnalyzing = false;
-        document.getElementById('analyzeBtn').disabled = false;
-        document.getElementById('progressSection').style.display = 'none';
-        document.getElementById('partialDataInfo').style.display = 'none';
+        
+        const analyzeBtn = document.getElementById('analyzeBtn');
+        const progressSection = document.getElementById('progressSection');
+        const partialDataInfo = document.getElementById('partialDataInfo');
+        
+        if (analyzeBtn) analyzeBtn.disabled = false;
+        if (progressSection) progressSection.style.display = 'none';
+        if (partialDataInfo) partialDataInfo.style.display = 'none';
     }
 
     /**
@@ -922,14 +996,19 @@ class SBOMPlayApp {
         `;
         
         const container = document.querySelector('.container');
-        container.insertBefore(alertDiv, container.firstChild);
-        
-        // Auto-remove after 5 seconds
-        setTimeout(() => {
-            if (alertDiv.parentNode) {
-                alertDiv.remove();
-            }
-        }, 5000);
+        if (container) {
+            container.insertBefore(alertDiv, container.firstChild);
+            
+            // Auto-remove after 5 seconds
+            setTimeout(() => {
+                if (alertDiv.parentNode) {
+                    alertDiv.remove();
+                }
+            }, 5000);
+        } else {
+            // Fallback: just log to console if no container found
+            console.log(`[${type.toUpperCase()}] ${message}`);
+        }
     }
 
     /**
@@ -956,10 +1035,6 @@ function startAnalysis() {
 // Initialize app when DOM is loaded
 let app;
 document.addEventListener('DOMContentLoaded', () => {
-    // Check if we're on the view page (which has its own app)
-    const isViewPage = document.querySelector('#organizationsSection') !== null;
-    
-    if (!isViewPage) {
-        app = new SBOMPlayApp();
-    }
+    // Always initialize the app - it's needed for analysis functions
+    app = new SBOMPlayApp();
 }); 

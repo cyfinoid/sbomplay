@@ -8,6 +8,9 @@ echo "🔄 Updating production files..."
 rm -rf docs/*
 cp index.html docs/
 cp view.html docs/
+cp license-compliance.html docs/
+cp vuln.html docs/
+cp deps.html docs/
 cp -r js docs/
 cp -r css docs/
 
