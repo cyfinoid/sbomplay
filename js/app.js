@@ -1032,6 +1032,19 @@ function startAnalysis() {
     app.startAnalysis();
 }
 
+function toggleTokenSection() {
+    const body = document.getElementById('tokenSectionBody');
+    const icon = document.getElementById('tokenToggleIcon');
+    
+    if (body.style.display === 'none') {
+        body.style.display = 'block';
+        icon.className = 'fas fa-chevron-up';
+    } else {
+        body.style.display = 'none';
+        icon.className = 'fas fa-chevron-down';
+    }
+}
+
 // Initialize app when DOM is loaded
 let app;
 document.addEventListener('DOMContentLoaded', () => {
