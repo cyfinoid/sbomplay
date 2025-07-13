@@ -605,6 +605,12 @@ class SBOMPlayApp {
         const resultsSection = document.getElementById('resultsSection');
         const resultsContent = document.getElementById('resultsContent');
         
+        // Check if the results elements exist on this page
+        if (!resultsSection || !resultsContent) {
+            console.log('Results section elements not found on this page');
+            return;
+        }
+        
         // Get storage info to show all organizations
         const storageInfo = this.storageManager.getStorageInfo();
         const organizations = storageInfo.organizations;

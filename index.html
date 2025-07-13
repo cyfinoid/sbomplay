@@ -20,8 +20,12 @@
             </a>
             <div class="navbar-nav ms-auto">
                 <a class="nav-link" href="view.html">Explore</a>
-                <a class="nav-link" href="settings.html">Settings</a>
-                <a class="nav-link" href="#help">Help</a>
+                <a class="nav-link" href="license-compliance.html">License</a>
+                <a class="nav-link" href="vuln.html">Vulnerabilities</a>
+                <a class="nav-link" href="deps.html">Dependencies</a>
+                <a class="nav-link" href="settings.html">
+                    <i class="fas fa-cog"></i>
+                </a>
             </div>
         </div>
     </nav>
@@ -44,22 +48,7 @@
             </div>
         </div>
 
-        <!-- Storage Status Indicator -->
-        <div id="storageStatusIndicator" class="alert alert-light" role="alert" style="display: none;">
-            <div class="d-flex justify-content-between align-items-center">
-                <div>
-                    <h6 class="mb-1"><i class="fas fa-hdd me-2"></i>Storage Status</h6>
-                    <div id="storageStatusText" class="small text-muted">
-                        Loading storage information...
-                    </div>
-                </div>
-                <div>
-                    <button class="btn btn-outline-primary btn-sm" onclick="app.showStorageStatus()">
-                        <i class="fas fa-cog me-1"></i>Manage
-                    </button>
-                </div>
-            </div>
-        </div>
+
 
         <!-- Resume Analysis Section -->
         <div id="resumeSection" class="card mb-4" style="display: none;">
@@ -184,6 +173,58 @@
             </div>
             <div class="card-body">
                 <div id="resultsContent"></div>
+            </div>
+        </div>
+
+        <!-- Quick Analysis Access -->
+        <div class="card mb-4">
+            <div class="card-header">
+                <h5 class="mb-0">
+                    <i class="fas fa-rocket me-2"></i>Quick Analysis Access
+                </h5>
+            </div>
+            <div class="card-body">
+                <p class="text-muted mb-3">
+                    After running an analysis, you can explore specific aspects of your data:
+                </p>
+                <div class="row">
+                    <div class="col-md-4 mb-3">
+                        <div class="card h-100 border-primary">
+                            <div class="card-body text-center">
+                                <i class="fas fa-shield-alt fa-2x text-primary mb-3"></i>
+                                <h6 class="card-title">License Compliance</h6>
+                                <p class="card-text small">Analyze license compatibility and compliance issues across your dependencies.</p>
+                                <a href="license-compliance.html" class="btn btn-outline-primary btn-sm">
+                                    <i class="fas fa-arrow-right me-1"></i>View License Analysis
+                                </a>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-4 mb-3">
+                        <div class="card h-100 border-warning">
+                            <div class="card-body text-center">
+                                <i class="fas fa-bug fa-2x text-warning mb-3"></i>
+                                <h6 class="card-title">Vulnerability Analysis</h6>
+                                <p class="card-text small">Check for known vulnerabilities in your dependencies using OSV database.</p>
+                                <a href="vuln.html" class="btn btn-outline-warning btn-sm">
+                                    <i class="fas fa-arrow-right me-1"></i>View Vulnerabilities
+                                </a>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-4 mb-3">
+                        <div class="card h-100 border-success">
+                            <div class="card-body text-center">
+                                <i class="fas fa-sitemap fa-2x text-success mb-3"></i>
+                                <h6 class="card-title">Dependency Overview</h6>
+                                <p class="card-text small">Explore dependency categories, languages, and usage patterns.</p>
+                                <a href="deps.html" class="btn btn-outline-success btn-sm">
+                                    <i class="fas fa-arrow-right me-1"></i>View Dependencies
+                                </a>
+                            </div>
+                        </div>
+                    </div>
+                </div>
             </div>
         </div>
 

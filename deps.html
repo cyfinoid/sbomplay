@@ -15,20 +15,47 @@
             <a class="navbar-brand" href="index.html">
                 <i class="fas fa-cubes me-2"></i>SBOM Play
             </a>
-            <ul class="nav nav-tabs ms-auto" id="analysisTabs">
-                <li class="nav-item">
-                    <a class="nav-link" id="tab-license" href="license-compliance.html">License Compliance</a>
-                </li>
-                <li class="nav-item">
-                    <a class="nav-link" id="tab-vuln" href="vuln.html">Vulnerability Analysis</a>
-                </li>
-                <li class="nav-item">
-                    <a class="nav-link active" id="tab-deps" href="deps.html">Dependency Overview</a>
-                </li>
-            </ul>
+            <div class="navbar-nav ms-auto">
+                <a class="nav-link" href="index.html">Analysis</a>
+                <a class="nav-link" href="view.html">Explore</a>
+                <a class="nav-link" href="license-compliance.html">License</a>
+                <a class="nav-link" href="vuln.html">Vulnerabilities</a>
+                <a class="nav-link active" href="deps.html">Dependencies</a>
+                <a class="nav-link" href="settings.html">
+                    <i class="fas fa-cog"></i>
+                </a>
+            </div>
         </div>
     </nav>
     <div class="container mt-4">
+        <!-- Header -->
+        <div class="row mb-4">
+            <div class="col-12">
+                <div class="d-flex justify-content-between align-items-center">
+                    <div>
+                        <h1><i class="fas fa-sitemap me-2"></i>Dependency Overview</h1>
+                        <p class="text-muted">Explore dependency categories, languages, and usage patterns</p>
+                    </div>
+                    <div>
+                        <a href="index.html" class="btn btn-outline-primary">
+                            <i class="fas fa-arrow-left me-2"></i>Back to Analysis
+                        </a>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Tool Description and Assurance -->
+        <div class="row mb-4">
+            <div class="col-12">
+                <div class="alert alert-success text-center" role="alert">
+                    <i class="fas fa-chart-bar me-2"></i>
+                    <strong>Dependency Overview:</strong> This tool provides insights into dependency categories, languages, and usage patterns. 
+                    All processing happens in your browser for maximum privacy and security.
+                </div>
+            </div>
+        </div>
+
         <!-- Stored Analyses Section -->
         <div id="organizationsSection" class="card mb-4">
             <div class="card-header">
@@ -51,6 +78,25 @@
         
         <div id="dependency-overview-page">
             <!-- Dependency Overview content will be rendered here by JS -->
+        </div>
+
+        <!-- No Data Section -->
+        <div id="noDataSection" class="card mb-4" style="display: none;">
+            <div class="card-header">
+                <h5 class="mb-0">
+                    <i class="fas fa-info-circle me-2"></i>No Data Available
+                </h5>
+            </div>
+            <div class="card-body text-center">
+                <i class="fas fa-sitemap fa-3x text-muted mb-3"></i>
+                <h5>No Dependency Analysis Data Found</h5>
+                <p class="text-muted">
+                    You haven't analyzed any organizations yet, or all data has been cleared.
+                </p>
+                <a href="index.html" class="btn btn-primary">
+                    <i class="fas fa-play me-2"></i>Start Your First Analysis
+                </a>
+            </div>
         </div>
 
 
@@ -134,18 +180,8 @@
             const organizationsContent = document.getElementById('organizationsContent');
             
             if (storageInfo.organizationsCount === 0) {
-                organizationsContent.innerHTML = `
-                    <div class="text-center">
-                        <i class="fas fa-database fa-3x text-muted mb-3"></i>
-                        <h5>No Stored Analyses Found</h5>
-                        <p class="text-muted">
-                            You haven't analyzed any organizations yet, or all data has been cleared.
-                        </p>
-                        <a href="index.html" class="btn btn-primary">
-                            <i class="fas fa-play me-2"></i>Start Your First Analysis
-                        </a>
-                    </div>
-                `;
+                document.getElementById('organizationsSection').style.display = 'none';
+                document.getElementById('noDataSection').style.display = 'block';
                 return;
             }
 
@@ -262,6 +298,13 @@
                 if (success) {
                     displayOrganizationsOverview();
                     document.getElementById('dependency-overview-page').innerHTML = '<div class="alert alert-info">Please select an organization to view dependency data.</div>';
+                    
+                    // Check if no organizations left
+                    const storageInfo = storageManager.getStorageInfo();
+                    if (storageInfo.organizationsCount === 0) {
+                        document.getElementById('organizationsSection').style.display = 'none';
+                        document.getElementById('noDataSection').style.display = 'block';
+                    }
                 } else {
                     alert('Failed to remove data for ' + orgName);
                 }
@@ -285,6 +328,10 @@
                 if (success) {
                     displayOrganizationsOverview();
                     document.getElementById('dependency-overview-page').innerHTML = '<div class="alert alert-info">Please select an organization to view dependency data.</div>';
+                    
+                    // Show no data section
+                    document.getElementById('organizationsSection').style.display = 'none';
+                    document.getElementById('noDataSection').style.display = 'block';
                 } else {
                     alert('Failed to clear data');
                 }
