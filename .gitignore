@@ -194,3 +194,8 @@ client-storage/
 
 # Legacy Python environment
 legacy/venv/
+
+
+# Sample data
+test-data
+projects
