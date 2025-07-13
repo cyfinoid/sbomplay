@@ -1,0 +1,435 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SBOM Play - License Compliance</title>
+    <link href="css/style.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+</head>
+<body>
+    <!-- Navigation -->
+    <nav class="navbar navbar-expand-lg navbar-dark bg-primary">
+        <div class="container">
+            <a class="navbar-brand" href="index.html">
+                <i class="fas fa-cubes me-2"></i>SBOM Play
+            </a>
+            <div class="navbar-nav ms-auto">
+                <a class="nav-link" href="index.html">Analysis</a>
+                <a class="nav-link" href="stats.html">Stats</a>
+                <a class="nav-link active" href="license-compliance.html">License</a>
+                <a class="nav-link" href="vuln.html">Vulnerabilities</a>
+                <a class="nav-link" href="deps.html">Dependencies</a>
+                <a class="nav-link" href="settings.html">
+                    <i class="fas fa-cog"></i>
+                </a>
+            </div>
+        </div>
+    </nav>
+    <div class="container mt-4">
+        <!-- Header -->
+        <div class="row mb-4">
+            <div class="col-12">
+                <div class="d-flex justify-content-between align-items-center">
+                    <div>
+                        <h1><i class="fas fa-shield-alt me-2"></i>License Compliance Analysis</h1>
+                        <p class="text-muted">Analyze license compatibility and compliance issues across your dependencies</p>
+                    </div>
+                    <div>
+                        <a href="index.html" class="btn btn-outline-primary">
+                            <i class="fas fa-arrow-left me-2"></i>Back to Analysis
+                        </a>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Tool Description and Assurance -->
+        <div class="row mb-4">
+            <div class="col-12">
+                <div class="alert alert-info text-center" role="alert">
+                    <i class="fas fa-info-circle me-2"></i>
+                    <strong>License Analysis:</strong> This tool analyzes license compatibility and compliance issues across your dependencies. 
+                    All processing happens in your browser for maximum privacy and security.
+                </div>
+            </div>
+        </div>
+
+        <!-- Stored Analyses Section -->
+        <div id="organizationsSection" class="card mb-4">
+            <div class="card-header">
+                <h5 class="mb-0">
+                    <i class="fas fa-database me-2"></i>Stored Analyses
+                </h5>
+            </div>
+            <div class="card-body">
+                <div id="organizationsContent">
+                    <div class="text-center text-muted">
+                        <i class="fas fa-spinner fa-spin fa-2x mb-3"></i>
+                        <p>Loading stored analyses...</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Hidden organization input for analysis -->
+        <input type="hidden" id="orgName" value="">
+        
+        <div id="license-compliance-page">
+            <!-- License Compliance content will be rendered here by JS -->
+        </div>
+
+        <!-- No Data Section -->
+        <div id="noDataSection" class="card mb-4" style="display: none;">
+            <div class="card-header">
+                <h5 class="mb-0">
+                    <i class="fas fa-info-circle me-2"></i>No Data Available
+                </h5>
+            </div>
+            <div class="card-body text-center">
+                <i class="fas fa-shield-alt fa-3x text-muted mb-3"></i>
+                <h5>No License Analysis Data Found</h5>
+                <p class="text-muted">
+                    You haven't analyzed any organizations yet, or all data has been cleared.
+                </p>
+                <a href="index.html" class="btn btn-primary">
+                    <i class="fas fa-play me-2"></i>Start Your First Analysis
+                </a>
+            </div>
+        </div>
+
+    <!-- Footer -->
+    <footer class="bg-light mt-5 py-4">
+        <div class="container">
+            <div class="row">
+                <!-- First Column: SBOM Play Tool -->
+                <div class="col-md-4">
+                    <h6 class="text-primary">SBOM Play</h6>
+                    <p class="text-muted small mb-3">
+                        A client-side tool for analyzing Software Bill of Materials from GitHub organizations and users.
+                        All processing happens in your browser for maximum privacy and security.
+                    </p>
+                    <p class="text-muted small mb-0">
+                        <strong>Privacy-First:</strong> All processing happens in your browser<br>
+                        <strong>No Server Required:</strong> Works entirely client-side<br>
+                        <strong>Persistent Storage:</strong> Results saved in browser storage<br>
+                        <strong>Rate Limit Aware:</strong> Handles GitHub API limits intelligently
+                    </p>
+                </div>
+                
+                <!-- Second Column: Links -->
+                <div class="col-md-4">
+                    <h6 class="text-primary">Resources</h6>
+                    <div class="d-flex flex-column gap-2">
+                        <a href="https://cyfinoid.com/" target="_blank" class="btn btn-outline-primary btn-sm">
+                            <i class="fas fa-globe me-1"></i>Website
+                        </a>
+                        <a href="https://cyfinoid.com/blog/" target="_blank" class="btn btn-outline-primary btn-sm">
+                            <i class="fas fa-blog me-1"></i>Blog
+                        </a>
+                        <a href="https://cyfinoid.com/trainings/#upcoming-trainings" target="_blank" class="btn btn-outline-primary btn-sm">
+                            <i class="fas fa-graduation-cap me-1"></i>Upcoming Trainings
+                        </a>
+                        <a href="https://cyfinoid.com/opensource-by-cyfinoid/" target="_blank" class="btn btn-outline-primary btn-sm">
+                            <i class="fab fa-github me-1"></i>Open Source by Cyfinoid
+                        </a>
+                    </div>
+                </div>
+                
+                <!-- Third Column: Company Information -->
+                <div class="col-md-4">
+                    <h6 class="text-primary">About Cyfinoid Research</h6>
+                    <p class="text-muted small mb-3">
+                        Leading cybersecurity research company specializing in software supply chain security, 
+                        Android security, and cloud security. Our expertise spans across comprehensive software 
+                        supply chain protection.
+                    </p>
+                </div>
+            </div>
+            <hr class="my-3">
+            <div class="text-center">
+                <small class="text-muted">
+                    © 2025 Cyfinoid Research. All rights reserved. | 
+                    <a href="https://github.com/cyfinoid/sbomplay" target="_blank" class="text-muted">
+                        <i class="fab fa-github me-1"></i>View on GitHub
+                    </a>
+                </small>
+            </div>
+        </div>
+    </footer>
+    <script src="js/view-manager.js"></script>
+    <script src="js/license-processor.js"></script>
+    <script src="js/osv-service.js"></script>
+    <script src="js/sbom-processor.js"></script>
+    <script src="js/storage-manager.js"></script>
+    <script src="js/github-client.js"></script>
+    <script src="js/app.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+    document.addEventListener('DOMContentLoaded', function() {
+        const storageManager = new StorageManager();
+        const viewManager = new ViewManager();
+        
+        // Display organizations overview
+        displayOrganizationsOverview();
+        
+        function displayOrganizationsOverview() {
+            const storageInfo = storageManager.getStorageInfo();
+            const organizationsContent = document.getElementById('organizationsContent');
+            
+            if (storageInfo.organizationsCount === 0) {
+                document.getElementById('organizationsSection').style.display = 'none';
+                document.getElementById('noDataSection').style.display = 'block';
+                return;
+            }
+
+            const organizations = storageInfo.organizations;
+            
+            let html = `
+                <div class="row mb-3">
+                    <div class="col-md-6">
+                        <h6>Stored Organizations (${organizations.length})</h6>
+                    </div>
+                    <div class="col-md-6 text-end">
+                        <button class="btn btn-outline-primary btn-sm" onclick="exportAllData()">
+                            <i class="fas fa-download me-2"></i>Export All
+                        </button>
+                        <button class="btn btn-outline-danger btn-sm" onclick="clearAllData()">
+                            <i class="fas fa-trash me-2"></i>Clear All
+                        </button>
+                    </div>
+                </div>
+            `;
+
+            if (organizations.length > 0) {
+                html += `
+                    <div class="table-responsive">
+                        <table class="table table-sm">
+                            <thead>
+                                <tr>
+                                    <th>Organization</th>
+                                    <th>Repositories</th>
+                                    <th>Dependencies</th>
+                                    <th>Last Updated</th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                `;
+
+                organizations.forEach(org => {
+                    const date = new Date(org.timestamp).toLocaleDateString();
+                    const time = new Date(org.timestamp).toLocaleTimeString();
+                    
+                    html += `
+                        <tr>
+                            <td><strong>${org.name}</strong></td>
+                            <td><span class="badge bg-primary">${org.repositories}</span></td>
+                            <td><span class="badge bg-success">${org.dependencies}</span></td>
+                            <td><small>${date} ${time}</small></td>
+                            <td>
+                                <button class="btn btn-outline-primary btn-sm" onclick="loadOrganizationData('${org.name}')">
+                                    <i class="fas fa-eye me-1"></i>View License Compliance
+                                </button>
+                                <button class="btn btn-outline-success btn-sm" onclick="restartLicenseAnalysis('${org.name}')">
+                                    <i class="fas fa-redo me-1"></i>Restart Analysis
+                                </button>
+                                <button class="btn btn-outline-info btn-sm" onclick="debugOrganizationData('${org.name}')">
+                                    <i class="fas fa-bug me-1"></i>Debug
+                                </button>
+                                <button class="btn btn-outline-danger btn-sm" onclick="removeOrganizationData('${org.name}')">
+                                    <i class="fas fa-trash me-1"></i>Remove
+                                </button>
+                            </td>
+                        </tr>
+                    `;
+                });
+
+                html += `
+                            </tbody>
+                        </table>
+                    </div>
+                `;
+            }
+
+            organizationsContent.innerHTML = html;
+        }
+
+        // Load organization data for license compliance
+        window.loadOrganizationData = function(orgName) {
+            const orgData = storageManager.getOrganizationData(orgName);
+            const container = document.getElementById('license-compliance-page');
+            
+            if (!orgData || !orgData.data) {
+                container.innerHTML = '<div class="alert alert-warning">No data found for this organization.</div>';
+                return;
+            }
+            
+            // Render license compliance dashboard
+            if (typeof viewManager.generateLicenseComplianceHTML === 'function' && orgData.data.licenseAnalysis) {
+                container.innerHTML = viewManager.generateLicenseComplianceHTML(orgData);
+                if (typeof viewManager.addOverviewEventListeners === 'function') {
+                    viewManager.addOverviewEventListeners();
+                }
+            } else if (orgData.data.licenseAnalysis) {
+                container.innerHTML = '<div class="alert alert-warning">This version does not support direct license compliance rendering. Please update your ViewManager.js or use the main app.</div>';
+            } else {
+                container.innerHTML = '<div class="alert alert-warning">No license compliance analysis found. Please run a license compliance check in the main app.</div>';
+            }
+        };
+
+        // Debug organization data
+        window.debugOrganizationData = function(orgName) {
+            const orgData = storageManager.getOrganizationData(orgName);
+            const container = document.getElementById('license-compliance-page');
+            
+            if (orgData) {
+                container.innerHTML = `
+                    <div class="alert alert-info">
+                        <h6>🔍 Debug Data for ${orgName}</h6>
+                        <pre class="bg-light p-3 rounded" style="max-height: 400px; overflow-y: auto;">${JSON.stringify(orgData, null, 2)}</pre>
+                    </div>
+                `;
+            } else {
+                container.innerHTML = '<div class="alert alert-warning">No data found for this organization.</div>';
+            }
+        };
+
+        // Remove organization data
+        window.removeOrganizationData = function(orgName) {
+            if (confirm(`Are you sure you want to remove all data for ${orgName}?`)) {
+                const success = storageManager.removeOrganizationData(orgName);
+                if (success) {
+                    displayOrganizationsOverview();
+                    document.getElementById('license-compliance-page').innerHTML = '<div class="alert alert-info">Please select an organization to view license compliance data.</div>';
+                    
+                    // Check if no organizations left
+                    const storageInfo = storageManager.getStorageInfo();
+                    if (storageInfo.organizationsCount === 0) {
+                        document.getElementById('organizationsSection').style.display = 'none';
+                        document.getElementById('noDataSection').style.display = 'block';
+                    }
+                } else {
+                    alert('Failed to remove data for ' + orgName);
+                }
+            }
+        };
+
+        // Export all data
+        window.exportAllData = function() {
+            const success = storageManager.exportAllData();
+            if (success) {
+                alert('All data exported successfully');
+            } else {
+                alert('Failed to export all data');
+            }
+        };
+
+        // Clear all data
+        window.clearAllData = function() {
+            if (confirm('Are you sure you want to clear all stored data? This action cannot be undone.')) {
+                const success = storageManager.clearAllData();
+                if (success) {
+                    displayOrganizationsOverview();
+                    document.getElementById('license-compliance-page').innerHTML = '<div class="alert alert-info">Please select an organization to view license compliance data.</div>';
+                    
+                    // Show no data section
+                    document.getElementById('organizationsSection').style.display = 'none';
+                    document.getElementById('noDataSection').style.display = 'block';
+                } else {
+                    alert('Failed to clear data');
+                }
+            }
+        };
+
+        // Start license compliance check
+        window.startLicenseComplianceCheck = function() {
+            // Show modal for organization input
+            const modalHtml = `
+                <div class="modal fade" id="licenseCheckModal" tabindex="-1">
+                    <div class="modal-dialog">
+                        <div class="modal-content">
+                            <div class="modal-header">
+                                <h5 class="modal-title">
+                                    <i class="fas fa-shield-alt me-2"></i>License Compliance Check
+                                </h5>
+                                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                            </div>
+                            <div class="modal-body">
+                                <div class="alert alert-info">
+                                    <i class="fas fa-info-circle me-2"></i>
+                                    <strong>Note:</strong> This will redirect you to the main analysis page where you can run a license compliance check.
+                                </div>
+                                <div class="mb-3">
+                                    <label for="orgNameInput" class="form-label">GitHub Organization or User Name</label>
+                                    <input type="text" class="form-control" id="orgNameInput" 
+                                           placeholder="e.g., microsoft, facebook, torvalds">
+                                    <div class="form-text">
+                                        Enter a GitHub organization name or username to analyze for license compliance
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="modal-footer">
+                                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                                <button type="button" class="btn btn-success" onclick="proceedToLicenseCheck()">
+                                    <i class="fas fa-shield-alt me-2"></i>Start License Check
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `;
+            
+            // Remove existing modal if any
+            const existingModal = document.getElementById('licenseCheckModal');
+            if (existingModal) {
+                existingModal.remove();
+            }
+            
+            // Add modal to body
+            document.body.insertAdjacentHTML('beforeend', modalHtml);
+            
+            // Show modal
+            const modal = new bootstrap.Modal(document.getElementById('licenseCheckModal'));
+            modal.show();
+        };
+
+        // Proceed to license check
+        window.proceedToLicenseCheck = function() {
+            const orgName = document.getElementById('orgNameInput').value.trim();
+            if (!orgName) {
+                alert('Please enter an organization or user name.');
+                return;
+            }
+            
+            // Close modal
+            const modal = bootstrap.Modal.getInstance(document.getElementById('licenseCheckModal'));
+            modal.hide();
+            
+            // Redirect to main page with organization pre-filled
+            const url = new URL('index.html', window.location.href);
+            url.searchParams.set('org', orgName);
+            url.searchParams.set('focus', 'license');
+            window.location.href = url.toString();
+        };
+
+        // Restart license analysis for specific organization
+        window.restartLicenseAnalysis = function(orgName) {
+            // Set the organization name and start analysis directly
+            document.getElementById('orgName').value = orgName;
+            app.startAnalysis();
+        };
+
+        // Load the most recent organization by default
+        const orgs = storageManager.getOrganizations();
+        if (orgs && orgs.length > 0) {
+            const orgName = orgs[orgs.length - 1].organization;
+            loadOrganizationData(orgName);
+        } else {
+            document.getElementById('license-compliance-page').innerHTML = '<div class="alert alert-info">Please select an organization to view license compliance data.</div>';
+        }
+    });
+    </script>
+</body>
+</html> 

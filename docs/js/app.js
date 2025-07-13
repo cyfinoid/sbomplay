@@ -18,16 +18,68 @@ class SBOMPlayApp {
     initializeApp() {
         this.loadSavedToken();
         this.checkStorageAvailability();
-        this.showStorageStatus();
-        this.showStorageStatusIndicator();
-        this.loadPreviousResults();
-        this.setupEventListeners();
-        this.checkRateLimitState();
+        
+        // Only initialize UI elements if they exist on the current page
+        if (document.getElementById('storageStatus')) {
+            this.showStorageStatus();
+        }
+        if (document.getElementById('storageStatusIndicator')) {
+            this.showStorageStatusIndicator();
+        }
+        if (document.getElementById('resultsSection')) {
+            this.loadPreviousResults();
+        }
+        if (document.getElementById('githubToken') && document.getElementById('orgName') && document.getElementById('analyzeBtn')) {
+            this.setupEventListeners();
+        }
+        if (document.getElementById('resumeSection')) {
+            this.checkRateLimitState();
+        }
+        if (document.getElementById('orgName')) {
+            this.handleURLParameters();
+        }
         
         // Show results section if there are stored organizations
         const storageInfo = this.storageManager.getStorageInfo();
-        if (storageInfo.organizationsCount > 0) {
+        if (storageInfo.organizationsCount > 0 && document.getElementById('resultsSection')) {
             document.getElementById('resultsSection').style.display = 'block';
+        }
+    }
+
+    /**
+     * Handle URL parameters for pre-filling and focusing
+     */
+    handleURLParameters() {
+        const urlParams = new URLSearchParams(window.location.search);
+        const orgParam = urlParams.get('org');
+        const focusParam = urlParams.get('focus');
+        
+        if (orgParam) {
+            // Pre-fill organization name
+            document.getElementById('orgName').value = orgParam;
+            
+            // Handle different focus types
+            if (focusParam) {
+                let message = '';
+                switch (focusParam) {
+                    case 'license':
+                        message = 'Organization pre-filled for license compliance analysis. Click "Start Analysis" to begin.';
+                        break;
+                    case 'deps':
+                        message = 'Organization pre-filled for dependency analysis. Click "Start Analysis" to begin.';
+                        break;
+                    case 'vuln':
+                        message = 'Organization pre-filled for vulnerability analysis. Click "Start Analysis" to begin.';
+                        break;
+                    default:
+                        message = 'Organization pre-filled. Click "Start Analysis" to begin.';
+                }
+                
+                this.showAlert(message, 'info');
+                
+                // Scroll to the organization input section
+                document.getElementById('orgName').scrollIntoView({ behavior: 'smooth', block: 'center' });
+            }
         }
     }
 
@@ -335,10 +387,14 @@ class SBOMPlayApp {
         // Store current owner for rate limit state
         localStorage.setItem('current_analysis_org', ownerName);
         
-        // Update UI
-        document.getElementById('analyzeBtn').disabled = true;
-        document.getElementById('progressSection').style.display = 'block';
-        document.getElementById('resultsSection').style.display = 'none';
+        // Update UI (only if elements exist)
+        const analyzeBtn = document.getElementById('analyzeBtn');
+        const progressSection = document.getElementById('progressSection');
+        const resultsSection = document.getElementById('resultsSection');
+        
+        if (analyzeBtn) analyzeBtn.disabled = true;
+        if (progressSection) progressSection.style.display = 'block';
+        if (resultsSection) resultsSection.style.display = 'none';
         
         this.updateProgress(0, 'Initializing analysis...');
 
@@ -359,6 +415,12 @@ class SBOMPlayApp {
 
             this.sbomProcessor.setTotalRepositories(repositories.length);
             this.updateProgress(20, `Found ${repositories.length} repositories. Starting SBOM analysis...`);
+            
+            // Show partial data info if we have many repositories
+            const partialDataInfo = document.getElementById('partialDataInfo');
+            if (repositories.length > 10 && partialDataInfo) {
+                partialDataInfo.style.display = 'block';
+            }
 
             // Process each repository
             let successfulRepos = 0;
@@ -398,6 +460,33 @@ class SBOMPlayApp {
                     failedRepos++;
                 }
 
+                // Save incrementally every 10 repositories
+                if ((i + 1) % 10 === 0 || i === repositories.length - 1) {
+                    console.log(`💾 Saving incremental data (${i + 1}/${repositories.length} repositories processed)`);
+                    
+                    const partialData = this.sbomProcessor.exportPartialData();
+                    const isComplete = (i === repositories.length - 1);
+                    
+                    const saveSuccess = this.storageManager.saveIncrementalAnalysisData(ownerName, partialData, isComplete);
+                    if (saveSuccess) {
+                        console.log(`✅ Incremental data saved for ${ownerName} (${isComplete ? 'complete' : 'partial'})`);
+                        
+                        // Check data size and warn if too large
+                        const sizeCheck = this.storageManager.checkDataSizeAndWarn(ownerName);
+                        if (sizeCheck.isLarge) {
+                            this.showAlert(sizeCheck.message, 'warning');
+                        }
+                        
+                        // Clear memory after successful save to prevent DOM from holding unnecessary data
+                        this.sbomProcessor.clearMemoryAfterSave();
+                        
+                        // Update storage indicators (only show indicator, not full status)
+                        this.showStorageStatusIndicator();
+                    } else {
+                        console.warn(`⚠️ Failed to save incremental data for ${ownerName}`);
+                    }
+                }
+
                 // Add small delay to be respectful to GitHub API
                 await this.sleep(100);
             }
@@ -406,17 +495,20 @@ class SBOMPlayApp {
             this.updateProgress(90, 'Generating analysis results...');
             const results = this.sbomProcessor.exportData();
             
-            // Run vulnerability analysis if OSV service is available
-            if (window.osvService && reposWithDeps > 0) {
-                this.updateProgress(95, 'Analyzing vulnerabilities...');
+            // Note: Vulnerability analysis has been disabled to improve performance
+            // Users can run vulnerability analysis separately from the view page if needed
+
+            // Run license compliance analysis
+            if (reposWithDeps > 0) {
+                this.updateProgress(95, 'Analyzing license compliance...');
                 try {
-                    const vulnerabilityAnalysis = await this.sbomProcessor.analyzeVulnerabilities();
-                    if (vulnerabilityAnalysis) {
-                        results.vulnerabilityAnalysis = vulnerabilityAnalysis;
-                        console.log('🔍 Vulnerability Analysis Results:', vulnerabilityAnalysis);
+                    const licenseAnalysis = this.sbomProcessor.analyzeLicenseCompliance();
+                    if (licenseAnalysis) {
+                        results.licenseAnalysis = licenseAnalysis;
+                        console.log('🔍 License Compliance Analysis Results:', licenseAnalysis);
                     }
                 } catch (error) {
-                    console.error('❌ Vulnerability analysis failed:', error);
+                    console.error('❌ License compliance analysis failed:', error);
                 }
             }
             
@@ -441,13 +533,20 @@ class SBOMPlayApp {
                 console.warn('⚠️ Failed to save analysis data to storage');
                 this.showAlert('Analysis completed but failed to save to storage. Consider exporting your data and clearing old analyses.', 'warning');
             } else {
-                // Update storage indicators after successful save
-                this.showStorageStatus();
+                // Update storage indicators after successful save (only indicator, not full status)
                 this.showStorageStatusIndicator();
             }
             
             // Display results
             this.displayResults(results, ownerName);
+            
+            // Show message about partial data availability
+            if (repositories.length > 10) {
+                this.showAlert(
+                    `Analysis complete! Data was saved incrementally every 10 repositories, so you can start exploring results even during long analyses.`,
+                    'success'
+                );
+            }
             
             this.updateProgress(100, 'Analysis complete!');
             
@@ -466,9 +565,19 @@ class SBOMPlayApp {
         const progressBar = document.getElementById('progressBar');
         const progressText = document.getElementById('progressText');
         
-        progressBar.style.width = `${percentage}%`;
-        progressBar.textContent = `${Math.round(percentage)}%`;
-        progressText.textContent = message;
+        if (progressBar) {
+            progressBar.style.width = `${percentage}%`;
+            progressBar.textContent = `${Math.round(percentage)}%`;
+        }
+        
+        if (progressText) {
+            progressText.textContent = message;
+        }
+        
+        // Log progress for pages without UI elements
+        if (!progressBar && !progressText) {
+            console.log(`Progress: ${Math.round(percentage)}% - ${message}`);
+        }
     }
 
     /**
@@ -476,15 +585,17 @@ class SBOMPlayApp {
      */
     updateRateLimitInfo(info) {
         const rateLimitDiv = document.getElementById('rateLimitInfo');
-        const resetTime = new Date(info.reset * 1000).toLocaleTimeString();
-        
-        rateLimitDiv.innerHTML = `
-            <div class="alert alert-info alert-sm">
-                <strong>Rate Limit:</strong> ${info.remaining}/${info.limit} requests remaining
-                <br><strong>Reset Time:</strong> ${resetTime}
-                <br><strong>Authenticated:</strong> ${info.authenticated}
-            </div>
-        `;
+        if (rateLimitDiv) {
+            const resetTime = new Date(info.reset * 1000).toLocaleTimeString();
+            
+            rateLimitDiv.innerHTML = `
+                <div class="alert alert-info alert-sm">
+                    <strong>Rate Limit:</strong> ${info.remaining}/${info.limit} requests remaining
+                    <br><strong>Reset Time:</strong> ${resetTime}
+                    <br><strong>Authenticated:</strong> ${info.authenticated}
+                </div>
+            `;
+        }
     }
 
     /**
@@ -493,6 +604,12 @@ class SBOMPlayApp {
     displayResults(results, ownerName) {
         const resultsSection = document.getElementById('resultsSection');
         const resultsContent = document.getElementById('resultsContent');
+        
+        // Check if the results elements exist on this page
+        if (!resultsSection || !resultsContent) {
+            console.log('Results section elements not found on this page');
+            return;
+        }
         
         // Get storage info to show all organizations
         const storageInfo = this.storageManager.getStorageInfo();
@@ -520,7 +637,6 @@ class SBOMPlayApp {
                                         <th>Repositories</th>
                                         <th>Dependencies</th>
                                         <th>Last Updated</th>
-                                        <th>Actions</th>
                                     </tr>
                                 </thead>
                                 <tbody>
@@ -533,11 +649,6 @@ class SBOMPlayApp {
                                                 <td><span class="badge bg-primary">${org.repositories}</span></td>
                                                 <td><span class="badge bg-success">${org.dependencies}</span></td>
                                                 <td><small>${date} ${time}</small></td>
-                                                <td>
-                                                    <a href="stats.html" class="btn btn-outline-primary btn-sm">
-                                                        <i class="fas fa-eye me-1"></i>View
-                                                    </a>
-                                                </td>
                                             </tr>
                                         `;
                                     }).join('')}
@@ -549,53 +660,7 @@ class SBOMPlayApp {
             `;
         }
         
-        // Show combined analysis if multiple organizations exist
-        if (combinedData && organizations.length > 1) {
-            const combinedStats = combinedData.data.statistics;
-            const combinedTopDeps = combinedData.data.topDependencies.slice(0, 5);
-            
-            html += `
-                <div class="row mb-4">
-                    <div class="col-12">
-                        <div class="alert alert-info">
-                            <h6><i class="fas fa-layer-group me-2"></i>Combined Analysis Summary</h6>
-                            <p class="mb-2">Aggregated data from all ${organizations.length} organizations</p>
-                            <div class="row">
-                                <div class="col-md-6">
-                                    <table class="table table-sm">
-                                        <tr><td>Total Organizations:</td><td><strong>${organizations.length}</strong></td></tr>
-                                        <tr><td>Total Repositories:</td><td>${combinedStats.totalRepositories}</td></tr>
-                                        <tr><td>Total Dependencies:</td><td>${combinedStats.totalDependencies}</td></tr>
-                                        <tr><td>Avg per Repo:</td><td>${combinedStats.averageDependenciesPerRepo}</td></tr>
-                                    </table>
-                                </div>
-                                <div class="col-md-6">
-                                    <h6>Top Combined Dependencies</h6>
-                                    <div class="dependencies-chart">
-                                        ${combinedTopDeps.map(dep => `
-                                            <div class="dependency-bar">
-                                                <div class="dependency-info">
-                                                    <span class="dependency-name">${dep.name}@${dep.version}</span>
-                                                    <span class="dependency-count">${dep.count}</span>
-                                                </div>
-                                                <div class="dependency-progress">
-                                                    <div class="progress-fill" style="width: ${(dep.count / combinedTopDeps[0].count) * 100}%"></div>
-                                                </div>
-                                            </div>
-                                        `).join('')}
-                                    </div>
-                                </div>
-                            </div>
-                            <div class="mt-3">
-                                <a href="stats.html" class="btn btn-primary btn-sm">
-                                    <i class="fas fa-chart-line me-2"></i>View Combined Details
-                                </a>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            `;
-        }
+
         
         // Show no data message if no organizations stored
         if (organizations.length === 0) {
@@ -649,6 +714,12 @@ class SBOMPlayApp {
         const storageInfo = this.storageManager.getStorageInfo();
         const storageStatusDiv = document.getElementById('storageStatus');
         
+        // Check if the storage status div exists on this page
+        if (!storageStatusDiv) {
+            console.log('Storage status div not found on this page');
+            return;
+        }
+        
         if (storageInfo) {
             const usagePercent = (storageInfo.totalSize / storageInfo.maxStorageSize) * 100;
             const usageClass = usagePercent > 90 ? 'danger' : usagePercent > 70 ? 'warning' : 'success';
@@ -692,6 +763,12 @@ class SBOMPlayApp {
         const storageInfo = this.storageManager.getStorageInfo();
         const indicatorDiv = document.getElementById('storageStatusIndicator');
         const statusTextDiv = document.getElementById('storageStatusText');
+        
+        // Check if the indicator elements exist on this page
+        if (!indicatorDiv || !statusTextDiv) {
+            console.log('Storage status indicator elements not found on this page');
+            return;
+        }
         
         if (storageInfo && storageInfo.hasData) {
             const usagePercent = (storageInfo.totalSize / storageInfo.maxStorageSize) * 100;
@@ -764,7 +841,6 @@ class SBOMPlayApp {
                 
                 this.showAlert(`Cleared ${removedCount} old analyses. Kept 3 most recent.`, 'success');
                 this.displayResults(null, null); // Refresh display
-                this.showStorageStatus(); // Update storage status
                 this.showStorageStatusIndicator(); // Update header indicator
             } catch (error) {
                 console.error('Clear old data failed:', error);
@@ -782,7 +858,6 @@ class SBOMPlayApp {
                 this.storageManager.clearAllData();
                 this.showAlert('All data cleared successfully', 'success');
                 this.displayResults(null, null); // Refresh display
-                this.showStorageStatus(); // Update storage status
                 this.showStorageStatusIndicator(); // Update header indicator
             } catch (error) {
                 console.error('Clear all data failed:', error);
@@ -817,7 +892,6 @@ class SBOMPlayApp {
             const migratedCount = this.storageManager.migrateOldData();
             if (migratedCount > 0) {
                 this.showAlert(`Successfully migrated ${migratedCount} organizations to compressed format.`, 'success');
-                this.showStorageStatus(); // Update storage status
                 this.showStorageStatusIndicator(); // Update header indicator
             } else {
                 this.showAlert('No old data found to migrate. All data is already in compressed format.', 'info');
@@ -833,7 +907,14 @@ class SBOMPlayApp {
      */
     finishAnalysis() {
         this.isAnalyzing = false;
-        document.getElementById('analyzeBtn').disabled = false;
+        
+        const analyzeBtn = document.getElementById('analyzeBtn');
+        const progressSection = document.getElementById('progressSection');
+        const partialDataInfo = document.getElementById('partialDataInfo');
+        
+        if (analyzeBtn) analyzeBtn.disabled = false;
+        if (progressSection) progressSection.style.display = 'none';
+        if (partialDataInfo) partialDataInfo.style.display = 'none';
     }
 
     /**
@@ -848,14 +929,19 @@ class SBOMPlayApp {
         `;
         
         const container = document.querySelector('.container');
-        container.insertBefore(alertDiv, container.firstChild);
-        
-        // Auto-remove after 5 seconds
-        setTimeout(() => {
-            if (alertDiv.parentNode) {
-                alertDiv.remove();
-            }
-        }, 5000);
+        if (container) {
+            container.insertBefore(alertDiv, container.firstChild);
+            
+            // Auto-remove after 5 seconds
+            setTimeout(() => {
+                if (alertDiv.parentNode) {
+                    alertDiv.remove();
+                }
+            }, 5000);
+        } else {
+            // Fallback: just log to console if no container found
+            console.log(`[${type.toUpperCase()}] ${message}`);
+        }
     }
 
     /**
@@ -879,13 +965,22 @@ function startAnalysis() {
     app.startAnalysis();
 }
 
+function toggleTokenSection() {
+    const body = document.getElementById('tokenSectionBody');
+    const icon = document.getElementById('tokenToggleIcon');
+    
+    if (body.style.display === 'none') {
+        body.style.display = 'block';
+        icon.className = 'fas fa-chevron-up';
+    } else {
+        body.style.display = 'none';
+        icon.className = 'fas fa-chevron-down';
+    }
+}
+
 // Initialize app when DOM is loaded
 let app;
 document.addEventListener('DOMContentLoaded', () => {
-    // Check if we're on the view page (which has its own app)
-    const isViewPage = document.querySelector('#organizationsSection') !== null;
-    
-    if (!isViewPage) {
-        app = new SBOMPlayApp();
-    }
+    // Always initialize the app - it's needed for analysis functions
+    app = new SBOMPlayApp();
 }); 

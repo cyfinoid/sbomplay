@@ -10,6 +10,9 @@ class SBOMProcessor {
         this.successfulRepos = 0;
         this.failedRepos = 0;
         
+        // Initialize license processor
+        this.licenseProcessor = new LicenseProcessor();
+        
         // Categorization mappings
         this.purlTypeMap = {
             'pypi': { type: 'code', language: 'Python', ecosystem: 'PyPI' },
@@ -18,7 +21,7 @@ class SBOMProcessor {
             'nuget': { type: 'code', language: 'C#', ecosystem: 'NuGet' },
             'cargo': { type: 'code', language: 'Rust', ecosystem: 'Cargo' },
             'composer': { type: 'code', language: 'PHP', ecosystem: 'Composer' },
-            'go': { type: 'code', language: 'Go', ecosystem: 'Go Modules' },
+            'go': { type: 'code', language: 'Go', ecosystem: 'Go' },
             'githubactions': { type: 'workflow', language: 'YAML', ecosystem: 'GitHub Actions' },
             'github': { type: 'infrastructure', language: 'Various', ecosystem: 'GitHub' },
             'docker': { type: 'infrastructure', language: 'Various', ecosystem: 'Docker' },
@@ -48,7 +51,15 @@ class SBOMProcessor {
                 const purlParts = purl.split('/');
                 
                 if (purlParts.length >= 2) {
-                    const ecosystem = purlParts[0].replace('pkg:', '');
+                    let ecosystem = purlParts[0].replace('pkg:', '');
+                    
+                    // Map ecosystem names to OSV-compatible names
+                    const ecosystemMap = {
+                        'golang': 'go',
+                        'go': 'go'
+                    };
+                    
+                    ecosystem = ecosystemMap[ecosystem] || ecosystem;
                     const typeInfo = this.purlTypeMap[ecosystem];
                     
                     if (typeInfo) {
@@ -386,7 +397,8 @@ class SBOMProcessor {
             allRepositories: allRepos,
             categoryStats: this.getDependencyCategoryStats(),
             languageStats: this.getLanguageStats(),
-            vulnerabilityAnalysis: this.vulnerabilityAnalysis || null
+            vulnerabilityAnalysis: this.vulnerabilityAnalysis || null,
+            licenseAnalysis: this.licenseAnalysis || null
         };
     }
 
@@ -440,7 +452,7 @@ class SBOMProcessor {
                 pkg: dep.originalPackage  // Pass original package data for PURL extraction
             }));
 
-            // Analyze vulnerabilities
+            // Analyze vulnerabilities (using the original method for backward compatibility)
             this.vulnerabilityAnalysis = await window.osvService.analyzeDependencies(dependencies);
             
             console.log('✅ SBOM Processor: Vulnerability analysis complete');
@@ -449,6 +461,199 @@ class SBOMProcessor {
             console.error('❌ SBOM Processor: Vulnerability analysis failed:', error);
             return null;
         }
+    }
+
+    /**
+     * Analyze vulnerabilities for all dependencies with incremental saving
+     */
+    async analyzeVulnerabilitiesWithIncrementalSaving(orgName, onProgress = null) {
+        if (!window.osvService) {
+            console.warn('⚠️ OSV Service not available');
+            return null;
+        }
+
+        try {
+            console.log('🔍 SBOM Processor: Starting incremental vulnerability analysis...');
+            
+            // Convert dependencies to the format expected by OSV service
+            const dependencies = Array.from(this.dependencies.values()).map(dep => ({
+                name: dep.name,
+                version: dep.version,
+                pkg: dep.originalPackage  // Pass original package data for PURL extraction
+            }));
+
+            // Analyze vulnerabilities with incremental saving
+            this.vulnerabilityAnalysis = await window.osvService.analyzeDependenciesWithIncrementalSaving(
+                dependencies, 
+                orgName,
+                onProgress
+            );
+            
+            console.log('✅ SBOM Processor: Incremental vulnerability analysis complete');
+            return this.vulnerabilityAnalysis;
+        } catch (error) {
+            console.error('❌ SBOM Processor: Incremental vulnerability analysis failed:', error);
+            return null;
+        }
+    }
+
+    /**
+     * Analyze license compliance for all dependencies
+     */
+    analyzeLicenseCompliance() {
+        try {
+            console.log('🔍 SBOM Processor: Starting license compliance analysis...');
+            
+            // Convert dependencies to the format expected by license processor
+            const dependencies = Array.from(this.dependencies.values()).map(dep => ({
+                name: dep.name,
+                version: dep.version,
+                originalPackage: dep.originalPackage
+            }));
+
+            // Generate license compliance report
+            this.licenseAnalysis = this.licenseProcessor.generateComplianceReport(dependencies);
+            
+            console.log('✅ SBOM Processor: License compliance analysis complete');
+            return this.licenseAnalysis;
+        } catch (error) {
+            console.error('❌ SBOM Processor: License compliance analysis failed:', error);
+            return null;
+        }
+    }
+
+    /**
+     * Get license statistics for visualization
+     */
+    getLicenseStats() {
+        if (!this.licenseAnalysis) {
+            return null;
+        }
+        return this.licenseProcessor.getLicenseStats(Array.from(this.dependencies.values()));
+    }
+
+    /**
+     * Get license conflicts
+     */
+    getLicenseConflicts() {
+        if (!this.licenseAnalysis) {
+            return [];
+        }
+        return this.licenseAnalysis.conflicts;
+    }
+
+    /**
+     * Get high-risk dependencies
+     */
+    getHighRiskDependencies() {
+        if (!this.licenseAnalysis) {
+            return [];
+        }
+        return this.licenseAnalysis.highRiskDependencies;
+    }
+
+    /**
+     * Export partial data for incremental saving (memory optimized)
+     */
+    exportPartialData() {
+        // Only export essential data to reduce memory usage
+        const statistics = {
+            totalRepositories: this.totalRepos,
+            processedRepositories: this.processedRepos,
+            successfulRepositories: this.successfulRepos,
+            failedRepositories: this.failedRepos,
+            totalDependencies: this.dependencies.size,
+            totalUniqueDependencies: this.dependencies.size
+        };
+
+        // Export only top dependencies and repositories to save memory
+        const topDependencies = this.getTopDependencies(20);
+        const topRepositories = this.getTopRepositories(10);
+
+        // Export category and language stats (these are lightweight)
+        const categoryStats = this.getDependencyCategoryStats();
+        const languageStats = this.getLanguageStats();
+        const dependencyDistribution = this.getDependencyDistribution();
+
+        // Only export all dependencies and repositories if we have a reasonable amount
+        // This prevents memory issues with very large datasets
+        let allDependencies = null;
+        let allRepositories = null;
+
+        if (this.dependencies.size <= 1000) {
+            // For smaller datasets, export everything
+            allDependencies = Array.from(this.dependencies.values()).map(dep => ({
+                name: dep.name,
+                version: dep.version,
+                count: dep.count,
+                repositories: Array.from(dep.repositories),
+                category: dep.category,
+                languages: Array.from(dep.languages)
+            }));
+        }
+
+        if (this.repositories.size <= 500) {
+            // For smaller datasets, export everything
+            allRepositories = Array.from(this.repositories.values()).map(repo => ({
+                name: repo.name,
+                owner: repo.owner,
+                totalDependencies: repo.totalDependencies,
+                dependencies: Array.from(repo.dependencies),
+                dependencyCategories: {
+                    code: Array.from(repo.dependencyCategories.code),
+                    workflow: Array.from(repo.dependencyCategories.workflow),
+                    infrastructure: Array.from(repo.dependencyCategories.infrastructure),
+                    unknown: Array.from(repo.dependencyCategories.unknown)
+                },
+                languages: Array.from(repo.languages)
+            }));
+        }
+
+        return {
+            statistics: statistics,
+            topDependencies: topDependencies,
+            topRepositories: topRepositories,
+            allDependencies: allDependencies,
+            allRepositories: allRepositories,
+            categoryStats: categoryStats,
+            languageStats: languageStats,
+            dependencyDistribution: dependencyDistribution
+        };
+    }
+
+    /**
+     * Check if we should save incremental data (every 10 repositories)
+     */
+    shouldSaveIncremental() {
+        return this.processedRepos > 0 && this.processedRepos % 10 === 0;
+    }
+
+    /**
+     * Clear memory after incremental save to prevent DOM from holding unnecessary data
+     */
+    clearMemoryAfterSave() {
+        // Force garbage collection hints
+        if (window.gc) {
+            window.gc();
+        }
+        
+        // Clear any cached data that's no longer needed
+        if (this.vulnerabilityAnalysis && this.vulnerabilityAnalysis.vulnerableDependencies) {
+            // Keep only essential vulnerability data, clear detailed data
+            this.vulnerabilityAnalysis.vulnerableDependencies.forEach(dep => {
+                if (dep.vulnerabilities) {
+                    dep.vulnerabilities.forEach(vuln => {
+                        // Keep only essential fields, clear large objects
+                        delete vuln.details;
+                        delete vuln.references;
+                        delete vuln.affected;
+                        delete vuln.database_specific;
+                    });
+                }
+            });
+        }
+        
+        console.log('🧹 Memory cleared after incremental save');
     }
 }
 

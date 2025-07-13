@@ -45,10 +45,11 @@ class OSVService {
             
             // Only include ecosystem for very confident matches
             const detectedEcosystem = this.detectEcosystemFromName(cleanName);
+            const mappedEcosystem = ecosystem ? this.mapEcosystemToOSV(ecosystem) : detectedEcosystem;
             const query = {
                 package: {
                     name: cleanName,
-                    ...(detectedEcosystem && { ecosystem: detectedEcosystem })
+                    ...(mappedEcosystem && { ecosystem: mappedEcosystem })
                 },
                 version: cleanVersion
             };
@@ -100,18 +101,18 @@ class OSVService {
      */
     async queryVulnerabilitiesBatch(packages) {
         if (packages.length === 0) return [];
-        
+        const MAX_BATCH = 100; // OSV API limit
         try {
             console.log(`🔍 OSV: Batch querying ${packages.length} packages`);
-            
             // Filter out invalid packages and create proper queries
             const validQueries = packages
                 .filter(pkg => pkg.name && pkg.version && pkg.name.trim() && pkg.version.trim())
                 .map(pkg => {
+                    const mappedEcosystem = pkg.ecosystem ? this.mapEcosystemToOSV(pkg.ecosystem) : null;
                     return {
                         package: {
                             name: pkg.name.trim(),
-                            ...(pkg.ecosystem && { ecosystem: pkg.ecosystem })
+                            ...(mappedEcosystem && { ecosystem: mappedEcosystem })
                         },
                         version: pkg.version.trim()
                     };
@@ -122,30 +123,40 @@ class OSVService {
                 return packages.map(() => ({ vulns: [] }));
             }
 
-            console.log(`🔍 OSV: Sending ${validQueries.length} valid queries`);
-            console.log('🔍 OSV: Ecosystems being sent:', validQueries.map(q => `${q.package.name} (${q.package.ecosystem})`));
-            console.log('Sample query:', validQueries[0]);
-
-            const response = await fetch(`${this.baseUrl}/v1/querybatch`, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify({ queries: validQueries })
-            });
-
-            if (!response.ok) {
-                const errorText = await response.text();
-                console.error(`❌ OSV: API Response:`, errorText);
-                throw new Error(`OSV API error: ${response.status} ${response.statusText} - ${errorText}`);
+            // Split into chunks of 100
+            const chunks = [];
+            for (let i = 0; i < validQueries.length; i += MAX_BATCH) {
+                chunks.push(validQueries.slice(i, i + MAX_BATCH));
             }
 
-            const data = await response.json();
-            console.log(`✅ OSV: Batch query completed, found vulnerabilities for ${data.results?.length || 0} packages`);
-            
+            let allResults = [];
+            for (let idx = 0; idx < chunks.length; idx++) {
+                const chunk = chunks[idx];
+                console.log(`🔍 OSV: Sending chunk ${idx + 1}/${chunks.length} with ${chunk.length} queries`);
+                const response = await fetch(`${this.baseUrl}/v1/querybatch`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ queries: chunk })
+                });
+
+                if (!response.ok) {
+                    const errorText = await response.text();
+                    console.error(`❌ OSV: API Response (chunk ${idx + 1}):`, errorText);
+                    throw new Error(`OSV API error: ${response.status} ${response.statusText} - ${errorText}`);
+                }
+
+                const data = await response.json();
+                if (data.results && Array.isArray(data.results)) {
+                    allResults = allResults.concat(data.results);
+                }
+            }
+
+            console.log(`✅ OSV: Batch query completed, found vulnerabilities for ${allResults.length} packages`);
             // Debug: Log sample vulnerability structure from batch query
-            if (data.results && data.results.length > 0) {
-                const sampleResult = data.results.find(r => r.vulns && r.vulns.length > 0);
+            if (allResults && allResults.length > 0) {
+                const sampleResult = allResults.find(r => r.vulns && r.vulns.length > 0);
                 if (sampleResult) {
                     console.log('🔍 OSV: Sample batch query vulnerability structure:', {
                         id: sampleResult.vulns[0].id,
@@ -156,12 +167,37 @@ class OSVService {
                     });
                 }
             }
-            
-            return data.results || [];
+            return allResults;
         } catch (error) {
             console.error(`❌ OSV: Batch query error:`, error);
             return packages.map(() => ({ vulns: [] }));
         }
+    }
+
+    /**
+     * Map ecosystem names to OSV-compatible names
+     */
+    mapEcosystemToOSV(ecosystem) {
+        if (!ecosystem) return null;
+        
+        const ecosystemMap = {
+            'golang': 'Go',
+            'go': 'Go',
+            'pypi': 'PyPI',
+            'npm': 'npm',
+            'maven': 'Maven',
+            'nuget': 'NuGet',
+            'cargo': 'cargo',
+            'composer': 'Packagist',
+            'githubactions': 'GitHub Actions',
+            'github': 'GitHub',
+            'docker': 'Docker',
+            'helm': 'Helm',
+            'terraform': 'Terraform',
+            'rubygems': 'RubyGems'
+        };
+        
+        return ecosystemMap[ecosystem.toLowerCase()] || ecosystem;
     }
 
     /**
@@ -191,6 +227,7 @@ class OSVService {
                         'cargo': 'cargo',
                         'composer': 'Packagist',
                         'go': 'Go',
+                        'golang': 'Go',  // Handle golang ecosystem from SBOM
                         'githubactions': 'GitHub Actions',
                         'github': 'GitHub',
                         'docker': 'Docker',
@@ -315,11 +352,15 @@ class OSVService {
     async analyzeDependencies(dependencies) {
         console.log(`🔍 OSV: Analyzing ${dependencies.length} dependencies for vulnerabilities`);
         
-        const packages = dependencies.map(dep => ({
-            name: dep.name,
-            version: dep.version,
-            ecosystem: dep.pkg ? this.extractEcosystemFromPurl(dep.pkg) : this.detectEcosystemFromName(dep.name)
-        }));
+        const packages = dependencies.map(dep => {
+            const detectedEcosystem = dep.pkg ? this.extractEcosystemFromPurl(dep.pkg) : this.detectEcosystemFromName(dep.name);
+            const mappedEcosystem = detectedEcosystem ? this.mapEcosystemToOSV(detectedEcosystem) : null;
+            return {
+                name: dep.name,
+                version: dep.version,
+                ecosystem: mappedEcosystem
+            };
+        });
 
         // Try batch query first for quick vulnerability detection
         let results = await this.queryVulnerabilitiesBatch(packages);
@@ -414,6 +455,142 @@ class OSVService {
                         };
                     })
                 });
+            }
+        });
+
+        console.log(`✅ OSV: Analysis complete - ${vulnerabilityAnalysis.vulnerablePackages} vulnerable packages found`);
+        return vulnerabilityAnalysis;
+    }
+
+    /**
+     * Analyze dependencies for vulnerabilities with incremental saving
+     */
+    async analyzeDependenciesWithIncrementalSaving(dependencies, orgName, onProgress = null) {
+        console.log(`🔍 OSV: Analyzing ${dependencies.length} dependencies for vulnerabilities with incremental saving`);
+        
+        const packages = dependencies.map(dep => {
+            const detectedEcosystem = dep.pkg ? this.extractEcosystemFromPurl(dep.pkg) : this.detectEcosystemFromName(dep.name);
+            const mappedEcosystem = detectedEcosystem ? this.mapEcosystemToOSV(detectedEcosystem) : null;
+            return {
+                name: dep.name,
+                version: dep.version,
+                ecosystem: mappedEcosystem
+            };
+        });
+
+        // Try batch query first for quick vulnerability detection
+        let results = await this.queryVulnerabilitiesBatch(packages);
+        
+        // Check if batch query returned minimal data (just id and modified)
+        const hasMinimalData = results.some(result => 
+            result.vulns && result.vulns.length > 0 && 
+            result.vulns[0] && Object.keys(result.vulns[0]).length <= 3
+        );
+        
+        // If batch query failed, returned no results, or returned minimal data, fall back to individual queries
+        if (!results || results.length === 0 || hasMinimalData) {
+            console.log('⚠️ OSV: Batch query returned minimal data, falling back to individual queries for full details');
+            results = await this.queryVulnerabilitiesIndividually(packages);
+        }
+        
+        const vulnerabilityAnalysis = {
+            totalPackages: dependencies.length,
+            vulnerablePackages: 0,
+            totalVulnerabilities: 0,
+            criticalVulnerabilities: 0,
+            highVulnerabilities: 0,
+            mediumVulnerabilities: 0,
+            lowVulnerabilities: 0,
+            vulnerableDependencies: []
+        };
+
+        dependencies.forEach((dep, index) => {
+            const vulnResult = results[index];
+            const vulnerabilities = vulnResult?.vulns || [];
+            
+            // Save to centralized storage if vulnerabilities found
+            if (vulnerabilities.length > 0 && window.storageManager) {
+                const cacheKey = `${dep.name}@${dep.version}`;
+                window.storageManager.saveVulnerabilityData(cacheKey, {
+                    data: vulnResult,
+                    packageName: dep.name,
+                    version: dep.version,
+                    ecosystem: dep.ecosystem
+                });
+            }
+            
+            if (vulnerabilities.length > 0) {
+                vulnerabilityAnalysis.vulnerablePackages++;
+                vulnerabilityAnalysis.totalVulnerabilities += vulnerabilities.length;
+                
+                // Debug: Log first vulnerability structure
+                if (vulnerabilities.length > 0) {
+                    console.log(`🔍 OSV: Sample vulnerability for ${dep.name}:`, {
+                        id: vulnerabilities[0].id,
+                        severity: vulnerabilities[0].severity,
+                        severityType: typeof vulnerabilities[0].severity,
+                        database_specific: vulnerabilities[0].database_specific,
+                        database_specific_severity: vulnerabilities[0].database_specific?.severity
+                    });
+                }
+                
+                // Analyze severity levels
+                vulnerabilities.forEach(vuln => {
+                    const severity = this.getHighestSeverity(vuln);
+                    switch (severity) {
+                        case 'CRITICAL':
+                            vulnerabilityAnalysis.criticalVulnerabilities++;
+                            break;
+                        case 'HIGH':
+                            vulnerabilityAnalysis.highVulnerabilities++;
+                            break;
+                        case 'MEDIUM':
+                            vulnerabilityAnalysis.mediumVulnerabilities++;
+                            break;
+                        case 'LOW':
+                            vulnerabilityAnalysis.lowVulnerabilities++;
+                            break;
+                    }
+                });
+
+                // Add to vulnerable dependencies list
+                vulnerabilityAnalysis.vulnerableDependencies.push({
+                    name: dep.name,
+                    version: dep.version,
+                    vulnerabilities: vulnerabilities.map(vuln => {
+                        const severity = this.getHighestSeverity(vuln);
+                        console.log(`🔍 OSV: Mapped vulnerability ${vuln.id} severity: ${severity}`);
+                        return {
+                            id: vuln.id,
+                            summary: vuln.summary,
+                            details: vuln.details,
+                            severity: severity,
+                            published: vuln.published,
+                            modified: vuln.modified,
+                            references: vuln.references || []
+                        };
+                    })
+                });
+            }
+
+            // Save incrementally every 10 dependencies
+            if ((index + 1) % 10 === 0 || index === dependencies.length - 1) {
+                console.log(`💾 OSV: Saving incremental vulnerability data (${index + 1}/${dependencies.length} dependencies processed)`);
+                
+                if (window.storageManager && orgName) {
+                    const saveSuccess = window.storageManager.updateAnalysisWithVulnerabilities(orgName, vulnerabilityAnalysis);
+                    if (saveSuccess) {
+                        console.log(`✅ OSV: Incremental vulnerability data saved for ${orgName}`);
+                    } else {
+                        console.warn(`⚠️ OSV: Failed to save incremental vulnerability data for ${orgName}`);
+                    }
+                }
+
+                // Call progress callback if provided
+                if (onProgress) {
+                    const progressPercent = ((index + 1) / dependencies.length) * 100;
+                    onProgress(progressPercent, `Processed ${index + 1}/${dependencies.length} dependencies for vulnerabilities`);
+                }
             }
         });
 
@@ -577,8 +754,6 @@ class OSVService {
                 });
             }
         }
-
-
 
         console.log(`🔍 OSV: Final severity for ${vulnerability.id}: ${highestSeverity}`);
         return highestSeverity;
