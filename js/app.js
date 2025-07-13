@@ -44,6 +44,11 @@ class SBOMPlayApp {
         if (storageInfo.organizationsCount > 0 && document.getElementById('resultsSection')) {
             document.getElementById('resultsSection').style.display = 'block';
         }
+        
+        // Show Quick Analysis Access section if there are stored organizations
+        if (storageInfo.organizationsCount > 0 && document.getElementById('quickAnalysisSection')) {
+            document.getElementById('quickAnalysisSection').style.display = 'block';
+        }
     }
 
     /**
@@ -674,6 +679,16 @@ class SBOMPlayApp {
         
         resultsContent.innerHTML = html;
         resultsSection.style.display = 'block';
+        
+        // Show/hide Quick Analysis Access section based on stored organizations
+        const quickAnalysisSection = document.getElementById('quickAnalysisSection');
+        if (quickAnalysisSection) {
+            if (organizations.length > 0) {
+                quickAnalysisSection.style.display = 'block';
+            } else {
+                quickAnalysisSection.style.display = 'none';
+            }
+        }
     }
 
     /**
