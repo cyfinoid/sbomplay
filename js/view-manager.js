@@ -2485,68 +2485,40 @@ class ViewManager {
             return `<div class="alert alert-info">No license analysis found for this organization.</div>`;
         }
         
+        // Calculate combined copyleft (includes LGPL)
+        const copyleftCount = (orgData.data.licenseAnalysis.summary?.categoryBreakdown?.copyleft || 0) + 
+                             (orgData.data.licenseAnalysis.summary?.categoryBreakdown?.lgpl || 0);
+        
         return `
         <div class="license-stats">
-            <div class="license-stat-card permissive clickable-license-card license-card" 
-                 onclick="viewManager.toggleLicenseRepositoriesPanel('${orgData.organization}', 'permissive')">
-                <h4>✅ Permissive</h4>
-                <div class="license-number">${orgData.data.licenseAnalysis.summary?.categoryBreakdown?.permissive || 0}</div>
-                <div class="license-detail">low risk</div>
+            <div class="license-stat-card total clickable-license-card license-card" 
+                 onclick="viewManager.toggleLicenseRepositoriesPanel('${orgData.organization}', 'total')">
+                <h4>📊 Total</h4>
+                <div class="license-number">${orgData.data.licenseAnalysis.summary?.licensedDependencies || 0}</div>
+                <div class="license-detail">licensed deps</div>
                 <div class="license-tooltip">
                     <div class="license-tooltip-content">
-                        <div class="license-tooltip-header">✅ Permissive Licenses</div>
+                        <div class="license-tooltip-header">📊 All Licensed Dependencies</div>
                         <div class="license-tooltip-stats">
                             <div class="license-tooltip-stat">
-                                <span class="license-tooltip-stat-value">${orgData.data.licenseAnalysis.summary?.categoryBreakdown?.permissive || 0}</span>
+                                <span class="license-tooltip-stat-value">${orgData.data.licenseAnalysis.summary?.licensedDependencies || 0}</span>
                                 <span class="license-tooltip-stat-label">Dependencies</span>
                             </div>
                             <div class="license-tooltip-stat">
-                                <span class="license-tooltip-stat-value">${this.getLicenseRepositoriesCount(orgData, 'permissive')}</span>
+                                <span class="license-tooltip-stat-value">${this.getLicenseRepositoriesCount(orgData, 'total')}</span>
                                 <span class="license-tooltip-stat-label">Repositories</span>
                             </div>
                         </div>
                         <div class="license-tooltip-repos">
-                            ${this.getLicenseRepositoriesList(orgData, 'permissive').slice(0, 5).map(repo => `
+                            ${this.getLicenseRepositoriesList(orgData, 'total').slice(0, 5).map(repo => `
                                 <div class="license-tooltip-repo">${repo}</div>
                             `).join('')}
-                            ${this.getLicenseRepositoriesList(orgData, 'permissive').length > 5 ? `
-                                <div class="license-tooltip-repo">... and ${this.getLicenseRepositoriesList(orgData, 'permissive').length - 5} more</div>
+                            ${this.getLicenseRepositoriesList(orgData, 'total').length > 5 ? `
+                                <div class="license-tooltip-repo">... and ${this.getLicenseRepositoriesList(orgData, 'total').length - 5} more</div>
                             ` : ''}
                         </div>
                         <div class="license-tooltip-footer">
-                            <button class="license-tooltip-click" onclick="viewManager.toggleLicenseRepositoriesPanel('${orgData.organization}', 'permissive')">Click to view all</button>
-                        </div>
-                    </div>
-                </div>
-            </div>
-            <div class="license-stat-card lgpl clickable-license-card license-card" 
-                 onclick="viewManager.toggleLicenseRepositoriesPanel('${orgData.organization}', 'lgpl')">
-                <h4>🔗 LGPL</h4>
-                <div class="license-number">${orgData.data.licenseAnalysis.summary?.categoryBreakdown?.lgpl || 0}</div>
-                <div class="license-detail">medium risk</div>
-                <div class="license-tooltip">
-                    <div class="license-tooltip-content">
-                        <div class="license-tooltip-header">🔗 Lesser GPL Licenses</div>
-                        <div class="license-tooltip-stats">
-                            <div class="license-tooltip-stat">
-                                <span class="license-tooltip-stat-value">${orgData.data.licenseAnalysis.summary?.categoryBreakdown?.lgpl || 0}</span>
-                                <span class="license-tooltip-stat-label">Dependencies</span>
-                            </div>
-                            <div class="license-tooltip-stat">
-                                <span class="license-tooltip-stat-value">${this.getLicenseRepositoriesCount(orgData, 'lgpl')}</span>
-                                <span class="license-tooltip-stat-label">Repositories</span>
-                            </div>
-                        </div>
-                        <div class="license-tooltip-repos">
-                            ${this.getLicenseRepositoriesList(orgData, 'lgpl').slice(0, 5).map(repo => `
-                                <div class="license-tooltip-repo">${repo}</div>
-                            `).join('')}
-                            ${this.getLicenseRepositoriesList(orgData, 'lgpl').length > 5 ? `
-                                <div class="license-tooltip-repo">... and ${this.getLicenseRepositoriesList(orgData, 'lgpl').length - 5} more</div>
-                            ` : ''}
-                        </div>
-                        <div class="license-tooltip-footer">
-                            <button class="license-tooltip-click" onclick="viewManager.toggleLicenseRepositoriesPanel('${orgData.organization}', 'lgpl')">Click to view all</button>
+                            <button class="license-tooltip-click" onclick="viewManager.toggleLicenseRepositoriesPanel('${orgData.organization}', 'total')">Click to view all</button>
                         </div>
                     </div>
                 </div>
@@ -2554,27 +2526,27 @@ class ViewManager {
             <div class="license-stat-card copyleft clickable-license-card license-card" 
                  onclick="viewManager.toggleLicenseRepositoriesPanel('${orgData.organization}', 'copyleft')">
                 <h4>⚠️ Copyleft</h4>
-                <div class="license-number">${orgData.data.licenseAnalysis.summary?.categoryBreakdown?.copyleft || 0}</div>
+                <div class="license-number">${copyleftCount}</div>
                 <div class="license-detail">high risk</div>
                 <div class="license-tooltip">
                     <div class="license-tooltip-content">
-                        <div class="license-tooltip-header">⚠️ Copyleft Licenses</div>
+                        <div class="license-tooltip-header">⚠️ Copyleft Licenses (GPL, LGPL, AGPL, MPL, EPL)</div>
                         <div class="license-tooltip-stats">
                             <div class="license-tooltip-stat">
-                                <span class="license-tooltip-stat-value">${orgData.data.licenseAnalysis.summary?.categoryBreakdown?.copyleft || 0}</span>
+                                <span class="license-tooltip-stat-value">${copyleftCount}</span>
                                 <span class="license-tooltip-stat-label">Dependencies</span>
                             </div>
                             <div class="license-tooltip-stat">
-                                <span class="license-tooltip-stat-value">${this.getLicenseRepositoriesCount(orgData, 'copyleft')}</span>
+                                <span class="license-tooltip-stat-value">${this.getLicenseRepositoriesCount(orgData, 'copyleft') + this.getLicenseRepositoriesCount(orgData, 'lgpl')}</span>
                                 <span class="license-tooltip-stat-label">Repositories</span>
                             </div>
                         </div>
                         <div class="license-tooltip-repos">
-                            ${this.getLicenseRepositoriesList(orgData, 'copyleft').slice(0, 5).map(repo => `
+                            ${[...this.getLicenseRepositoriesList(orgData, 'copyleft'), ...this.getLicenseRepositoriesList(orgData, 'lgpl')].slice(0, 5).map(repo => `
                                 <div class="license-tooltip-repo">${repo}</div>
                             `).join('')}
-                            ${this.getLicenseRepositoriesList(orgData, 'copyleft').length > 5 ? `
-                                <div class="license-tooltip-repo">... and ${this.getLicenseRepositoriesList(orgData, 'copyleft').length - 5} more</div>
+                            ${[...this.getLicenseRepositoriesList(orgData, 'copyleft'), ...this.getLicenseRepositoriesList(orgData, 'lgpl')].length > 5 ? `
+                                <div class="license-tooltip-repo">... and ${[...this.getLicenseRepositoriesList(orgData, 'copyleft'), ...this.getLicenseRepositoriesList(orgData, 'lgpl')].length - 5} more</div>
                             ` : ''}
                         </div>
                         <div class="license-tooltip-footer">
@@ -2643,38 +2615,6 @@ class ViewManager {
                         </div>
                         <div class="license-tooltip-footer">
                             <button class="license-tooltip-click" onclick="viewManager.toggleLicenseRepositoriesPanel('${orgData.organization}', 'unknown')">Click to view all</button>
-                        </div>
-                    </div>
-                </div>
-            </div>
-            <div class="license-stat-card total clickable-license-card license-card" 
-                 onclick="viewManager.toggleLicenseRepositoriesPanel('${orgData.organization}', 'total')">
-                <h4>📊 Total</h4>
-                <div class="license-number">${orgData.data.licenseAnalysis.summary?.licensedDependencies || 0}</div>
-                <div class="license-detail">licensed deps</div>
-                <div class="license-tooltip">
-                    <div class="license-tooltip-content">
-                        <div class="license-tooltip-header">📊 All Licensed Dependencies</div>
-                        <div class="license-tooltip-stats">
-                            <div class="license-tooltip-stat">
-                                <span class="license-tooltip-stat-value">${orgData.data.licenseAnalysis.summary?.licensedDependencies || 0}</span>
-                                <span class="license-tooltip-stat-label">Dependencies</span>
-                            </div>
-                            <div class="license-tooltip-stat">
-                                <span class="license-tooltip-stat-value">${this.getLicenseRepositoriesCount(orgData, 'total')}</span>
-                                <span class="license-tooltip-stat-label">Repositories</span>
-                            </div>
-                        </div>
-                        <div class="license-tooltip-repos">
-                            ${this.getLicenseRepositoriesList(orgData, 'total').slice(0, 5).map(repo => `
-                                <div class="license-tooltip-repo">${repo}</div>
-                            `).join('')}
-                            ${this.getLicenseRepositoriesList(orgData, 'total').length > 5 ? `
-                                <div class="license-tooltip-repo">... and ${this.getLicenseRepositoriesList(orgData, 'total').length - 5} more</div>
-                            ` : ''}
-                        </div>
-                        <div class="license-tooltip-footer">
-                            <button class="license-tooltip-click" onclick="viewManager.toggleLicenseRepositoriesPanel('${orgData.organization}', 'total')">Click to view all</button>
                         </div>
                     </div>
                 </div>
