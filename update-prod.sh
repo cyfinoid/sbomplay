@@ -11,6 +11,7 @@ cp stats.html docs/
 cp license-compliance.html docs/
 cp vuln.html docs/
 cp deps.html docs/
+cp settings.html docs/
 cp -r js docs/
 cp -r css docs/
 
