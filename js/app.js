@@ -480,8 +480,7 @@ class SBOMPlayApp {
                         // Clear memory after successful save to prevent DOM from holding unnecessary data
                         this.sbomProcessor.clearMemoryAfterSave();
                         
-                        // Update storage indicators
-                        this.showStorageStatus();
+                        // Update storage indicators (only show indicator, not full status)
                         this.showStorageStatusIndicator();
                     } else {
                         console.warn(`⚠️ Failed to save incremental data for ${ownerName}`);
@@ -496,40 +495,12 @@ class SBOMPlayApp {
             this.updateProgress(90, 'Generating analysis results...');
             const results = this.sbomProcessor.exportData();
             
-            // Run vulnerability analysis if OSV service is available
-            if (window.osvService && reposWithDeps > 0) {
-                this.updateProgress(95, 'Analyzing vulnerabilities...');
-                try {
-                    // Convert dependencies to the format expected by OSV service
-                    const dependencies = Array.from(this.sbomProcessor.dependencies.values()).map(dep => ({
-                        name: dep.name,
-                        version: dep.version,
-                        pkg: dep.originalPackage  // Pass original package data for PURL extraction
-                    }));
-
-                    // Use incremental vulnerability analysis
-                    const vulnerabilityAnalysis = await window.osvService.analyzeDependenciesWithIncrementalSaving(
-                        dependencies, 
-                        ownerName,
-                        (progressPercent, message) => {
-                            // Update progress during vulnerability analysis
-                            const overallProgress = 95 + (progressPercent * 0.02); // Use 2% of total progress for vulnerability analysis
-                            this.updateProgress(overallProgress, message);
-                        }
-                    );
-                    
-                    if (vulnerabilityAnalysis) {
-                        results.vulnerabilityAnalysis = vulnerabilityAnalysis;
-                        console.log('🔍 Vulnerability Analysis Results:', vulnerabilityAnalysis);
-                    }
-                } catch (error) {
-                    console.error('❌ Vulnerability analysis failed:', error);
-                }
-            }
+            // Note: Vulnerability analysis has been disabled to improve performance
+            // Users can run vulnerability analysis separately from the view page if needed
 
             // Run license compliance analysis
             if (reposWithDeps > 0) {
-                this.updateProgress(97, 'Analyzing license compliance...');
+                this.updateProgress(95, 'Analyzing license compliance...');
                 try {
                     const licenseAnalysis = this.sbomProcessor.analyzeLicenseCompliance();
                     if (licenseAnalysis) {
@@ -562,8 +533,7 @@ class SBOMPlayApp {
                 console.warn('⚠️ Failed to save analysis data to storage');
                 this.showAlert('Analysis completed but failed to save to storage. Consider exporting your data and clearing old analyses.', 'warning');
             } else {
-                // Update storage indicators after successful save
-                this.showStorageStatus();
+                // Update storage indicators after successful save (only indicator, not full status)
                 this.showStorageStatusIndicator();
             }
             
@@ -790,6 +760,12 @@ class SBOMPlayApp {
         const storageInfo = this.storageManager.getStorageInfo();
         const storageStatusDiv = document.getElementById('storageStatus');
         
+        // Check if the storage status div exists on this page
+        if (!storageStatusDiv) {
+            console.log('Storage status div not found on this page');
+            return;
+        }
+        
         if (storageInfo) {
             const usagePercent = (storageInfo.totalSize / storageInfo.maxStorageSize) * 100;
             const usageClass = usagePercent > 90 ? 'danger' : usagePercent > 70 ? 'warning' : 'success';
@@ -833,6 +809,12 @@ class SBOMPlayApp {
         const storageInfo = this.storageManager.getStorageInfo();
         const indicatorDiv = document.getElementById('storageStatusIndicator');
         const statusTextDiv = document.getElementById('storageStatusText');
+        
+        // Check if the indicator elements exist on this page
+        if (!indicatorDiv || !statusTextDiv) {
+            console.log('Storage status indicator elements not found on this page');
+            return;
+        }
         
         if (storageInfo && storageInfo.hasData) {
             const usagePercent = (storageInfo.totalSize / storageInfo.maxStorageSize) * 100;
@@ -905,7 +887,6 @@ class SBOMPlayApp {
                 
                 this.showAlert(`Cleared ${removedCount} old analyses. Kept 3 most recent.`, 'success');
                 this.displayResults(null, null); // Refresh display
-                this.showStorageStatus(); // Update storage status
                 this.showStorageStatusIndicator(); // Update header indicator
             } catch (error) {
                 console.error('Clear old data failed:', error);
@@ -923,7 +904,6 @@ class SBOMPlayApp {
                 this.storageManager.clearAllData();
                 this.showAlert('All data cleared successfully', 'success');
                 this.displayResults(null, null); // Refresh display
-                this.showStorageStatus(); // Update storage status
                 this.showStorageStatusIndicator(); // Update header indicator
             } catch (error) {
                 console.error('Clear all data failed:', error);
@@ -958,7 +938,6 @@ class SBOMPlayApp {
             const migratedCount = this.storageManager.migrateOldData();
             if (migratedCount > 0) {
                 this.showAlert(`Successfully migrated ${migratedCount} organizations to compressed format.`, 'success');
-                this.showStorageStatus(); // Update storage status
                 this.showStorageStatusIndicator(); // Update header indicator
             } else {
                 this.showAlert('No old data found to migrate. All data is already in compressed format.', 'info');

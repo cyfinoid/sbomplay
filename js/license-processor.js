@@ -19,7 +19,7 @@ class LicenseProcessor {
             },
             // Copyleft licenses (medium-high risk)
             copyleft: {
-                licenses: ['GPL-2.0', 'GPL-3.0', 'GPL-2.0-only', 'GPL-2.0-or-later', 'GPL-3.0-only', 'GPL-3.0-or-later', 'AGPL-3.0', 'MPL-2.0'],
+                licenses: ['GPL-2.0', 'GPL-3.0', 'GPL-2.0-only', 'GPL-2.0-or-later', 'GPL-3.0-only', 'GPL-3.0-or-later', 'AGPL-3.0', 'MPL-2.0', 'EPL-2.0'],
                 risk: 'high',
                 description: 'Copyleft licenses that may require source code disclosure'
             },
@@ -60,7 +60,8 @@ class LicenseProcessor {
             'AGPL-3.0': ['AGPL-3.0'],
             'LGPL-2.1': ['LGPL-2.1', 'LGPL-3.0', 'GPL-2.0', 'GPL-3.0', 'MIT', 'Apache-2.0', 'BSD-2-Clause', 'BSD-3-Clause', 'ISC', 'Unlicense', 'CC0-1.0', 'WTFPL', 'Ruby'],
             'LGPL-3.0': ['LGPL-3.0', 'GPL-3.0', 'MIT', 'Apache-2.0', 'BSD-2-Clause', 'BSD-3-Clause', 'ISC', 'Unlicense', 'CC0-1.0', 'WTFPL', 'Ruby'],
-            'MPL-2.0': ['MPL-2.0', 'GPL-2.0', 'GPL-3.0', 'LGPL-2.1', 'LGPL-3.0']
+            'MPL-2.0': ['MPL-2.0', 'GPL-2.0', 'GPL-3.0', 'LGPL-2.1', 'LGPL-3.0'],
+            'EPL-2.0': ['EPL-2.0', 'GPL-2.0', 'GPL-3.0', 'LGPL-2.1', 'LGPL-3.0', 'MIT', 'Apache-2.0', 'BSD-2-Clause', 'BSD-3-Clause', 'ISC', 'Unlicense', 'CC0-1.0', 'WTFPL', 'Ruby']
         };
 
         // License family groupings for bulk review
@@ -71,6 +72,7 @@ class LicenseProcessor {
             'GPL Family': ['GPL-1.0', 'GPL-2.0', 'GPL-3.0', 'AGPL-1.0', 'AGPL-3.0'],
             'LGPL Family': ['LGPL-2.0', 'LGPL-2.1', 'LGPL-3.0'],
             'MPL Family': ['MPL-1.0', 'MPL-1.1', 'MPL-2.0'],
+            'EPL Family': ['EPL-1.0', 'EPL-2.0'],
             'Commercial': ['Commercial', 'Proprietary', 'Custom'],
             'Unknown': ['NOASSERTION', 'UNKNOWN', 'NONE', '']
         };
@@ -90,24 +92,77 @@ class LicenseProcessor {
             warnings: []
         };
 
+        // Check if pkg is defined and has the required properties
+        if (!pkg) {
+            licenseInfo.warnings.push('No package information available');
+            return licenseInfo;
+        }
+
         // Extract license information
         if (pkg.licenseConcluded && pkg.licenseConcluded !== 'NOASSERTION') {
             licenseInfo.license = pkg.licenseConcluded;
             
-            // Categorize the license
-            for (const [category, info] of Object.entries(this.licenseCategories)) {
-                if (info.licenses.includes(licenseInfo.license)) {
-                    licenseInfo.category = category;
-                    licenseInfo.risk = info.risk;
-                    licenseInfo.description = info.description;
-                    break;
-                }
-            }
-
-            // Check for complex licenses (AND/OR combinations)
+            // Check for complex licenses (AND/OR combinations) first
             if (licenseInfo.license.includes(' AND ') || licenseInfo.license.includes(' OR ')) {
                 licenseInfo.warnings.push('Complex license combination detected');
-                licenseInfo.risk = 'high';
+                
+                // For complex licenses, try to categorize based on the most restrictive component
+                const components = this.parseComplexLicense(licenseInfo.license);
+                let hasCopyleft = false;
+                let hasPermissive = false;
+                let hasLgpl = false;
+                let hasProprietary = false;
+                
+                for (const component of components) {
+                    // Check each component against license categories
+                    for (const [category, info] of Object.entries(this.licenseCategories)) {
+                        if (info.licenses.includes(component)) {
+                            if (category === 'copyleft') {
+                                hasCopyleft = true;
+                            } else if (category === 'lgpl') {
+                                hasLgpl = true;
+                            } else if (category === 'permissive') {
+                                hasPermissive = true;
+                            } else if (category === 'proprietary') {
+                                hasProprietary = true;
+                            }
+                            break;
+                        }
+                    }
+                }
+                
+                // Set risk and category based on the most restrictive component
+                if (hasCopyleft) {
+                    licenseInfo.category = 'copyleft';
+                    licenseInfo.risk = 'high';
+                    licenseInfo.description = 'Complex license with copyleft components';
+                } else if (hasLgpl) {
+                    licenseInfo.category = 'lgpl';
+                    licenseInfo.risk = 'medium';
+                    licenseInfo.description = 'Complex license with LGPL components';
+                } else if (hasProprietary) {
+                    licenseInfo.category = 'proprietary';
+                    licenseInfo.risk = 'medium';
+                    licenseInfo.description = 'Complex license with proprietary components';
+                } else if (hasPermissive) {
+                    licenseInfo.category = 'permissive';
+                    licenseInfo.risk = 'low';
+                    licenseInfo.description = 'Complex license with permissive components';
+                } else {
+                    licenseInfo.category = 'unknown';
+                    licenseInfo.risk = 'high';
+                    licenseInfo.description = 'Complex license combination requiring investigation';
+                }
+            } else {
+                // Simple license - categorize normally
+                for (const [category, info] of Object.entries(this.licenseCategories)) {
+                    if (info.licenses.includes(licenseInfo.license)) {
+                        licenseInfo.category = category;
+                        licenseInfo.risk = info.risk;
+                        licenseInfo.description = info.description;
+                        break;
+                    }
+                }
             }
         } else {
             licenseInfo.warnings.push('No license information available');
@@ -146,6 +201,13 @@ class LicenseProcessor {
                 const license1 = licenseList[i];
                 const license2 = licenseList[j];
                 
+                // Debug specific case
+                if ((license1 === 'MIT' && license2 === 'LGPL-2.1') || 
+                    (license1 === 'LGPL-2.1' && license2 === 'MIT')) {
+                    console.log('🔍 Debugging MIT vs LGPL-2.1 compatibility');
+                    this.debugLicenseCompatibility(license1, license2);
+                }
+                
                 if (!this.areLicensesCompatible(license1, license2)) {
                     conflicts.push({
                         type: 'incompatible_licenses',
@@ -179,12 +241,12 @@ class LicenseProcessor {
             return this.areComplexLicensesCompatible(license1, license2);
         }
 
-        // Check compatibility matrix
-        if (this.compatibilityMatrix[license1]) {
-            return this.compatibilityMatrix[license1].includes(license2);
+        // Check compatibility matrix - check both directions
+        if (this.compatibilityMatrix[license1] && this.compatibilityMatrix[license1].includes(license2)) {
+            return true;
         }
-        if (this.compatibilityMatrix[license2]) {
-            return this.compatibilityMatrix[license2].includes(license1);
+        if (this.compatibilityMatrix[license2] && this.compatibilityMatrix[license2].includes(license1)) {
+            return true;
         }
 
         // For licenses not in the matrix, use a more permissive approach
@@ -212,6 +274,28 @@ class LicenseProcessor {
     }
 
     /**
+     * Debug method to test license compatibility
+     */
+    debugLicenseCompatibility(license1, license2) {
+        console.log(`🔍 Debugging license compatibility: ${license1} vs ${license2}`);
+        
+        // Check if licenses exist in matrix
+        console.log(`License1 in matrix:`, this.compatibilityMatrix[license1] ? 'Yes' : 'No');
+        console.log(`License2 in matrix:`, this.compatibilityMatrix[license2] ? 'Yes' : 'No');
+        
+        if (this.compatibilityMatrix[license1]) {
+            console.log(`License1 compatible with:`, this.compatibilityMatrix[license1]);
+        }
+        if (this.compatibilityMatrix[license2]) {
+            console.log(`License2 compatible with:`, this.compatibilityMatrix[license2]);
+        }
+        
+        const result = this.areLicensesCompatible(license1, license2);
+        console.log(`Compatibility result:`, result);
+        return result;
+    }
+
+    /**
      * Check compatibility for complex license expressions
      */
     areComplexLicensesCompatible(license1, license2) {
@@ -219,16 +303,47 @@ class LicenseProcessor {
         const components1 = this.parseComplexLicense(license1);
         const components2 = this.parseComplexLicense(license2);
 
-        // Check if any component from license1 is compatible with any component from license2
-        for (const comp1 of components1) {
-            for (const comp2 of components2) {
-                if (this.areLicensesCompatible(comp1, comp2)) {
-                    return true; // At least one combination is compatible
+        // For AND combinations, all components must be compatible
+        if (license1.includes(' AND ') && license2.includes(' AND ')) {
+            // Both are AND combinations - check if all components are compatible
+            for (const comp1 of components1) {
+                for (const comp2 of components2) {
+                    if (!this.areLicensesCompatible(comp1, comp2)) {
+                        return false; // Any incompatibility makes the whole combination incompatible
+                    }
                 }
             }
+            return true; // All components are compatible
+        } else if (license1.includes(' AND ')) {
+            // License1 is AND combination, license2 is simple
+            // All components of license1 must be compatible with license2
+            for (const comp1 of components1) {
+                if (!this.areLicensesCompatible(comp1, license2)) {
+                    return false;
+                }
+            }
+            return true;
+        } else if (license2.includes(' AND ')) {
+            // License2 is AND combination, license1 is simple
+            // All components of license2 must be compatible with license1
+            for (const comp2 of components2) {
+                if (!this.areLicensesCompatible(license1, comp2)) {
+                    return false;
+                }
+            }
+            return true;
+        } else {
+            // Both are OR combinations or simple licenses
+            // Check if any component from license1 is compatible with any component from license2
+            for (const comp1 of components1) {
+                for (const comp2 of components2) {
+                    if (this.areLicensesCompatible(comp1, comp2)) {
+                        return true; // At least one combination is compatible
+                    }
+                }
+            }
+            return false; // No compatible combinations found
         }
-
-        return false; // No compatible combinations found
     }
 
     /**

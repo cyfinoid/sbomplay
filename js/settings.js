@@ -14,6 +14,7 @@ class SettingsApp {
     initializeSettings() {
         this.loadSavedToken();
         this.showStorageStatus();
+        this.displayOrganizationsOverview();
         this.loadRateLimitInfo();
         this.setupEventListeners();
     }
@@ -221,6 +222,187 @@ class SettingsApp {
                 this.showStorageStatus(); // Refresh display
             } catch (error) {
                 this.showAlert(`Failed to clear data: ${error.message}`, 'danger');
+            }
+        }
+    }
+
+    /**
+     * Display organizations overview
+     */
+    displayOrganizationsOverview() {
+        const storageInfo = this.storageManager.getStorageInfo();
+        
+        if (storageInfo.organizationsCount === 0) {
+            document.getElementById('organizationsSection').style.display = 'none';
+            document.getElementById('noDataSection').style.display = 'block';
+            return;
+        }
+
+        const content = document.getElementById('organizationsContent');
+        const organizations = storageInfo.organizations;
+        
+        let html = `
+            <div class="row mb-3">
+                <div class="col-md-6">
+                    <h6>Stored Organizations (${organizations.length})</h6>
+                </div>
+                <div class="col-md-6 text-end">
+                    <button class="btn btn-outline-primary btn-sm" onclick="settingsApp.exportAllData()">
+                        <i class="fas fa-download me-2"></i>Export All
+                    </button>
+                    <button class="btn btn-outline-danger btn-sm" onclick="settingsApp.clearAllData()">
+                        <i class="fas fa-trash me-2"></i>Clear All
+                    </button>
+                </div>
+            </div>
+        `;
+
+        // Add combined view if there are multiple organizations
+        if (organizations.length > 1) {
+            const combinedStats = organizations.reduce((acc, org) => {
+                acc.repositories += org.repositories;
+                acc.dependencies += org.dependencies;
+                return acc;
+            }, { repositories: 0, dependencies: 0 });
+
+            html += `
+                <div class="alert alert-info mb-3">
+                    <div class="row align-items-center">
+                        <div class="col-md-8">
+                            <h6 class="mb-1"><i class="fas fa-layer-group me-2"></i>Combined Analysis</h6>
+                            <p class="mb-0 small">View aggregated data from all ${organizations.length} organizations</p>
+                        </div>
+                        <div class="col-md-4 text-end">
+                            <button class="btn btn-primary btn-sm" onclick="settingsApp.showCombinedView()">
+                                <i class="fas fa-chart-line me-2"></i>View Combined
+                            </button>
+                            <button class="btn btn-outline-info btn-sm ms-1" onclick="settingsApp.debugCombinedData()">
+                                <i class="fas fa-bug me-1"></i>Debug
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
+        if (organizations.length > 0) {
+            html += `
+                <div class="table-responsive">
+                    <table class="table table-sm">
+                        <thead>
+                            <tr>
+                                <th>Organization</th>
+                                <th>Repositories</th>
+                                <th>Dependencies</th>
+                                <th>Last Updated</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+            `;
+
+            organizations.forEach(org => {
+                const date = new Date(org.timestamp).toLocaleDateString();
+                const time = new Date(org.timestamp).toLocaleTimeString();
+                
+                html += `
+                    <tr>
+                        <td><strong>${org.name}</strong></td>
+                        <td><span class="badge bg-primary">${org.repositories}</span></td>
+                        <td><span class="badge bg-success">${org.dependencies}</span></td>
+                        <td><small>${date} ${time}</small></td>
+                        <td>
+                            <button class="btn btn-outline-primary btn-sm" onclick="settingsApp.showDetailedViewForOrg('${org.name}')">
+                                <i class="fas fa-eye me-1"></i>View
+                            </button>
+                            <button class="btn btn-outline-info btn-sm" onclick="settingsApp.debugOrganizationData('${org.name}')">
+                                <i class="fas fa-bug me-1"></i>Debug
+                            </button>
+                            <button class="btn btn-outline-danger btn-sm" onclick="settingsApp.removeOrganizationData('${org.name}')">
+                                <i class="fas fa-trash me-1"></i>Remove
+                            </button>
+                        </td>
+                    </tr>
+                `;
+            });
+
+            html += `
+                        </tbody>
+                    </table>
+                </div>
+            `;
+        }
+
+        content.innerHTML = html;
+        document.getElementById('organizationsSection').style.display = 'block';
+    }
+
+    /**
+     * Show detailed view for a specific organization
+     */
+    showDetailedViewForOrg(orgName) {
+        const data = this.storageManager.loadAnalysisDataForOrganization(orgName);
+        if (data) {
+            console.log('Loading detailed view for:', orgName, data);
+            // Redirect to view.html with organization parameter
+            window.location.href = `view.html?org=${encodeURIComponent(orgName)}`;
+        } else {
+            this.showAlert(`No detailed data found for ${orgName}`, 'warning');
+        }
+    }
+
+    /**
+     * Show combined view from all organizations
+     */
+    showCombinedView() {
+        const combinedData = this.storageManager.getCombinedData();
+        if (combinedData) {
+            console.log('Loading combined view:', combinedData);
+            // Redirect to view.html with combined parameter
+            window.location.href = 'view.html?combined=true';
+        } else {
+            this.showAlert('No data available for combined view', 'warning');
+        }
+    }
+
+    /**
+     * Debug organization data
+     */
+    debugOrganizationData(orgName) {
+        const data = this.storageManager.loadAnalysisDataForOrganization(orgName);
+        if (data) {
+            console.log('🔍 Organization Data Debug:', orgName, data);
+            this.showAlert(`Debug data for ${orgName} logged to console`, 'info');
+        } else {
+            this.showAlert(`No data found for ${orgName}`, 'warning');
+        }
+    }
+
+    /**
+     * Debug combined data structure
+     */
+    debugCombinedData() {
+        const combinedData = this.storageManager.getCombinedData();
+        if (combinedData) {
+            console.log('🔍 Combined Data Structure:', combinedData);
+            this.showAlert('Combined data debug info logged to console', 'info');
+        } else {
+            this.showAlert('No combined data available for debugging', 'warning');
+        }
+    }
+
+    /**
+     * Remove organization data
+     */
+    removeOrganizationData(orgName) {
+        if (confirm(`Are you sure you want to remove all data for ${orgName}?`)) {
+            const success = this.storageManager.removeOrganizationData(orgName);
+            if (success) {
+                this.showAlert(`Data for ${orgName} has been removed`, 'success');
+                this.displayOrganizationsOverview();
+                this.showStorageStatus(); // Update storage status
+            } else {
+                this.showAlert(`Failed to remove data for ${orgName}`, 'danger');
             }
         }
     }

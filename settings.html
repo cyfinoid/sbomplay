@@ -42,37 +42,6 @@
             </div>
         </div>
 
-        <!-- GitHub Token Input -->
-        <div class="card mb-4">
-            <div class="card-header">
-                <h5 class="mb-0">
-                    <i class="fab fa-github me-2"></i>GitHub Authentication
-                </h5>
-            </div>
-            <div class="card-body">
-                <div class="alert alert-warning alert-sm mb-3">
-                    <i class="fas fa-exclamation-triangle me-2"></i>
-                    <strong>Note:</strong> GitHub tokens are not saved or persisted. You will need to provide your token each time you use the application.
-                </div>
-                <div class="row">
-                    <div class="col-md-8">
-                        <label for="githubToken" class="form-label">GitHub Personal Access Token (Optional: Provides higher rate limits)<sup>*</sup>&nbsp; <a href="https://github.com/settings/tokens" target="_blank">Create token here</a></label>
-                        <input type="password" class="form-control" id="githubToken" 
-                               placeholder="ghp_xxxxxxxxxxxxxxxxxxxx (optional)">
-                        
-                    </div>
-                    <div class="col-md-4">
-                        <div class="d-flex align-items-end h-100">
-                            <button class="btn btn-outline-primary" onclick="settingsApp.saveToken()">
-                                <i class="fas fa-check me-2"></i>Set Token
-                            </button>
-                        </div>
-                    </div>
-                </div>
-                <div id="tokenStatus" class="mt-2"></div>
-            </div>
-        </div>
-
         <!-- Storage Management -->
         <div class="card mb-4">
             <div class="card-header">
@@ -108,6 +77,42 @@
                         </button>
                     </div>
                 </div>
+            </div>
+        </div>
+
+        <!-- Stored Analyses Section -->
+        <div id="organizationsSection" class="card mb-4">
+            <div class="card-header">
+                <h5 class="mb-0">
+                    <i class="fas fa-database me-2"></i>Stored Analyses
+                </h5>
+            </div>
+            <div class="card-body">
+                <div id="organizationsContent">
+                    <div class="text-center text-muted">
+                        <i class="fas fa-spinner fa-spin fa-2x mb-3"></i>
+                        <p>Loading stored analyses...</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- No Data Section -->
+        <div id="noDataSection" class="card mb-4" style="display: none;">
+            <div class="card-header">
+                <h5 class="mb-0">
+                    <i class="fas fa-info-circle me-2"></i>No Data Available
+                </h5>
+            </div>
+            <div class="card-body text-center">
+                <i class="fas fa-database fa-3x text-muted mb-3"></i>
+                <h5>No Stored Analyses Found</h5>
+                <p class="text-muted">
+                    You haven't analyzed any organizations yet, or all data has been cleared.
+                </p>
+                <a href="index.html" class="btn btn-primary">
+                    <i class="fas fa-play me-2"></i>Start Your First Analysis
+                </a>
             </div>
         </div>
 

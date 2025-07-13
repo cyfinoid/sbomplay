@@ -1386,6 +1386,11 @@ class ViewManager {
         let matchingRepos = new Set();
         
         dependencies.forEach(dep => {
+            // Skip dependencies without originalPackage data
+            if (!dep.originalPackage) {
+                console.warn('Dependency missing originalPackage data:', dep.name);
+                return;
+            }
             const licenseInfo = licenseProcessor.parseLicense(dep.originalPackage);
             let shouldInclude = false;
             
@@ -1446,6 +1451,11 @@ class ViewManager {
         let matchingRepos = new Set();
         
         dependencies.forEach(dep => {
+            // Skip dependencies without originalPackage data
+            if (!dep.originalPackage) {
+                console.warn('Dependency missing originalPackage data:', dep.name);
+                return;
+            }
             const licenseInfo = licenseProcessor.parseLicense(dep.originalPackage);
             let shouldInclude = false;
             
@@ -1493,6 +1503,11 @@ class ViewManager {
         let matchingRepos = new Set();
         
         dependencies.forEach(dep => {
+            // Skip dependencies without originalPackage data
+            if (!dep.originalPackage) {
+                console.warn('Dependency missing originalPackage data:', dep.name);
+                return;
+            }
             const licenseInfo = licenseProcessor.parseLicense(dep.originalPackage);
             let shouldInclude = false;
             
@@ -1544,6 +1559,11 @@ class ViewManager {
         const licenseRepos = new Map(); // Map of repo -> dependencies with this license
 
         dependencies.forEach(dep => {
+            // Skip dependencies without originalPackage data
+            if (!dep.originalPackage) {
+                console.warn('Dependency missing originalPackage data:', dep.name);
+                return;
+            }
             const licenseInfo = licenseProcessor.parseLicense(dep.originalPackage);
             let matches = false;
 
@@ -1704,6 +1724,11 @@ class ViewManager {
         const affectedRepos = new Map();
 
         dependencies.forEach(dep => {
+            // Skip dependencies without originalPackage data
+            if (!dep.originalPackage) {
+                console.warn('Dependency missing originalPackage data:', dep.name);
+                return;
+            }
             const licenseInfo = licenseProcessor.parseLicense(dep.originalPackage);
             if (conflict.licenses.includes(licenseInfo.license)) {
                 conflictDeps.push({
@@ -1921,6 +1946,11 @@ class ViewManager {
 
         // Determine which dependencies are related based on recommendation type
         dependencies.forEach(dep => {
+            // Skip dependencies without originalPackage data
+            if (!dep.originalPackage) {
+                console.warn('Dependency missing originalPackage data:', dep.name);
+                return;
+            }
             const licenseInfo = licenseProcessor.parseLicense(dep.originalPackage);
             let isRelated = false;
 
@@ -2149,6 +2179,11 @@ class ViewManager {
         const matchingDeps = [];
         
         dependencies.forEach(dep => {
+            // Skip dependencies without originalPackage data
+            if (!dep.originalPackage) {
+                console.warn('Dependency missing originalPackage data:', dep.name);
+                return;
+            }
             const licenseInfo = licenseProcessor.parseLicense(dep.originalPackage);
             let shouldInclude = false;
             
@@ -2209,6 +2244,11 @@ class ViewManager {
         const affectedRepos = new Map();
 
         dependencies.forEach(dep => {
+            // Skip dependencies without originalPackage data
+            if (!dep.originalPackage) {
+                console.warn('Dependency missing originalPackage data:', dep.name);
+                return;
+            }
             const licenseInfo = licenseProcessor.parseLicense(dep.originalPackage);
             if (conflict.licenses.includes(licenseInfo.license)) {
                 conflictDeps.push({
