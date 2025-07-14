@@ -429,6 +429,7 @@ class OSVService {
                             vulnerabilityAnalysis.highVulnerabilities++;
                             break;
                         case 'MEDIUM':
+                        case 'MODERATE': // OSV API sometimes uses MODERATE instead of MEDIUM
                             vulnerabilityAnalysis.mediumVulnerabilities++;
                             break;
                         case 'LOW':
@@ -545,6 +546,7 @@ class OSVService {
                             vulnerabilityAnalysis.highVulnerabilities++;
                             break;
                         case 'MEDIUM':
+                        case 'MODERATE': // OSV API sometimes uses MODERATE instead of MEDIUM
                             vulnerabilityAnalysis.mediumVulnerabilities++;
                             break;
                         case 'LOW':
