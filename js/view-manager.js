@@ -15,13 +15,26 @@ class ViewManager {
         this.currentOrganization = orgData;
         this.currentView = 'overview';
         
-        const container = document.getElementById('view-container');
-        container.innerHTML = this.generateOverviewHTML(orgData);
+        // Try different container IDs based on the current page
+        let container = document.getElementById('view-container');
+        if (!container) {
+            container = document.getElementById('vulnerability-analysis-page');
+        }
+        if (!container) {
+            container = document.querySelector('.container');
+        }
         
-        // Add event listeners for navigation
-        this.addOverviewEventListeners();
-        
-        console.log('📊 Showing organization overview');
+        if (container) {
+            container.innerHTML = this.generateOverviewHTML(orgData);
+            
+            // Add event listeners for navigation
+            this.addOverviewEventListeners();
+            
+            console.log('📊 Showing organization overview');
+        } else {
+            console.error('No suitable container found for organization overview');
+            this.showAlert('Unable to display organization overview - no container found', 'warning');
+        }
     }
 
     /**
@@ -81,13 +94,26 @@ class ViewManager {
         this.currentDependency = dependency;
         this.currentView = 'dependency';
         
-        const container = document.getElementById('view-container');
-        container.innerHTML = this.generateDependencyHTML(dependency, orgData);
+        // Try different container IDs based on the current page
+        let container = document.getElementById('view-container');
+        if (!container) {
+            container = document.getElementById('vulnerability-analysis-page');
+        }
+        if (!container) {
+            container = document.querySelector('.container');
+        }
         
-        // Add event listeners
-        this.addDependencyEventListeners();
-        
-        console.log('📦 Showing dependency details:', dependency.name);
+        if (container) {
+            container.innerHTML = this.generateDependencyHTML(dependency, orgData);
+            
+            // Add event listeners
+            this.addDependencyEventListeners();
+            
+            console.log('📦 Showing dependency details:', dependency.name);
+        } else {
+            console.error('No suitable container found for dependency details');
+            this.showAlert('Unable to display dependency details - no container found', 'warning');
+        }
     }
 
     /**
@@ -310,13 +336,26 @@ class ViewManager {
     showRepositoryDetails(repo, orgData) {
         this.currentView = 'repository';
         
-        const container = document.getElementById('view-container');
-        container.innerHTML = this.generateRepositoryHTML(repo, orgData);
+        // Try different container IDs based on the current page
+        let container = document.getElementById('view-container');
+        if (!container) {
+            container = document.getElementById('vulnerability-analysis-page');
+        }
+        if (!container) {
+            container = document.querySelector('.container');
+        }
         
-        // Add event listeners
-        this.addRepositoryEventListeners();
-        
-        console.log('📁 Showing repository details:', repo.name);
+        if (container) {
+            container.innerHTML = this.generateRepositoryHTML(repo, orgData);
+            
+            // Add event listeners
+            this.addRepositoryEventListeners();
+            
+            console.log('📁 Showing repository details:', repo.name);
+        } else {
+            console.error('No suitable container found for repository details');
+            this.showAlert('Unable to display repository details - no container found', 'warning');
+        }
     }
 
     /**
@@ -741,38 +780,64 @@ class ViewManager {
      * Show error message
      */
     showError(message) {
-        const container = document.getElementById('view-container');
-        container.innerHTML = `
-            <div class="view-header">
-                <button class="btn btn-secondary" onclick="viewManager.goBack()">
-                    ← Back to Overview
-                </button>
-                <h2>❌ Error</h2>
-            </div>
-            <div class="alert alert-danger">
-                <h6>❌ Error</h6>
-                <p>${message}</p>
-            </div>
-        `;
+        // Try different container IDs based on the current page
+        let container = document.getElementById('view-container');
+        if (!container) {
+            container = document.getElementById('vulnerability-analysis-page');
+        }
+        if (!container) {
+            container = document.querySelector('.container');
+        }
+        
+        if (container) {
+            container.innerHTML = `
+                <div class="view-header">
+                    <button class="btn btn-secondary" onclick="viewManager.goBack()">
+                        ← Back to Overview
+                    </button>
+                    <h2>❌ Error</h2>
+                </div>
+                <div class="alert alert-danger">
+                    <h6>❌ Error</h6>
+                    <p>${message}</p>
+                </div>
+            `;
+        } else {
+            console.error('No suitable container found for error display');
+            this.showAlert(`Error: ${message}`, 'danger');
+        }
     }
 
     /**
      * Debug method to show raw data
      */
     showRawData(orgData) {
-        const container = document.getElementById('view-container');
-        container.innerHTML = `
-            <div class="view-header">
-                <button class="btn btn-secondary" onclick="viewManager.goBack()">
-                    ← Back to Analysis
-                </button>
-                <h2>🔍 Raw Data Debug</h2>
-            </div>
-            <div class="alert alert-info">
-                <h6>📋 Raw Organization Data</h6>
-                <pre class="bg-light p-3 rounded" style="max-height: 400px; overflow-y: auto;">${JSON.stringify(orgData, null, 2)}</pre>
-            </div>
-        `;
+        // Try different container IDs based on the current page
+        let container = document.getElementById('view-container');
+        if (!container) {
+            container = document.getElementById('vulnerability-analysis-page');
+        }
+        if (!container) {
+            container = document.querySelector('.container');
+        }
+        
+        if (container) {
+            container.innerHTML = `
+                <div class="view-header">
+                    <button class="btn btn-secondary" onclick="viewManager.goBack()">
+                        ← Back to Analysis
+                    </button>
+                    <h2>🔍 Raw Data Debug</h2>
+                </div>
+                <div class="alert alert-info">
+                    <h6>📋 Raw Organization Data</h6>
+                    <pre class="bg-light p-3 rounded" style="max-height: 400px; overflow-y: auto;">${JSON.stringify(orgData, null, 2)}</pre>
+                </div>
+            `;
+        } else {
+            console.error('No suitable container found for raw data display');
+            this.showAlert('Unable to display raw data - no container found', 'warning');
+        }
     }
 
     /**
@@ -1167,16 +1232,32 @@ class ViewManager {
             <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
         `;
         
-        // Add to page
-        const container = document.getElementById('view-container');
-        container.insertBefore(alertDiv, container.firstChild);
+        // Try different container IDs based on the current page
+        let container = document.getElementById('view-container');
+        if (!container) {
+            container = document.getElementById('vulnerability-analysis-page');
+        }
+        if (!container) {
+            container = document.querySelector('.container');
+        }
+        if (!container) {
+            // Fallback to body if no suitable container found
+            container = document.body;
+        }
         
-        // Auto-remove after 5 seconds
-        setTimeout(() => {
-            if (alertDiv.parentNode) {
-                alertDiv.remove();
-            }
-        }, 5000);
+        if (container) {
+            container.insertBefore(alertDiv, container.firstChild);
+            
+            // Auto-remove after 5 seconds
+            setTimeout(() => {
+                if (alertDiv.parentNode) {
+                    alertDiv.remove();
+                }
+            }, 5000);
+        } else {
+            // Last resort: just log to console
+            console.log(`[${type.toUpperCase()}] ${message}`);
+        }
     }
 
     /**
