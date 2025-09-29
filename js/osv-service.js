@@ -348,8 +348,11 @@ class OSVService {
 
     /**
      * Analyze dependencies for vulnerabilities
+     * @param {Array} dependencies - Array of dependency objects
+     * @param {Function} onProgress - Optional progress callback (progress, message)
+     * @returns {Promise<Object>} Vulnerability analysis results
      */
-    async analyzeDependencies(dependencies) {
+    async analyzeDependencies(dependencies, onProgress = null) {
         console.log(`🔍 OSV: Analyzing ${dependencies.length} dependencies for vulnerabilities`);
         
         const packages = dependencies.map(dep => {
@@ -361,6 +364,11 @@ class OSVService {
                 ecosystem: mappedEcosystem
             };
         });
+
+        // Update progress for batch query
+        if (onProgress) {
+            onProgress(10, 'Querying vulnerabilities in batch...');
+        }
 
         // Try batch query first for quick vulnerability detection
         let results = await this.queryVulnerabilitiesBatch(packages);
@@ -374,7 +382,10 @@ class OSVService {
         // If batch query failed, returned no results, or returned minimal data, fall back to individual queries
         if (!results || results.length === 0 || hasMinimalData) {
             console.log('⚠️ OSV: Batch query returned minimal data, falling back to individual queries for full details');
-            results = await this.queryVulnerabilitiesIndividually(packages);
+            if (onProgress) {
+                onProgress(20, 'Falling back to individual queries...');
+            }
+            results = await this.queryVulnerabilitiesIndividually(packages, onProgress);
         }
         
         const vulnerabilityAnalysis = {
@@ -391,6 +402,12 @@ class OSVService {
         dependencies.forEach((dep, index) => {
             const vulnResult = results[index];
             const vulnerabilities = vulnResult?.vulns || [];
+            
+            // Update progress during analysis
+            if (onProgress) {
+                const progress = 30 + ((index + 1) / dependencies.length) * 70; // 30-100% range
+                onProgress(progress, `Analyzing ${dep.name}@${dep.version}...`);
+            }
             
             // Save to centralized storage if vulnerabilities found
             if (vulnerabilities.length > 0 && window.storageManager) {
@@ -491,7 +508,7 @@ class OSVService {
         // If batch query failed, returned no results, or returned minimal data, fall back to individual queries
         if (!results || results.length === 0 || hasMinimalData) {
             console.log('⚠️ OSV: Batch query returned minimal data, falling back to individual queries for full details');
-            results = await this.queryVulnerabilitiesIndividually(packages);
+            results = await this.queryVulnerabilitiesIndividually(packages, onProgress);
         }
         
         const vulnerabilityAnalysis = {
@@ -603,12 +620,19 @@ class OSVService {
     /**
      * Query vulnerabilities individually as fallback
      */
-    async queryVulnerabilitiesIndividually(packages) {
+    async queryVulnerabilitiesIndividually(packages, onProgress = null) {
         console.log(`🔍 OSV: Querying ${packages.length} packages individually`);
         
         const results = [];
         for (let i = 0; i < packages.length; i++) {
             const pkg = packages[i];
+            
+            // Report progress during individual queries
+            if (onProgress) {
+                const progress = 20 + ((i + 1) / packages.length) * 60; // 20-80% range
+                onProgress(progress, `Querying ${pkg.name}@${pkg.version} (${i + 1}/${packages.length})`);
+            }
+            
             try {
                 const result = await this.queryVulnerabilities(pkg.name, pkg.version, pkg.ecosystem);
                 results.push(result);

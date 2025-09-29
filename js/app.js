@@ -6,10 +6,28 @@ class SBOMPlayApp {
         this.githubClient = new GitHubClient();
         this.sbomProcessor = new SBOMProcessor();
         this.storageManager = new StorageManager();
+        
+        // Initialize services
+        this.osvService = new OSVService();
+        this.licenseProcessor = new LicenseProcessor();
+        
+        // Make services available globally
+        window.osvService = this.osvService;
+        window.licenseProcessor = this.licenseProcessor;
+        
         this.isAnalyzing = false;
         this.rateLimitTimer = null;
         
         this.initializeApp();
+        
+        // Debug: Log service initialization
+        console.log('🔧 App initialization complete:');
+        console.log(`  - GitHub Client: ${this.githubClient ? '✅' : '❌'}`);
+        console.log(`  - SBOM Processor: ${this.sbomProcessor ? '✅' : '❌'}`);
+        console.log(`  - OSV Service: ${this.osvService ? '✅' : '❌'}`);
+        console.log(`  - License Processor: ${this.licenseProcessor ? '✅' : '❌'}`);
+        console.log(`  - Storage Manager: ${this.storageManager ? '✅' : '❌'}`);
+        console.log(`  - DepsDev Service: ${window.DepsDevService ? '✅' : '❌'}`);
     }
 
     /**
@@ -408,8 +426,8 @@ class SBOMPlayApp {
             const rateLimitInfo = await this.githubClient.getRateLimitInfo();
             this.updateRateLimitInfo(rateLimitInfo);
 
-            // Fetch repositories
-            this.updateProgress(10, 'Fetching repositories...');
+            // Phase 1: Extract SBOM data (0-25%)
+            this.updateProgress(0, '1/4 Extracting SBOM data...');
             const repositories = await this.githubClient.getRepositories(ownerName);
             
             if (repositories.length === 0) {
@@ -419,7 +437,6 @@ class SBOMPlayApp {
             }
 
             this.sbomProcessor.setTotalRepositories(repositories.length);
-            this.updateProgress(20, `Found ${repositories.length} repositories. Starting SBOM analysis...`);
             
             // Show partial data info if we have many repositories
             const partialDataInfo = document.getElementById('partialDataInfo');
@@ -427,7 +444,7 @@ class SBOMPlayApp {
                 partialDataInfo.style.display = 'block';
             }
 
-            // Process each repository
+            // Process each repository for SBOM extraction
             let successfulRepos = 0;
             let failedRepos = 0;
             let reposWithDeps = 0;
@@ -436,14 +453,15 @@ class SBOMPlayApp {
                 const repo = repositories[i];
                 const owner = repo.owner.login;
                 const name = repo.name;
-                const progress = 20 + (i / repositories.length) * 70;
+                const progress = (i / repositories.length) * 25; // 0-25%
                 
-                this.updateProgress(progress, `Analyzing ${owner}/${name}...`);
+                this.updateProgress(progress, `1/4 Extracting SBOM from ${owner}/${name}...`);
                 
                 try {
                     const sbomData = await this.githubClient.fetchSBOM(owner, name);
                     
                     if (sbomData) {
+                        console.log(`🔍 Processing SBOM for ${owner}/${name}: ${sbomData.sbom.packages.length} packages`);
                         const success = this.sbomProcessor.processSBOM(owner, name, sbomData);
                         this.sbomProcessor.updateProgress(success);
                         if (success) {
@@ -451,13 +469,18 @@ class SBOMPlayApp {
                             const repoData = this.sbomProcessor.repositories.get(`${owner}/${name}`);
                             if (repoData && repoData.totalDependencies > 0) {
                                 reposWithDeps++;
+                                console.log(`✅ ${owner}/${name}: ${repoData.totalDependencies} dependencies processed`);
+                            } else {
+                                console.log(`⚠️ ${owner}/${name}: No dependencies found in SBOM`);
                             }
                         } else {
                             failedRepos++;
+                            console.log(`❌ ${owner}/${name}: SBOM processing failed`);
                         }
                     } else {
                         this.sbomProcessor.updateProgress(false);
                         failedRepos++;
+                        console.log(`ℹ️ ${owner}/${name}: No SBOM data available`);
                     }
                 } catch (error) {
                     console.error(`Error processing ${owner}/${name}:`, error);
@@ -496,26 +519,74 @@ class SBOMPlayApp {
                 await this.sleep(100);
             }
 
-            // Generate results
-            this.updateProgress(90, 'Generating analysis results...');
-            const results = this.sbomProcessor.exportData();
-            
-            // Note: Vulnerability analysis has been disabled to improve performance
-            // Users can run vulnerability analysis separately from the view page if needed
-
-            // Run license compliance analysis
-            if (reposWithDeps > 0) {
-                this.updateProgress(95, 'Analyzing license compliance...');
+            // Phase 2: Transitive dependency extraction (25-50%)
+            // Check if we have any dependencies to analyze (not just repositories with deps)
+            const totalDependencies = this.sbomProcessor.dependencies.size;
+            if (totalDependencies > 0) {
+                this.updateProgress(25, '2/4 Extracting transitive dependencies...');
                 try {
-                    const licenseAnalysis = this.sbomProcessor.analyzeLicenseCompliance();
+                    const depsDevAnalysis = await this.sbomProcessor.analyzeDepsDevEnrichment(
+                        (progress, message) => {
+                            // Map 0-100 progress to 25-50 range
+                            const mappedProgress = 25 + (progress * 0.25);
+                            this.updateProgress(mappedProgress, `2/4 ${message}`);
+                        }
+                    );
+                    if (depsDevAnalysis) {
+                        console.log('🔍 DepsDev Enrichment Analysis Results:', depsDevAnalysis);
+                    }
+                } catch (error) {
+                    console.error('❌ DepsDev enrichment analysis failed:', error);
+                }
+            } else {
+                console.log('⚠️ No dependencies found to analyze');
+            }
+
+            // Phase 3: Vulnerability analysis (50-75%)
+            if (totalDependencies > 0) {
+                this.updateProgress(50, '3/4 Analyzing vulnerabilities...');
+                try {
+                    const vulnerabilityAnalysis = await this.sbomProcessor.analyzeVulnerabilities(
+                        (progress, message) => {
+                            // Map 0-100 progress to 50-75 range
+                            const mappedProgress = 50 + (progress * 0.25);
+                            this.updateProgress(mappedProgress, `3/4 ${message}`);
+                        }
+                    );
+                    if (vulnerabilityAnalysis) {
+                        console.log('🔍 Vulnerability Analysis Results:', vulnerabilityAnalysis);
+                    }
+                } catch (error) {
+                    console.error('❌ Vulnerability analysis failed:', error);
+                }
+            } else {
+                console.log('⚠️ No dependencies found for vulnerability analysis');
+            }
+
+            // Phase 4: License compliance (75-100%)
+            if (totalDependencies > 0) {
+                this.updateProgress(75, '4/4 Analyzing license compliance...');
+                try {
+                    const licenseAnalysis = this.sbomProcessor.analyzeLicenseCompliance(
+                        (progress, message) => {
+                            // Map 0-100 progress to 75-100 range
+                            const mappedProgress = 75 + (progress * 0.25);
+                            this.updateProgress(mappedProgress, `4/4 ${message}`);
+                        }
+                    );
                     if (licenseAnalysis) {
-                        results.licenseAnalysis = licenseAnalysis;
                         console.log('🔍 License Compliance Analysis Results:', licenseAnalysis);
                     }
                 } catch (error) {
                     console.error('❌ License compliance analysis failed:', error);
                 }
+            } else {
+                console.log('⚠️ No dependencies found for license analysis');
             }
+
+            // Generate final results
+            this.updateProgress(95, 'Generating final analysis results...');
+            const results = this.sbomProcessor.exportData();
             
             // Log summary
             console.log(`📊 Analysis Summary for ${ownerName}:`);
@@ -523,13 +594,40 @@ class SBOMPlayApp {
             console.log(`   Successful: ${successfulRepos}`);
             console.log(`   Failed: ${failedRepos}`);
             console.log(`   With dependencies: ${reposWithDeps}`);
+            console.log(`   Total unique dependencies: ${totalDependencies}`);
             
-            if (reposWithDeps === 0) {
-                console.log(`⚠️  No repositories with dependencies found. This could be because:`);
+            // Log deps.dev enrichment impact
+            if (this.sbomProcessor.depsDevAnalysis) {
+                console.log(`🔍 DepsDev Enrichment Impact:`);
+                console.log(`   - Direct dependencies analyzed: ${this.sbomProcessor.depsDevAnalysis.totalDependencies}`);
+                console.log(`   - Dependencies with transitive deps: ${this.sbomProcessor.depsDevAnalysis.summary.dependenciesWithTransitive}`);
+                console.log(`   - Total transitive dependencies found: ${this.sbomProcessor.depsDevAnalysis.summary.totalTransitiveDependencies}`);
+                console.log(`   - Average transitive deps per package: ${this.sbomProcessor.depsDevAnalysis.summary.averageTransitiveDependencies.toFixed(1)}`);
+                
+                if (this.sbomProcessor.vulnerabilityAnalysisMetrics) {
+                    console.log(`🔍 Vulnerability Analysis Impact:`);
+                    console.log(`   - Direct dependencies: ${this.sbomProcessor.vulnerabilityAnalysisMetrics.directDependencies}`);
+                    console.log(`   - Transitive dependencies added: ${this.sbomProcessor.vulnerabilityAnalysisMetrics.transitiveDependencies}`);
+                    console.log(`   - Total analyzed: ${this.sbomProcessor.vulnerabilityAnalysisMetrics.totalDependencies}`);
+                    console.log(`   - Increase: ${this.sbomProcessor.vulnerabilityAnalysisMetrics.increasePercentage}%`);
+                }
+                
+                if (this.sbomProcessor.licenseAnalysisMetrics) {
+                    console.log(`🔍 License Analysis Impact:`);
+                    console.log(`   - Direct dependencies: ${this.sbomProcessor.licenseAnalysisMetrics.directDependencies}`);
+                    console.log(`   - Transitive dependencies added: ${this.sbomProcessor.licenseAnalysisMetrics.transitiveDependencies}`);
+                    console.log(`   - Total analyzed: ${this.sbomProcessor.licenseAnalysisMetrics.totalDependencies}`);
+                    console.log(`   - Increase: ${this.sbomProcessor.licenseAnalysisMetrics.increasePercentage}%`);
+                }
+            }
+            
+            if (totalDependencies === 0) {
+                console.log(`⚠️  No dependencies found. This could be because:`);
                 console.log(`   1. Dependency Graph is not enabled on the repositories`);
                 console.log(`   2. Repositories don't have dependency files (package.json, requirements.txt, etc.)`);
                 console.log(`   3. Authentication is required for private repositories`);
                 console.log(`   4. Rate limiting prevented access to some repositories`);
+                console.log(`   5. SBOM data doesn't contain package information`);
             }
             
             // Save to storage with better error handling
@@ -544,6 +642,11 @@ class SBOMPlayApp {
             
             // Display results
             this.displayResults(results, ownerName);
+            
+            // Show deps.dev enrichment summary if available
+            if (this.sbomProcessor.depsDevAnalysis) {
+                this.showDepsDevSummary();
+            }
             
             // Show message about partial data availability
             if (repositories.length > 10) {
@@ -569,6 +672,8 @@ class SBOMPlayApp {
     updateProgress(percentage, message) {
         const progressBar = document.getElementById('progressBar');
         const progressText = document.getElementById('progressText');
+        const phaseInfo = document.getElementById('phaseInfo');
+        const currentPhase = document.getElementById('currentPhase');
         
         if (progressBar) {
             progressBar.style.width = `${percentage}%`;
@@ -577,6 +682,12 @@ class SBOMPlayApp {
         
         if (progressText) {
             progressText.textContent = message;
+        }
+
+        // Show phase information if message contains phase indicator
+        if (phaseInfo && currentPhase && message.includes('/4')) {
+            phaseInfo.style.display = 'block';
+            currentPhase.textContent = message;
         }
         
         // Log progress for pages without UI elements
@@ -960,6 +1071,60 @@ class SBOMPlayApp {
     }
 
     /**
+     * Show deps.dev enrichment summary
+     */
+    showDepsDevSummary() {
+        const depsDevAnalysis = this.sbomProcessor.depsDevAnalysis;
+        const vulnMetrics = this.sbomProcessor.vulnerabilityAnalysisMetrics;
+        const licenseMetrics = this.sbomProcessor.licenseAnalysisMetrics;
+        
+        let summaryHtml = `
+            <div class="alert alert-info mt-3">
+                <h6><i class="fas fa-sitemap me-2"></i>DepsDev Enrichment Summary</h6>
+                <div class="row">
+                    <div class="col-md-4">
+                        <strong>Direct Dependencies:</strong> ${depsDevAnalysis.totalDependencies}<br>
+                        <strong>With Transitive:</strong> ${depsDevAnalysis.summary.dependenciesWithTransitive}<br>
+                        <strong>Total Transitive:</strong> ${depsDevAnalysis.summary.totalTransitiveDependencies}
+                    </div>
+        `;
+        
+        if (vulnMetrics) {
+            summaryHtml += `
+                    <div class="col-md-4">
+                        <strong>Vulnerability Analysis:</strong><br>
+                        Direct: ${vulnMetrics.directDependencies} → Total: ${vulnMetrics.totalDependencies}<br>
+                        <span class="text-success">+${vulnMetrics.transitiveDependencies} transitive (+${vulnMetrics.increasePercentage}%)</span>
+                    </div>
+            `;
+        }
+        
+        if (licenseMetrics) {
+            summaryHtml += `
+                    <div class="col-md-4">
+                        <strong>License Analysis:</strong><br>
+                        Direct: ${licenseMetrics.directDependencies} → Total: ${licenseMetrics.totalDependencies}<br>
+                        <span class="text-success">+${licenseMetrics.transitiveDependencies} transitive (+${licenseMetrics.increasePercentage}%)</span>
+                    </div>
+            `;
+        }
+        
+        summaryHtml += `
+                </div>
+            </div>
+        `;
+        
+        // Add to results section if it exists
+        const resultsSection = document.getElementById('resultsSection');
+        if (resultsSection) {
+            const resultsContent = document.getElementById('resultsContent');
+            if (resultsContent) {
+                resultsContent.insertAdjacentHTML('beforeend', summaryHtml);
+            }
+        }
+    }
+
+    /**
      * Sleep utility
      */
     sleep(ms) {
@@ -998,4 +1163,5 @@ let app;
 document.addEventListener('DOMContentLoaded', () => {
     // Always initialize the app - it's needed for analysis functions
     app = new SBOMPlayApp();
+    window.app = app; // Make app available globally
 }); 

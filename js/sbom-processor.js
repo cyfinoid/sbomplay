@@ -102,6 +102,13 @@ class SBOMProcessor {
      * Process SBOM data from a repository
      */
     processSBOM(owner, repo, sbomData) {
+        console.log(`🔍 SBOM validation for ${owner}/${repo}:`, {
+            hasSbomData: !!sbomData,
+            hasSbomProperty: !!(sbomData && sbomData.sbom),
+            hasPackages: !!(sbomData && sbomData.sbom && sbomData.sbom.packages),
+            packagesLength: sbomData?.sbom?.packages?.length || 0
+        });
+        
         if (!sbomData || !sbomData.sbom || !sbomData.sbom.packages) {
             console.log(`⚠️  Invalid SBOM data for ${owner}/${repo}`);
             return false;
@@ -129,6 +136,14 @@ class SBOMProcessor {
 
         // Process each package in the SBOM
         sbomData.sbom.packages.forEach((pkg, index) => {
+            console.log(`  📦 Processing package ${index + 1}:`, {
+                name: pkg.name,
+                versionInfo: pkg.versionInfo,
+                version: pkg.version,
+                hasName: !!pkg.name,
+                hasVersion: !!(pkg.versionInfo || pkg.version)
+            });
+            
             // GitHub SBOM uses 'versionInfo' instead of 'version'
             const version = pkg.versionInfo || pkg.version;
             
@@ -181,6 +196,13 @@ class SBOMProcessor {
                 }
             }
         });
+
+        // Debug: Log package processing summary
+        console.log(`  📊 Package processing summary for ${owner}/${repo}:`);
+        console.log(`    - Total packages in SBOM: ${sbomData.sbom.packages.length}`);
+        console.log(`    - Processed packages: ${processedPackages}`);
+        console.log(`    - Skipped packages: ${skippedPackages}`);
+        console.log(`    - Unique dependencies: ${repoData.dependencies.size}`);
 
         repoData.totalDependencies = repoData.dependencies.size;
         this.repositories.set(repoKey, repoData);
@@ -371,7 +393,10 @@ class SBOMProcessor {
             repositories: Array.from(dep.repositories),
             category: dep.category,
             languages: Array.from(dep.languages),
-            originalPackage: dep.originalPackage  // Include original package data
+            // Store only essential data from originalPackage to avoid duplication
+            ecosystem: dep.category?.ecosystem,
+            license: dep.originalPackage?.licenseConcluded || dep.originalPackage?.licenseDeclared,
+            purl: dep.originalPackage?.externalRefs?.find(ref => ref.referenceType === 'purl')?.referenceLocator
         }));
         const allRepos = Array.from(this.repositories.values()).map(repo => ({
             name: repo.name,
@@ -396,9 +421,9 @@ class SBOMProcessor {
             allDependencies: allDeps,
             allRepositories: allRepos,
             categoryStats: this.getDependencyCategoryStats(),
-            languageStats: this.getLanguageStats(),
-            vulnerabilityAnalysis: this.vulnerabilityAnalysis || null,
-            licenseAnalysis: this.licenseAnalysis || null
+            languageStats: this.getLanguageStats()
+            // Removed vulnerabilityAnalysis and licenseAnalysis to avoid duplication
+            // They are stored separately in the main analysisData object
         };
     }
 
@@ -434,9 +459,9 @@ class SBOMProcessor {
     }
 
     /**
-     * Analyze vulnerabilities for all dependencies
+     * Analyze vulnerabilities for all dependencies (including transitive)
      */
-    async analyzeVulnerabilities() {
+    async analyzeVulnerabilities(onProgress = null) {
         if (!window.osvService) {
             console.warn('⚠️ OSV Service not available');
             return null;
@@ -445,15 +470,76 @@ class SBOMProcessor {
         try {
             console.log('🔍 SBOM Processor: Starting vulnerability analysis...');
             
-            // Convert dependencies to the format expected by OSV service
-            const dependencies = Array.from(this.dependencies.values()).map(dep => ({
+            // Get all dependencies including transitive ones from deps.dev analysis
+            let allDependencies = Array.from(this.dependencies.values()).map(dep => ({
                 name: dep.name,
                 version: dep.version,
                 pkg: dep.originalPackage  // Pass original package data for PURL extraction
             }));
 
-            // Analyze vulnerabilities (using the original method for backward compatibility)
-            this.vulnerabilityAnalysis = await window.osvService.analyzeDependencies(dependencies);
+            // If we have deps.dev analysis, include transitive dependencies
+            if (this.depsDevAnalysis && this.depsDevAnalysis.enrichedDependenciesArray) {
+                const transitiveDeps = [];
+                const directDepsCount = allDependencies.length;
+                
+                console.log(`🔍 SBOM Processor: Starting vulnerability analysis with ${directDepsCount} direct dependencies`);
+                
+                this.depsDevAnalysis.enrichedDependenciesArray.forEach(enrichedDep => {
+                    if (enrichedDep.depsDevTree && enrichedDep.depsDevTree.nodes && enrichedDep.depsDevTree.nodes.length > 1) {
+                        const transitiveCount = enrichedDep.depsDevTree.nodes.length - 1; // Exclude root node
+                        console.log(`  📦 ${enrichedDep.name}@${enrichedDep.version}: ${transitiveCount} transitive dependencies`);
+                        
+                        // Process nodes (skip the first one as it's the root)
+                        enrichedDep.depsDevTree.nodes.slice(1).forEach(node => {
+                            // Only add if not already in our direct dependencies
+                            const existingDep = allDependencies.find(d => 
+                                d.name === node.versionKey.name && d.version === node.versionKey.version
+                            );
+                            if (!existingDep) {
+                                transitiveDeps.push({
+                                    name: node.versionKey.name,
+                                    version: node.versionKey.version,
+                                    pkg: null, // Transitive deps don't have original package data
+                                    isTransitive: true,
+                                    parentDependency: enrichedDep.name
+                                });
+                            } else {
+                                console.log(`    ⏭️ Skipping ${node.versionKey.name}@${node.versionKey.version} (already in direct dependencies)`);
+                            }
+                        });
+                    } else {
+                        console.log(`  📦 ${enrichedDep.name}@${enrichedDep.version}: No transitive dependencies found`);
+                    }
+                });
+                
+                allDependencies = allDependencies.concat(transitiveDeps);
+                const totalDepsCount = allDependencies.length;
+                const newTransitiveCount = transitiveDeps.length;
+                
+                console.log(`🔍 SBOM Processor: Vulnerability Analysis Summary:`);
+                console.log(`  - Direct dependencies: ${directDepsCount}`);
+                console.log(`  - New transitive dependencies: ${newTransitiveCount}`);
+                console.log(`  - Total dependencies for analysis: ${totalDepsCount}`);
+                console.log(`  - Increase: ${((newTransitiveCount / directDepsCount) * 100).toFixed(1)}%`);
+                
+                // Store metrics for later use
+                this.vulnerabilityAnalysisMetrics = {
+                    directDependencies: directDepsCount,
+                    transitiveDependencies: newTransitiveCount,
+                    totalDependencies: totalDepsCount,
+                    increasePercentage: ((newTransitiveCount / directDepsCount) * 100).toFixed(1)
+                };
+            } else {
+                console.log(`🔍 SBOM Processor: No deps.dev analysis available, analyzing ${allDependencies.length} direct dependencies only`);
+            }
+
+            // Analyze vulnerabilities with all dependencies
+            this.vulnerabilityAnalysis = await window.osvService.analyzeDependencies(allDependencies, onProgress);
+            
+            // Final progress update if callback provided
+            if (onProgress) {
+                onProgress(100, 'Vulnerability analysis complete');
+            }
             
             console.log('✅ SBOM Processor: Vulnerability analysis complete');
             return this.vulnerabilityAnalysis;
@@ -498,21 +584,82 @@ class SBOMProcessor {
     }
 
     /**
-     * Analyze license compliance for all dependencies
+     * Analyze license compliance for all dependencies (including transitive)
      */
-    analyzeLicenseCompliance() {
+    analyzeLicenseCompliance(onProgress = null) {
         try {
             console.log('🔍 SBOM Processor: Starting license compliance analysis...');
             
-            // Convert dependencies to the format expected by license processor
-            const dependencies = Array.from(this.dependencies.values()).map(dep => ({
+            // Get all dependencies including transitive ones from deps.dev analysis
+            let allDependencies = Array.from(this.dependencies.values()).map(dep => ({
                 name: dep.name,
                 version: dep.version,
                 originalPackage: dep.originalPackage
             }));
 
-            // Generate license compliance report
-            this.licenseAnalysis = this.licenseProcessor.generateComplianceReport(dependencies);
+            // If we have deps.dev analysis, include transitive dependencies
+            if (this.depsDevAnalysis && this.depsDevAnalysis.enrichedDependenciesArray) {
+                const transitiveDeps = [];
+                const directDepsCount = allDependencies.length;
+                
+                console.log(`🔍 SBOM Processor: Starting license analysis with ${directDepsCount} direct dependencies`);
+                
+                this.depsDevAnalysis.enrichedDependenciesArray.forEach(enrichedDep => {
+                    if (enrichedDep.depsDevTree && enrichedDep.depsDevTree.nodes && enrichedDep.depsDevTree.nodes.length > 1) {
+                        const transitiveCount = enrichedDep.depsDevTree.nodes.length - 1; // Exclude root node
+                        console.log(`  📦 ${enrichedDep.name}@${enrichedDep.version}: ${transitiveCount} transitive dependencies`);
+                        
+                        // Process nodes (skip the first one as it's the root)
+                        enrichedDep.depsDevTree.nodes.slice(1).forEach(node => {
+                            // Only add if not already in our direct dependencies
+                            const existingDep = allDependencies.find(d => 
+                                d.name === node.versionKey.name && d.version === node.versionKey.version
+                            );
+                            if (!existingDep) {
+                                transitiveDeps.push({
+                                    name: node.versionKey.name,
+                                    version: node.versionKey.version,
+                                    originalPackage: null, // Transitive deps don't have original package data
+                                    isTransitive: true,
+                                    parentDependency: enrichedDep.name
+                                });
+                            } else {
+                                console.log(`    ⏭️ Skipping ${node.versionKey.name}@${node.versionKey.version} (already in direct dependencies)`);
+                            }
+                        });
+                    } else {
+                        console.log(`  📦 ${enrichedDep.name}@${enrichedDep.version}: No transitive dependencies found`);
+                    }
+                });
+                
+                allDependencies = allDependencies.concat(transitiveDeps);
+                const totalDepsCount = allDependencies.length;
+                const newTransitiveCount = transitiveDeps.length;
+                
+                console.log(`🔍 SBOM Processor: License Analysis Summary:`);
+                console.log(`  - Direct dependencies: ${directDepsCount}`);
+                console.log(`  - New transitive dependencies: ${newTransitiveCount}`);
+                console.log(`  - Total dependencies for analysis: ${totalDepsCount}`);
+                console.log(`  - Increase: ${((newTransitiveCount / directDepsCount) * 100).toFixed(1)}%`);
+                
+                // Store metrics for later use
+                this.licenseAnalysisMetrics = {
+                    directDependencies: directDepsCount,
+                    transitiveDependencies: newTransitiveCount,
+                    totalDependencies: totalDepsCount,
+                    increasePercentage: ((newTransitiveCount / directDepsCount) * 100).toFixed(1)
+                };
+            } else {
+                console.log(`🔍 SBOM Processor: No deps.dev analysis available, analyzing ${allDependencies.length} direct dependencies only`);
+            }
+
+            // Generate license compliance report with all dependencies
+            this.licenseAnalysis = this.licenseProcessor.generateComplianceReport(allDependencies);
+            
+            // Call progress callback if provided
+            if (onProgress) {
+                onProgress(100, 'License compliance analysis complete');
+            }
             
             console.log('✅ SBOM Processor: License compliance analysis complete');
             return this.licenseAnalysis;
@@ -520,6 +667,54 @@ class SBOMProcessor {
             console.error('❌ SBOM Processor: License compliance analysis failed:', error);
             return null;
         }
+    }
+
+    /**
+     * Analyze dependencies with deps.dev enrichment
+     */
+    async analyzeDepsDevEnrichment(onProgress = null) {
+        if (!window.DepsDevService) {
+            console.warn('⚠️ DepsDev Service not available');
+            return null;
+        }
+
+        try {
+            console.log('🔍 SBOM Processor: Starting deps.dev enrichment analysis...');
+            
+            // Convert dependencies to the format expected by DepsDev service
+            const dependencies = Array.from(this.dependencies.values()).map(dep => ({
+                name: dep.name,
+                version: dep.version,
+                purl: dep.originalPackage ? this.extractPurlFromPackage(dep.originalPackage) : null
+            }));
+
+            // Create DepsDev service instance if not exists
+            if (!this.depsDevService) {
+                this.depsDevService = new DepsDevService();
+            }
+
+            // Analyze dependencies with deps.dev enrichment
+            this.depsDevAnalysis = await this.depsDevService.analyzeDependencies(dependencies, onProgress);
+            
+            console.log('✅ SBOM Processor: DepsDev enrichment analysis complete');
+            return this.depsDevAnalysis;
+        } catch (error) {
+            console.error('❌ SBOM Processor: DepsDev enrichment analysis failed:', error);
+            return null;
+        }
+    }
+
+    /**
+     * Extract PURL from package data
+     */
+    extractPurlFromPackage(pkg) {
+        if (pkg.externalRefs) {
+            const purlRef = pkg.externalRefs.find(ref => ref.referenceType === 'purl');
+            if (purlRef && purlRef.referenceLocator) {
+                return purlRef.referenceLocator;
+            }
+        }
+        return null;
     }
 
     /**
@@ -617,7 +812,10 @@ class SBOMProcessor {
             allRepositories: allRepositories,
             categoryStats: categoryStats,
             languageStats: languageStats,
-            dependencyDistribution: dependencyDistribution
+            dependencyDistribution: dependencyDistribution,
+            depsDevAnalysis: this.depsDevAnalysis || null,
+            vulnerabilityAnalysis: this.vulnerabilityAnalysis || null,
+            licenseAnalysis: this.licenseAnalysis || null
         };
     }
 

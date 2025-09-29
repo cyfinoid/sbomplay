@@ -1,0 +1,1210 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SBOM Play - Single Repository Analysis</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Sen:wght@400;700;800&display=swap" rel="stylesheet">
+    <script defer data-domain="cyfinoid.github.io" src="https://plausible.io/js/script.outbound-links.js"></script>
+    <script>window.plausible = window.plausible || function() { (window.plausible.q = window.plausible.q || []).push(arguments) }</script>
+
+    <!-- Cyfinoid Branding Styles -->
+    <style>
+        :root {
+            /* Dark Theme (Default) */
+            --cyfinoid-bg: #121212;
+            --cyfinoid-text: #50c878;
+            --cyfinoid-yellow: #fdcb52;
+            --cyfinoid-red: #d63c53;
+            --cyfinoid-blue: #466fe0;
+            --cyfinoid-text-secondary: #8a8f98;
+            --cyfinoid-bg-secondary: #fafafa;
+            --cyfinoid-green-light: #7fd1b9;
+            --cyfinoid-yellow-dirty: #b6a189;
+            --cyfinoid-black: #1e1e1e;
+        }
+
+        /* Light Theme */
+        [data-theme="light"] {
+            --cyfinoid-bg: #fafafa;
+            --cyfinoid-text: #2d5a3d;
+            --cyfinoid-yellow: #e6b847;
+            --cyfinoid-red: #c23650;
+            --cyfinoid-blue: #3a5bc7;
+            --cyfinoid-text-secondary: #6c757d;
+            --cyfinoid-bg-secondary: #ffffff;
+            --cyfinoid-green-light: #4a9d7a;
+            --cyfinoid-yellow-dirty: #a08970;
+            --cyfinoid-black: #ffffff;
+        }
+
+        /* Light theme specific overrides */
+        [data-theme="light"] .card {
+            border: 1px solid #dee2e6;
+        }
+        
+        [data-theme="light"] .card-header {
+            background-color: var(--cyfinoid-bg-secondary);
+            border-bottom: 1px solid #dee2e6;
+        }
+        
+        [data-theme="light"] .form-control {
+            border: 1px solid #ced4da;
+        }
+        
+        [data-theme="light"] .progress {
+            background-color: #e9ecef;
+        }
+        
+        [data-theme="light"] .navbar-dark {
+            background-color: var(--cyfinoid-bg) !important;
+        }
+        
+        [data-theme="light"] .bg-light {
+            background-color: var(--cyfinoid-bg) !important;
+            border-top: 1px solid #dee2e6;
+        }
+
+        /* Typography - Sen Font */
+        body {
+            font-family: 'Sen', sans-serif;
+            font-size: 16px; /* body */
+            background-color: var(--cyfinoid-bg) !important;
+            color: var(--cyfinoid-text) !important;
+        }
+
+        /* Force dark background on all elements */
+        html {
+            background-color: var(--cyfinoid-bg) !important;
+        }
+
+        /* Ensure container and main elements use dark theme */
+        .container, .container-fluid {
+            background-color: var(--cyfinoid-bg) !important;
+        }
+
+        /* Override Bootstrap's default backgrounds */
+        .bg-white {
+            background-color: var(--cyfinoid-bg) !important;
+        }
+
+        /* Modal backgrounds */
+        .modal-content {
+            background-color: var(--cyfinoid-black) !important;
+            color: var(--cyfinoid-text) !important;
+            border: 1px solid #333;
+        }
+
+        .modal-header {
+            background-color: var(--cyfinoid-black) !important;
+            border-bottom: 1px solid #333;
+            color: var(--cyfinoid-text) !important;
+        }
+
+        .modal-body {
+            background-color: var(--cyfinoid-black) !important;
+            color: var(--cyfinoid-text) !important;
+        }
+
+        .modal-footer {
+            background-color: var(--cyfinoid-black) !important;
+            border-top: 1px solid #333;
+        }
+
+        .modal-backdrop {
+            background-color: rgba(18, 18, 18, 0.8) !important;
+        }
+
+        /* Light theme modal overrides */
+        [data-theme="light"] .modal-content {
+            background-color: var(--cyfinoid-bg-secondary) !important;
+            color: var(--cyfinoid-text) !important;
+            border: 1px solid #dee2e6;
+        }
+
+        [data-theme="light"] .modal-header {
+            background-color: var(--cyfinoid-bg-secondary) !important;
+            border-bottom: 1px solid #dee2e6;
+        }
+
+        [data-theme="light"] .modal-body {
+            background-color: var(--cyfinoid-bg-secondary) !important;
+        }
+
+        [data-theme="light"] .modal-footer {
+            background-color: var(--cyfinoid-bg-secondary) !important;
+            border-top: 1px solid #dee2e6;
+        }
+
+        /* Headings */
+        h1 { font-size: 42px; font-weight: 800; } /* title */
+        h2 { font-size: 36px; font-weight: 700; } /* subtitle */
+        h3 { font-size: 32px; font-weight: 700; } /* heading */
+        h4 { font-size: 24px; font-weight: 700; } /* subheading */
+        h5 { font-size: 20px; font-weight: 700; } /* section header */
+        h6 { font-size: 20px; font-weight: 700; } /* section header */
+
+        /* Special text styles */
+        .quote { font-size: 16px; font-style: italic; }
+        .caption { font-size: 14px; }
+
+        /* Navigation */
+        .navbar-dark {
+            background-color: var(--cyfinoid-bg) !important;
+        }
+        
+        .navbar-brand {
+            color: var(--cyfinoid-text) !important;
+            font-weight: 800;
+            font-size: 24px;
+        }
+        
+        .nav-link {
+            color: var(--cyfinoid-text-secondary) !important;
+            font-weight: 400;
+        }
+        
+        .nav-link:hover, .nav-link.active {
+            color: var(--cyfinoid-text) !important;
+        }
+
+        /* Cards */
+        .card {
+            background-color: var(--cyfinoid-black);
+            border: 1px solid #333;
+            color: var(--cyfinoid-text);
+        }
+        
+        .card-header {
+            background-color: var(--cyfinoid-black);
+            border-bottom: 1px solid #333;
+            color: var(--cyfinoid-text);
+        }
+
+        /* Buttons */
+        .btn-primary {
+            background-color: var(--cyfinoid-blue);
+            border-color: var(--cyfinoid-blue);
+            color: white;
+        }
+        
+        .btn-primary:hover {
+            background-color: #3a5bc7;
+            border-color: #3a5bc7;
+        }
+        
+        .btn-success {
+            background-color: var(--cyfinoid-text);
+            border-color: var(--cyfinoid-text);
+            color: var(--cyfinoid-bg);
+        }
+        
+        .btn-warning {
+            background-color: var(--cyfinoid-yellow);
+            border-color: var(--cyfinoid-yellow);
+            color: var(--cyfinoid-bg);
+        }
+        
+        .btn-danger {
+            background-color: var(--cyfinoid-red);
+            border-color: var(--cyfinoid-red);
+            color: white;
+        }
+
+        /* Form Controls */
+        .form-control {
+            background-color: var(--cyfinoid-black);
+            border: 1px solid #333;
+            color: var(--cyfinoid-text);
+        }
+        
+        .form-control:focus {
+            background-color: var(--cyfinoid-black);
+            border-color: var(--cyfinoid-blue);
+            box-shadow: 0 0 0 0.2rem rgba(70, 111, 224, 0.25);
+            color: var(--cyfinoid-text);
+        }
+        
+        .form-control::placeholder {
+            color: var(--cyfinoid-text-secondary);
+        }
+        
+        .form-label {
+            color: var(--cyfinoid-text);
+            font-weight: 600;
+        }
+        
+        .form-text {
+            color: var(--cyfinoid-text-secondary);
+        }
+
+        /* Alerts */
+        .alert-success {
+            background-color: rgba(80, 200, 120, 0.1);
+            border-color: var(--cyfinoid-text);
+            color: var(--cyfinoid-text);
+        }
+        
+        .alert-warning {
+            background-color: rgba(253, 203, 82, 0.1);
+            border-color: var(--cyfinoid-yellow);
+            color: var(--cyfinoid-yellow);
+        }
+        
+        .alert-danger {
+            background-color: rgba(214, 60, 83, 0.1);
+            border-color: var(--cyfinoid-red);
+            color: var(--cyfinoid-red);
+        }
+        
+        .alert-info {
+            background-color: rgba(70, 111, 224, 0.1);
+            border-color: var(--cyfinoid-blue);
+            color: var(--cyfinoid-blue);
+        }
+
+        /* Progress Bar */
+        .progress {
+            background-color: #333;
+        }
+        
+        .progress-bar {
+            background-color: var(--cyfinoid-text);
+        }
+
+        /* Tables */
+        .table {
+            color: var(--cyfinoid-text);
+        }
+        
+        .table-dark {
+            --bs-table-bg: var(--cyfinoid-black);
+            --bs-table-striped-bg: rgba(80, 200, 120, 0.05);
+        }
+
+        /* Badges */
+        .badge.bg-primary { background-color: var(--cyfinoid-blue) !important; }
+        .badge.bg-success { background-color: var(--cyfinoid-text) !important; color: var(--cyfinoid-bg) !important; }
+        .badge.bg-warning { background-color: var(--cyfinoid-yellow) !important; color: var(--cyfinoid-bg) !important; }
+        .badge.bg-danger { background-color: var(--cyfinoid-red) !important; }
+        .badge.bg-info { background-color: var(--cyfinoid-blue) !important; }
+        .badge.bg-light { background-color: #333 !important; color: var(--cyfinoid-text) !important; }
+        .badge.bg-secondary { background-color: var(--cyfinoid-text-secondary) !important; }
+
+        /* Footer */
+        .bg-light {
+            background-color: var(--cyfinoid-bg) !important;
+            border-top: 1px solid #333;
+        }
+
+        /* Text Colors */
+        .text-muted {
+            color: var(--cyfinoid-text-secondary) !important;
+        }
+        
+        .text-primary {
+            color: var(--cyfinoid-blue) !important;
+        }
+        
+        .text-success {
+            color: var(--cyfinoid-text) !important;
+        }
+        
+        .text-warning {
+            color: var(--cyfinoid-yellow) !important;
+        }
+        
+        .text-danger {
+            color: var(--cyfinoid-red) !important;
+        }
+        
+        .text-info {
+            color: var(--cyfinoid-blue) !important;
+        }
+
+        /* Links */
+        a {
+            color: var(--cyfinoid-blue);
+        }
+        
+        a:hover {
+            color: var(--cyfinoid-text);
+        }
+
+        /* Custom utility classes */
+        .bg-cyfinoid-primary {
+            background-color: var(--cyfinoid-bg) !important;
+        }
+        
+        .text-cyfinoid-primary {
+            color: var(--cyfinoid-text) !important;
+        }
+        
+        .border-cyfinoid {
+            border-color: #333 !important;
+        }
+
+        /* Accordion styling for vulnerabilities */
+        .accordion-item {
+            background-color: var(--cyfinoid-black);
+            border: 1px solid #333;
+        }
+        
+        .accordion-button {
+            background-color: var(--cyfinoid-black);
+            color: var(--cyfinoid-text);
+            border: none;
+        }
+        
+        .accordion-button:not(.collapsed) {
+            background-color: var(--cyfinoid-black);
+            color: var(--cyfinoid-text);
+            box-shadow: none;
+        }
+        
+        .accordion-button:focus {
+            box-shadow: 0 0 0 0.2rem rgba(70, 111, 224, 0.25);
+        }
+        
+        .accordion-body {
+            background-color: var(--cyfinoid-black);
+            color: var(--cyfinoid-text);
+        }
+        
+        .vulnerability-item {
+            border-color: #333 !important;
+        }
+
+        /* Light theme accordion overrides */
+        [data-theme="light"] .accordion-item {
+            border: 1px solid #dee2e6;
+        }
+        
+        [data-theme="light"] .accordion-button {
+            background-color: var(--cyfinoid-black);
+        }
+        
+        [data-theme="light"] .accordion-button:not(.collapsed) {
+            background-color: var(--cyfinoid-bg-secondary);
+        }
+        
+        [data-theme="light"] .vulnerability-item {
+            border-color: #dee2e6 !important;
+        }
+
+        [data-theme="light"] .vulnerable-dep-item {
+            background-color: var(--cyfinoid-bg-secondary);
+            border-color: #dee2e6;
+        }
+
+        /* Clickable Severity Badges */
+        .clickable-severity-badge {
+            cursor: pointer;
+            transition: all 0.2s ease;
+            user-select: none;
+            margin-right: 0.25rem;
+            margin-bottom: 0.25rem;
+        }
+
+        .clickable-severity-badge:hover {
+            transform: scale(1.05);
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+            z-index: 10;
+            position: relative;
+        }
+
+        .clickable-severity-badge:active {
+            transform: scale(0.95);
+        }
+
+        /* Severity badge colors */
+        .severity-critical {
+            background-color: #dc3545 !important;
+            color: white !important;
+        }
+
+        .severity-high {
+            background-color: #fd7e14 !important;
+            color: white !important;
+        }
+
+        .severity-medium {
+            background-color: #0dcaf0 !important;
+            color: white !important;
+        }
+
+        .severity-low {
+            background-color: #6c757d !important;
+            color: white !important;
+        }
+
+        .severity-unknown {
+            background-color: #6c757d !important;
+            color: white !important;
+        }
+
+        /* Vulnerable dependencies list */
+        .vulnerable-deps-list {
+            display: flex;
+            flex-direction: column;
+            gap: 0.75rem;
+        }
+
+        .vulnerable-dep-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 0.75rem;
+            border: 1px solid var(--cyfinoid-text-secondary);
+            border-radius: 0.5rem;
+            background-color: var(--cyfinoid-black);
+        }
+
+        .vuln-dep-info {
+            flex: 1;
+        }
+
+        .vuln-dep-name {
+            font-weight: 600;
+            margin-bottom: 0.25rem;
+            color: var(--cyfinoid-text);
+        }
+
+        .vuln-severity-badges {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.25rem;
+        }
+
+        .vuln-dep-actions {
+            margin-left: 1rem;
+        }
+
+        /* Vulnerability References */
+        .vulnerability-references {
+            margin-top: 0.5rem;
+        }
+
+        .vulnerability-references .btn {
+            font-size: 0.75rem;
+            padding: 0.25rem 0.5rem;
+            margin-right: 0.25rem;
+            margin-bottom: 0.25rem;
+            border-radius: 0.25rem;
+            text-decoration: none;
+            display: inline-block;
+        }
+
+        .vulnerability-references .btn:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.15);
+        }
+
+        /* Toast Notifications */
+        .toast-container {
+            z-index: 1055 !important;
+        }
+
+        .toast {
+            background-color: var(--cyfinoid-black);
+            border: 1px solid #333;
+            color: var(--cyfinoid-text);
+        }
+
+        .toast-header {
+            border-bottom: 1px solid #333;
+        }
+
+        .toast-body {
+            background-color: var(--cyfinoid-black);
+            color: var(--cyfinoid-text);
+        }
+
+        /* Light theme toast overrides */
+        [data-theme="light"] .toast {
+            background-color: var(--cyfinoid-bg-secondary);
+            border: 1px solid #dee2e6;
+            color: var(--cyfinoid-text);
+        }
+
+        [data-theme="light"] .toast-header {
+            border-bottom: 1px solid #dee2e6;
+        }
+
+        [data-theme="light"] .toast-body {
+            background-color: var(--cyfinoid-bg-secondary);
+            color: var(--cyfinoid-text);
+        }
+
+        /* Sortable Table Headers */
+        .sortable {
+            user-select: none;
+            transition: background-color 0.2s ease;
+        }
+
+        .sortable:hover {
+            background-color: rgba(80, 200, 120, 0.1) !important;
+        }
+
+        .sortable.sort-asc i::before {
+            content: "\f0de"; /* fa-sort-up */
+        }
+
+        .sortable.sort-desc i::before {
+            content: "\f0dd"; /* fa-sort-down */
+        }
+
+        /* Table styling */
+        .table-dark {
+            --bs-table-bg: var(--cyfinoid-black);
+            --bs-table-color: var(--cyfinoid-text);
+        }
+
+        .table-hover tbody tr:hover {
+            background-color: rgba(80, 200, 120, 0.05);
+        }
+
+        /* Light theme table overrides */
+        [data-theme="light"] .table-dark {
+            --bs-table-bg: var(--cyfinoid-bg-secondary);
+            --bs-table-color: var(--cyfinoid-text);
+        }
+
+        [data-theme="light"] .table-hover tbody tr:hover {
+            background-color: rgba(45, 90, 61, 0.05);
+        }
+
+        /* Pagination styling */
+        .pagination .page-link {
+            background-color: var(--cyfinoid-black);
+            border-color: #333;
+            color: var(--cyfinoid-text);
+        }
+
+        .pagination .page-link:hover {
+            background-color: var(--cyfinoid-blue);
+            border-color: var(--cyfinoid-blue);
+            color: white;
+        }
+
+        .pagination .page-item.active .page-link {
+            background-color: var(--cyfinoid-blue);
+            border-color: var(--cyfinoid-blue);
+            color: white;
+        }
+
+        .pagination .page-item.disabled .page-link {
+            background-color: var(--cyfinoid-black);
+            border-color: #333;
+            color: var(--cyfinoid-text-secondary);
+        }
+
+        /* Light theme pagination overrides */
+        [data-theme="light"] .pagination .page-link {
+            background-color: var(--cyfinoid-bg-secondary);
+            border-color: #dee2e6;
+            color: var(--cyfinoid-text);
+        }
+
+        [data-theme="light"] .pagination .page-item.disabled .page-link {
+            background-color: var(--cyfinoid-bg-secondary);
+            border-color: #dee2e6;
+            color: var(--cyfinoid-text-secondary);
+        }
+
+        /* Version constraint styling */
+        .version-constraint {
+            font-weight: 600;
+            font-family: 'Courier New', monospace;
+            color: var(--cyfinoid-accent) !important;
+            margin-right: 4px;
+            font-size: 0.9em;
+        }
+
+        /* Enhanced version status badges */
+        .version-status-up-to-date-branch {
+            background-color: #28a745 !important;
+            border: 1px solid #1e7e34;
+        }
+        
+        .version-status-constraint-satisfied {
+            background-color: #17a2b8 !important;
+            border: 1px solid #117a8b;
+        }
+
+        /* Ecosystem badges */
+        .ecosystem-npm { background-color: #cb3837 !important; }
+        .ecosystem-pypi { background-color: #3776ab !important; }
+        .ecosystem-maven { background-color: #f58220 !important; }
+        .ecosystem-nuget { background-color: #004880 !important; }
+        .ecosystem-go { background-color: #00add8 !important; }
+        .ecosystem-cargo { background-color: #000000 !important; }
+        .ecosystem-composer { background-color: #885630 !important; }
+        .ecosystem-rubygems { background-color: #cc342d !important; }
+
+        /* License group styling */
+        .license-group {
+            border-left: 3px solid var(--cyfinoid-accent);
+            padding-left: 12px;
+            margin-bottom: 1rem;
+        }
+
+        .license-group-header {
+            font-weight: 600;
+            padding-bottom: 8px;
+            border-bottom: 1px solid var(--cyfinoid-bg-secondary);
+        }
+
+        .package-item {
+            border: 1px solid var(--cyfinoid-bg-secondary);
+            transition: all 0.2s ease;
+        }
+
+        .package-item:hover {
+            border-color: var(--cyfinoid-accent);
+            background-color: var(--cyfinoid-bg) !important;
+        }
+
+        .package-name {
+            font-weight: 500;
+            color: var(--cyfinoid-accent);
+        }
+
+        .package-warnings {
+            font-size: 0.75rem;
+            line-height: 1.2;
+        }
+
+        /* Light theme overrides for license groups */
+        [data-theme="light"] .license-group {
+            border-left-color: var(--cyfinoid-accent);
+        }
+
+        [data-theme="light"] .license-group-header {
+            border-bottom-color: #dee2e6;
+        }
+
+        [data-theme="light"] .package-item {
+            border-color: #dee2e6;
+        }
+
+        [data-theme="light"] .package-item:hover {
+            border-color: var(--cyfinoid-accent);
+            background-color: #f8f9fa !important;
+        }
+
+        /* Package details modal styling */
+        .package-name-clickable:hover {
+            text-decoration: underline;
+            opacity: 0.8;
+        }
+
+        .package-header {
+            border-bottom: 2px solid var(--cyfinoid-accent);
+            padding-bottom: 1rem;
+        }
+
+        .info-section h6 {
+            color: var(--cyfinoid-accent);
+            font-weight: 600;
+            margin-bottom: 0.75rem;
+        }
+
+        .package-links .btn {
+            margin-bottom: 0.5rem;
+        }
+
+        .package-links .btn:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+
+        /* Light theme modal overrides */
+        [data-theme="light"] .package-header {
+            border-bottom-color: var(--cyfinoid-accent);
+        }
+
+        [data-theme="light"] .info-section h6 {
+            color: var(--cyfinoid-accent);
+        }
+
+        /* Responsive adjustments */
+        @media (max-width: 768px) {
+            h1 { font-size: 32px; }
+            h2 { font-size: 28px; }
+            h3 { font-size: 24px; }
+            h4 { font-size: 20px; }
+            h5, h6 { font-size: 18px; }
+        }
+    </style>
+
+</head>
+<body>
+    <!-- Navigation -->
+    <nav class="navbar navbar-expand-lg navbar-dark">
+        <div class="container">
+            <a class="navbar-brand" href="index.html">
+                <i class="fas fa-cubes me-2"></i>SBOM Play
+            </a>
+            <div class="navbar-nav ms-auto">
+                <a class="nav-link" href="index.html">Organization Analysis</a>
+                <a class="nav-link active" href="singlerepo.html">Single Repository</a>
+                <a class="nav-link" href="stats.html">Stats</a>
+                <a class="nav-link" href="license-compliance.html">License</a>
+                <a class="nav-link" href="vuln.html">Vulnerabilities</a>
+                <a class="nav-link" href="deps.html">Dependencies</a>
+                <button class="btn btn-outline-secondary btn-sm ms-2" onclick="toggleTheme()" id="themeToggle" title="Toggle theme">
+                    <i class="fas fa-moon" id="themeIcon"></i>
+                </button>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Main Content -->
+    <div class="container mt-4">
+        <!-- Header -->
+        <div class="row mb-4">
+            <div class="col-12">
+                <h2 class="text-center mb-3">
+                    <i class="fas fa-code-branch me-2"></i>Single Repository Analysis
+                </h2>
+                <p class="text-center text-muted mb-3">
+                    Analyze SBOM data, vulnerabilities, and license compliance for a single GitHub repository.
+                </p>
+                <div class="alert alert-success text-center" role="alert">
+                    <i class="fas fa-shield-alt me-2"></i>
+                    <strong>Privacy Assured:</strong> All analysis happens in your browser. No data is sent to any server.
+                </div>
+            </div>
+        </div>
+
+        <!-- Repository Input Section -->
+        <div class="card mb-4">
+            <div class="card-header">
+                <h5 class="mb-0">
+                    <i class="fab fa-github me-2"></i>Repository Input
+                </h5>
+            </div>
+            <div class="card-body">
+                <div class="row">
+                    <div class="col-md-8">
+                        <label for="repoUrl" class="form-label">Enter GitHub repository URL or path</label>
+                        <input type="text" class="form-control" id="repoUrl" 
+                               placeholder="e.g., https://github.com/owner/repo, owner/repo, git@github.com:owner/repo.git">
+                        <div class="form-text">
+                            Supported formats: Full URL, owner/repo, or Git SSH URL
+                        </div>
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label">&nbsp;</label> <!-- Spacer for alignment -->
+                        <div class="d-flex gap-2">
+                            <button class="btn btn-primary" onclick="startSingleRepoAnalysis()" id="analyzeRepoBtn">
+                                <i class="fas fa-play me-2"></i>Analyze Repository
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- GitHub Token Input (Optional) -->
+        <div class="card mb-4">
+            <div class="card-header" style="cursor: pointer;" onclick="toggleTokenSection()">
+                <h5 class="mb-0 d-flex justify-content-between align-items-center">
+                    <span>
+                        <i class="fab fa-github me-2"></i>GitHub Authentication (Optional)
+                    </span>
+                    <i class="fas fa-chevron-down" id="tokenToggleIcon"></i>
+                </h5>
+            </div>
+            <div class="card-body" id="tokenSectionBody" style="display: none;">
+                <div class="alert alert-warning alert-sm mb-3">
+                    <i class="fas fa-exclamation-triangle me-2"></i>
+                    <strong>Note:</strong> GitHub tokens are not saved. Required for private repositories and higher rate limits.
+                </div>
+                <div class="row">
+                    <div class="col-md-8">
+                        <label for="githubToken" class="form-label">GitHub Personal Access Token</label>
+                        <input type="password" class="form-control" id="githubToken" 
+                               placeholder="ghp_xxxxxxxxxxxxxxxxxxxx (optional)">
+                        <div class="form-text">
+                            <a href="https://github.com/settings/tokens" target="_blank">Create token here</a> - 
+                            Provides access to private repos and higher rate limits (5000/hour vs 60/hour)
+                        </div>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="d-flex align-items-end h-100">
+                            <button class="btn btn-outline-primary" onclick="saveToken()">
+                                <i class="fas fa-check me-2"></i>Set Token
+                            </button>
+                        </div>
+                    </div>
+                </div>
+                <div id="tokenStatus" class="mt-2"></div>
+            </div>
+        </div>
+
+        <!-- Analysis Progress -->
+        <div id="progressSection" class="card mb-4" style="display: none;">
+            <div class="card-header">
+                <h5 class="mb-0">
+                    <i class="fas fa-spinner fa-spin me-2"></i>Analysis Progress
+                </h5>
+            </div>
+            <div class="card-body">
+                <div class="progress mb-3" style="height: 2rem;">
+                    <div class="progress-bar progress-bar-striped progress-bar-animated" 
+                         id="progressBar" role="progressbar" style="width: 0%">
+                        0%
+                    </div>
+                </div>
+                <div id="progressText" class="text-muted">
+                    Initializing analysis...
+                </div>
+                <div id="phaseInfo" class="mt-2" style="display: none;">
+                    <div class="alert alert-info alert-sm">
+                        <i class="fas fa-info-circle me-2"></i>
+                        <strong>Current Phase:</strong> <span id="currentPhase">Initializing</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Repository Information -->
+        <div id="repoInfoSection" class="card mb-4" style="display: none;">
+            <div class="card-header">
+                <h5 class="mb-0">
+                    <i class="fab fa-github me-2"></i>Repository Information
+                </h5>
+            </div>
+            <div class="card-body" id="repoInfoContent">
+                <!-- Repository info will be populated here -->
+            </div>
+        </div>
+
+        <!-- Analysis Results -->
+        <div id="resultsSection" class="row" style="display: none;">
+            <!-- Dependencies Overview -->
+            <div class="col-12 mb-4">
+                <div class="card">
+                    <div class="card-header">
+                        <h5 class="mb-0">
+                            <i class="fas fa-sitemap me-2"></i>Dependencies Overview
+                        </h5>
+                    </div>
+                    <div class="card-body" id="dependenciesOverview">
+                        <!-- Dependencies overview will be populated here -->
+                    </div>
+                </div>
+            </div>
+
+            <!-- Vulnerability Analysis -->
+            <div class="col-12 mb-4">
+                <div class="card">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <h5 class="mb-0">
+                            <i class="fas fa-bug me-2"></i>Vulnerability Analysis
+                        </h5>
+                        <button class="btn btn-sm btn-outline-primary" onclick="singleRepoAnalyzer.rerunVulnerabilityAnalysis()" title="Rerun Vulnerability Analysis">
+                            <i class="fas fa-sync-alt me-1"></i>Rerun
+                        </button>
+                    </div>
+                    <div class="card-body" id="vulnerabilityAnalysis">
+                        <!-- Vulnerability analysis will be populated here -->
+                    </div>
+                </div>
+            </div>
+
+            <!-- License Compliance -->
+            <div class="col-12 mb-4">
+                <div class="card">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <h5 class="mb-0">
+                            <i class="fas fa-shield-alt me-2"></i>License Compliance
+                        </h5>
+                        <button class="btn btn-sm btn-outline-success" onclick="singleRepoAnalyzer.rerunLicenseAnalysis()" title="Rerun License Analysis">
+                            <i class="fas fa-sync-alt me-1"></i>Rerun
+                        </button>
+                    </div>
+                    <div class="card-body" id="licenseCompliance">
+                        <!-- License compliance will be populated here -->
+                    </div>
+                </div>
+            </div>
+
+
+            <!-- Dependency Details -->
+            <div class="col-12 mb-4">
+                <div class="card">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <h5 class="mb-0">
+                            <i class="fas fa-list me-2"></i>Dependency Details
+                        </h5>
+                        <div class="d-flex gap-2 align-items-center">
+                            <small class="text-muted" id="dependencyCount">0 dependencies</small>
+                            <select class="form-select form-select-sm" id="dependencyPageSize" style="width: auto;">
+                                <option value="10">10 per page</option>
+                                <option value="25" selected>25 per page</option>
+                                <option value="50">50 per page</option>
+                                <option value="100">100 per page</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="card-body p-0">
+                        <!-- Filtering Controls -->
+                        <div class="p-3 border-bottom">
+                            <div class="row g-2">
+                                <div class="col-md-3">
+                                    <label class="form-label small">Search Package</label>
+                                    <input type="text" class="form-control form-control-sm" id="packageNameFilter" placeholder="Filter by package name...">
+                                </div>
+                                <div class="col-md-2">
+                                    <label class="form-label small">Ecosystem</label>
+                                    <select class="form-select form-select-sm" id="ecosystemFilter">
+                                        <option value="">All Ecosystems</option>
+                                    </select>
+                                </div>
+                                <div class="col-md-2">
+                                    <label class="form-label small">Version Status</label>
+                                    <select class="form-select form-select-sm" id="versionStatusFilter">
+                                        <option value="">All Statuses</option>
+                                        <option value="up-to-date">Up to Date</option>
+                                        <option value="major-update">Major Update Available</option>
+                                        <option value="minor-update">Minor Update Available</option>
+                                        <option value="patch-update">Patch Update Available</option>
+                                        <option value="unknown">Unknown</option>
+                                    </select>
+                                </div>
+                                <div class="col-md-2">
+                                    <label class="form-label small">Vulnerabilities</label>
+                                    <select class="form-select form-select-sm" id="vulnerabilityFilter">
+                                        <option value="">All Packages</option>
+                                        <option value="vulnerable">Has Vulnerabilities</option>
+                                        <option value="clean">Clean</option>
+                                    </select>
+                                </div>
+                                <div class="col-md-2">
+                                    <label class="form-label small">Language</label>
+                                    <select class="form-select form-select-sm" id="languageFilter">
+                                        <option value="">All Languages</option>
+                                    </select>
+                                </div>
+                                <div class="col-md-1">
+                                    <label class="form-label small">&nbsp;</label>
+                                    <button class="btn btn-outline-secondary btn-sm w-100" onclick="singleRepoAnalyzer.clearDependencyFilters()" title="Clear all filters">
+                                        <i class="fas fa-times me-1"></i>Clear
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="table-responsive">
+                            <table class="table table-hover mb-0" id="dependencyTable">
+                                <thead class="table-dark">
+                                    <tr>
+                                        <th class="sortable" data-sort="name" style="cursor: pointer;">
+                                            Package Name <i class="fas fa-sort ms-1"></i>
+                                        </th>
+                                        <th class="sortable" data-sort="version" style="cursor: pointer;">
+                                            Current Version <i class="fas fa-sort ms-1"></i>
+                                        </th>
+                                        <th class="sortable" data-sort="ecosystem" style="cursor: pointer;">
+                                            Ecosystem <i class="fas fa-sort ms-1"></i>
+                                        </th>
+                                        <th class="sortable" data-sort="vulnerabilities" style="cursor: pointer;">
+                                            Vulnerabilities <i class="fas fa-sort ms-1"></i>
+                                        </th>
+                                        <th class="sortable" data-sort="language" style="cursor: pointer;">
+                                            Language <i class="fas fa-sort ms-1"></i>
+                                        </th>
+                                        <th class="sortable" data-sort="versionStatus" style="cursor: pointer;">
+                                            Version Status <i class="fas fa-sort ms-1"></i>
+                                        </th>
+                                        <th>Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="dependencyTableBody">
+                                    <!-- Dependency rows will be populated here -->
+                                </tbody>
+                            </table>
+                        </div>
+                        <div class="d-flex justify-content-between align-items-center p-3 border-top">
+                            <div class="text-muted" id="dependencyPaginationInfo">
+                                Showing 0-0 of 0 dependencies
+                            </div>
+                            <nav>
+                                <ul class="pagination pagination-sm mb-0" id="dependencyPagination">
+                                    <!-- Pagination buttons will be populated here -->
+                                </ul>
+                            </nav>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Previous Analyses -->
+        <div id="previousAnalysesSection" class="card mb-4">
+            <div class="card-header">
+                <h5 class="mb-0">
+                    <i class="fas fa-history me-2"></i>Previous Analyses
+                </h5>
+            </div>
+            <div class="card-body" id="previousAnalysesContent">
+                <!-- Previous analyses will be populated here -->
+            </div>
+        </div>
+
+        <!-- Export Section -->
+        <div id="exportSection" class="card mb-4" style="display: none;">
+            <div class="card-header">
+                <h5 class="mb-0">
+                    <i class="fas fa-download me-2"></i>Export Results
+                </h5>
+            </div>
+            <div class="card-body">
+                <div class="d-flex gap-2">
+                    <button class="btn btn-success" onclick="exportCurrentAnalysis()">
+                        <i class="fas fa-file-export me-2"></i>Export Analysis
+                    </button>
+                    <button class="btn btn-outline-danger" onclick="clearCurrentAnalysis()">
+                        <i class="fas fa-trash me-2"></i>Clear Results
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Footer -->
+    <footer class="bg-light mt-5 py-4">
+        <div class="container">
+            <div class="row">
+                <div class="col-md-4">
+                    <h6 class="text-primary">SBOM Play - Single Repository</h6>
+                    <p class="text-muted small mb-3">
+                        Analyze individual GitHub repositories for dependencies, vulnerabilities, and license compliance.
+                        All processing happens in your browser for maximum privacy and security.
+                    </p>
+                </div>
+                <div class="col-md-4">
+                    <h6 class="text-primary">Features</h6>
+                    <ul class="list-unstyled small text-muted">
+                        <li><i class="fas fa-check me-1"></i>SBOM Analysis</li>
+                        <li><i class="fas fa-check me-1"></i>Vulnerability Scanning</li>
+                        <li><i class="fas fa-check me-1"></i>License Compliance</li>
+                        <li><i class="fas fa-check me-1"></i>Transitive Dependencies</li>
+                        <li><i class="fas fa-check me-1"></i>Privacy-First Processing</li>
+                    </ul>
+                </div>
+                <div class="col-md-4">
+                    <h6 class="text-primary">About Cyfinoid Research</h6>
+                    <p class="text-muted small mb-3">
+                        Leading cybersecurity research company specializing in software supply chain security.
+                    </p>
+                    <div class="d-flex gap-2">
+                        <a href="https://cyfinoid.com/" target="_blank" class="btn btn-outline-primary btn-sm">
+                            <i class="fas fa-globe me-1"></i>Website
+                        </a>
+                        <a href="https://github.com/cyfinoid/sbomplay" target="_blank" class="btn btn-outline-primary btn-sm">
+                            <i class="fab fa-github me-1"></i>GitHub
+                        </a>
+                    </div>
+                </div>
+            </div>
+            <hr class="my-3">
+            <div class="text-center">
+                <small class="text-muted">
+                    © 2025 Cyfinoid Research. All rights reserved.
+                </small>
+            </div>
+        </div>
+    </footer>
+
+    <!-- Scripts -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+    
+    <!-- Include existing services (without modification) -->
+    <script src="js/github-client.js"></script>
+    <script src="js/sbom-processor.js"></script>
+    <script src="js/license-processor.js"></script>
+    <script src="js/osv-service.js"></script>
+    <script src="js/services/deps-dev-service.js"></script>
+    
+    <!-- Single Repo specific scripts -->
+    <script src="js/singlerepo-storage.js"></script>
+    <script src="js/singlerepo-wrapper.js"></script>
+    
+    <!-- Theme toggle functionality -->
+    <script>
+        // Theme toggle functionality
+        function toggleTheme() {
+            const currentTheme = document.documentElement.getAttribute('data-theme') || 'dark';
+            const newTheme = currentTheme === 'light' ? 'dark' : 'light';
+            
+            // Handle dark theme by removing attribute, light theme by setting it
+            if (newTheme === 'dark') {
+                document.documentElement.removeAttribute('data-theme');
+            } else {
+                document.documentElement.setAttribute('data-theme', newTheme);
+            }
+            
+            // Update theme icon
+            const themeIcon = document.getElementById('themeIcon');
+            if (themeIcon) {
+                if (newTheme === 'light') {
+                    themeIcon.className = 'fas fa-sun';
+                } else {
+                    themeIcon.className = 'fas fa-moon';
+                }
+            }
+            
+            // Save theme preference
+            localStorage.setItem('singlerepo-theme', newTheme);
+            
+            console.log(`Theme switched to: ${newTheme}`);
+        }
+
+        // Load saved theme on page load
+        function loadSavedTheme() {
+            const savedTheme = localStorage.getItem('singlerepo-theme') || 'dark';
+            
+            // Ensure dark theme is default by explicitly setting it
+            if (savedTheme === 'dark') {
+                document.documentElement.removeAttribute('data-theme');
+            } else {
+                document.documentElement.setAttribute('data-theme', savedTheme);
+            }
+            
+            // Update theme icon
+            const themeIcon = document.getElementById('themeIcon');
+            if (themeIcon) {
+                if (savedTheme === 'light') {
+                    themeIcon.className = 'fas fa-sun';
+                } else {
+                    themeIcon.className = 'fas fa-moon';
+                }
+            }
+            
+            console.log(`Loaded theme: ${savedTheme}`);
+        }
+
+        // Load theme immediately (before DOM ready)
+        loadSavedTheme();
+        
+        // Also load theme when DOM is ready (backup)
+        document.addEventListener('DOMContentLoaded', loadSavedTheme);
+    </script>
+
+    <!-- Initialize Single Repo Analyzer -->
+    <script>
+        // Global instance for onclick handlers
+        let singleRepoAnalyzer;
+        
+        document.addEventListener('DOMContentLoaded', function() {
+            singleRepoAnalyzer = new SingleRepoAnalyzer();
+            console.log('Single Repo Analyzer initialized');
+        });
+    </script>
+</body>
+</html>
