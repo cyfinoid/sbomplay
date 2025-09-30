@@ -792,8 +792,45 @@ class SBOMProcessor {
                 count: dep.count,
                 repositories: Array.from(dep.repositories),
                 category: dep.category,
-                languages: Array.from(dep.languages)
+                languages: Array.from(dep.languages),
+                type: 'direct',  // Mark as direct dependency
+                originalPackage: dep.originalPackage  // Include for PURL extraction
             }));
+
+            // If we have deps.dev analysis, include transitive dependencies
+            if (this.depsDevAnalysis && this.depsDevAnalysis.enrichedDependenciesArray) {
+                const transitiveDeps = [];
+                const directDepsSet = new Set(allDependencies.map(d => `${d.name}@${d.version}`));
+                
+                this.depsDevAnalysis.enrichedDependenciesArray.forEach(enrichedDep => {
+                    if (enrichedDep.dependencyGraph?.nodes) {
+                        enrichedDep.dependencyGraph.nodes.forEach(node => {
+                            const depKey = `${node.versionKey.name}@${node.versionKey.version}`;
+                            
+                            // Only add if not already in direct deps
+                            if (!directDepsSet.has(depKey)) {
+                                transitiveDeps.push({
+                                    name: node.versionKey.name,
+                                    version: node.versionKey.version,
+                                    count: 1,
+                                    repositories: [],
+                                    category: enrichedDep.category || { type: 'code', ecosystem: 'unknown', language: 'unknown' },
+                                    languages: ['unknown'],
+                                    type: 'transitive',  // Mark as transitive dependency
+                                    parentDependency: enrichedDep.name,
+                                    originalPackage: null  // Transitive deps don't have original package data
+                                });
+                                directDepsSet.add(depKey);  // Prevent duplicates
+                            }
+                        });
+                    }
+                });
+                
+                if (transitiveDeps.length > 0) {
+                    console.log(`📦 SBOM Processor: Adding ${transitiveDeps.length} transitive dependencies to export`);
+                    allDependencies = allDependencies.concat(transitiveDeps);
+                }
+            }
         }
 
         if (this.repositories.size <= 500) {

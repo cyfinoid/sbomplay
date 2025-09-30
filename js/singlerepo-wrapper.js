@@ -1853,13 +1853,25 @@ class SingleRepoAnalyzer {
                 statusMessage = driftInfo.statusMessage || 'Unknown';
                 statusDetails = driftInfo.statusDetails || '';
                 latestVersion = driftInfo.latestVersion;
-                isOutdated = driftInfo.isOutdated || false;
+                // Use explicit false check instead of ||, since false || false = false is what we want
+                isOutdated = driftInfo.isOutdated === true; // Only true if explicitly true
+                
+                // Debug for GitHub Actions
+                if (dep.name && dep.name.includes('/')) {
+                    console.log(`📝 Enriching ${dep.name}:`, {
+                        'driftInfo.status': driftInfo.status,
+                        'driftInfo.isOutdated': driftInfo.isOutdated,
+                        'calculated isOutdated': isOutdated,
+                        'driftInfo.statusMessage': driftInfo.statusMessage
+                    });
+                }
             }
             
             return {
                 ...dep,
                 latestVersion: latestVersion,
                 isOutdated: isOutdated,
+                status: versionStatus, // Also set status field (same as versionStatus) for consistency
                 versionStatus: versionStatus,
                 statusMessage: statusMessage,
                 statusDetails: statusDetails,
@@ -1922,6 +1934,9 @@ class SingleRepoAnalyzer {
                 const result = (aVal || 0) - (bVal || 0);
                 return this.dependencySortDirection === 'asc' ? result : -result;
                 
+            } else if (this.dependencySortField === 'dependencyType') {
+                aVal = a.type || 'direct';
+                bVal = b.type || 'direct';
             } else if (this.dependencySortField === 'versionStatus') {
                 aVal = a.versionStatus;
                 bVal = b.versionStatus;
@@ -1964,9 +1979,43 @@ class SingleRepoAnalyzer {
             // Truncate long SHAs (commit hashes) for display
             const displayVersion = this.truncateSHA(dep.version);
             
-            const versionInfo = dep.isOutdated ? 
-                `${constraintDisplay}<span class="badge bg-warning text-dark ms-1" title="${dep.version}">${displayVersion}</span>` :
-                `${constraintDisplay}<span class="badge bg-success ms-1" title="${dep.version}">${displayVersion}</span>`;
+            // Debug logging for GitHub Actions
+            if (dep.name && dep.name.includes('/')) {
+                console.log(`🔍 GitHub Action ${dep.name}:`, {
+                    originalVersion: dep.version,
+                    versionLength: dep.version?.length,
+                    displayVersion: displayVersion,
+                    displayLength: displayVersion?.length
+                });
+            }
+            
+            // Determine version badge color
+            // Show green if: up-to-date, up-to-date-in-branch, or status explicitly says it's current
+            const statusIndicatesUpToDate = 
+                dep.versionStatus === 'up-to-date' || 
+                dep.versionStatus === 'up-to-date-in-branch' ||
+                dep.status === 'up-to-date' ||
+                (dep.statusMessage && (
+                    dep.statusMessage.toLowerCase().includes('up to date') ||
+                    dep.statusMessage.toLowerCase().includes('using latest')
+                ));
+            
+            // Debug logging for GitHub Actions
+            if (dep.name && dep.name.includes('/')) {
+                console.log(`🎨 Badge color for ${dep.name}:`, {
+                    isOutdated: dep.isOutdated,
+                    versionStatus: dep.versionStatus,
+                    status: dep.status,
+                    statusMessage: dep.statusMessage,
+                    statusIndicatesUpToDate: statusIndicatesUpToDate,
+                    willBeYellow: (dep.isOutdated && !statusIndicatesUpToDate)
+                });
+            }
+            
+            const versionBadgeColor = (dep.isOutdated && !statusIndicatesUpToDate) ? 'warning' : 'success';
+            const versionBadgeTextColor = versionBadgeColor === 'warning' ? 'text-dark' : '';
+            
+            const versionInfo = `${constraintDisplay}<span class="badge bg-${versionBadgeColor} ${versionBadgeTextColor} ms-1" title="${dep.version}">${displayVersion}</span>`;
             
             // Enhanced version status display
             // Use pre-computed status if available (e.g., from GitHub Actions service)
@@ -1987,6 +2036,12 @@ class SingleRepoAnalyzer {
                 }
             }
 
+            // Dependency type badge
+            const depType = dep.type || 'direct';
+            const typeBadge = depType === 'direct' ? 
+                `<span class="badge bg-primary">Direct</span>` : 
+                `<span class="badge bg-info">Transitive</span>`;
+
             html += `
                 <tr>
                     <td>
@@ -1996,6 +2051,7 @@ class SingleRepoAnalyzer {
                             ${dep.name}
                         </code>
                     </td>
+                    <td>${typeBadge}</td>
                     <td>${versionInfo}</td>
                     <td>${ecosystemBadge}</td>
                     <td>${vulnerabilityBadge}</td>
@@ -2426,23 +2482,26 @@ class SingleRepoAnalyzer {
     truncateSHA(version) {
         if (!version) return 'Unknown';
         
-        // Check if it looks like a commit hash (40 hex characters)
-        const isSHA = /^[a-f0-9]{40}$/i.test(version);
+        // Convert to string and trim any whitespace
+        const versionStr = String(version).trim();
         
-        // Also check for shorter SHAs (7-39 chars)
-        const isShortSHA = /^[a-f0-9]{7,39}$/i.test(version) && version.length > 10;
+        // Check if it's all hexadecimal characters (more lenient check)
+        const isHexOnly = /^[a-f0-9]+$/i.test(versionStr);
         
-        if (isSHA || isShortSHA) {
+        // If it's a long hex string (likely a commit hash), truncate it
+        if (isHexOnly && versionStr.length >= 20) {
             // Truncate to 10 characters + ellipsis
-            return version.substring(0, 10) + '...';
+            const truncated = versionStr.substring(0, 10) + '...';
+            console.log(`📏 Truncating hex string: ${versionStr} (${versionStr.length} chars) → ${truncated}`);
+            return truncated;
         }
         
-        // Not a SHA, return as-is (but still truncate if unreasonably long)
-        if (version.length > 20) {
-            return version.substring(0, 17) + '...';
+        // For any other long string, truncate if over 20 characters
+        if (versionStr.length > 20) {
+            return versionStr.substring(0, 17) + '...';
         }
         
-        return version;
+        return versionStr;
     }
 
     /**
@@ -3212,14 +3271,14 @@ class SingleRepoAnalyzer {
                     return currentParts[0] === latestParts[0];
                 case '~': // Compatible within same major.minor version
                     return currentParts[0] === latestParts[0] && currentParts[1] === latestParts[1];
-                case '>=': // Greater than or equal
-                    return this.compareVersions(latestVersion, currentVersion) || latestVersion === currentVersion;
-                case '>': // Greater than
-                    return this.compareVersions(latestVersion, currentVersion);
-                case '<=': // Less than or equal
+                case '>=': // Greater than or equal - check if latest >= current
                     return this.compareVersions(currentVersion, latestVersion) || latestVersion === currentVersion;
-                case '<': // Less than
+                case '>': // Greater than - check if latest > current
                     return this.compareVersions(currentVersion, latestVersion);
+                case '<=': // Less than or equal - check if latest <= current
+                    return !this.compareVersions(currentVersion, latestVersion) || latestVersion === currentVersion;
+                case '<': // Less than - check if latest < current
+                    return !this.compareVersions(currentVersion, latestVersion) && latestVersion !== currentVersion;
                 default: // No constraint or exact match
                     return true;
             }
