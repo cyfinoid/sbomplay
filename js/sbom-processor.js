@@ -393,7 +393,16 @@ class SBOMProcessor {
             repositories: Array.from(dep.repositories),
             category: dep.category,
             languages: Array.from(dep.languages),
-            // Store only essential data from originalPackage to avoid duplication
+            // Store essential originalPackage data for license restoration
+            originalPackage: dep.originalPackage ? {
+                name: dep.originalPackage.name,
+                versionInfo: dep.originalPackage.versionInfo,
+                licenseConcluded: dep.originalPackage.licenseConcluded,
+                licenseDeclared: dep.originalPackage.licenseDeclared,
+                copyrightText: dep.originalPackage.copyrightText,
+                externalRefs: dep.originalPackage.externalRefs
+            } : null,
+            // Also store flattened data for easy access
             ecosystem: dep.category?.ecosystem,
             license: dep.originalPackage?.licenseConcluded || dep.originalPackage?.licenseDeclared,
             purl: dep.originalPackage?.externalRefs?.find(ref => ref.referenceType === 'purl')?.referenceLocator

@@ -289,6 +289,22 @@ class DepsDevService {
     }
 
     /**
+     * Clean version string by removing constraint operators
+     * @param {string} version - Version string (may include ^, ~, >=, etc.)
+     * @returns {string} Clean version number
+     */
+    cleanVersion(version) {
+        if (!version) return version;
+        
+        // Remove common constraint operators
+        // Examples: ^1.2.3 -> 1.2.3, ~1.2.3 -> 1.2.3, >=1.2.3 -> 1.2.3
+        const cleaned = version.replace(/^[~^>=<]+\s*/, '').trim();
+        
+        console.log(`🧹 DepsDev: Cleaned version "${version}" -> "${cleaned}"`);
+        return cleaned;
+    }
+
+    /**
      * Analyze dependencies with deps.dev enrichment
      * @param {Array} dependencies - Array of dependency objects
      * @param {Function} onProgress - Optional progress callback (progress, message)
@@ -316,6 +332,9 @@ class DepsDevService {
                     await this.sleep(this.rateLimitDelay);
                 }
                 
+                // Clean version string (remove ^, ~, >=, etc.)
+                const cleanVersion = this.cleanVersion(dep.version);
+                
                 // Use ecosystem from SBOM processor if available, otherwise detect it
                 let ecosystem = dep.ecosystem;
                 if (!ecosystem || ecosystem === 'Unknown') {
@@ -341,13 +360,13 @@ class DepsDevService {
                     continue;
                 }
                 
-                // Fetch both dependency tree and metadata
+                // Fetch both dependency tree and metadata using CLEAN version
                 const [treeData, metadata] = await Promise.all([
-                    this.fetchDependencyTree(ecosystem, dep.name, dep.version).catch(err => {
+                    this.fetchDependencyTree(ecosystem, dep.name, cleanVersion).catch(err => {
                         console.warn(`⚠️ DepsDev: Could not fetch dependency tree for ${ecosystem}:${dep.name}:`, err.message);
                         return null;
                     }),
-                    this.fetchPackageMetadata(ecosystem, dep.name, dep.version).catch(err => {
+                    this.fetchPackageMetadata(ecosystem, dep.name, cleanVersion).catch(err => {
                         console.warn(`⚠️ DepsDev: Could not fetch metadata for ${ecosystem}:${dep.name}:`, err.message);
                         return null;
                     })

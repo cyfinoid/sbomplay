@@ -9,6 +9,24 @@ class OSVService {
     }
 
     /**
+     * Clean version string by removing constraint operators
+     * @param {string} version - Version string (may include ^, ~, >=, etc.)
+     * @returns {string} Clean version number
+     */
+    cleanVersion(version) {
+        if (!version) return version;
+        
+        // Remove common constraint operators
+        // Examples: ^1.2.3 -> 1.2.3, ~1.2.3 -> 1.2.3, >=1.2.3 -> 1.2.3
+        const cleaned = version.replace(/^[~^>=<]+\s*/, '').trim();
+        
+        if (cleaned !== version) {
+            console.log(`🧹 OSV: Cleaned version "${version}" -> "${cleaned}"`);
+        }
+        return cleaned;
+    }
+
+    /**
      * Query vulnerabilities for a package
      */
     async queryVulnerabilities(packageName, version, ecosystem = null) {
@@ -19,7 +37,7 @@ class OSVService {
         }
 
         const cleanName = packageName.trim();
-        const cleanVersion = version.trim();
+        const cleanVersion = this.cleanVersion(version); // Clean the version constraint
         const cacheKey = `${cleanName}@${cleanVersion}`;
         
         // Check centralized storage first
@@ -109,12 +127,13 @@ class OSVService {
                 .filter(pkg => pkg.name && pkg.version && pkg.name.trim() && pkg.version.trim())
                 .map(pkg => {
                     const mappedEcosystem = pkg.ecosystem ? this.mapEcosystemToOSV(pkg.ecosystem) : null;
+                    const cleanVersion = this.cleanVersion(pkg.version); // Clean version constraints
                     return {
                         package: {
                             name: pkg.name.trim(),
                             ...(mappedEcosystem && { ecosystem: mappedEcosystem })
                         },
-                        version: pkg.version.trim()
+                        version: cleanVersion
                     };
                 });
 
@@ -356,12 +375,18 @@ class OSVService {
         console.log(`🔍 OSV: Analyzing ${dependencies.length} dependencies for vulnerabilities`);
         
         const packages = dependencies.map(dep => {
-            const detectedEcosystem = dep.pkg ? this.extractEcosystemFromPurl(dep.pkg) : this.detectEcosystemFromName(dep.name);
+            // Use purl (correct field name) or fallback to pkg for backward compatibility
+            const purlField = dep.purl || dep.pkg;
+            const detectedEcosystem = purlField ? this.extractEcosystemFromPurl(purlField) : this.detectEcosystemFromName(dep.name);
             const mappedEcosystem = detectedEcosystem ? this.mapEcosystemToOSV(detectedEcosystem) : null;
+            
+            console.log(`📦 OSV: Preparing ${dep.name} - ecosystem: ${mappedEcosystem} (from ${purlField ? 'purl' : 'name'})`);
+            
             return {
                 name: dep.name,
                 version: dep.version,
-                ecosystem: mappedEcosystem
+                ecosystem: mappedEcosystem,
+                originalEcosystem: dep.ecosystem // Store original for filtering
             };
         });
 
@@ -401,7 +426,34 @@ class OSVService {
 
         dependencies.forEach((dep, index) => {
             const vulnResult = results[index];
-            const vulnerabilities = vulnResult?.vulns || [];
+            const allVulnerabilities = vulnResult?.vulns || [];
+            
+            // CRITICAL: Filter out vulnerabilities from wrong ecosystems (prevent false positives)
+            const packageEcosystem = packages[index]?.ecosystem;
+            const vulnerabilities = allVulnerabilities.filter(vuln => {
+                // If vulnerability has affected packages, check if any match our ecosystem
+                if (vuln.affected && Array.isArray(vuln.affected)) {
+                    const matchesEcosystem = vuln.affected.some(affected => {
+                        const affectedEcosystem = affected.package?.ecosystem;
+                        if (!affectedEcosystem || !packageEcosystem) {
+                            return false; // Exclude if we can't confirm (strict - avoid false positives)
+                        }
+                        return affectedEcosystem.toLowerCase() === packageEcosystem.toLowerCase();
+                    });
+                    
+                    if (!matchesEcosystem) {
+                        console.warn(`⚠️ OSV: Filtering out ${vuln.id} for ${dep.name} - ecosystem mismatch (package: ${packageEcosystem}, vuln affects other ecosystems)`);
+                        return false;
+                    }
+                }
+                
+                return true;
+            });
+            
+            // Log if we filtered any vulnerabilities
+            if (allVulnerabilities.length > vulnerabilities.length) {
+                console.log(`✅ OSV: Filtered ${allVulnerabilities.length - vulnerabilities.length} cross-ecosystem false positive(s) for ${dep.name}`);
+            }
             
             // Update progress during analysis
             if (onProgress) {
@@ -413,7 +465,7 @@ class OSVService {
             if (vulnerabilities.length > 0 && window.storageManager) {
                 const cacheKey = `${dep.name}@${dep.version}`;
                 window.storageManager.saveVulnerabilityData(cacheKey, {
-                    data: vulnResult,
+                    data: { vulns: vulnerabilities }, // Save filtered vulnerabilities
                     packageName: dep.name,
                     version: dep.version,
                     ecosystem: dep.ecosystem
@@ -487,12 +539,18 @@ class OSVService {
         console.log(`🔍 OSV: Analyzing ${dependencies.length} dependencies for vulnerabilities with incremental saving`);
         
         const packages = dependencies.map(dep => {
-            const detectedEcosystem = dep.pkg ? this.extractEcosystemFromPurl(dep.pkg) : this.detectEcosystemFromName(dep.name);
+            // Use purl (correct field name) or fallback to pkg for backward compatibility
+            const purlField = dep.purl || dep.pkg;
+            const detectedEcosystem = purlField ? this.extractEcosystemFromPurl(purlField) : this.detectEcosystemFromName(dep.name);
             const mappedEcosystem = detectedEcosystem ? this.mapEcosystemToOSV(detectedEcosystem) : null;
+            
+            console.log(`📦 OSV: Preparing ${dep.name} - ecosystem: ${mappedEcosystem} (from ${purlField ? 'purl' : 'name'})`);
+            
             return {
                 name: dep.name,
                 version: dep.version,
-                ecosystem: mappedEcosystem
+                ecosystem: mappedEcosystem,
+                originalEcosystem: dep.ecosystem // Store original for filtering
             };
         });
 
@@ -524,13 +582,40 @@ class OSVService {
 
         dependencies.forEach((dep, index) => {
             const vulnResult = results[index];
-            const vulnerabilities = vulnResult?.vulns || [];
+            const allVulnerabilities = vulnResult?.vulns || [];
+            
+            // CRITICAL: Filter out vulnerabilities from wrong ecosystems (prevent false positives)
+            const packageEcosystem = packages[index]?.ecosystem;
+            const vulnerabilities = allVulnerabilities.filter(vuln => {
+                // If vulnerability has affected packages, check if any match our ecosystem
+                if (vuln.affected && Array.isArray(vuln.affected)) {
+                    const matchesEcosystem = vuln.affected.some(affected => {
+                        const affectedEcosystem = affected.package?.ecosystem;
+                        if (!affectedEcosystem || !packageEcosystem) {
+                            return false; // Exclude if we can't confirm (strict - avoid false positives)
+                        }
+                        return affectedEcosystem.toLowerCase() === packageEcosystem.toLowerCase();
+                    });
+                    
+                    if (!matchesEcosystem) {
+                        console.warn(`⚠️ OSV: Filtering out ${vuln.id} for ${dep.name} - ecosystem mismatch (package: ${packageEcosystem}, vuln affects other ecosystems)`);
+                        return false;
+                    }
+                }
+                
+                return true;
+            });
+            
+            // Log if we filtered any vulnerabilities
+            if (allVulnerabilities.length > vulnerabilities.length) {
+                console.log(`✅ OSV: Filtered ${allVulnerabilities.length - vulnerabilities.length} cross-ecosystem false positive(s) for ${dep.name}`);
+            }
             
             // Save to centralized storage if vulnerabilities found
             if (vulnerabilities.length > 0 && window.storageManager) {
                 const cacheKey = `${dep.name}@${dep.version}`;
                 window.storageManager.saveVulnerabilityData(cacheKey, {
-                    data: vulnResult,
+                    data: { vulns: vulnerabilities }, // Save filtered vulnerabilities
                     packageName: dep.name,
                     version: dep.version,
                     ecosystem: dep.ecosystem

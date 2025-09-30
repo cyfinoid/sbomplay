@@ -563,7 +563,19 @@
         }
 
         .table-hover tbody tr:hover {
-            background-color: rgba(80, 200, 120, 0.05);
+            background-color: rgba(80, 200, 120, 0.1) !important;
+        }
+
+        .table-hover tbody tr:hover td {
+            color: var(--cyfinoid-text) !important;
+        }
+
+        .table-hover tbody tr:hover code {
+            color: var(--cyfinoid-text) !important;
+        }
+
+        .table-hover tbody tr:hover .badge {
+            opacity: 1 !important;
         }
 
         /* Light theme table overrides */
@@ -573,7 +585,15 @@
         }
 
         [data-theme="light"] .table-hover tbody tr:hover {
-            background-color: rgba(45, 90, 61, 0.05);
+            background-color: rgba(45, 90, 61, 0.1) !important;
+        }
+
+        [data-theme="light"] .table-hover tbody tr:hover td {
+            color: var(--cyfinoid-text) !important;
+        }
+
+        [data-theme="light"] .table-hover tbody tr:hover code {
+            color: var(--cyfinoid-text) !important;
         }
 
         /* Pagination styling */
@@ -644,6 +664,26 @@
         .ecosystem-composer { background-color: #885630 !important; }
         .ecosystem-rubygems { background-color: #cc342d !important; }
 
+        /* Concern group styling */
+        .concern-group {
+            border: 1px solid var(--cyfinoid-text-secondary);
+            border-radius: 8px;
+            padding: 1rem;
+            margin-bottom: 1.5rem;
+            background-color: rgba(80, 200, 120, 0.02);
+        }
+
+        .concern-header {
+            font-weight: 600;
+            padding-bottom: 12px;
+            border-bottom: 2px solid var(--cyfinoid-text-secondary);
+            margin-bottom: 1rem;
+        }
+
+        .concern-licenses {
+            padding-left: 0.5rem;
+        }
+
         /* License group styling */
         .license-group {
             border-left: 3px solid var(--cyfinoid-accent);
@@ -672,9 +712,45 @@
             color: var(--cyfinoid-accent);
         }
 
+        /* Simplified package item styling */
+        .package-item-simple {
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+            padding: 0.25rem 0;
+        }
+
+        .package-item-simple:last-child {
+            border-bottom: none;
+        }
+
+        .package-item-simple:hover {
+            background-color: rgba(80, 200, 120, 0.05);
+            border-radius: 4px;
+            padding-left: 0.5rem;
+            padding-right: 0.5rem;
+        }
+
+        .package-info-simple .package-name {
+            font-size: 0.9em;
+        }
+
+        .package-actions-simple .btn {
+            font-size: 0.75rem;
+            padding: 0.25rem 0.5rem;
+        }
+
         .package-warnings {
             font-size: 0.75rem;
             line-height: 1.2;
+        }
+
+        /* Light theme overrides for concern groups */
+        [data-theme="light"] .concern-group {
+            border-color: #dee2e6;
+            background-color: rgba(45, 90, 61, 0.02);
+        }
+
+        [data-theme="light"] .concern-header {
+            border-bottom-color: #dee2e6;
         }
 
         /* Light theme overrides for license groups */
@@ -693,6 +769,15 @@
         [data-theme="light"] .package-item:hover {
             border-color: var(--cyfinoid-accent);
             background-color: #f8f9fa !important;
+        }
+
+        /* Light theme overrides for simplified package items */
+        [data-theme="light"] .package-item-simple {
+            border-bottom-color: rgba(0, 0, 0, 0.1);
+        }
+
+        [data-theme="light"] .package-item-simple:hover {
+            background-color: rgba(80, 200, 120, 0.1);
         }
 
         /* Package details modal styling */
@@ -978,6 +1063,14 @@
                                     </select>
                                 </div>
                                 <div class="col-md-2">
+                                    <label class="form-label small">Dependency Type</label>
+                                    <select class="form-select form-select-sm" id="dependencyTypeFilter">
+                                        <option value="">All Types</option>
+                                        <option value="direct">Direct Only</option>
+                                        <option value="transitive">Transitive Only</option>
+                                    </select>
+                                </div>
+                                <div class="col-md-2">
                                     <label class="form-label small">Vulnerabilities</label>
                                     <select class="form-select form-select-sm" id="vulnerabilityFilter">
                                         <option value="">All Packages</option>
@@ -1005,6 +1098,9 @@
                                     <tr>
                                         <th class="sortable" data-sort="name" style="cursor: pointer;">
                                             Package Name <i class="fas fa-sort ms-1"></i>
+                                        </th>
+                                        <th class="sortable" data-sort="dependencyType" style="cursor: pointer;">
+                                            Dependency Type <i class="fas fa-sort ms-1"></i>
                                         </th>
                                         <th class="sortable" data-sort="version" style="cursor: pointer;">
                                             Current Version <i class="fas fa-sort ms-1"></i>
@@ -1130,10 +1226,12 @@
     <script src="js/license-processor.js"></script>
     <script src="js/osv-service.js"></script>
     <script src="js/services/deps-dev-service.js"></script>
+    <script src="js/services/github-actions-service.js"></script>
     
     <!-- Single Repo specific scripts -->
     <script src="js/singlerepo-storage.js"></script>
     <script src="js/singlerepo-wrapper.js"></script>
+    <script src="js/singlerepo-enhancements.js"></script>
     
     <!-- Theme toggle functionality -->
     <script>

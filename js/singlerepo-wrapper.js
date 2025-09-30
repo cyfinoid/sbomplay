@@ -9,6 +9,7 @@ class SingleRepoAnalyzer {
         this.osvService = new OSVService();
         this.licenseProcessor = new LicenseProcessor();
         this.depsDevService = null; // Initialize when needed
+        this.githubActionsService = new GitHubActionsService(this.githubClient); // Pass GitHub client for token access
         
         this.currentAnalysis = null;
         this.isAnalyzing = false;
@@ -239,12 +240,11 @@ class SingleRepoAnalyzer {
             let driftAnalysis = null;
             try {
                 // Get all dependencies from the SBOM processor
-                const allDependencies = Array.from(this.sbomProcessor.dependencies.values()).map(dep => ({
-                    name: dep.name,
-                    version: dep.version
-                }));
+                // Pass full dependency objects with all metadata (purl, ecosystem, etc.)
+                const allDependencies = Array.from(this.sbomProcessor.dependencies.values());
                 
                 if (allDependencies.length > 0) {
+                    console.log(`📊 Starting drift analysis with ${allDependencies.length} dependencies (including full metadata)`);
                     driftAnalysis = await this.analyzeDependencyDrift(allDependencies);
                 } else {
                     console.log('No dependencies found for drift analysis');
@@ -548,20 +548,19 @@ class SingleRepoAnalyzer {
                 // Sort dependencies by highest severity first
                 const sortedDependencies = this.sortVulnerableDependenciesBySeverity([...stats.vulnerableDependencies]);
                 
-                html += `
-                    <div class="mt-3">
-                        <h6>🚨 Vulnerable Dependencies</h6>
-                        <div class="vulnerable-deps-list">
-                `;
-
                 // Store all vulnerable dependencies for show all functionality
                 this.allVulnerableDependencies = sortedDependencies;
                 this.vulnerableDepDisplayLimit = 10;
                 this.showingAllVulnerableDeps = false;
 
-                this.renderVulnerableDependencies();
-
-                html += `</div>`;
+                html += `
+                    <div class="mt-3">
+                        <h6>🚨 Vulnerable Dependencies</h6>
+                        <div class="vulnerable-deps-list" id="vulnerableDependenciesList">
+                            <!-- Will be populated by renderVulnerableDependencies -->
+                        </div>
+                    </div>
+                `;
             }
         } else {
             html += `
@@ -573,6 +572,11 @@ class SingleRepoAnalyzer {
         }
 
         container.innerHTML = html;
+
+        // Render vulnerable dependencies after HTML is inserted
+        if (this.allVulnerableDependencies) {
+            this.renderVulnerableDependencies();
+        }
     }
 
     /**
@@ -581,7 +585,7 @@ class SingleRepoAnalyzer {
     renderVulnerableDependencies() {
         if (!this.allVulnerableDependencies) return;
 
-        const container = document.querySelector('.vulnerable-deps-list');
+        const container = document.getElementById('vulnerableDependenciesList');
         if (!container) return;
 
         const displayCount = this.showingAllVulnerableDeps ? 
@@ -698,43 +702,110 @@ class SingleRepoAnalyzer {
             </div>
         `;
 
-        // License details in two columns
-        html += `<div class="row">`;
-        
-        // High-risk licenses (left column)
-        html += `<div class="col-md-6">`;
-        if (licenseAnalysis.highRiskDependencies && licenseAnalysis.highRiskDependencies.length > 0) {
-            // Store for show all functionality
-            this.allHighRiskLicenses = licenseAnalysis.highRiskDependencies;
-            this.showingAllHighRisk = false;
-            
-            html += `
-                <div class="alert alert-warning">
-                    <h6><i class="fas fa-exclamation-triangle me-2"></i>High-Risk Licenses</h6>
-                    <div class="small" id="highRiskLicensesList">
-                        <!-- Will be populated by renderHighRiskLicenses -->
+        // License Details Table
+        html += `
+            <div class="mt-4">
+                <div class="d-flex justify-content-between align-items-center mb-3">
+                    <h6 class="mb-0">
+                        <i class="fas fa-table me-2"></i>License Details
+                    </h6>
+                    <div class="d-flex gap-2 align-items-center">
+                        <small class="text-muted" id="licenseCount">${licenseAnalysis.summary?.licensedDependencies || 0} licensed dependencies</small>
+                        <select class="form-select form-select-sm" id="licensePageSize" style="width: auto;">
+                            <option value="10">10 per page</option>
+                            <option value="25" selected>25 per page</option>
+                            <option value="50">50 per page</option>
+                            <option value="100">100 per page</option>
+                        </select>
                     </div>
                 </div>
-            `;
-        } else {
-            html += `
-                <div class="alert alert-success">
-                    <h6><i class="fas fa-check-circle me-2"></i>High-Risk Licenses</h6>
-                    <div class="small">No high-risk licenses detected</div>
+                
+                <!-- Filtering Controls -->
+                <div class="p-3 border rounded mb-3">
+                    <div class="row g-2">
+                        <div class="col-md-3">
+                            <label class="form-label small">Search Package</label>
+                            <input type="text" class="form-control form-control-sm" id="licensePackageFilter" placeholder="Filter by package name...">
+                        </div>
+                        <div class="col-md-2">
+                            <label class="form-label small">License Type</label>
+                            <select class="form-select form-select-sm" id="licenseTypeFilter">
+                                <option value="">All Licenses</option>
+                            </select>
+                        </div>
+                        <div class="col-md-2">
+                            <label class="form-label small">Risk Level</label>
+                            <select class="form-select form-select-sm" id="licenseRiskFilter">
+                                <option value="">All Risk Levels</option>
+                                <option value="high">High Risk</option>
+                                <option value="medium">Medium Risk</option>
+                                <option value="low">Low Risk</option>
+                            </select>
+                        </div>
+                        <div class="col-md-3">
+                            <label class="form-label small">Concern</label>
+                            <select class="form-select form-select-sm" id="licenseConcernFilter">
+                                <option value="">All Concerns</option>
+                            </select>
+                        </div>
+                        <div class="col-md-2">
+                            <label class="form-label small">&nbsp;</label>
+                            <button class="btn btn-outline-secondary btn-sm w-100" onclick="singleRepoAnalyzer.clearLicenseFilters()" title="Clear all filters">
+                                <i class="fas fa-times me-1"></i>Clear
+                            </button>
+                        </div>
+                    </div>
                 </div>
-            `;
-        }
-        html += `</div>`;
+                
+                <div class="table-responsive">
+                    <table class="table table-hover mb-0" id="licenseTable">
+                        <thead class="table-dark">
+                            <tr>
+                                <th class="sortable" data-sort="name" style="cursor: pointer;">
+                                    Package Name <i class="fas fa-sort ms-1"></i>
+                                </th>
+                                <th class="sortable" data-sort="version" style="cursor: pointer;">
+                                    Version <i class="fas fa-sort ms-1"></i>
+                                </th>
+                                <th class="sortable" data-sort="license" style="cursor: pointer;">
+                                    License <i class="fas fa-sort ms-1"></i>
+                                </th>
+                                <th class="sortable" data-sort="risk" style="cursor: pointer;">
+                                    Risk Level <i class="fas fa-sort ms-1"></i>
+                                </th>
+                                <th class="sortable" data-sort="concern" style="cursor: pointer;">
+                                    Concern <i class="fas fa-sort ms-1"></i>
+                                </th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="licenseTableBody">
+                            <!-- License rows will be populated here -->
+                        </tbody>
+                    </table>
+                </div>
+                
+                <div class="d-flex justify-content-between align-items-center p-3 border-top">
+                    <div class="text-muted" id="licensePaginationInfo">
+                        Showing 0-0 of 0 licenses
+                    </div>
+                    <nav>
+                        <ul class="pagination pagination-sm mb-0" id="licensePagination">
+                            <!-- Pagination buttons will be populated here -->
+                        </ul>
+                    </nav>
+                </div>
+            </div>
+        `;
         
-        // License conflicts (right column)
-        html += `<div class="col-md-6">`;
+        // License conflicts section (full width)
         if (licenseAnalysis.conflicts && licenseAnalysis.conflicts.length > 0) {
             // Store for show all functionality
             this.allLicenseConflicts = licenseAnalysis.conflicts;
             this.showingAllConflicts = false;
             
             html += `
-                <div class="alert alert-danger">
+                <div class="alert alert-danger mb-3">
                     <h6><i class="fas fa-times-circle me-2"></i>License Conflicts</h6>
                     <div class="small" id="licenseConflictsList">
                         <!-- Will be populated by renderLicenseConflicts -->
@@ -743,25 +814,342 @@ class SingleRepoAnalyzer {
             `;
         } else {
             html += `
-                <div class="alert alert-success">
+                <div class="alert alert-success mb-3">
                     <h6><i class="fas fa-check-circle me-2"></i>License Conflicts</h6>
                     <div class="small">No license conflicts detected</div>
                 </div>
             `;
         }
-        html += `</div>`;
-        
-        html += `</div>`; // Close row
 
         container.innerHTML = html;
 
-        // Render the expandable sections
-        if (this.allHighRiskLicenses) {
-            this.renderHighRiskLicenses();
-        }
+        // Initialize license table
+        this.initializeLicenseTable(licenseAnalysis);
+        
+        // Render license conflicts if any
         if (this.allLicenseConflicts) {
             this.renderLicenseConflicts();
         }
+    }
+
+    /**
+     * Initialize license table with data and functionality
+     */
+    initializeLicenseTable(licenseAnalysis) {
+        if (!licenseAnalysis) return;
+
+        // Prepare license data for table
+        this.allLicenseData = [];
+        
+        // Get all dependencies from the current analysis
+        const allDependencies = Array.from(this.sbomProcessor.dependencies.values());
+        
+        allDependencies.forEach(dep => {
+            const licenseInfo = this.sbomProcessor.licenseProcessor.parseLicense(dep.originalPackage);
+            
+            if (licenseInfo.license && licenseInfo.license !== 'NOASSERTION') {
+                const concern = licenseInfo.warnings && licenseInfo.warnings.length > 0 ? 
+                    licenseInfo.warnings[0] : this.getDefaultLicenseConcern(licenseInfo.license);
+                
+                this.allLicenseData.push({
+                    name: dep.name,
+                    version: dep.version,
+                    license: licenseInfo.license,
+                    risk: licenseInfo.risk,
+                    concern: concern,
+                    category: licenseInfo.category,
+                    originalPackage: dep.originalPackage,
+                    warnings: licenseInfo.warnings || []
+                });
+            }
+        });
+
+        // Initialize table state
+        this.licenseCurrentPage = 1;
+        this.licensePageSize = 25;
+        this.licenseSortField = 'name';
+        this.licenseSortDirection = 'asc';
+        this.licenseFilters = {
+            package: '',
+            licenseType: '',
+            risk: '',
+            concern: ''
+        };
+
+        // Populate filter dropdowns
+        this.populateLicenseFilters();
+        
+        // Render initial table
+        this.renderLicenseTable();
+        
+        // Add event listeners
+        this.addLicenseTableEventListeners();
+    }
+
+    /**
+     * Populate license filter dropdowns
+     */
+    populateLicenseFilters() {
+        // Check if license data exists
+        if (!this.allLicenseData || !Array.isArray(this.allLicenseData)) {
+            console.warn('No license data available for filter population');
+            return;
+        }
+
+        // License types
+        const licenseTypes = [...new Set(this.allLicenseData.map(item => item.license))].sort();
+        const licenseTypeSelect = document.getElementById('licenseTypeFilter');
+        if (licenseTypeSelect) {
+            licenseTypeSelect.innerHTML = '<option value="">All Licenses</option>' +
+                licenseTypes.map(type => `<option value="${type}">${type}</option>`).join('');
+        }
+
+        // Concerns
+        const concerns = [...new Set(this.allLicenseData.map(item => item.concern))].sort();
+        const concernSelect = document.getElementById('licenseConcernFilter');
+        if (concernSelect) {
+            concernSelect.innerHTML = '<option value="">All Concerns</option>' +
+                concerns.map(concern => `<option value="${concern}">${concern}</option>`).join('');
+        }
+    }
+
+    /**
+     * Render license table with current filters and sorting
+     */
+    renderLicenseTable() {
+        // Check if license data exists
+        if (!this.allLicenseData || !Array.isArray(this.allLicenseData)) {
+            console.warn('No license data available for table rendering');
+            return;
+        }
+
+        // Apply filters
+        let filteredData = this.allLicenseData.filter(item => {
+            return (!this.licenseFilters.package || item.name.toLowerCase().includes(this.licenseFilters.package.toLowerCase())) &&
+                   (!this.licenseFilters.licenseType || item.license === this.licenseFilters.licenseType) &&
+                   (!this.licenseFilters.risk || item.risk === this.licenseFilters.risk) &&
+                   (!this.licenseFilters.concern || item.concern === this.licenseFilters.concern);
+        });
+
+        // Apply sorting
+        filteredData.sort((a, b) => {
+            let aVal = a[this.licenseSortField];
+            let bVal = b[this.licenseSortField];
+            
+            if (typeof aVal === 'string') {
+                aVal = aVal.toLowerCase();
+                bVal = bVal.toLowerCase();
+            }
+            
+            if (aVal < bVal) return this.licenseSortDirection === 'asc' ? -1 : 1;
+            if (aVal > bVal) return this.licenseSortDirection === 'asc' ? 1 : -1;
+            return 0;
+        });
+
+        // Pagination
+        const totalItems = filteredData.length;
+        const totalPages = Math.ceil(totalItems / this.licensePageSize);
+        const startIndex = (this.licenseCurrentPage - 1) * this.licensePageSize;
+        const endIndex = Math.min(startIndex + this.licensePageSize, totalItems);
+        const pageData = filteredData.slice(startIndex, endIndex);
+
+        // Update count
+        const countElement = document.getElementById('licenseCount');
+        if (countElement) {
+            countElement.textContent = `${totalItems} licensed dependencies`;
+        }
+
+        // Render table body
+        const tbody = document.getElementById('licenseTableBody');
+        if (!tbody) return;
+
+        tbody.innerHTML = pageData.map(item => {
+            const riskColor = this.getLicenseRiskColor(item.license);
+            const packageLicenseUrl = this.getPackageLicenseUrl(item);
+            
+            return `
+                <tr>
+                    <td><code>${item.name}</code></td>
+                    <td><small class="text-muted">${item.version || 'N/A'}</small></td>
+                    <td><span class="badge bg-${riskColor}">${item.license}</span></td>
+                    <td><span class="badge bg-${riskColor}">${item.risk.toUpperCase()}</span></td>
+                    <td><small class="text-muted">${item.concern}</small></td>
+                    <td>
+                        ${packageLicenseUrl ? 
+                            `<a href="${packageLicenseUrl}" target="_blank" class="btn btn-sm btn-outline-info" title="View package license">
+                                <i class="fas fa-external-link-alt me-1"></i>License
+                            </a>` : 
+                            '<span class="text-muted">N/A</span>'
+                        }
+                    </td>
+                </tr>
+            `;
+        }).join('');
+
+        // Update pagination info
+        const paginationInfo = document.getElementById('licensePaginationInfo');
+        if (paginationInfo) {
+            paginationInfo.textContent = `Showing ${startIndex + 1}-${endIndex} of ${totalItems} licenses`;
+        }
+
+        // Render pagination
+        this.renderLicensePagination(totalPages);
+    }
+
+    /**
+     * Render license pagination
+     */
+    renderLicensePagination(totalPages) {
+        const pagination = document.getElementById('licensePagination');
+        if (!pagination) return;
+
+        let html = '';
+        
+        // Previous button
+        html += `
+            <li class="page-item ${this.licenseCurrentPage === 1 ? 'disabled' : ''}">
+                <a class="page-link" href="#" onclick="singleRepoAnalyzer.changeLicensePage(${this.licenseCurrentPage - 1}); return false;">Previous</a>
+            </li>
+        `;
+
+        // Page numbers
+        const startPage = Math.max(1, this.licenseCurrentPage - 2);
+        const endPage = Math.min(totalPages, this.licenseCurrentPage + 2);
+
+        for (let i = startPage; i <= endPage; i++) {
+            html += `
+                <li class="page-item ${i === this.licenseCurrentPage ? 'active' : ''}">
+                    <a class="page-link" href="#" onclick="singleRepoAnalyzer.changeLicensePage(${i}); return false;">${i}</a>
+                </li>
+            `;
+        }
+
+        // Next button
+        html += `
+            <li class="page-item ${this.licenseCurrentPage === totalPages ? 'disabled' : ''}">
+                <a class="page-link" href="#" onclick="singleRepoAnalyzer.changeLicensePage(${this.licenseCurrentPage + 1}); return false;">Next</a>
+            </li>
+        `;
+
+        pagination.innerHTML = html;
+    }
+
+    /**
+     * Add event listeners for license table
+     */
+    addLicenseTableEventListeners() {
+        // Filter inputs
+        const packageFilter = document.getElementById('licensePackageFilter');
+        if (packageFilter) {
+            packageFilter.addEventListener('input', (e) => {
+                this.licenseFilters.package = e.target.value;
+                this.licenseCurrentPage = 1;
+                this.renderLicenseTable();
+            });
+        }
+
+        const licenseTypeFilter = document.getElementById('licenseTypeFilter');
+        if (licenseTypeFilter) {
+            licenseTypeFilter.addEventListener('change', (e) => {
+                this.licenseFilters.licenseType = e.target.value;
+                this.licenseCurrentPage = 1;
+                this.renderLicenseTable();
+            });
+        }
+
+        const riskFilter = document.getElementById('licenseRiskFilter');
+        if (riskFilter) {
+            riskFilter.addEventListener('change', (e) => {
+                this.licenseFilters.risk = e.target.value;
+                this.licenseCurrentPage = 1;
+                this.renderLicenseTable();
+            });
+        }
+
+        const concernFilter = document.getElementById('licenseConcernFilter');
+        if (concernFilter) {
+            concernFilter.addEventListener('change', (e) => {
+                this.licenseFilters.concern = e.target.value;
+                this.licenseCurrentPage = 1;
+                this.renderLicenseTable();
+            });
+        }
+
+        // Page size selector
+        const pageSizeSelect = document.getElementById('licensePageSize');
+        if (pageSizeSelect) {
+            pageSizeSelect.addEventListener('change', (e) => {
+                this.licensePageSize = parseInt(e.target.value);
+                this.licenseCurrentPage = 1;
+                this.renderLicenseTable();
+            });
+        }
+
+        // Sortable headers
+        const sortableHeaders = document.querySelectorAll('#licenseTable .sortable');
+        sortableHeaders.forEach(header => {
+            header.addEventListener('click', () => {
+                const sortField = header.getAttribute('data-sort');
+                if (this.licenseSortField === sortField) {
+                    this.licenseSortDirection = this.licenseSortDirection === 'asc' ? 'desc' : 'asc';
+                } else {
+                    this.licenseSortField = sortField;
+                    this.licenseSortDirection = 'asc';
+                }
+                
+                // Update header icons
+                sortableHeaders.forEach(h => h.classList.remove('sort-asc', 'sort-desc'));
+                header.classList.add(`sort-${this.licenseSortDirection}`);
+                
+                this.renderLicenseTable();
+            });
+        });
+    }
+
+    /**
+     * Change license table page
+     */
+    changeLicensePage(page) {
+        // Check if license data exists
+        if (!this.allLicenseData || !Array.isArray(this.allLicenseData)) {
+            console.warn('No license data available - cannot change page');
+            return;
+        }
+
+        this.licenseCurrentPage = page;
+        this.renderLicenseTable();
+    }
+
+    /**
+     * Clear all license filters
+     */
+    clearLicenseFilters() {
+        // Check if license data exists
+        if (!this.allLicenseData || !Array.isArray(this.allLicenseData)) {
+            console.warn('No license data available - cannot clear filters');
+            return;
+        }
+
+        this.licenseFilters = {
+            package: '',
+            licenseType: '',
+            risk: '',
+            concern: ''
+        };
+        
+        // Reset form inputs (with null checks)
+        const packageFilter = document.getElementById('licensePackageFilter');
+        const typeFilter = document.getElementById('licenseTypeFilter');
+        const riskFilter = document.getElementById('licenseRiskFilter');
+        const concernFilter = document.getElementById('licenseConcernFilter');
+        
+        if (packageFilter) packageFilter.value = '';
+        if (typeFilter) typeFilter.value = '';
+        if (riskFilter) riskFilter.value = '';
+        if (concernFilter) concernFilter.value = '';
+        
+        this.licenseCurrentPage = 1;
+        this.renderLicenseTable();
     }
 
     /**
@@ -846,53 +1234,75 @@ class SingleRepoAnalyzer {
     }
 
     /**
-     * Render grouped high-risk licenses with repository links
+     * Render grouped high-risk licenses organized by concerns first
      */
     renderGroupedHighRiskLicenses(groupedLicenses) {
+        // First, reorganize by concerns instead of license types
+        const concernGroups = this.groupLicensesByConcern(groupedLicenses);
+        
         let html = '';
         
-        for (const [licenseType, packages] of groupedLicenses) {
-            const licenseColor = this.getLicenseRiskColor(licenseType);
-            const licenseIcon = this.getLicenseIcon(licenseType);
+        for (const [concern, licenseTypes] of concernGroups) {
+            const concernColor = this.getConcernRiskColor(concern);
+            const concernIcon = this.getConcernIcon(concern);
+            
+            // Count total packages under this concern
+            const totalPackages = Array.from(licenseTypes.values()).reduce((sum, packages) => sum + packages.length, 0);
             
             html += `
-                <div class="license-group mb-3">
-                    <div class="license-group-header d-flex align-items-center mb-2">
-                        <i class="${licenseIcon} me-2 text-${licenseColor}"></i>
-                        <strong class="text-${licenseColor}">${licenseType}</strong>
-                        <span class="badge bg-${licenseColor} ms-2">${packages.length}</span>
+                <div class="concern-group mb-4">
+                    <div class="concern-header mb-3">
+                        <div class="d-flex align-items-center mb-2">
+                            <i class="${concernIcon} me-2 text-${concernColor}"></i>
+                            <strong class="text-${concernColor} h6 mb-0">Concern: ${concern}</strong>
+                            <span class="badge bg-${concernColor} ms-2">${totalPackages} package${totalPackages !== 1 ? 's' : ''}</span>
+                        </div>
                     </div>
-                    <div class="license-packages ms-3">
+                    <div class="concern-licenses ms-3">
             `;
             
-            packages.forEach(dep => {
-                const repoUrl = this.getRepositoryUrl();
-                const licenseUrl = this.getRepositoryLicenseUrl(repoUrl);
+            // Now render license types under this concern
+            for (const [licenseType, packages] of licenseTypes) {
+                const licenseColor = this.getLicenseRiskColor(licenseType);
+                const licenseIcon = this.getLicenseIcon(licenseType);
                 
                 html += `
-                    <div class="package-item d-flex justify-content-between align-items-center mb-1 p-2 rounded" style="background-color: var(--cyfinoid-bg-secondary);">
-                        <div class="package-info">
-                            <code class="package-name">${dep.name}</code>
-                            ${dep.version ? `<small class="text-muted ms-2">v${dep.version}</small>` : ''}
-                            ${dep.warnings && dep.warnings.length > 0 ? 
-                                `<div class="package-warnings mt-1">
-                                    ${dep.warnings.map(warning => 
-                                        `<small class="text-warning"><i class="fas fa-exclamation-triangle me-1"></i>${warning}</small>`
-                                    ).join('<br>')}
-                                </div>` : ''
-                            }
+                    <div class="license-group mb-3">
+                        <div class="license-group-header mb-2">
+                            <div class="d-flex align-items-center mb-1">
+                                <i class="${licenseIcon} me-2 text-${licenseColor}"></i>
+                                <strong class="text-${licenseColor}">${licenseType}</strong>
+                                <span class="badge bg-${licenseColor} ms-2">${packages.length}</span>
+                            </div>
                         </div>
-                        <div class="package-actions">
-                            ${licenseUrl ? 
-                                `<a href="${licenseUrl}" target="_blank" class="btn btn-sm btn-outline-info me-2" title="View repository license">
-                                    <i class="fas fa-external-link-alt me-1"></i>License
-                                </a>` : ''
-                            }
-                            <span class="badge bg-warning text-dark">${licenseType}</span>
+                        <div class="license-packages ms-3">
+                `;
+                
+                packages.forEach(dep => {
+                    const packageLicenseUrl = this.getPackageLicenseUrl(dep);
+                    
+                    html += `
+                        <div class="package-item-simple d-flex justify-content-between align-items-center mb-1 py-1">
+                            <div class="package-info-simple">
+                                <code class="package-name">${dep.name}</code>
+                                ${dep.version ? `<small class="text-muted ms-2">v${dep.version}</small>` : ''}
+                            </div>
+                            <div class="package-actions-simple">
+                                ${packageLicenseUrl ? 
+                                    `<a href="${packageLicenseUrl}" target="_blank" class="btn btn-sm btn-outline-info" title="View package license">
+                                        <i class="fas fa-external-link-alt me-1"></i>License
+                                    </a>` : ''
+                                }
+                            </div>
+                        </div>
+                    `;
+                });
+                
+                html += `
                         </div>
                     </div>
                 `;
-            });
+            }
             
             html += `
                     </div>
@@ -901,6 +1311,189 @@ class SingleRepoAnalyzer {
         }
         
         return html;
+    }
+
+    /**
+     * Group licenses by concern/warning messages
+     */
+    groupLicensesByConcern(groupedLicenses) {
+        const concernGroups = new Map();
+        
+        for (const [licenseType, packages] of groupedLicenses) {
+            // Get the concern for this license type
+            const firstPackage = packages[0];
+            const concern = firstPackage?.warnings && firstPackage.warnings.length > 0 ? 
+                firstPackage.warnings[0] : this.getDefaultLicenseConcern(licenseType);
+            
+            if (!concernGroups.has(concern)) {
+                concernGroups.set(concern, new Map());
+            }
+            
+            concernGroups.get(concern).set(licenseType, packages);
+        }
+        
+        // Sort concerns by severity (most severe first)
+        const sortedConcerns = new Map([...concernGroups.entries()].sort((a, b) => {
+            const severityOrder = {
+                'Network copyleft license with strict requirements': 1,
+                'Copyleft license requiring source code disclosure': 2,
+                'Lesser GPL with linking restrictions': 3,
+                'Weak copyleft license requiring file-level disclosure': 4,
+                'Eclipse license with patent provisions': 5,
+                'License not specified - requires investigation': 6,
+                'Complex license combination detected': 7,
+                'License requires review': 8
+            };
+            
+            const severityA = severityOrder[a[0]] || 9;
+            const severityB = severityOrder[b[0]] || 9;
+            
+            return severityA - severityB;
+        }));
+        
+        return sortedConcerns;
+    }
+
+    /**
+     * Get default concern message for license type
+     */
+    getDefaultLicenseConcern(licenseType) {
+        const concerns = {
+            'GPL-2.0': 'Copyleft license requiring source code disclosure',
+            'GPL-3.0': 'Copyleft license requiring source code disclosure',
+            'GPL-2.0-only': 'Copyleft license requiring source code disclosure',
+            'GPL-2.0-or-later': 'Copyleft license requiring source code disclosure',
+            'GPL-3.0-only': 'Copyleft license requiring source code disclosure',
+            'GPL-3.0-or-later': 'Copyleft license requiring source code disclosure',
+            'AGPL-3.0': 'Network copyleft license with strict requirements',
+            'LGPL-2.1': 'Lesser GPL with linking restrictions',
+            'LGPL-3.0': 'Lesser GPL with linking restrictions',
+            'MPL-2.0': 'Weak copyleft license requiring file-level disclosure',
+            'EPL-2.0': 'Eclipse license with patent provisions',
+            'NOASSERTION': 'License not specified - requires investigation',
+            'UNKNOWN': 'License not specified - requires investigation',
+            'NONE': 'License not specified - requires investigation',
+            '': 'License not specified - requires investigation'
+        };
+        
+        // Handle complex license combinations
+        if (licenseType.includes(' AND ') || licenseType.includes(' OR ')) {
+            return 'Complex license combination detected';
+        }
+        
+        return concerns[licenseType] || 'License requires review';
+    }
+
+    /**
+     * Get color class for concern risk level
+     */
+    getConcernRiskColor(concern) {
+        const concernColors = {
+            'Network copyleft license with strict requirements': 'danger',
+            'Copyleft license requiring source code disclosure': 'danger',
+            'Lesser GPL with linking restrictions': 'warning',
+            'Weak copyleft license requiring file-level disclosure': 'warning',
+            'Eclipse license with patent provisions': 'warning',
+            'License not specified - requires investigation': 'danger',
+            'Complex license combination detected': 'warning',
+            'License requires review': 'warning'
+        };
+        
+        return concernColors[concern] || 'warning';
+    }
+
+    /**
+     * Get icon for concern type
+     */
+    getConcernIcon(concern) {
+        const concernIcons = {
+            'Network copyleft license with strict requirements': 'fas fa-ban',
+            'Copyleft license requiring source code disclosure': 'fas fa-exclamation-triangle',
+            'Lesser GPL with linking restrictions': 'fas fa-exclamation-circle',
+            'Weak copyleft license requiring file-level disclosure': 'fas fa-info-circle',
+            'Eclipse license with patent provisions': 'fas fa-info-circle',
+            'License not specified - requires investigation': 'fas fa-question-circle',
+            'Complex license combination detected': 'fas fa-code-branch',
+            'License requires review': 'fas fa-search'
+        };
+        
+        return concernIcons[concern] || 'fas fa-exclamation-triangle';
+    }
+
+    /**
+     * Generate package-specific license URL based on ecosystem and package name
+     */
+    getPackageLicenseUrl(dep) {
+        if (!dep || !dep.name) {
+            return null;
+        }
+        
+        // Try to determine ecosystem from dependency data
+        let ecosystem = null;
+        
+        // Check if we have ecosystem info from deps.dev enrichment
+        if (this.currentAnalysis?.depsDevAnalysis?.enrichedDependenciesArray && 
+            Array.isArray(this.currentAnalysis.depsDevAnalysis.enrichedDependenciesArray)) {
+            const enrichedDep = this.currentAnalysis.depsDevAnalysis.enrichedDependenciesArray.find(
+                enriched => enriched.name === dep.name && enriched.version === dep.version
+            );
+            if (enrichedDep?.ecosystem) {
+                ecosystem = enrichedDep.ecosystem;
+            }
+        }
+        
+        // Fallback: try to extract from original package PURL
+        if (!ecosystem && dep.originalPackage?.externalRefs) {
+            const purlRef = dep.originalPackage.externalRefs.find(ref => ref.referenceType === 'purl');
+            if (purlRef && purlRef.referenceLocator) {
+                const purl = purlRef.referenceLocator;
+                const purlParts = purl.split('/');
+                if (purlParts.length >= 2) {
+                    ecosystem = purlParts[0].replace('pkg:', '');
+                }
+            }
+        }
+        
+        if (!ecosystem) {
+            return null;
+        }
+        
+        // Generate ecosystem-specific license URLs
+        switch (ecosystem.toLowerCase()) {
+            case 'npm':
+                return `https://www.npmjs.com/package/${dep.name}?activeTab=readme`;
+                
+            case 'pypi':
+                return `https://pypi.org/project/${dep.name}/`;
+                
+            case 'maven':
+                // Maven packages often have group:artifact format
+                const [groupId, artifactId] = dep.name.includes(':') ? dep.name.split(':') : ['', dep.name];
+                if (groupId && artifactId) {
+                    return `https://mvnrepository.com/artifact/${groupId}/${artifactId}`;
+                }
+                return `https://search.maven.org/search?q=a:${dep.name}`;
+                
+            case 'nuget':
+                return `https://www.nuget.org/packages/${dep.name}/`;
+                
+            case 'cargo':
+                return `https://crates.io/crates/${dep.name}`;
+                
+            case 'go':
+            case 'golang':
+                return `https://pkg.go.dev/${dep.name}`;
+                
+            case 'composer':
+                return `https://packagist.org/packages/${dep.name}`;
+                
+            case 'rubygems':
+                return `https://rubygems.org/gems/${dep.name}`;
+                
+            default:
+                // For unknown ecosystems, try to construct a generic search URL
+                return `https://github.com/search?q=${encodeURIComponent(dep.name)}&type=repositories`;
+        }
     }
 
     /**
@@ -1197,10 +1790,8 @@ class SingleRepoAnalyzer {
             `;
 
             // Rerun dependency drift analysis
-            const dependencies = Array.from(this.sbomProcessor.dependencies.values()).map(dep => ({
-                name: dep.name,
-                version: dep.version
-            }));
+            // Pass full dependency objects with all metadata (purl, ecosystem, etc.)
+            const dependencies = Array.from(this.sbomProcessor.dependencies.values());
 
             const driftAnalysis = await this.analyzeDependencyDrift(dependencies);
             
@@ -1369,15 +1960,31 @@ class SingleRepoAnalyzer {
             // Enhanced version display with constraints
             const { constraint } = this.extractVersionConstraint(dep.version);
             const constraintDisplay = constraint ? `<span class="version-constraint">${constraint}</span>` : '';
-            const versionInfo = dep.isOutdated ? 
-                `${constraintDisplay}<span class="badge bg-warning text-dark ms-1" title="Outdated">${dep.version.replace(/^[~^>=<]+/, '')}</span>` :
-                `${constraintDisplay}<span class="badge bg-success ms-1">${dep.version.replace(/^[~^>=<]+/, '')}</span>`;
             
-            // Enhanced version status display with constraint awareness
-            const enhancedStatus = this.getEnhancedVersionStatus(dep.version, dep.latestVersion);
-            let versionStatusBadge = `<span class="badge bg-${enhancedStatus.badge}">${enhancedStatus.message}</span>`;
-            if (enhancedStatus.details) {
-                versionStatusBadge += `<br><small class="text-muted">${enhancedStatus.details}</small>`;
+            // Truncate long SHAs (commit hashes) for display
+            const displayVersion = this.truncateSHA(dep.version);
+            
+            const versionInfo = dep.isOutdated ? 
+                `${constraintDisplay}<span class="badge bg-warning text-dark ms-1" title="${dep.version}">${displayVersion}</span>` :
+                `${constraintDisplay}<span class="badge bg-success ms-1" title="${dep.version}">${displayVersion}</span>`;
+            
+            // Enhanced version status display
+            // Use pre-computed status if available (e.g., from GitHub Actions service)
+            let versionStatusBadge;
+            if (dep.statusMessage) {
+                // Use pre-computed status (from GitHub Actions or other specialized services)
+                const badgeColor = this.getStatusBadgeColor(dep.status);
+                versionStatusBadge = `<span class="badge bg-${badgeColor}">${dep.statusMessage}</span>`;
+                if (dep.statusDetails) {
+                    versionStatusBadge += `<br><small class="text-muted">${dep.statusDetails}</small>`;
+                }
+            } else {
+                // Fallback to constraint-aware semantic versioning
+                const enhancedStatus = this.getEnhancedVersionStatus(dep.version, dep.latestVersion);
+                versionStatusBadge = `<span class="badge bg-${enhancedStatus.badge}">${enhancedStatus.message}</span>`;
+                if (enhancedStatus.details) {
+                    versionStatusBadge += `<br><small class="text-muted">${enhancedStatus.details}</small>`;
+                }
             }
 
             html += `
@@ -1801,6 +2408,7 @@ class SingleRepoAnalyzer {
         const colorMap = {
             'up-to-date': 'success',
             'up-to-date-in-branch': 'success',
+            'outdated': 'danger',
             'major-update': 'danger',
             'minor-update': 'warning',
             'patch-update': 'info',
@@ -1808,6 +2416,33 @@ class SingleRepoAnalyzer {
         };
         
         return colorMap[status] || 'secondary';
+    }
+
+    /**
+     * Truncate long commit SHAs for display
+     * @param {string} version - Version string (may be SHA or semantic version)
+     * @returns {string} Truncated version for display
+     */
+    truncateSHA(version) {
+        if (!version) return 'Unknown';
+        
+        // Check if it looks like a commit hash (40 hex characters)
+        const isSHA = /^[a-f0-9]{40}$/i.test(version);
+        
+        // Also check for shorter SHAs (7-39 chars)
+        const isShortSHA = /^[a-f0-9]{7,39}$/i.test(version) && version.length > 10;
+        
+        if (isSHA || isShortSHA) {
+            // Truncate to 10 characters + ellipsis
+            return version.substring(0, 10) + '...';
+        }
+        
+        // Not a SHA, return as-is (but still truncate if unreasonably long)
+        if (version.length > 20) {
+            return version.substring(0, 17) + '...';
+        }
+        
+        return version;
     }
 
     /**
@@ -1928,6 +2563,7 @@ class SingleRepoAnalyzer {
         const nameFilter = document.getElementById('packageNameFilter')?.value?.toLowerCase() || '';
         const ecosystemFilter = document.getElementById('ecosystemFilter')?.value || '';
         const versionStatusFilter = document.getElementById('versionStatusFilter')?.value || '';
+        const dependencyTypeFilter = document.getElementById('dependencyTypeFilter')?.value || '';  // ✅ Added missing filter
         const vulnerabilityFilter = document.getElementById('vulnerabilityFilter')?.value || '';
         const languageFilter = document.getElementById('languageFilter')?.value || '';
 
@@ -1947,6 +2583,16 @@ class SingleRepoAnalyzer {
                 dep.versionStatus !== versionStatusFilter && 
                 dep.statusMessage !== versionStatusFilter) {
                 return false;
+            }
+
+            // Dependency type filter (direct/transitive)
+            if (dependencyTypeFilter) {
+                if (dependencyTypeFilter === 'direct' && dep.type !== 'direct') {
+                    return false;
+                }
+                if (dependencyTypeFilter === 'transitive' && dep.type !== 'transitive') {
+                    return false;
+                }
             }
 
             // Vulnerability filter
@@ -1998,7 +2644,14 @@ class SingleRepoAnalyzer {
 
         console.log('🧹 Clearing all dependency filters...');
 
-        const filters = ['packageNameFilter', 'ecosystemFilter', 'versionStatusFilter', 'vulnerabilityFilter', 'languageFilter'];
+        const filters = [
+            'packageNameFilter', 
+            'ecosystemFilter', 
+            'versionStatusFilter', 
+            'dependencyTypeFilter',  // ✅ Added missing filter
+            'vulnerabilityFilter', 
+            'languageFilter'
+        ];
         
         filters.forEach(filterId => {
             const filterElement = document.getElementById(filterId);
@@ -2011,11 +2664,14 @@ class SingleRepoAnalyzer {
             }
         });
 
-        // Reset filtered data to all data and apply filters to ensure consistency
+        // Reset filtered data to all data
+        console.log(`📊 Before reset - allDependencyDetails: ${this.allDependencyDetails.length}, filteredDependencyDetails: ${this.filteredDependencyDetails?.length || 0}`);
+        
         this.filteredDependencyDetails = [...this.allDependencyDetails];
         this.currentDependencyPage = 1;
 
-        console.log(`📊 Reset to show all ${this.allDependencyDetails.length} dependencies`);
+        console.log(`📊 After reset - showing all ${this.allDependencyDetails.length} dependencies`);
+        console.log(`📊 Sample dependencies:`, this.allDependencyDetails.slice(0, 3).map(d => d.name));
 
         // Update count display
         const countElement = document.getElementById('dependencyCount');
@@ -2023,10 +2679,7 @@ class SingleRepoAnalyzer {
             countElement.textContent = `${this.allDependencyDetails.length} dependencies`;
         }
 
-        // Apply filters to ensure display is consistent (should show all since filters are cleared)
-        this.applyDependencyFilters();
-
-        // Re-render the page
+        // Re-render the page directly (don't apply filters since we want to show all)
         this.renderDependencyDetailsPage();
     }
 
@@ -2248,7 +2901,15 @@ class SingleRepoAnalyzer {
             return (severityOrder[typeB] || 0) - (severityOrder[typeA] || 0);
         });
 
+        // Add allDependencies field for easy lookup (combines all categories)
+        driftAnalysis.allDependencies = [
+            ...driftAnalysis.outdatedDependencies,
+            ...driftAnalysis.upToDateDependencies,
+            ...driftAnalysis.unknownDependencies
+        ];
+
         console.log('Dependency drift analysis completed:', driftAnalysis);
+        console.log(`📊 Drift analysis summary: ${driftAnalysis.outdatedDependencies.length} outdated, ${driftAnalysis.upToDateDependencies.length} up-to-date, ${driftAnalysis.unknownDependencies.length} unknown`);
         return driftAnalysis;
     }
 
@@ -2257,7 +2918,14 @@ class SingleRepoAnalyzer {
      */
     async checkLatestVersion(dependency) {
         try {
-            const ecosystem = this.detectEcosystem(dependency.name);
+            // Check if this is a GitHub Action first
+            if (this.githubActionsService.isGitHubAction(dependency)) {
+                console.log(`🎬 Checking GitHub Action version for ${dependency.name}`);
+                return await this.githubActionsService.checkVersion(dependency);
+            }
+            
+            // Extract ecosystem from dependency data (PURL, ecosystem field, or fallback to name-based detection)
+            const ecosystem = this.extractEcosystemFromDependency(dependency);
             let latestVersion = null;
 
             if (ecosystem === 'npm') {
@@ -2380,30 +3048,100 @@ class SingleRepoAnalyzer {
     }
 
     /**
-     * Detect ecosystem based on package name patterns
+     * Extract ecosystem from dependency object (PURL, ecosystem field, or name-based detection)
+     * @param {Object} dependency - Dependency object
+     * @returns {string} Ecosystem name (npm, pypi, maven, nuget, etc.)
      */
-    detectEcosystem(packageName) {
-        // NPM packages (JavaScript/TypeScript)
-        if (packageName.startsWith('@') || packageName.match(/^[a-z0-9-_.]+$/)) {
-            return 'npm';
+    extractEcosystemFromDependency(dependency) {
+        // Extract PURL from various possible locations
+        const purl = dependency.purl || 
+                     dependency.originalPackage?.purl || 
+                     dependency.pkg;
+        
+        // Extract ecosystem from various possible locations
+        const ecosystemField = dependency.ecosystem || 
+                              dependency.originalPackage?.ecosystem ||
+                              dependency.category?.ecosystem;
+        
+        // Debug: log what we have
+        console.log(`🔍 Extracting ecosystem for ${dependency.name}:`, {
+            hasPurl: !!purl,
+            purl: purl,
+            hasEcosystem: !!ecosystemField,
+            ecosystem: ecosystemField
+        });
+        
+        // 1. Try to extract from PURL (most reliable)
+        if (purl) {
+            const purlMatch = purl.match(/^pkg:([^\/]+)\//);
+            if (purlMatch) {
+                const ecosystem = purlMatch[1].toLowerCase();
+                console.log(`✅ Extracted ecosystem from PURL for ${dependency.name}: ${ecosystem}`);
+                return this.normalizeEcosystem(ecosystem);
+            } else {
+                console.warn(`⚠️ PURL exists but didn't match pattern for ${dependency.name}: ${purl}`);
+            }
         }
         
-        // Maven packages (Java)
-        if (packageName.includes(':') && packageName.split(':').length >= 2) {
+        // 2. Try to use ecosystem field directly
+        if (ecosystemField) {
+            console.log(`✅ Using ecosystem field for ${dependency.name}: ${ecosystemField}`);
+            return this.normalizeEcosystem(ecosystemField);
+        }
+        
+        // 3. Fallback to name-based detection (least reliable)
+        console.warn(`⚠️ Fallback to name-based ecosystem detection for ${dependency.name} (no PURL or ecosystem field)`);
+        return this.detectEcosystem(dependency.name);
+    }
+
+    /**
+     * Normalize ecosystem name to standard format
+     * @param {string} ecosystem - Raw ecosystem name
+     * @returns {string} Normalized ecosystem name
+     */
+    normalizeEcosystem(ecosystem) {
+        const normalized = ecosystem.toLowerCase();
+        
+        // Map various ecosystem names to standard format
+        const ecosystemMap = {
+            'pypi': 'pypi',
+            'npm': 'npm',
+            'maven': 'maven',
+            'nuget': 'nuget',
+            'cargo': 'cargo',
+            'composer': 'composer',
+            'go': 'go',
+            'golang': 'go',
+            'rubygems': 'rubygems'
+        };
+        
+        return ecosystemMap[normalized] || normalized;
+    }
+
+    /**
+     * Detect ecosystem based on package name patterns (fallback only)
+     * NOTE: This is unreliable and should only be used as last resort when PURL is not available
+     */
+    detectEcosystem(packageName) {
+        const name = packageName.toLowerCase();
+        
+        // Maven packages (Java) - contain colons
+        if (name.includes(':') && name.split(':').length >= 2) {
             return 'maven';
         }
         
-        // Python packages (often have underscores or dashes)
-        if (packageName.includes('_') || packageName.includes('-')) {
-            return 'pypi';
-        }
-        
-        // NuGet packages (C#/.NET - often PascalCase)
-        if (packageName.match(/^[A-Z][a-zA-Z0-9.]*$/)) {
+        // NuGet packages (C#/.NET) - often PascalCase with dots
+        if (packageName.match(/^[A-Z][a-zA-Z0-9]*(\.[A-Z][a-zA-Z0-9]*)+$/)) {
             return 'nuget';
         }
         
-        // Default to npm for unknown patterns
+        // NPM scoped packages
+        if (name.startsWith('@') && name.includes('/')) {
+            return 'npm';
+        }
+        
+        // For ambiguous cases, default to npm
+        // (This is why PURL-based detection is critical!)
         return 'npm';
     }
 
@@ -2832,6 +3570,29 @@ class SingleRepoAnalyzer {
             const analysis = await singleRepoStorage.loadAnalysis(owner, name);
             if (analysis) {
                 this.currentAnalysis = analysis.analysisData;
+                
+                // Restore sbomProcessor state from stored analysis
+                if (analysis.analysisData.sbomData) {
+                    // Recreate dependencies in sbomProcessor
+                    this.sbomProcessor = new SBOMProcessor();
+                    if (analysis.analysisData.sbomData.allDependencies) {
+                        analysis.analysisData.sbomData.allDependencies.forEach(dep => {
+                            const key = `${dep.name}@${dep.version}`;
+                            this.sbomProcessor.dependencies.set(key, dep);
+                        });
+                    }
+                    
+                    // Restore license processor if needed
+                    if (!this.sbomProcessor.licenseProcessor) {
+                        this.sbomProcessor.licenseProcessor = new LicenseProcessor();
+                    }
+                    
+                    // Restore deps.dev analysis if available
+                    if (analysis.analysisData.depsDevAnalysis) {
+                        this.sbomProcessor.depsDevAnalysis = analysis.analysisData.depsDevAnalysis;
+                    }
+                }
+                
                 this.displayRepositoryInfo(analysis.analysisData.repository.info);
                 this.displayResults(analysis.analysisData);
                 
