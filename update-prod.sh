@@ -6,16 +6,21 @@ echo "🔄 Updating production files..."
 
 # Clean and copy files
 rm -rf docs/*
+
+# Copy all HTML files
 cp index.html docs/
 cp stats.html docs/
 cp license-compliance.html docs/
 cp vuln.html docs/
 cp deps.html docs/
 cp settings.html docs/
+cp authors.html docs/
+
+# Copy JavaScript and CSS directories
 cp -r js docs/
 cp -r css docs/
 
-# Ensure .nojekyll file exists
+# Ensure .nojekyll file exists (prevents Jekyll processing)
 touch docs/.nojekyll
 
 echo "✅ Production files updated!"
