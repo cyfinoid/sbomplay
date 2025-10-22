@@ -65,40 +65,21 @@ The tool now maintains data for all analyzed organizations and users until manua
 
 ## Storage Management
 
-### Local Storage Quota
+### IndexedDB Storage
 
-SBOM Play uses browser localStorage to store analysis data. localStorage has a 5MB limit, which can be exceeded with large analyses. The tool includes several features to manage this:
+SBOM Play uses browser IndexedDB to store analysis data. IndexedDB provides generous storage limits (typically 50% of available disk space), making it ideal for large-scale SBOM analyses.
 
-#### Automatic Features
-- **Data Compression**: Large data is automatically compressed to save space
-- **Quota Monitoring**: Real-time storage usage tracking
-- **Automatic Cleanup**: Old data is automatically removed when quota is exceeded
-- **Smart Limits**: Maximum 10 organizations and 20 history entries stored
+#### Storage Features
+- **Generous Limits**: IndexedDB typically allows storing gigabytes of data
+- **Persistent Storage**: Data persists between browser sessions
+- **Efficient Queries**: Fast retrieval of specific organizations or repositories
+- **Separate Stores**: Organizations, repositories, vulnerabilities, and authors stored in separate object stores
 
 #### Manual Management
-- **Storage Status**: Check current usage and available space
-- **Export Data**: Export all data before clearing to preserve results
+- **Storage Status**: Check current usage and available space in Settings
+- **Export Data**: Export all data to JSON for backup or sharing
 - **Clear Old Data**: Remove old analyses while keeping recent ones
 - **Clear All Data**: Complete reset of stored data
-
-#### Storage Warnings
-The tool will show warnings when:
-- Storage usage exceeds 70% (warning)
-- Storage usage exceeds 90% (danger)
-- Quota is exceeded during save (error)
-
-### Storage Quota Exceeded Error
-
-If you encounter a "QuotaExceededError", the tool will:
-1. Attempt to compress the data
-2. Clean up old history entries
-3. Remove oldest organizations if needed
-4. Show a user-friendly error message if cleanup fails
-
-**To resolve:**
-1. Export your current data using "Export All Data"
-2. Clear old analyses using "Clear Old Data"
-3. Try the analysis again
 
 ## Troubleshooting
 

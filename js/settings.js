@@ -11,10 +11,11 @@ class SettingsApp {
     /**
      * Initialize settings page
      */
-    initializeSettings() {
+    async initializeSettings() {
+        await this.storageManager.init();
         this.loadSavedToken();
-        this.showStorageStatus();
-        this.displayOrganizationsOverview();
+        await this.showStorageStatus();
+        await this.displayOrganizationsOverview();
         this.loadRateLimitInfo();
         this.setupEventListeners();
     }
@@ -139,11 +140,11 @@ class SettingsApp {
     /**
      * Show storage status
      */
-    showStorageStatus() {
-        const storageInfo = this.storageManager.getStorageInfo();
+    async showStorageStatus() {
+        const storageInfo = await this.storageManager.getStorageInfo();
         const statusElement = document.getElementById('storageStatus');
         
-        const usagePercentage = (storageInfo.usedBytes / storageInfo.totalBytes) * 100;
+        const usagePercentage = storageInfo.usagePercent || 0;
         let statusClass = 'success';
         if (usagePercentage > 90) statusClass = 'danger';
         else if (usagePercentage > 70) statusClass = 'warning';
@@ -160,17 +161,17 @@ class SettingsApp {
                         </div>
                     </div>
                     <p class="small text-muted mb-0">
-                        ${(storageInfo.usedBytes / 1024 / 1024).toFixed(2)}MB used of 
-                        ${(storageInfo.totalBytes / 1024 / 1024).toFixed(2)}MB total
+                        ${(storageInfo.totalSize / 1024 / 1024).toFixed(2)}MB used of 
+                        ${(storageInfo.maxStorageSize / 1024 / 1024).toFixed(2)}MB total
                     </p>
                 </div>
                 <div class="col-md-6">
                     <h6>Data Summary</h6>
                     <ul class="list-unstyled small">
                         <li><strong>Organizations:</strong> ${storageInfo.organizationsCount}</li>
-                        <li><strong>History Entries:</strong> ${storageInfo.historyCount}</li>
-                        <li><strong>Vulnerability Data:</strong> ${storageInfo.vulnerabilityCount}</li>
-                        <li><strong>Available Space:</strong> ${(storageInfo.availableBytes / 1024 / 1024).toFixed(2)}MB</li>
+                        <li><strong>Repositories:</strong> ${storageInfo.repositoriesCount}</li>
+                        <li><strong>Total Entries:</strong> ${storageInfo.totalEntries}</li>
+                        <li><strong>Available Space:</strong> ${(storageInfo.availableSpace / 1024 / 1024).toFixed(2)}MB</li>
                     </ul>
                 </div>
             </div>
@@ -180,9 +181,9 @@ class SettingsApp {
     /**
      * Export all data
      */
-    exportAllData() {
+    async exportAllData() {
         try {
-            this.storageManager.exportAllData();
+            await this.storageManager.exportAllData();
             this.showAlert('All data exported successfully!', 'success');
         } catch (error) {
             this.showAlert(`Export failed: ${error.message}`, 'danger');
@@ -233,13 +234,13 @@ class SettingsApp {
     /**
      * Clear all data
      */
-    clearAllData() {
+    async clearAllData() {
         if (confirm('Are you sure you want to clear ALL data? This action cannot be undone.')) {
             try {
-                this.storageManager.clearAllData();
+                await this.storageManager.clearAllData();
                 this.showAlert('All data cleared successfully!', 'success');
-                this.showStorageStatus(); // Refresh display
-                this.displayOrganizationsOverview(); // Refresh display
+                await this.showStorageStatus(); // Refresh display
+                await this.displayOrganizationsOverview(); // Refresh display
             } catch (error) {
                 this.showAlert(`Failed to clear data: ${error.message}`, 'danger');
             }
@@ -249,31 +250,31 @@ class SettingsApp {
     /**
      * Clear old data (keep only recent)
      */
-    clearOldData() {
+    async clearOldData() {
         if (confirm('This will remove old analysis data while keeping the most recent. Continue?')) {
             try {
-                const storageInfo = this.storageManager.getStorageInfo();
-                const organizations = storageInfo.organizations;
+                const storageInfo = await this.storageManager.getStorageInfo();
+                const allEntries = [...storageInfo.organizations, ...storageInfo.repositories];
                 
-                if (organizations.length <= 3) {
+                if (allEntries.length <= 3) {
                     this.showAlert('Not enough data to clear. Keep at least 3 recent analyses.', 'info');
                     return;
                 }
                 
-                // Keep only the 3 most recent organizations
-                organizations.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
-                const toRemove = organizations.slice(3);
+                // Keep only the 3 most recent entries
+                allEntries.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+                const toRemove = allEntries.slice(3);
                 
                 let removedCount = 0;
-                for (const org of toRemove) {
-                    if (this.storageManager.removeOrganizationData(org.name)) {
+                for (const entry of toRemove) {
+                    if (await this.storageManager.removeOrganizationData(entry.name)) {
                         removedCount++;
                     }
                 }
                 
                 this.showAlert(`Cleared ${removedCount} old analyses. Kept 3 most recent.`, 'success');
-                this.displayOrganizationsOverview(); // Refresh display
-                this.showStorageStatus(); // Update storage status
+                await this.displayOrganizationsOverview(); // Refresh display
+                await this.showStorageStatus(); // Update storage status
             } catch (error) {
                 console.error('Clear old data failed:', error);
                 this.showAlert('Failed to clear old data', 'danger');
@@ -321,22 +322,22 @@ class SettingsApp {
     /**
      * Display organizations overview
      */
-    displayOrganizationsOverview() {
-        const storageInfo = this.storageManager.getStorageInfo();
+    async displayOrganizationsOverview() {
+        const storageInfo = await this.storageManager.getStorageInfo();
         
-        if (storageInfo.organizationsCount === 0) {
+        if (storageInfo.totalEntries === 0) {
             document.getElementById('organizationsSection').style.display = 'none';
             document.getElementById('noDataSection').style.display = 'block';
             return;
         }
 
         const content = document.getElementById('organizationsContent');
-        const organizations = storageInfo.organizations;
+        const allEntries = [...storageInfo.organizations, ...storageInfo.repositories];
         
         let html = `
             <div class="row mb-3">
                 <div class="col-md-6">
-                    <h6>Stored Organizations (${organizations.length})</h6>
+                    <h6>Stored Analyses (${allEntries.length})</h6>
                 </div>
                 <div class="col-md-6 text-end">
                     <button class="btn btn-outline-primary btn-sm" onclick="settingsApp.exportAllData()">
@@ -349,11 +350,11 @@ class SettingsApp {
             </div>
         `;
 
-        // Add combined view if there are multiple organizations
-        if (organizations.length > 1) {
-            const combinedStats = organizations.reduce((acc, org) => {
-                acc.repositories += org.repositories;
-                acc.dependencies += org.dependencies;
+        // Add combined view if there are multiple entries
+        if (allEntries.length > 1) {
+            const combinedStats = allEntries.reduce((acc, entry) => {
+                acc.repositories += entry.repositories;
+                acc.dependencies += entry.dependencies;
                 return acc;
             }, { repositories: 0, dependencies: 0 });
 
@@ -362,7 +363,7 @@ class SettingsApp {
                     <div class="row align-items-center">
                         <div class="col-md-8">
                             <h6 class="mb-1"><i class="fas fa-layer-group me-2"></i>Combined Analysis</h6>
-                            <p class="mb-0 small">View aggregated data from all ${organizations.length} organizations</p>
+                            <p class="mb-0 small">View aggregated data from all ${allEntries.length} entries</p>
                         </div>
                         <div class="col-md-4 text-end">
                             <button class="btn btn-primary btn-sm" onclick="settingsApp.showCombinedView()">
@@ -377,13 +378,13 @@ class SettingsApp {
             `;
         }
 
-        if (organizations.length > 0) {
+        if (allEntries.length > 0) {
             html += `
                 <div class="table-responsive">
                     <table class="table table-sm">
                         <thead>
                             <tr>
-                                <th>Organization</th>
+                                <th>Name</th>
                                 <th>Repositories</th>
                                 <th>Dependencies</th>
                                 <th>Last Updated</th>
@@ -393,24 +394,24 @@ class SettingsApp {
                         <tbody>
             `;
 
-            organizations.forEach(org => {
-                const date = new Date(org.timestamp).toLocaleDateString();
-                const time = new Date(org.timestamp).toLocaleTimeString();
+            allEntries.forEach(entry => {
+                const date = new Date(entry.timestamp).toLocaleDateString();
+                const time = new Date(entry.timestamp).toLocaleTimeString();
                 
                 html += `
                     <tr>
-                        <td><strong>${org.name}</strong></td>
-                        <td><span class="badge bg-primary">${org.repositories}</span></td>
-                        <td><span class="badge bg-success">${org.dependencies}</span></td>
+                        <td><strong>${entry.name}</strong></td>
+                        <td><span class="badge bg-primary">${entry.repositories}</span></td>
+                        <td><span class="badge bg-success">${entry.dependencies}</span></td>
                         <td><small>${date} ${time}</small></td>
                         <td>
-                            <button class="btn btn-outline-primary btn-sm" onclick="settingsApp.showDetailedViewForOrg('${org.name}')">
+                            <button class="btn btn-outline-primary btn-sm" onclick="settingsApp.showDetailedViewForOrg('${entry.name}')">
                                 <i class="fas fa-eye me-1"></i>View
                             </button>
-                            <button class="btn btn-outline-info btn-sm" onclick="settingsApp.debugOrganizationData('${org.name}')">
+                            <button class="btn btn-outline-info btn-sm" onclick="settingsApp.debugOrganizationData('${entry.name}')">
                                 <i class="fas fa-bug me-1"></i>Debug
                             </button>
-                            <button class="btn btn-outline-danger btn-sm" onclick="settingsApp.removeOrganizationData('${org.name}')">
+                            <button class="btn btn-outline-danger btn-sm" onclick="settingsApp.removeOrganizationData('${entry.name}')">
                                 <i class="fas fa-trash me-1"></i>Remove
                             </button>
                         </td>
@@ -430,24 +431,24 @@ class SettingsApp {
     }
 
     /**
-     * Show detailed view for a specific organization
+     * Show detailed view for a specific organization or repository
      */
-    showDetailedViewForOrg(orgName) {
-        const data = this.storageManager.loadAnalysisDataForOrganization(orgName);
+    async showDetailedViewForOrg(name) {
+        const data = await this.storageManager.loadAnalysisDataForOrganization(name);
         if (data) {
-            console.log('Loading detailed view for:', orgName, data);
-            // Redirect to stats.html with organization parameter
-            window.location.href = `stats.html?org=${encodeURIComponent(orgName)}`;
+            console.log('Loading detailed view for:', name, data);
+            // Redirect to stats.html with parameter
+            window.location.href = `stats.html?org=${encodeURIComponent(name)}`;
         } else {
-            this.showAlert(`No detailed data found for ${orgName}`, 'warning');
+            this.showAlert(`No detailed data found for ${name}`, 'warning');
         }
     }
 
     /**
-     * Show combined view from all organizations
+     * Show combined view from all entries
      */
-    showCombinedView() {
-        const combinedData = this.storageManager.getCombinedData();
+    async showCombinedView() {
+        const combinedData = await this.storageManager.getCombinedData();
         if (combinedData) {
             console.log('Loading combined view:', combinedData);
             // Redirect to stats.html with combined parameter
@@ -458,23 +459,23 @@ class SettingsApp {
     }
 
     /**
-     * Debug organization data
+     * Debug entry data
      */
-    debugOrganizationData(orgName) {
-        const data = this.storageManager.loadAnalysisDataForOrganization(orgName);
+    async debugOrganizationData(name) {
+        const data = await this.storageManager.loadAnalysisDataForOrganization(name);
         if (data) {
-            console.log('🔍 Organization Data Debug:', orgName, data);
-            this.showAlert(`Debug data for ${orgName} logged to console`, 'info');
+            console.log('🔍 Entry Data Debug:', name, data);
+            this.showAlert(`Debug data for ${name} logged to console`, 'info');
         } else {
-            this.showAlert(`No data found for ${orgName}`, 'warning');
+            this.showAlert(`No data found for ${name}`, 'warning');
         }
     }
 
     /**
      * Debug combined data structure
      */
-    debugCombinedData() {
-        const combinedData = this.storageManager.getCombinedData();
+    async debugCombinedData() {
+        const combinedData = await this.storageManager.getCombinedData();
         if (combinedData) {
             console.log('🔍 Combined Data Structure:', combinedData);
             this.showAlert('Combined data debug info logged to console', 'info');
@@ -484,17 +485,17 @@ class SettingsApp {
     }
 
     /**
-     * Remove organization data
+     * Remove entry data
      */
-    removeOrganizationData(orgName) {
-        if (confirm(`Are you sure you want to remove all data for ${orgName}?`)) {
-            const success = this.storageManager.removeOrganizationData(orgName);
+    async removeOrganizationData(name) {
+        if (confirm(`Are you sure you want to remove all data for ${name}?`)) {
+            const success = await this.storageManager.removeOrganizationData(name);
             if (success) {
-                this.showAlert(`Data for ${orgName} has been removed`, 'success');
-                this.displayOrganizationsOverview();
-                this.showStorageStatus(); // Update storage status
+                this.showAlert(`Data for ${name} has been removed`, 'success');
+                await this.displayOrganizationsOverview();
+                await this.showStorageStatus(); // Update storage status
             } else {
-                this.showAlert(`Failed to remove data for ${orgName}`, 'danger');
+                this.showAlert(`Failed to remove data for ${name}`, 'danger');
             }
         }
     }

@@ -1,0 +1,233 @@
+/* Load Sen font from Google Fonts */
+@import url('https://fonts.googleapis.com/css2?family=Sen:wght@400;700;800&display=swap');
+
+:root {
+  /* Typography */
+  --font-family: 'Sen', sans-serif;
+  --font-size-title: 42px;
+  --font-size-subtitle: 36px;
+  --font-size-heading: 32px;
+  --font-size-subheading: 24px;
+  --font-size-section: 20px;
+  --font-size-body: 16px;
+  --font-size-quote: 16px;
+  --font-size-caption: 14px;
+}
+
+/* Dark Theme (default) */
+[data-theme="dark"] {
+  --bg-primary: #121212;
+  --bg-secondary: #1e1e1e;
+  --text-primary: #50c878;
+  --text-secondary: #8a8f98;
+  --color-yellow: #fdcb52;
+  --color-red: #d63c53;
+  --color-blue: #466fe0;
+  --color-green: #7fd1b9;
+  --color-dirty-yellow: #b6a189;
+  --border-color: #333333;
+}
+
+/* Light Theme */
+[data-theme="light"] {
+  --bg-primary: #fafafa;
+  --bg-secondary: #ffffff;
+  --text-primary: #1e1e1e;
+  --text-secondary: #8a8f98;
+  --color-yellow: #fdcb52;
+  --color-red: #d63c53;
+  --color-blue: #466fe0;
+  --color-green: #50c878;
+  --color-dirty-yellow: #b6a189;
+  --border-color: #e0e0e0;
+}
+
+/* Apply theme variables */
+body {
+  font-family: var(--font-family) !important;
+  background-color: var(--bg-primary) !important;
+  color: var(--text-primary) !important;
+  font-size: var(--font-size-body);
+  transition: background-color 0.3s ease, color 0.3s ease;
+}
+
+h1 { font-size: var(--font-size-title); }
+h2 { font-size: var(--font-size-subtitle); }
+h3 { font-size: var(--font-size-heading); }
+h4 { font-size: var(--font-size-subheading); }
+h5 { font-size: var(--font-size-section); }
+h6 { font-size: var(--font-size-body); }
+
+.card {
+  background-color: var(--bg-secondary) !important;
+  color: var(--text-primary) !important;
+  border-color: var(--border-color) !important;
+  transition: background-color 0.3s ease, color 0.3s ease;
+}
+
+.card-header {
+  background-color: var(--bg-secondary) !important;
+  color: var(--text-primary) !important;
+  border-bottom-color: var(--border-color) !important;
+}
+
+.card-body {
+  color: var(--text-primary) !important;
+}
+
+.alert {
+  background-color: var(--bg-secondary) !important;
+  color: var(--text-primary) !important;
+  border-color: var(--border-color) !important;
+}
+
+.modal-content {
+  background-color: var(--bg-secondary) !important;
+  color: var(--text-primary) !important;
+}
+
+.modal-header {
+  border-bottom-color: var(--border-color) !important;
+}
+
+.modal-footer {
+  border-top-color: var(--border-color) !important;
+}
+
+.text-muted {
+  color: var(--text-secondary) !important;
+}
+
+.form-control,
+.form-select {
+  background-color: var(--bg-secondary) !important;
+  color: var(--text-primary) !important;
+  border-color: var(--border-color) !important;
+}
+
+.form-control:focus,
+.form-select:focus {
+  background-color: var(--bg-secondary) !important;
+  color: var(--text-primary) !important;
+  border-color: var(--color-green) !important;
+  box-shadow: 0 0 0 0.25rem rgba(127, 209, 185, 0.25);
+}
+
+.table {
+  color: var(--text-primary) !important;
+}
+
+.table-hover tbody tr:hover {
+  background-color: var(--bg-primary) !important;
+}
+
+/* Bootstrap button overrides for theme */
+.btn-primary {
+  background-color: var(--color-green) !important;
+  border-color: var(--color-green) !important;
+  color: #000000 !important;
+}
+
+.btn-primary:hover {
+  background-color: #6fb8a0 !important;
+  border-color: #6fb8a0 !important;
+}
+
+.btn-warning {
+  background-color: var(--color-yellow) !important;
+  border-color: var(--color-yellow) !important;
+  color: #000000 !important;
+}
+
+.btn-danger {
+  background-color: var(--color-red) !important;
+  border-color: var(--color-red) !important;
+  color: #ffffff !important;
+}
+
+.btn-info {
+  background-color: var(--color-blue) !important;
+  border-color: var(--color-blue) !important;
+  color: #ffffff !important;
+}
+
+.btn-outline-primary {
+  color: var(--color-green) !important;
+  border-color: var(--color-green) !important;
+}
+
+.btn-outline-primary:hover {
+  background-color: var(--color-green) !important;
+  color: #000000 !important;
+}
+
+.btn-outline-secondary {
+  color: var(--text-secondary) !important;
+  border-color: var(--text-secondary) !important;
+}
+
+.btn-outline-secondary:hover {
+  background-color: var(--text-secondary) !important;
+  color: var(--bg-primary) !important;
+}
+
+.bg-primary { background-color: var(--color-blue) !important; }
+.bg-success { background-color: var(--color-green) !important; }
+.bg-warning { background-color: var(--color-yellow) !important; color: #000000 !important; }
+.bg-danger { background-color: var(--color-red) !important; }
+.bg-info { background-color: var(--color-blue) !important; }
+
+.text-primary { color: var(--text-primary) !important; }
+.text-success { color: var(--color-green) !important; }
+.text-warning { color: var(--color-yellow) !important; }
+.text-danger { color: var(--color-red) !important; }
+.text-info { color: var(--color-blue) !important; }
+
+.badge.bg-primary { color: #ffffff !important; }
+.badge.bg-success { color: #000000 !important; }
+.badge.bg-warning { color: #000000 !important; }
+.badge.bg-info { color: #ffffff !important; }
+
+/* Navbar theming */
+.navbar-dark {
+  background-color: var(--bg-secondary) !important;
+}
+
+.navbar-dark .navbar-brand,
+.navbar-dark .nav-link {
+  color: var(--text-primary) !important;
+}
+
+.navbar-dark .nav-link:hover {
+  color: var(--color-green) !important;
+}
+
+/* Footer theming */
+footer {
+  background-color: var(--bg-secondary) !important;
+  color: var(--text-primary) !important;
+}
+
+/* Progress bar theming */
+.progress {
+  background-color: var(--bg-primary) !important;
+}
+
+.progress-bar {
+  background-color: var(--color-green) !important;
+}
+
+/* Smooth transitions for theme changes */
+* {
+  transition: background-color 0.3s ease, color 0.3s ease, border-color 0.3s ease;
+}
+
+/* Theme toggle button */
+.theme-toggle {
+  transition: all 0.3s ease;
+}
+
+.theme-toggle:hover {
+  transform: scale(1.1);
+}
+

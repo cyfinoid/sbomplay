@@ -38,14 +38,14 @@ class ViewManager {
     }
 
     /**
-     * Show dependency details from index (safe for HTML)
+     * Show dependency details from index (safe for HTML) - async
      */
-    showDependencyDetailsFromIndex(index, organization) {
+    async showDependencyDetailsFromIndex(index, organization) {
         console.log('Showing dependency details from index:', index, 'for org:', organization);
         
         // Handle combined data
         if (organization === 'All Organizations Combined') {
-            const combinedData = storageManager.getCombinedData();
+            const combinedData = await storageManager.getCombinedData();
             if (!combinedData) {
                 console.error('Combined data not found');
                 this.showError('Combined data not found');
@@ -66,15 +66,15 @@ class ViewManager {
             return;
         }
         
-        // Get data from storage for individual organization
-        const orgData = storageManager.getOrganizationData(organization);
-        if (!orgData) {
-            console.error('Organization data not found:', organization);
-            this.showError('Organization data not found');
+        // Get data from storage for individual entry (org or repo)
+        const entryData = await storageManager.loadAnalysisDataForOrganization(organization);
+        if (!entryData) {
+            console.error('Entry data not found:', organization);
+            this.showError('Entry data not found');
             return;
         }
         
-        const topDeps = orgData.data.topDependencies || [];
+        const topDeps = entryData.data.topDependencies || [];
         if (index < 0 || index >= topDeps.length) {
             console.error('Invalid dependency index:', index);
             this.showError('Invalid dependency index');
@@ -84,7 +84,7 @@ class ViewManager {
         const dependency = topDeps[index];
         console.log('Retrieved dependency:', dependency);
         
-        this.showDependencyDetails(dependency, orgData);
+        this.showDependencyDetails(dependency, entryData);
     }
 
     /**
@@ -119,12 +119,12 @@ class ViewManager {
     /**
      * Show repository details from index (safe for HTML)
      */
-    showRepositoryDetailsFromIndex(index, organization) {
+    async showRepositoryDetailsFromIndex(index, organization) {
         console.log('Showing repository details from index:', index, 'for org:', organization);
         
         // Handle combined data
         if (organization === 'All Organizations Combined') {
-            const combinedData = storageManager.getCombinedData();
+            const combinedData = await storageManager.getCombinedData();
             if (!combinedData) {
                 console.error('Combined data not found');
                 this.showError('Combined data not found');
@@ -146,7 +146,7 @@ class ViewManager {
         }
         
         // Get data from storage for individual organization
-        const orgData = storageManager.getOrganizationData(organization);
+        const orgData = await storageManager.loadAnalysisDataForOrganization(organization);
         if (!orgData) {
             console.error('Organization data not found:', organization);
             this.showError('Organization data not found');
@@ -169,12 +169,12 @@ class ViewManager {
     /**
      * Show repository details from all repositories index (safe for HTML)
      */
-    showRepositoryDetailsFromAllReposIndex(index, organization) {
+    async showRepositoryDetailsFromAllReposIndex(index, organization) {
         console.log('Showing repository details from all repos index:', index, 'for org:', organization);
         
         // Handle combined data
         if (organization === 'All Organizations Combined') {
-            const combinedData = storageManager.getCombinedData();
+            const combinedData = await storageManager.getCombinedData();
             if (!combinedData) {
                 console.error('Combined data not found');
                 this.showError('Combined data not found');
@@ -196,7 +196,7 @@ class ViewManager {
         }
         
         // Get data from storage for individual organization
-        const orgData = storageManager.getOrganizationData(organization);
+        const orgData = await storageManager.loadAnalysisDataForOrganization(organization);
         if (!orgData) {
             console.error('Organization data not found:', organization);
             this.showError('Organization data not found');
@@ -219,12 +219,12 @@ class ViewManager {
     /**
      * Show dependency details from all dependencies index (safe for HTML)
      */
-    showDependencyDetailsFromAllDepsIndex(index, organization) {
+    async showDependencyDetailsFromAllDepsIndex(index, organization) {
         console.log('Showing dependency details from all deps index:', index, 'for org:', organization);
         
         // Handle combined data
         if (organization === 'All Organizations Combined') {
-            const combinedData = storageManager.getCombinedData();
+            const combinedData = await storageManager.getCombinedData();
             if (!combinedData) {
                 console.error('Combined data not found');
                 this.showError('Combined data not found');
@@ -246,7 +246,7 @@ class ViewManager {
         }
         
         // Get data from storage for individual organization
-        const orgData = storageManager.getOrganizationData(organization);
+        const orgData = await storageManager.loadAnalysisDataForOrganization(organization);
         if (!orgData) {
             console.error('Organization data not found:', organization);
             this.showError('Organization data not found');
@@ -269,11 +269,11 @@ class ViewManager {
     /**
      * Show dependency details from repository index (safe for HTML)
      */
-    showDependencyDetailsFromRepoIndex(index, organization, repoFullName) {
+    async showDependencyDetailsFromRepoIndex(index, organization, repoFullName) {
         console.log('Showing dependency details from repo index:', index, 'for org:', organization, 'repo:', repoFullName);
         
         // Get data from storage
-        const orgData = storageManager.getOrganizationData(organization);
+        const orgData = await storageManager.loadAnalysisDataForOrganization(organization);
         if (!orgData) {
             console.error('Organization data not found:', organization);
             this.showError('Organization data not found');
@@ -316,11 +316,11 @@ class ViewManager {
     /**
      * Show organization overview from storage (safe for HTML)
      */
-    showOrganizationOverviewFromStorage(organization) {
+    async showOrganizationOverviewFromStorage(organization) {
         console.log('Showing organization overview from storage for:', organization);
         
         // Get data from storage
-        const orgData = storageManager.getOrganizationData(organization);
+        const orgData = await storageManager.loadAnalysisDataForOrganization(organization);
         if (!orgData) {
             console.error('Organization data not found:', organization);
             this.showError('Organization data not found');
@@ -851,7 +851,7 @@ class ViewManager {
 
         try {
             // Get organization data
-            const orgData = storageManager.getOrganizationData(organization);
+            const orgData = await storageManager.loadAnalysisDataForOrganization(organization);
             if (!orgData || !orgData.data.allDependencies) {
                 this.showAlert('No dependencies found for analysis', 'warning');
                 return;
@@ -881,7 +881,7 @@ class ViewManager {
             orgData.timestamp = new Date().toISOString();
             
             // Save updated data
-            storageManager.saveAnalysisData(organization, orgData.data);
+            await storageManager.saveAnalysisData(organization, orgData.data);
             
             // Refresh the view
             this.showOrganizationOverview(orgData);
@@ -1042,14 +1042,14 @@ class ViewManager {
     /**
      * Show vulnerability cache statistics
      */
-    showVulnerabilityCacheStats() {
+    async showVulnerabilityCacheStats() {
         if (!window.osvService) {
             this.showAlert('OSV Service not available', 'warning');
             return;
         }
 
         const stats = window.osvService.getCacheStats();
-        const centralizedStats = window.storageManager ? window.storageManager.getVulnerabilityStorageStats() : null;
+        const centralizedStats = window.storageManager ? await window.storageManager.getVulnerabilityStorageStats() : null;
         
         let message = `In-memory cache: ${stats.size} entries. Cached packages: ${stats.entries.slice(0, 5).join(', ')}${stats.entries.length > 5 ? '...' : ''}`;
         
@@ -1319,7 +1319,7 @@ class ViewManager {
         }
         try {
             // Get organization data
-            const orgData = storageManager.getOrganizationData(organization);
+            const orgData = await storageManager.loadAnalysisDataForOrganization(organization);
             if (!orgData || !orgData.data.allRepositories) {
                 this.showAlert('No repository data found', 'warning');
                 return;
@@ -1406,7 +1406,7 @@ class ViewManager {
     async runLicenseComplianceCheck(organization) {
         try {
             // Get organization data
-            const orgData = storageManager.getOrganizationData(organization);
+            const orgData = await storageManager.loadAnalysisDataForOrganization(organization);
             if (!orgData || !orgData.data.allDependencies) {
                 this.showAlert('No dependencies found for license analysis', 'warning');
                 return;
@@ -1442,7 +1442,7 @@ class ViewManager {
                 orgData.timestamp = new Date().toISOString();
                 
                 // Save updated data
-                storageManager.saveAnalysisData(organization, orgData.data);
+                await storageManager.saveAnalysisData(organization, orgData.data);
                 
                 // Refresh the view
                 this.showOrganizationOverview(orgData);
@@ -1630,8 +1630,8 @@ class ViewManager {
     /**
      * Show license repositories for a specific license type
      */
-    showLicenseRepositories(organization, licenseType) {
-        const orgData = storageManager.getOrganizationData(organization);
+    async showLicenseRepositories(organization, licenseType) {
+        const orgData = await storageManager.loadAnalysisDataForOrganization(organization);
         if (!orgData || !orgData.data.licenseAnalysis) {
             this.showAlert('No license analysis data available', 'warning');
             return;
@@ -1787,8 +1787,8 @@ class ViewManager {
     /**
      * Show detailed view for license conflicts
      */
-    showLicenseConflictDetails(organization, conflictIndex) {
-        const orgData = storageManager.getOrganizationData(organization);
+    async showLicenseConflictDetails(organization, conflictIndex) {
+        const orgData = await storageManager.loadAnalysisDataForOrganization(organization);
         if (!orgData || !orgData.data.licenseAnalysis || !orgData.data.licenseAnalysis.conflicts) {
             this.showAlert('No license conflict data available', 'warning');
             return;
@@ -1907,8 +1907,8 @@ class ViewManager {
     /**
      * Show detailed view for high-risk licenses
      */
-    showHighRiskLicenseDetails(organization, packageName, version) {
-        const orgData = storageManager.getOrganizationData(organization);
+    async showHighRiskLicenseDetails(organization, packageName, version) {
+        const orgData = await storageManager.loadAnalysisDataForOrganization(organization);
         if (!orgData || !orgData.data.licenseAnalysis) {
             this.showAlert('No license analysis data available', 'warning');
             return;
@@ -2008,8 +2008,8 @@ class ViewManager {
     /**
      * Show detailed view for recommendations
      */
-    showRecommendationDetails(organization, recommendationIndex) {
-        const orgData = storageManager.getOrganizationData(organization);
+    async showRecommendationDetails(organization, recommendationIndex) {
+        const orgData = await storageManager.loadAnalysisDataForOrganization(organization);
         if (!orgData || !orgData.data.licenseAnalysis || !orgData.data.licenseAnalysis.recommendations) {
             this.showAlert('No recommendation data available', 'warning');
             return;
@@ -2168,7 +2168,7 @@ class ViewManager {
         
         if (panel.style.display === 'none') {
             // Show panel
-            const orgData = storageManager.getOrganizationData(organization);
+            const orgData = await storageManager.loadAnalysisDataForOrganization(organization);
             if (!orgData) {
                 this.showAlert('Organization data not found', 'error');
                 return;
@@ -2307,8 +2307,8 @@ class ViewManager {
     /**
      * Show license conflict details in a popout modal
      */
-    showLicenseConflictDetailsModal(organization, conflictIndex) {
-        const orgData = storageManager.getOrganizationData(organization);
+    async showLicenseConflictDetailsModal(organization, conflictIndex) {
+        const orgData = await storageManager.loadAnalysisDataForOrganization(organization);
         if (!orgData || !orgData.data.licenseAnalysis || !orgData.data.licenseAnalysis.conflicts) {
             this.showAlert('No license conflict data available', 'warning');
             return;
@@ -2443,8 +2443,8 @@ class ViewManager {
     /**
      * Show high-risk license details in a popout modal
      */
-    showHighRiskLicenseDetailsModal(organization, packageName, version) {
-        const orgData = storageManager.getOrganizationData(organization);
+    async showHighRiskLicenseDetailsModal(organization, packageName, version) {
+        const orgData = await storageManager.loadAnalysisDataForOrganization(organization);
         if (!orgData || !orgData.data.licenseAnalysis) {
             this.showAlert('No license analysis data available', 'warning');
             return;

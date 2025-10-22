@@ -7,6 +7,8 @@
     <link href="css/style.css" rel="stylesheet">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <link href="css/themes.css" rel="stylesheet">
+    <script src="js/theme-manager.js"></script>
 </head>
 <body>
     <!-- Navigation -->
@@ -21,9 +23,13 @@
                 <a class="nav-link active" href="license-compliance.html">License</a>
                 <a class="nav-link" href="vuln.html">Vulnerabilities</a>
                 <a class="nav-link" href="deps.html">Dependencies</a>
+                <a class="nav-link" href="authors.html">Authors</a>
                 <a class="nav-link" href="settings.html">
                     <i class="fas fa-cog"></i>
                 </a>
+                <button class="btn btn-outline-secondary btn-sm ms-2 theme-toggle" onclick="themeManager.toggleTheme()" title="Toggle theme">
+                    <i class="fas fa-sun"></i>
+                </button>
             </div>
         </div>
     </nav>
@@ -158,6 +164,7 @@
             </div>
         </div>
     </footer>
+    <script src="js/indexeddb-manager.js"></script>
     <script src="js/view-manager.js"></script>
     <script src="js/license-processor.js"></script>
     <script src="js/osv-service.js"></script>
@@ -167,29 +174,30 @@
     <script src="js/app.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
     <script>
-    document.addEventListener('DOMContentLoaded', function() {
+    document.addEventListener('DOMContentLoaded', async function() {
         const storageManager = new StorageManager();
+        await storageManager.init();
         const viewManager = new ViewManager();
         
         // Display organizations overview
-        displayOrganizationsOverview();
+        await displayOrganizationsOverview();
         
-        function displayOrganizationsOverview() {
-            const storageInfo = storageManager.getStorageInfo();
+        async function displayOrganizationsOverview() {
+            const storageInfo = await storageManager.getStorageInfo();
             const organizationsContent = document.getElementById('organizationsContent');
             
-            if (storageInfo.organizationsCount === 0) {
+            if (storageInfo.totalEntries === 0) {
                 document.getElementById('organizationsSection').style.display = 'none';
                 document.getElementById('noDataSection').style.display = 'block';
                 return;
             }
 
-            const organizations = storageInfo.organizations;
+            const allEntries = [...storageInfo.organizations, ...storageInfo.repositories];
             
             let html = `
                 <div class="row mb-3">
                     <div class="col-md-6">
-                        <h6>Stored Organizations (${organizations.length})</h6>
+                        <h6>Stored Analyses (${allEntries.length})</h6>
                     </div>
                     <div class="col-md-6 text-end">
                         <button class="btn btn-outline-primary btn-sm" onclick="exportAllData()">
@@ -202,13 +210,13 @@
                 </div>
             `;
 
-            if (organizations.length > 0) {
+            if (allEntries.length > 0) {
                 html += `
                     <div class="table-responsive">
                         <table class="table table-sm">
                             <thead>
                                 <tr>
-                                    <th>Organization</th>
+                                    <th>Name</th>
                                     <th>Repositories</th>
                                     <th>Dependencies</th>
                                     <th>Last Updated</th>
@@ -218,27 +226,27 @@
                             <tbody>
                 `;
 
-                organizations.forEach(org => {
-                    const date = new Date(org.timestamp).toLocaleDateString();
-                    const time = new Date(org.timestamp).toLocaleTimeString();
+                allEntries.forEach(entry => {
+                    const date = new Date(entry.timestamp).toLocaleDateString();
+                    const time = new Date(entry.timestamp).toLocaleTimeString();
                     
                     html += `
                         <tr>
-                            <td><strong>${org.name}</strong></td>
-                            <td><span class="badge bg-primary">${org.repositories}</span></td>
-                            <td><span class="badge bg-success">${org.dependencies}</span></td>
+                            <td><strong>${entry.name}</strong></td>
+                            <td><span class="badge bg-primary">${entry.repositories}</span></td>
+                            <td><span class="badge bg-success">${entry.dependencies}</span></td>
                             <td><small>${date} ${time}</small></td>
                             <td>
-                                <button class="btn btn-outline-primary btn-sm" onclick="loadOrganizationData('${org.name}')">
+                                <button class="btn btn-outline-primary btn-sm" onclick="loadOrganizationData('${entry.name}')">
                                     <i class="fas fa-eye me-1"></i>View License Compliance
                                 </button>
-                                <button class="btn btn-outline-success btn-sm" onclick="restartLicenseAnalysis('${org.name}')">
+                                <button class="btn btn-outline-success btn-sm" onclick="restartLicenseAnalysis('${entry.name}')">
                                     <i class="fas fa-redo me-1"></i>Restart Analysis
                                 </button>
-                                <button class="btn btn-outline-info btn-sm" onclick="debugOrganizationData('${org.name}')">
+                                <button class="btn btn-outline-info btn-sm" onclick="debugOrganizationData('${entry.name}')">
                                     <i class="fas fa-bug me-1"></i>Debug
                                 </button>
-                                <button class="btn btn-outline-danger btn-sm" onclick="removeOrganizationData('${org.name}')">
+                                <button class="btn btn-outline-danger btn-sm" onclick="removeOrganizationData('${entry.name}')">
                                     <i class="fas fa-trash me-1"></i>Remove
                                 </button>
                             </td>
@@ -256,89 +264,89 @@
             organizationsContent.innerHTML = html;
         }
 
-        // Load organization data for license compliance
-        window.loadOrganizationData = function(orgName) {
-            const orgData = storageManager.getOrganizationData(orgName);
+        // Load entry data for license compliance
+        window.loadOrganizationData = async function(name) {
+            const data = await storageManager.getOrganizationData(name);
             const container = document.getElementById('license-compliance-page');
             
-            if (!orgData || !orgData.data) {
-                container.innerHTML = '<div class="alert alert-warning">No data found for this organization.</div>';
+            if (!data || !data.data) {
+                container.innerHTML = '<div class="alert alert-warning">No data found for this entry.</div>';
                 return;
             }
             
             // Render license compliance dashboard
-            if (typeof viewManager.generateLicenseComplianceHTML === 'function' && orgData.data.licenseAnalysis) {
-                container.innerHTML = viewManager.generateLicenseComplianceHTML(orgData);
+            if (typeof viewManager.generateLicenseComplianceHTML === 'function' && data.data.licenseAnalysis) {
+                container.innerHTML = viewManager.generateLicenseComplianceHTML(data);
                 if (typeof viewManager.addOverviewEventListeners === 'function') {
                     viewManager.addOverviewEventListeners();
                 }
-            } else if (orgData.data.licenseAnalysis) {
+            } else if (data.data.licenseAnalysis) {
                 container.innerHTML = '<div class="alert alert-warning">This version does not support direct license compliance rendering. Please update your ViewManager.js or use the main app.</div>';
             } else {
                 container.innerHTML = '<div class="alert alert-warning">No license compliance analysis found. Please run a license compliance check in the main app.</div>';
             }
         };
 
-        // Debug organization data
-        window.debugOrganizationData = function(orgName) {
-            const orgData = storageManager.getOrganizationData(orgName);
+        // Debug entry data
+        window.debugOrganizationData = async function(name) {
+            const data = await storageManager.getOrganizationData(name);
             const container = document.getElementById('license-compliance-page');
             
-            if (orgData) {
+            if (data) {
                 container.innerHTML = `
                     <div class="alert alert-info">
-                        <h6>🔍 Debug Data for ${orgName}</h6>
-                        <pre class="bg-light p-3 rounded" style="max-height: 400px; overflow-y: auto;">${JSON.stringify(orgData, null, 2)}</pre>
+                        <h6>🔍 Debug Data for ${name}</h6>
+                        <pre class="bg-light p-3 rounded" style="max-height: 400px; overflow-y: auto;">${JSON.stringify(data, null, 2)}</pre>
                     </div>
                 `;
             } else {
-                container.innerHTML = '<div class="alert alert-warning">No data found for this organization.</div>';
+                container.innerHTML = '<div class="alert alert-warning">No data found for this entry.</div>';
             }
         };
 
-        // Remove organization data
-        window.removeOrganizationData = function(orgName) {
-            if (confirm(`Are you sure you want to remove all data for ${orgName}?`)) {
-                const success = storageManager.removeOrganizationData(orgName);
+        // Remove entry data
+        window.removeOrganizationData = async function(name) {
+            if (confirm(`Are you sure you want to remove all data for ${name}?`)) {
+                const success = await storageManager.removeOrganizationData(name);
                 if (success) {
-                    displayOrganizationsOverview();
-                    document.getElementById('license-compliance-page').innerHTML = '<div class="alert alert-info">Please select an organization to view license compliance data.</div>';
+                    await displayOrganizationsOverview();
+                    document.getElementById('license-compliance-page').innerHTML = '<div class="alert alert-info">Please select an entry to view license compliance data.</div>';
                     
-                    // Check if no organizations left
-                    const storageInfo = storageManager.getStorageInfo();
-                    if (storageInfo.organizationsCount === 0) {
+                    // Check if no entries left
+                    const storageInfo = await storageManager.getStorageInfo();
+                    if (storageInfo.totalEntries === 0) {
                         document.getElementById('organizationsSection').style.display = 'none';
                         document.getElementById('noDataSection').style.display = 'block';
                     }
                 } else {
-                    alert('Failed to remove data for ' + orgName);
+                    alert('Failed to remove data for ' + name);
                 }
             }
         };
 
         // Export all data
-        window.exportAllData = function() {
-            const success = storageManager.exportAllData();
-            if (success) {
+        window.exportAllData = async function() {
+            try {
+                await storageManager.exportAllData();
                 alert('All data exported successfully');
-            } else {
-                alert('Failed to export all data');
+            } catch (error) {
+                alert('Failed to export all data: ' + error.message);
             }
         };
 
         // Clear all data
-        window.clearAllData = function() {
+        window.clearAllData = async function() {
             if (confirm('Are you sure you want to clear all stored data? This action cannot be undone.')) {
-                const success = storageManager.clearAllData();
-                if (success) {
-                    displayOrganizationsOverview();
-                    document.getElementById('license-compliance-page').innerHTML = '<div class="alert alert-info">Please select an organization to view license compliance data.</div>';
+                try {
+                    await storageManager.clearAllData();
+                    await displayOrganizationsOverview();
+                    document.getElementById('license-compliance-page').innerHTML = '<div class="alert alert-info">Please select an entry to view license compliance data.</div>';
                     
                     // Show no data section
                     document.getElementById('organizationsSection').style.display = 'none';
                     document.getElementById('noDataSection').style.display = 'block';
-                } else {
-                    alert('Failed to clear data');
+                } catch (error) {
+                    alert('Failed to clear data: ' + error.message);
                 }
             }
         };

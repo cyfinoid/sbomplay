@@ -48,6 +48,31 @@ class GitHubClient {
     }
 
     /**
+     * Get a single repository
+     */
+    async getRepository(owner, repo) {
+        const url = `${this.baseUrl}/repos/${owner}/${repo}`;
+        const response = await this.makeRequest(url);
+        
+        if (!response.ok) {
+            if (response.status === 404) {
+                console.log(`ℹ️  Repository ${owner}/${repo} not found`);
+                return null;
+            } else if (response.status === 403) {
+                console.log(`⚠️  Access denied for ${owner}/${repo}`);
+                return null;
+            } else {
+                console.log(`⚠️  Failed to fetch repository ${owner}/${repo}: ${response.status}`);
+                return null;
+            }
+        }
+        
+        const repoData = await response.json();
+        console.log(`✅ Found repository: ${owner}/${repo}`);
+        return repoData;
+    }
+
+    /**
      * Get repositories for an organization or user
      */
     async getRepositories(ownerName) {

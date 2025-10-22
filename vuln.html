@@ -7,6 +7,8 @@
     <link href="css/style.css" rel="stylesheet">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <link href="css/themes.css" rel="stylesheet">
+    <script src="js/theme-manager.js"></script>
     <script defer data-domain="cyfinoid.github.io" src="https://plausible.io/js/script.outbound-links.js"></script>
 <script>window.plausible = window.plausible || function() { (window.plausible.q = window.plausible.q || []).push(arguments) }</script>
 
@@ -24,9 +26,13 @@
                 <a class="nav-link" href="license-compliance.html">License</a>
                 <a class="nav-link active" href="vuln.html">Vulnerabilities</a>
                 <a class="nav-link" href="deps.html">Dependencies</a>
+                <a class="nav-link" href="authors.html">Authors</a>
                 <a class="nav-link" href="settings.html">
                     <i class="fas fa-cog"></i>
                 </a>
+                <button class="btn btn-outline-secondary btn-sm ms-2 theme-toggle" onclick="themeManager.toggleTheme()" title="Toggle theme">
+                    <i class="fas fa-sun"></i>
+                </button>
             </div>
         </div>
     </nav>
@@ -162,6 +168,7 @@
             </div>
         </div>
     </footer>
+    <script src="js/indexeddb-manager.js"></script>
     <script src="js/view-manager.js"></script>
     <script src="js/license-processor.js"></script>
     <script src="js/osv-service.js"></script>
@@ -174,33 +181,34 @@
     // Global variables
     let viewManager;
     
-    document.addEventListener('DOMContentLoaded', function() {
+    document.addEventListener('DOMContentLoaded', async function() {
         // Use the global storageManager instance from storage-manager.js
-        const storageManager = window.storageManager;
+        const storageManager = new StorageManager();
+        await storageManager.init();
         viewManager = new ViewManager();
         
         // Make viewManager available globally for HTML onclick handlers
         window.viewManager = viewManager;
         
-        // Display organizations overview
-        displayOrganizationsOverview();
+        // Display entries overview
+        await displayOrganizationsOverview();
         
-        function displayOrganizationsOverview() {
-            const storageInfo = storageManager.getStorageInfo();
+        async function displayOrganizationsOverview() {
+            const storageInfo = await storageManager.getStorageInfo();
             const organizationsContent = document.getElementById('organizationsContent');
             
-            if (storageInfo.organizationsCount === 0) {
+            if (storageInfo.totalEntries === 0) {
                 document.getElementById('organizationsSection').style.display = 'none';
                 document.getElementById('noDataSection').style.display = 'block';
                 return;
             }
 
-            const organizations = storageInfo.organizations;
+            const allEntries = [...storageInfo.organizations, ...storageInfo.repositories];
             
             let html = `
                 <div class="row mb-3">
                     <div class="col-md-6">
-                        <h6>Stored Organizations (${organizations.length})</h6>
+                        <h6>Stored Analyses (${allEntries.length})</h6>
                     </div>
                     <div class="col-md-6 text-end">
                         <button class="btn btn-outline-primary btn-sm" onclick="exportAllData()">
@@ -213,13 +221,13 @@
                 </div>
             `;
 
-            if (organizations.length > 0) {
+            if (allEntries.length > 0) {
                 html += `
                     <div class="table-responsive">
                         <table class="table table-sm">
                             <thead>
                                 <tr>
-                                    <th>Organization</th>
+                                    <th>Name</th>
                                     <th>Repositories</th>
                                     <th>Dependencies</th>
                                     <th>Last Updated</th>
@@ -229,27 +237,27 @@
                             <tbody>
                 `;
 
-                organizations.forEach(org => {
-                    const date = new Date(org.timestamp).toLocaleDateString();
-                    const time = new Date(org.timestamp).toLocaleTimeString();
+                allEntries.forEach(entry => {
+                    const date = new Date(entry.timestamp).toLocaleDateString();
+                    const time = new Date(entry.timestamp).toLocaleTimeString();
                     
                     html += `
                         <tr>
-                            <td><strong>${org.name}</strong></td>
-                            <td><span class="badge bg-primary">${org.repositories}</span></td>
-                            <td><span class="badge bg-success">${org.dependencies}</span></td>
+                            <td><strong>${entry.name}</strong></td>
+                            <td><span class="badge bg-primary">${entry.repositories}</span></td>
+                            <td><span class="badge bg-success">${entry.dependencies}</span></td>
                             <td><small>${date} ${time}</small></td>
                             <td>
-                                <button class="btn btn-outline-primary btn-sm" onclick="loadOrganizationData('${org.name}')">
+                                <button class="btn btn-outline-primary btn-sm" onclick="loadOrganizationData('${entry.name}')">
                                     <i class="fas fa-eye me-1"></i>View Vulnerabilities
                                 </button>
-                                <button class="btn btn-outline-success btn-sm" onclick="restartVulnerabilityAnalysis('${org.name}')">
+                                <button class="btn btn-outline-success btn-sm" onclick="restartVulnerabilityAnalysis('${entry.name}')">
                                     <i class="fas fa-redo me-1"></i>Restart Analysis
                                 </button>
-                                <button class="btn btn-outline-info btn-sm" onclick="debugOrganizationData('${org.name}')">
+                                <button class="btn btn-outline-info btn-sm" onclick="debugOrganizationData('${entry.name}')">
                                     <i class="fas fa-bug me-1"></i>Debug
                                 </button>
-                                <button class="btn btn-outline-danger btn-sm" onclick="removeOrganizationData('${org.name}')">
+                                <button class="btn btn-outline-danger btn-sm" onclick="removeOrganizationData('${entry.name}')">
                                     <i class="fas fa-trash me-1"></i>Remove
                                 </button>
                             </td>
@@ -267,83 +275,83 @@
             organizationsContent.innerHTML = html;
         }
 
-        // Load organization data for vulnerability analysis
-        window.loadOrganizationData = function(orgName) {
-            const orgData = storageManager.getOrganizationData(orgName);
+        // Load entry data for vulnerability analysis
+        window.loadOrganizationData = async function(name) {
+            const data = await storageManager.getOrganizationData(name);
             const container = document.getElementById('vulnerability-analysis-page');
             
-            if (!orgData || !orgData.data) {
-                container.innerHTML = '<div class="alert alert-warning">No data found for this organization.</div>';
+            if (!data || !data.data) {
+                container.innerHTML = '<div class="alert alert-warning">No data found for this entry.</div>';
                 return;
             }
             
             // Render full vulnerability analysis dashboard
-            container.innerHTML = viewManager.generateVulnerabilityAnalysisHTML(orgData);
+            container.innerHTML = viewManager.generateVulnerabilityAnalysisHTML(data);
             if (typeof viewManager.addOverviewEventListeners === 'function') {
                 viewManager.addOverviewEventListeners();
             }
         };
 
-        // Debug organization data
-        window.debugOrganizationData = function(orgName) {
-            const orgData = storageManager.getOrganizationData(orgName);
+        // Debug entry data
+        window.debugOrganizationData = async function(name) {
+            const data = await storageManager.getOrganizationData(name);
             const container = document.getElementById('vulnerability-analysis-page');
             
-            if (orgData) {
+            if (data) {
                 container.innerHTML = `
                     <div class="alert alert-info">
-                        <h6>🔍 Debug Data for ${orgName}</h6>
-                        <pre class="bg-light p-3 rounded" style="max-height: 400px; overflow-y: auto;">${JSON.stringify(orgData, null, 2)}</pre>
+                        <h6>🔍 Debug Data for ${name}</h6>
+                        <pre class="bg-light p-3 rounded" style="max-height: 400px; overflow-y: auto;">${JSON.stringify(data, null, 2)}</pre>
                     </div>
                 `;
             } else {
-                container.innerHTML = '<div class="alert alert-warning">No data found for this organization.</div>';
+                container.innerHTML = '<div class="alert alert-warning">No data found for this entry.</div>';
             }
         };
 
-        // Remove organization data
-        window.removeOrganizationData = function(orgName) {
-            if (confirm(`Are you sure you want to remove all data for ${orgName}?`)) {
-                const success = storageManager.removeOrganizationData(orgName);
+        // Remove entry data
+        window.removeOrganizationData = async function(name) {
+            if (confirm(`Are you sure you want to remove all data for ${name}?`)) {
+                const success = await storageManager.removeOrganizationData(name);
                 if (success) {
-                    displayOrganizationsOverview();
-                    document.getElementById('vulnerability-analysis-page').innerHTML = '<div class="alert alert-info">Please select an organization to view vulnerability data.</div>';
+                    await displayOrganizationsOverview();
+                    document.getElementById('vulnerability-analysis-page').innerHTML = '<div class="alert alert-info">Please select an entry to view vulnerability data.</div>';
                     
-                    // Check if no organizations left
-                    const storageInfo = storageManager.getStorageInfo();
-                    if (storageInfo.organizationsCount === 0) {
+                    // Check if no entries left
+                    const storageInfo = await storageManager.getStorageInfo();
+                    if (storageInfo.totalEntries === 0) {
                         document.getElementById('organizationsSection').style.display = 'none';
                         document.getElementById('noDataSection').style.display = 'block';
                     }
                 } else {
-                    alert('Failed to remove data for ' + orgName);
+                    alert('Failed to remove data for ' + name);
                 }
             }
         };
 
         // Export all data
-        window.exportAllData = function() {
-            const success = storageManager.exportAllData();
-            if (success) {
+        window.exportAllData = async function() {
+            try {
+                await storageManager.exportAllData();
                 alert('All data exported successfully');
-            } else {
-                alert('Failed to export all data');
+            } catch (error) {
+                alert('Failed to export all data: ' + error.message);
             }
         };
 
         // Clear all data
-        window.clearAllData = function() {
+        window.clearAllData = async function() {
             if (confirm('Are you sure you want to clear all stored data? This action cannot be undone.')) {
-                const success = storageManager.clearAllData();
-                if (success) {
-                    displayOrganizationsOverview();
-                    document.getElementById('vulnerability-analysis-page').innerHTML = '<div class="alert alert-info">Please select an organization to view vulnerability data.</div>';
+                try {
+                    await storageManager.clearAllData();
+                    await displayOrganizationsOverview();
+                    document.getElementById('vulnerability-analysis-page').innerHTML = '<div class="alert alert-info">Please select an entry to view vulnerability data.</div>';
                     
                     // Show no data section
                     document.getElementById('organizationsSection').style.display = 'none';
                     document.getElementById('noDataSection').style.display = 'block';
-                } else {
-                    alert('Failed to clear data');
+                } catch (error) {
+                    alert('Failed to clear data: ' + error.message);
                 }
             }
         };
