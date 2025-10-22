@@ -469,9 +469,9 @@ class SBOMPlayApp {
                 return;
             }
 
-            // Generate results
+            // Generate results (use let so we can reload after author analysis)
             this.updateProgress(80, 'Generating analysis results...');
-            const results = this.sbomProcessor.exportData();
+            let results = this.sbomProcessor.exportData();
             
             // Run license compliance analysis
             const repoStats = this.sbomProcessor.repositories.get(repoKey);
@@ -486,12 +486,27 @@ class SBOMPlayApp {
                 } catch (error) {
                     console.error('❌ License compliance analysis failed:', error);
                 }
-                
+            }
+            
+            // Save initial results to storage (required for vulnerability and author analysis)
+            this.updateProgress(87, 'Saving initial results...');
+            let saveSuccess = await this.storageManager.saveAnalysisData(repoKey, results);
+            if (!saveSuccess) {
+                console.warn('⚠️ Failed to save initial analysis data to storage');
+            }
+            
+            // Run vulnerability and author analysis (these need data in storage)
+            if (repoStats && repoStats.totalDependencies > 0) {
                 // Run vulnerability analysis
                 this.updateProgress(90, 'Analyzing vulnerabilities...');
                 try {
                     console.log('🔍 Starting vulnerability analysis...');
-                    await this.sbomProcessor.analyzeVulnerabilitiesWithIncrementalSaving(repoKey);
+                    // Pass progress callback to show real-time updates
+                    await this.sbomProcessor.analyzeVulnerabilitiesWithIncrementalSaving(repoKey, (percent, message) => {
+                        // Map vulnerability progress (0-100%) to progress bar range (90-93%)
+                        const mappedProgress = 90 + (percent * 0.03);
+                        this.updateProgress(mappedProgress, message);
+                    });
                     console.log('✅ Vulnerability analysis complete');
                 } catch (error) {
                     console.error('❌ Vulnerability analysis failed:', error);
@@ -503,6 +518,13 @@ class SBOMPlayApp {
                     console.log('👥 Analyzing package authors...');
                     await this.analyzeAuthors(repoKey);
                     console.log('✅ Author analysis complete');
+                    
+                    // Reload data to get the updated results with author analysis
+                    const updatedData = await this.storageManager.loadAnalysisDataForOrganization(repoKey);
+                    if (updatedData && updatedData.data) {
+                        results = updatedData.data;
+                        console.log('✅ Reloaded data with author analysis');
+                    }
                 } catch (error) {
                     console.error('❌ Author analysis failed:', error);
                 }
@@ -512,9 +534,9 @@ class SBOMPlayApp {
             console.log(`📊 Single Repository Analysis Summary for ${repoKey}:`);
             console.log(`   Total dependencies: ${results.statistics.totalDependencies}`);
             
-            // Save to storage
-            this.updateProgress(95, 'Saving results...');
-            const saveSuccess = await this.storageManager.saveAnalysisData(repoKey, results);
+            // Final save to storage (to include vulnerability and author data)
+            this.updateProgress(95, 'Saving final results...');
+            saveSuccess = await this.storageManager.saveAnalysisData(repoKey, results);
             if (!saveSuccess) {
                 console.warn('⚠️ Failed to save analysis data to storage');
                 this.showAlert('Analysis completed but failed to save to storage.', 'warning');
@@ -650,9 +672,9 @@ class SBOMPlayApp {
                 await this.sleep(100);
             }
 
-            // Generate results
+            // Generate results (use let so we can reload after author analysis)
             this.updateProgress(90, 'Generating analysis results...');
-            const results = this.sbomProcessor.exportData();
+            let results = this.sbomProcessor.exportData();
 
             // Run license compliance analysis
             if (reposWithDeps > 0) {
@@ -665,26 +687,6 @@ class SBOMPlayApp {
                     }
                 } catch (error) {
                     console.error('❌ License compliance analysis failed:', error);
-                }
-                
-                // Run vulnerability analysis
-                this.updateProgress(94, 'Analyzing vulnerabilities...');
-                try {
-                    console.log('🔍 Starting vulnerability analysis...');
-                    await this.sbomProcessor.analyzeVulnerabilitiesWithIncrementalSaving(ownerName);
-                    console.log('✅ Vulnerability analysis complete');
-                } catch (error) {
-                    console.error('❌ Vulnerability analysis failed:', error);
-                }
-                
-                // Run author analysis
-                this.updateProgress(96, 'Fetching author information...');
-                try {
-                    console.log('👥 Analyzing package authors...');
-                    await this.analyzeAuthors(ownerName);
-                    console.log('✅ Author analysis complete');
-                } catch (error) {
-                    console.error('❌ Author analysis failed:', error);
                 }
             }
             
@@ -703,8 +705,53 @@ class SBOMPlayApp {
                 console.log(`   4. Rate limiting prevented access to some repositories`);
             }
             
-            // Save to storage with better error handling
-            const saveSuccess = await this.storageManager.saveAnalysisData(ownerName, results);
+            // Save initial results to storage (required for vulnerability and author analysis)
+            this.updateProgress(93, 'Saving initial results...');
+            let saveSuccess = await this.storageManager.saveAnalysisData(ownerName, results);
+            if (!saveSuccess) {
+                console.warn('⚠️ Failed to save initial analysis data to storage');
+            } else {
+                await this.showStorageStatusIndicator();
+            }
+            
+            // Run vulnerability and author analysis (these need data in storage)
+            if (reposWithDeps > 0) {
+                // Run vulnerability analysis
+                this.updateProgress(94, 'Analyzing vulnerabilities...');
+                try {
+                    console.log('🔍 Starting vulnerability analysis...');
+                    // Pass progress callback to show real-time updates
+                    await this.sbomProcessor.analyzeVulnerabilitiesWithIncrementalSaving(ownerName, (percent, message) => {
+                        // Map vulnerability progress (0-100%) to progress bar range (94-96%)
+                        const mappedProgress = 94 + (percent * 0.02);
+                        this.updateProgress(mappedProgress, message);
+                    });
+                    console.log('✅ Vulnerability analysis complete');
+                } catch (error) {
+                    console.error('❌ Vulnerability analysis failed:', error);
+                }
+                
+                // Run author analysis
+                this.updateProgress(96, 'Fetching author information...');
+                try {
+                    console.log('👥 Analyzing package authors...');
+                    await this.analyzeAuthors(ownerName);
+                    console.log('✅ Author analysis complete');
+                    
+                    // Reload data to get the updated results with author analysis
+                    const updatedData = await this.storageManager.loadAnalysisDataForOrganization(ownerName);
+                    if (updatedData && updatedData.data) {
+                        results = updatedData.data;
+                        console.log('✅ Reloaded data with author analysis');
+                    }
+                } catch (error) {
+                    console.error('❌ Author analysis failed:', error);
+                }
+            }
+            
+            // Final save to storage (to include vulnerability and author data)
+            this.updateProgress(98, 'Saving final results...');
+            saveSuccess = await this.storageManager.saveAnalysisData(ownerName, results);
             if (!saveSuccess) {
                 console.warn('⚠️ Failed to save analysis data to storage');
                 this.showAlert('Analysis completed but failed to save to storage. Consider exporting your data and clearing old analyses.', 'warning');
@@ -1203,13 +1250,32 @@ class SBOMPlayApp {
         }
         
         // Extract unique packages with ecosystem info
-        const packages = data.data.allDependencies.map(dep => ({
-            ecosystem: this.getEcosystemFromPurl(dep.purl),
-            name: this.getPackageNameFromPurl(dep.purl),
-            purl: dep.purl
-        })).filter(pkg => pkg.ecosystem && pkg.name);
+        console.log('🔍 Extracting PURLs from dependencies...');
+        console.log(`Total allDependencies: ${data.data.allDependencies.length}`);
         
-        console.log(`📦 Found ${packages.length} unique packages for author analysis`);
+        // Debug: Show first few dependencies
+        if (data.data.allDependencies.length > 0) {
+            console.log('Sample dependency structure:', data.data.allDependencies[0]);
+        }
+        
+        const packages = data.data.allDependencies
+            .filter(dep => dep.purl)  // Only include dependencies with PURL
+            .map(dep => ({
+                ecosystem: this.getEcosystemFromPurl(dep.purl),
+                name: this.getPackageNameFromPurl(dep.purl),
+                purl: dep.purl
+            }))
+            .filter(pkg => pkg.ecosystem && pkg.name);
+        
+        console.log(`📦 Found ${packages.length} unique packages with valid PURLs for author analysis`);
+        
+        // Debug: Show some sample packages
+        if (packages.length > 0) {
+            console.log('Sample packages for author analysis:');
+            packages.slice(0, 3).forEach(pkg => {
+                console.log(`  - ${pkg.ecosystem}:${pkg.name}`);
+            });
+        }
         
         // Fetch authors with progress callback
         const authorResults = await authorService.fetchAuthorsForPackages(
@@ -1231,7 +1297,7 @@ class SBOMPlayApp {
             authors: authorsList
         };
         
-        await this.storageManager.saveAnalysisData(identifier, data);
+        await this.storageManager.saveAnalysisData(identifier, data.data);
         console.log(`✅ Saved ${authorsList.length} unique authors for ${identifier}`);
     }
 

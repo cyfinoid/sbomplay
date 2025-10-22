@@ -18,6 +18,7 @@
 [data-theme="dark"] {
   --bg-primary: #121212;
   --bg-secondary: #1e1e1e;
+  --bg-tertiary: #2a2a2a;
   --text-primary: #50c878;
   --text-secondary: #8a8f98;
   --color-yellow: #fdcb52;
@@ -26,12 +27,17 @@
   --color-green: #7fd1b9;
   --color-dirty-yellow: #b6a189;
   --border-color: #333333;
+  --bg-warning: rgba(253, 203, 82, 0.1);
+  --bg-danger: rgba(214, 60, 83, 0.1);
+  --bg-info: rgba(70, 111, 224, 0.1);
+  --bg-success: rgba(127, 209, 185, 0.1);
 }
 
 /* Light Theme */
 [data-theme="light"] {
   --bg-primary: #fafafa;
   --bg-secondary: #ffffff;
+  --bg-tertiary: #f5f5f5;
   --text-primary: #1e1e1e;
   --text-secondary: #8a8f98;
   --color-yellow: #fdcb52;
@@ -40,6 +46,10 @@
   --color-green: #50c878;
   --color-dirty-yellow: #b6a189;
   --border-color: #e0e0e0;
+  --bg-warning: #fff3cd;
+  --bg-danger: #f8d7da;
+  --bg-info: #d1ecf1;
+  --bg-success: #d4edda;
 }
 
 /* Apply theme variables */

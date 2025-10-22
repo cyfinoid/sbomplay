@@ -4,11 +4,11 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>SBOM Play - Vulnerability Analysis</title>
-    <link href="css/style.css" rel="stylesheet">
+    <link href="css/style.css?v=10" rel="stylesheet">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
-    <link href="css/themes.css" rel="stylesheet">
-    <script src="js/theme-manager.js"></script>
+    <link href="css/themes.css?v=10" rel="stylesheet">
+    <script src="js/theme-manager.js?v=10"></script>
     <script defer data-domain="cyfinoid.github.io" src="https://plausible.io/js/script.outbound-links.js"></script>
 <script>window.plausible = window.plausible || function() { (window.plausible.q = window.plausible.q || []).push(arguments) }</script>
 
@@ -168,16 +168,16 @@
             </div>
         </div>
     </footer>
-    <script src="js/indexeddb-manager.js"></script>
-    <script src="js/view-manager.js"></script>
-    <script src="js/license-processor.js"></script>
-    <script src="js/osv-service.js"></script>
-    <script src="js/sbom-processor.js"></script>
-    <script src="js/storage-manager.js"></script>
-    <script src="js/github-client.js"></script>
-    <script src="js/app.js"></script>
+    <script src="js/indexeddb-manager.js?v=10"></script>
+    <script src="js/view-manager.js?v=10"></script>
+    <script src="js/license-processor.js?v=10"></script>
+    <script src="js/osv-service.js?v=10"></script>
+    <script src="js/sbom-processor.js?v=10"></script>
+    <script src="js/storage-manager.js?v=10"></script>
+    <script src="js/github-client.js?v=10"></script>
+    <script src="js/app.js?v=10"></script>
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
-    <script>
+    <script type="module">
     // Global variables
     let viewManager;
     
@@ -277,7 +277,7 @@
 
         // Load entry data for vulnerability analysis
         window.loadOrganizationData = async function(name) {
-            const data = await storageManager.getOrganizationData(name);
+            const data = await storageManager.loadAnalysisDataForOrganization(name);
             const container = document.getElementById('vulnerability-analysis-page');
             
             if (!data || !data.data) {
@@ -294,7 +294,7 @@
 
         // Debug entry data
         window.debugOrganizationData = async function(name) {
-            const data = await storageManager.getOrganizationData(name);
+            const data = await storageManager.loadAnalysisDataForOrganization(name);
             const container = document.getElementById('vulnerability-analysis-page');
             
             if (data) {
@@ -444,10 +444,10 @@
         };
 
         // Load the most recent organization by default
-        const orgs = storageManager.getOrganizations();
+        const orgs = await storageManager.getOrganizations();
         if (orgs && orgs.length > 0) {
-            const orgName = orgs[orgs.length - 1].organization;
-            loadOrganizationData(orgName);
+            const orgName = orgs[orgs.length - 1].organization || orgs[orgs.length - 1].name;
+            await loadOrganizationData(orgName);
         } else {
             document.getElementById('vulnerability-analysis-page').innerHTML = '<div class="alert alert-info">Please select an organization to view vulnerability data.</div>';
         }

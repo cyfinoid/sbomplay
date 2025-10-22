@@ -374,7 +374,7 @@ class OSVService {
         // If batch query failed, returned no results, or returned minimal data, fall back to individual queries
         if (!results || results.length === 0 || hasMinimalData) {
             console.log('⚠️ OSV: Batch query returned minimal data, falling back to individual queries for full details');
-            results = await this.queryVulnerabilitiesIndividually(packages);
+            results = await this.queryVulnerabilitiesIndividually(packages, onProgress);
         }
         
         const vulnerabilityAnalysis = {
@@ -480,6 +480,9 @@ class OSVService {
         });
 
         // Try batch query first for quick vulnerability detection
+        if (onProgress) {
+            onProgress(5, `Querying vulnerability database for ${packages.length} packages...`);
+        }
         let results = await this.queryVulnerabilitiesBatch(packages);
         
         // Check if batch query returned minimal data (just id and modified)
@@ -491,7 +494,12 @@ class OSVService {
         // If batch query failed, returned no results, or returned minimal data, fall back to individual queries
         if (!results || results.length === 0 || hasMinimalData) {
             console.log('⚠️ OSV: Batch query returned minimal data, falling back to individual queries for full details');
-            results = await this.queryVulnerabilitiesIndividually(packages);
+            if (onProgress) {
+                onProgress(10, `Scanning packages individually for detailed vulnerability data...`);
+            }
+            results = await this.queryVulnerabilitiesIndividually(packages, onProgress);
+        } else if (onProgress) {
+            onProgress(50, `Processing vulnerability results...`);
         }
         
         const vulnerabilityAnalysis = {
@@ -505,7 +513,8 @@ class OSVService {
             vulnerableDependencies: []
         };
 
-        dependencies.forEach((dep, index) => {
+        for (let index = 0; index < dependencies.length; index++) {
+            const dep = dependencies[index];
             const vulnResult = results[index];
             const vulnerabilities = vulnResult?.vulns || [];
             
@@ -580,7 +589,7 @@ class OSVService {
                 console.log(`💾 OSV: Saving incremental vulnerability data (${index + 1}/${dependencies.length} dependencies processed)`);
                 
                 if (window.storageManager && orgName) {
-                    const saveSuccess = window.storageManager.updateAnalysisWithVulnerabilities(orgName, vulnerabilityAnalysis);
+                    const saveSuccess = await window.storageManager.updateAnalysisWithVulnerabilities(orgName, vulnerabilityAnalysis);
                     if (saveSuccess) {
                         console.log(`✅ OSV: Incremental vulnerability data saved for ${orgName}`);
                     } else {
@@ -594,7 +603,12 @@ class OSVService {
                     onProgress(progressPercent, `Processed ${index + 1}/${dependencies.length} dependencies for vulnerabilities`);
                 }
             }
-        });
+        }
+
+        // Final progress update
+        if (onProgress) {
+            onProgress(100, `Vulnerability analysis complete - ${vulnerabilityAnalysis.vulnerablePackages} vulnerable packages found`);
+        }
 
         console.log(`✅ OSV: Analysis complete - ${vulnerabilityAnalysis.vulnerablePackages} vulnerable packages found`);
         return vulnerabilityAnalysis;
@@ -603,7 +617,7 @@ class OSVService {
     /**
      * Query vulnerabilities individually as fallback
      */
-    async queryVulnerabilitiesIndividually(packages) {
+    async queryVulnerabilitiesIndividually(packages, onProgress = null) {
         console.log(`🔍 OSV: Querying ${packages.length} packages individually`);
         
         const results = [];
@@ -612,6 +626,12 @@ class OSVService {
             try {
                 const result = await this.queryVulnerabilities(pkg.name, pkg.version, pkg.ecosystem);
                 results.push(result);
+                
+                // Report progress
+                if (onProgress) {
+                    const progressPercent = ((i + 1) / packages.length) * 100;
+                    onProgress(progressPercent, `Scanning package ${i + 1}/${packages.length} for vulnerabilities...`);
+                }
                 
                 // Add small delay to be respectful to the API
                 if (i < packages.length - 1) {

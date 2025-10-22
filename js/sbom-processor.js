@@ -130,7 +130,12 @@ class SBOMProcessor {
         // Process each package in the SBOM
         sbomData.sbom.packages.forEach((pkg, index) => {
             // GitHub SBOM uses 'versionInfo' instead of 'version'
-            const version = pkg.versionInfo || pkg.version;
+            let version = pkg.versionInfo || pkg.version;
+            
+            // Normalize version: remove comparison operators like ">=", "<=", "^", "~", etc.
+            if (version) {
+                version = this.normalizeVersion(version);
+            }
             
             // Skip the main repository package (it's not a dependency)
             if (pkg.name === `com.github.${owner}/${repo}` || pkg.name === `${owner}/${repo}`) {
@@ -188,6 +193,29 @@ class SBOMProcessor {
         console.log(`📦 Processed ${repoKey}: ${processedPackages} packages, ${skippedPackages} skipped, ${repoData.totalDependencies} unique dependencies`);
         
         return true;
+    }
+
+    /**
+     * Normalize version string by removing comparison operators
+     * Converts ">= 25.1.0" to "25.1.0", "^1.2.3" to "1.2.3", etc.
+     */
+    normalizeVersion(version) {
+        if (!version) return version;
+        
+        // Remove common version comparison operators and ranges
+        // Handles: >=, <=, >, <, ^, ~, =, etc.
+        let normalized = version.trim()
+            .replace(/^[><=^~]+\s*/, '')  // Remove prefix operators with optional space
+            .replace(/\s*-\s*[\d.]+.*$/, '')  // Remove range suffix (e.g., "1.0.0 - 2.0.0" -> "1.0.0")
+            .replace(/\s*\|\|.*$/, '')  // Remove OR alternatives (e.g., "1.0.0 || 2.0.0" -> "1.0.0")
+            .trim();
+        
+        // If the normalized version is empty or doesn't look like a version, return original
+        if (!normalized || !/[\d.]/.test(normalized)) {
+            return version;
+        }
+        
+        return normalized;
     }
 
     /**
@@ -364,15 +392,27 @@ class SBOMProcessor {
         const stats = this.getRepositoryStats();
         const topDeps = this.getTopDependencies(50);
         const topRepos = this.getTopRepositories(50);
-        const allDeps = Array.from(this.dependencies.values()).map(dep => ({
-            name: dep.name,
-            version: dep.version,
-            count: dep.count,
-            repositories: Array.from(dep.repositories),
-            category: dep.category,
-            languages: Array.from(dep.languages),
-            originalPackage: dep.originalPackage  // Include original package data
-        }));
+        const allDeps = Array.from(this.dependencies.values()).map(dep => {
+            // Extract PURL from originalPackage if available
+            let purl = null;
+            if (dep.originalPackage && dep.originalPackage.externalRefs) {
+                const purlRef = dep.originalPackage.externalRefs.find(ref => ref.referenceType === 'purl');
+                if (purlRef && purlRef.referenceLocator) {
+                    purl = purlRef.referenceLocator;
+                }
+            }
+            
+            return {
+                name: dep.name,
+                version: dep.version,
+                count: dep.count,
+                repositories: Array.from(dep.repositories),
+                category: dep.category,
+                languages: Array.from(dep.languages),
+                purl: purl,  // Include extracted PURL for author analysis
+                originalPackage: dep.originalPackage  // Include original package data
+            };
+        });
         const allRepos = Array.from(this.repositories.values()).map(repo => ({
             name: repo.name,
             owner: repo.owner,
@@ -582,14 +622,26 @@ class SBOMProcessor {
 
         if (this.dependencies.size <= 1000) {
             // For smaller datasets, export everything
-            allDependencies = Array.from(this.dependencies.values()).map(dep => ({
-                name: dep.name,
-                version: dep.version,
-                count: dep.count,
-                repositories: Array.from(dep.repositories),
-                category: dep.category,
-                languages: Array.from(dep.languages)
-            }));
+            allDependencies = Array.from(this.dependencies.values()).map(dep => {
+                // Extract PURL from originalPackage if available
+                let purl = null;
+                if (dep.originalPackage && dep.originalPackage.externalRefs) {
+                    const purlRef = dep.originalPackage.externalRefs.find(ref => ref.referenceType === 'purl');
+                    if (purlRef && purlRef.referenceLocator) {
+                        purl = purlRef.referenceLocator;
+                    }
+                }
+                
+                return {
+                    name: dep.name,
+                    version: dep.version,
+                    count: dep.count,
+                    repositories: Array.from(dep.repositories),
+                    category: dep.category,
+                    languages: Array.from(dep.languages),
+                    purl: purl  // Include extracted PURL for author analysis
+                };
+            });
         }
 
         if (this.repositories.size <= 500) {

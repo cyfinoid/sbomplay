@@ -23,6 +23,11 @@ class StorageManager {
      */
     async saveAnalysisData(name, data) {
         try {
+            // Ensure DB is initialized
+            if (!this.initialized) {
+                await this.init();
+            }
+            
             const isRepo = name.includes('/') && name.split('/').length === 2;
             const timestamp = new Date().toISOString();
             
@@ -74,6 +79,11 @@ class StorageManager {
      */
     async loadAnalysisDataForOrganization(name) {
         try {
+            // Ensure DB is initialized
+            if (!this.initialized) {
+                await this.init();
+            }
+            
             const isRepo = name.includes('/');
             
             if (isRepo) {
@@ -92,6 +102,10 @@ class StorageManager {
      */
     async getOrganizations() {
         try {
+            // Ensure DB is initialized
+            if (!this.initialized) {
+                await this.init();
+            }
             return await this.indexedDB.getAllOrganizations();
         } catch (error) {
             console.error('❌ Failed to get organizations:', error);
@@ -104,6 +118,10 @@ class StorageManager {
      */
     async getRepositories() {
         try {
+            // Ensure DB is initialized
+            if (!this.initialized) {
+                await this.init();
+            }
             return await this.indexedDB.getAllRepositories();
         } catch (error) {
             console.error('❌ Failed to get repositories:', error);
@@ -116,6 +134,10 @@ class StorageManager {
      */
     async getAllEntries() {
         try {
+            // Ensure DB is initialized
+            if (!this.initialized) {
+                await this.init();
+            }
             return await this.indexedDB.getAllEntries();
         } catch (error) {
             console.error('❌ Failed to get all entries:', error);
@@ -135,6 +157,10 @@ class StorageManager {
      */
     async removeOrganizationData(name) {
         try {
+            // Ensure DB is initialized
+            if (!this.initialized) {
+                await this.init();
+            }
             return await this.indexedDB.deleteEntry(name);
         } catch (error) {
             console.error('❌ Failed to remove data:', error);
@@ -147,6 +173,10 @@ class StorageManager {
      */
     async clearAllData() {
         try {
+            // Ensure DB is initialized
+            if (!this.initialized) {
+                await this.init();
+            }
             return await this.indexedDB.clearAll();
         } catch (error) {
             console.error('❌ Failed to clear all data:', error);
@@ -206,6 +236,11 @@ class StorageManager {
      */
     async getStorageInfo() {
         try {
+            // Ensure DB is initialized
+            if (!this.initialized) {
+                await this.init();
+            }
+            
             const orgs = await this.indexedDB.getAllOrganizations();
             const repos = await this.indexedDB.getAllRepositories();
             const estimate = await this.indexedDB.getStorageEstimate();
@@ -290,6 +325,10 @@ class StorageManager {
      */
     async saveVulnerabilityData(packageKey, vulnerabilityData) {
         try {
+            // Ensure DB is initialized
+            if (!this.initialized) {
+                await this.init();
+            }
             return await this.indexedDB.saveVulnerability(packageKey, vulnerabilityData);
         } catch (error) {
             console.error('❌ Failed to save vulnerability data:', error);
@@ -319,6 +358,10 @@ class StorageManager {
      */
     async getVulnerabilityDataForPackage(packageKey) {
         try {
+            // Ensure DB is initialized
+            if (!this.initialized) {
+                await this.init();
+            }
             return await this.indexedDB.getVulnerability(packageKey);
         } catch (error) {
             console.error('❌ Failed to get vulnerability for package:', error);
@@ -331,6 +374,10 @@ class StorageManager {
      */
     async hasVulnerabilityData(packageKey) {
         try {
+            // Ensure DB is initialized
+            if (!this.initialized) {
+                await this.init();
+            }
             const data = await this.indexedDB.getVulnerability(packageKey);
             return data !== null;
         } catch (error) {

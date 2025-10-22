@@ -1,12 +1,12 @@
 /* SBOM Play - Client-Side Application Styles */
 
 :root {
-    --primary-color: #667eea;
-    --secondary-color: #764ba2;
+    --primary-color: #50c878;
+    --secondary-color: #121212;
     --success-color: #28a745;
-    --warning-color: #ffc107;
-    --danger-color: #dc3545;
-    --info-color: #17a2b8;
+    --warning-color: #fdcb52;
+    --danger-color: #d63c53;
+    --info-color: #466fe0;
     --light-bg: #f8f9fa;
     --border-color: #dee2e6;
 }
@@ -40,8 +40,8 @@ body {
 }
 
 .card-header {
-    background: linear-gradient(135deg, var(--primary-color) 0%, var(--secondary-color) 100%);
-    color: white;
+    background: var(--secondary-color);
+    color: var(--primary-color);
     border-radius: 0.5rem 0.5rem 0 0 !important;
     border: none;
 }
@@ -84,7 +84,7 @@ body {
 
 .progress-bar {
     border-radius: 0.75rem;
-    background: linear-gradient(90deg, var(--primary-color), var(--secondary-color));
+    background: var(--primary-color);
     transition: width 0.5s ease;
 }
 
@@ -145,7 +145,7 @@ body {
 
 .progress-fill {
     height: 100%;
-    background: linear-gradient(90deg, var(--primary-color), var(--secondary-color));
+    background: var(--primary-color);
     border-radius: 4px;
     transition: width 0.5s ease;
 }
@@ -274,7 +274,7 @@ body {
 
 /* General Styles */
 body {
-    background-color: #f8f9fa;
+    background-color: var(--bg-tertiary);
 }
 
 .container {
@@ -294,7 +294,7 @@ body {
 }
 
 .progress-bar {
-    background-color: #0d6efd;
+    background-color: var(--primary-color);
     transition: width 0.3s ease;
 }
 
@@ -307,7 +307,7 @@ body {
 .dependency-bar {
     margin-bottom: 0.5rem;
     padding: 0.5rem;
-    background-color: #f8f9fa;
+    background-color: var(--bg-tertiary);
     border-radius: 0.375rem;
     border: 1px solid #dee2e6;
 }
@@ -339,7 +339,7 @@ body {
 
 .progress-fill {
     height: 100%;
-    background-color: #0d6efd;
+    background-color: var(--primary-color);
     transition: width 0.3s ease;
 }
 
@@ -359,7 +359,7 @@ body {
     border-radius: 0.375rem;
     padding: 1rem;
     margin-bottom: 1rem;
-    background-color: white;
+    background-color: var(--bg-secondary);
     transition: box-shadow 0.2s ease;
 }
 
@@ -394,7 +394,7 @@ body {
 .stat-item {
     text-align: center;
     padding: 0.5rem;
-    background-color: #f8f9fa;
+    background-color: var(--bg-tertiary);
     border-radius: 0.25rem;
 }
 
@@ -417,7 +417,7 @@ body {
 
 /* Detailed View Styles */
 .view-header {
-    background-color: white;
+    background-color: var(--bg-secondary);
     padding: 1.5rem;
     border-radius: 0.5rem;
     margin-bottom: 2rem;
@@ -441,7 +441,7 @@ body {
 }
 
 .stat-card {
-    background-color: white;
+    background-color: var(--bg-secondary);
     padding: 1.5rem;
     border-radius: 0.5rem;
     box-shadow: 0 0.125rem 0.25rem rgba(0, 0, 0, 0.075);
@@ -473,7 +473,7 @@ body {
 }
 
 .section {
-    background-color: white;
+    background-color: var(--bg-secondary);
     padding: 1.5rem;
     border-radius: 0.5rem;
     box-shadow: 0 0.125rem 0.25rem rgba(0, 0, 0, 0.075);
@@ -486,8 +486,6 @@ body {
 }
 
 /* Dependency List */
-.dependency-list {
-}
 
 .dependency-item {
     display: flex;
@@ -502,7 +500,7 @@ body {
 }
 
 .dependency-item:hover {
-    background-color: #f8f9fa;
+    background-color: var(--bg-tertiary);
 }
 
 .dep-content {
@@ -553,7 +551,7 @@ body {
 }
 
 .repository-item:hover {
-    background-color: #f8f9fa;
+    background-color: var(--bg-tertiary);
 }
 
 .repo-name {
@@ -588,7 +586,7 @@ body {
 }
 
 .dependency-card {
-    background-color: #f8f9fa;
+    background-color: var(--bg-tertiary);
     padding: 1rem;
     border-radius: 0.375rem;
     border: 1px solid #dee2e6;
@@ -637,7 +635,7 @@ body {
 /* Detail Sections */
 .dependency-details,
 .repository-details {
-    background-color: white;
+    background-color: var(--bg-secondary);
     padding: 1.5rem;
     border-radius: 0.5rem;
     box-shadow: 0 0.125rem 0.25rem rgba(0, 0, 0, 0.075);
@@ -668,7 +666,7 @@ body {
     justify-content: space-between;
     align-items: center;
     padding: 0.75rem;
-    background-color: #f8f9fa;
+    background-color: var(--bg-tertiary);
     border-radius: 0.375rem;
 }
 
@@ -694,7 +692,7 @@ body {
     align-items: center;
     gap: 0.5rem;
     padding: 0.75rem;
-    background-color: #f8f9fa;
+    background-color: var(--bg-tertiary);
     border-radius: 0.375rem;
     border: 1px solid #dee2e6;
 }
@@ -758,7 +756,7 @@ body {
 .dependency-list::-webkit-scrollbar-track,
 .repository-list::-webkit-scrollbar-track,
 .dependency-grid::-webkit-scrollbar-track {
-    background: #f1f1f1;
+    background: var(--bg-tertiary);
     border-radius: 3px;
 }
 
@@ -779,7 +777,7 @@ body {
 .category-breakdown {
     margin: 2rem 0;
     padding: 1.5rem;
-    background: #f8f9fa;
+    background: var(--bg-tertiary);
     border-radius: 8px;
 }
 
@@ -833,7 +831,7 @@ body {
 .language-breakdown {
     margin: 2rem 0;
     padding: 1.5rem;
-    background: #f8f9fa;
+    background: var(--bg-tertiary);
     border-radius: 8px;
 }
 
@@ -846,7 +844,7 @@ body {
 
 .language-card {
     padding: 1rem;
-    background: white;
+    background: var(--bg-secondary);
     border-radius: 8px;
     text-align: center;
     box-shadow: 0 2px 4px rgba(0,0,0,0.1);
@@ -1006,7 +1004,7 @@ body {
 /* Vulnerability breakdown */
 .vulnerability-breakdown {
     margin: 2rem 0;
-    background: #f8f9fa;
+    background: var(--bg-tertiary);
     border: 1px solid #dee2e6;
     border-radius: 12px;
     padding: 1.5rem;
@@ -1038,7 +1036,7 @@ body {
 }
 
 .vuln-stat-card {
-    background: white;
+    background: var(--bg-secondary);
     border: 1px solid #dee2e6;
     border-radius: 8px;
     padding: 1rem;
@@ -1109,7 +1107,7 @@ body {
 }
 
 .vulnerable-dep-item {
-    background: white;
+    background: var(--bg-secondary);
     border: 1px solid #dee2e6;
     border-radius: 6px;
     padding: 0.75rem;
@@ -1249,7 +1247,7 @@ body {
 /* Top Dependencies Section */
 .top-dependencies {
     margin: 2rem 0;
-    background: #f8f9fa;
+    background: var(--bg-tertiary);
     border: 1px solid #dee2e6;
     border-radius: 12px;
     padding: 1.5rem;
@@ -1264,7 +1262,7 @@ body {
 /* Top Repositories Section */
 .top-repositories {
     margin: 2rem 0;
-    background: #f8f9fa;
+    background: var(--bg-tertiary);
     border: 1px solid #dee2e6;
     border-radius: 12px;
     padding: 1.5rem;
@@ -1285,7 +1283,7 @@ body {
 }
 
 .repository-item {
-    background: white;
+    background: var(--bg-secondary);
     border: 1px solid #dee2e6;
     border-radius: 8px;
     padding: 1rem;
@@ -1316,7 +1314,7 @@ body {
 /* All Dependencies Section */
 .all-dependencies {
     margin: 2rem 0;
-    background: #f8f9fa;
+    background: var(--bg-tertiary);
     border: 1px solid #dee2e6;
     border-radius: 12px;
     padding: 1.5rem;
@@ -1332,7 +1330,7 @@ body {
 .license-breakdown {
     margin: 2rem 0;
     padding: 1.5rem;
-    background: white;
+    background: var(--bg-secondary);
     border-radius: 0.5rem;
     box-shadow: 0 0.125rem 0.25rem rgba(0, 0, 0, 0.075);
 }
@@ -1553,33 +1551,33 @@ body {
 }
 
 .license-stat-card.permissive {
-    background: linear-gradient(135deg, #d4edda 0%, #c3e6cb 100%);
-    border-color: #28a745;
+    background: var(--bg-success);
+    border-color: var(--color-green);
 }
 
 .license-stat-card.copyleft {
-    background: linear-gradient(135deg, #f8d7da 0%, #f5c6cb 100%);
-    border-color: #dc3545;
+    background: var(--bg-danger);
+    border-color: var(--color-red);
 }
 
 .license-stat-card.proprietary {
-    background: linear-gradient(135deg, #fff3cd 0%, #ffeaa7 100%);
-    border-color: #ffc107;
+    background: var(--bg-warning);
+    border-color: var(--color-yellow);
 }
 
 .license-stat-card.unknown {
-    background: linear-gradient(135deg, #e2e3e5 0%, #d6d8db 100%);
-    border-color: #6c757d;
+    background: var(--bg-tertiary);
+    border-color: var(--text-secondary);
 }
 
 .license-stat-card.total {
-    background: linear-gradient(135deg, #d1ecf1 0%, #bee5eb 100%);
-    border-color: #17a2b8;
+    background: var(--bg-info);
+    border-color: var(--color-blue);
 }
 
 .license-stat-card.unlicensed {
-    background: linear-gradient(135deg, #f8d7da 0%, #f5c6cb 100%);
-    border-color: #dc3545;
+    background: var(--bg-danger);
+    border-color: var(--color-red);
 }
 
 .license-stat-card h4 {
@@ -1620,7 +1618,7 @@ body {
 
 .license-conflict-item {
     padding: 1rem;
-    background: #f8f9fa;
+    background: var(--bg-tertiary);
     border-radius: 0.5rem;
     border-left: 4px solid #dc3545;
     transition: all 0.3s ease;
@@ -1681,14 +1679,14 @@ body {
 
 .high-risk-item {
     padding: 1rem;
-    background: #fff3cd;
+    background: var(--bg-warning);
     border-radius: 0.5rem;
-    border-left: 4px solid #ffc107;
+    border-left: 4px solid var(--color-yellow);
     transition: all 0.3s ease;
 }
 
 .high-risk-item:hover {
-    background: #ffeaa7;
+    background: var(--bg-tertiary);
     transform: translateX(5px);
 }
 
@@ -1756,18 +1754,18 @@ body {
 }
 
 .recommendation-item.warning {
-    background: #fff3cd;
-    border-left: 4px solid #ffc107;
+    background: var(--bg-warning);
+    border-left: 4px solid var(--color-yellow);
 }
 
 .recommendation-item.error {
-    background: #f8d7da;
-    border-left: 4px solid #dc3545;
+    background: var(--bg-danger);
+    border-left: 4px solid var(--color-red);
 }
 
 .recommendation-item.info {
-    background: #d1ecf1;
-    border-left: 4px solid #17a2b8;
+    background: var(--bg-info);
+    border-left: 4px solid var(--color-blue);
 }
 
 .rec-priority {
@@ -1962,7 +1960,7 @@ body {
 .independent-section {
     margin-top: 2rem;
     padding: 1.5rem;
-    background: white;
+    background: var(--bg-secondary);
     border-radius: 0.5rem;
     box-shadow: 0 0.125rem 0.25rem rgba(0, 0, 0, 0.075);
     border: 1px solid var(--bs-border-color);
@@ -2010,7 +2008,7 @@ body {
 }
 
 .dependency-item {
-    background: #f8f9fa;
+    background: var(--bg-tertiary);
     border: 1px solid #dee2e6;
     border-radius: 8px;
     padding: 15px;
@@ -2062,7 +2060,7 @@ body {
 }
 
 .repository-item {
-    background: #ffffff;
+    background: var(--bg-secondary);
     border: 1px solid #dee2e6;
     border-radius: 8px;
     padding: 20px;
@@ -2101,7 +2099,7 @@ body {
     justify-content: space-between;
     align-items: center;
     padding: 8px 12px;
-    background: #f8f9fa;
+    background: var(--bg-tertiary);
     border-radius: 6px;
     border-left: 3px solid #007bff;
 }
@@ -2131,7 +2129,7 @@ body {
 }
 
 .recommendation-item.warning {
-    background: #fff3cd;
+    background: var(--bg-warning);
     border-left-color: #ffc107;
 }
 
@@ -2197,7 +2195,7 @@ body {
 
 /* License conflict item enhancements */
 .license-conflict-item {
-    background: #fff;
+    background: var(--bg-secondary);
     border: 1px solid #dee2e6;
     border-radius: 8px;
     padding: 20px;
@@ -2236,7 +2234,7 @@ body {
 
 /* High-risk license item enhancements */
 .high-risk-item {
-    background: #fff;
+    background: var(--bg-secondary);
     border: 1px solid #dee2e6;
     border-radius: 8px;
     padding: 20px;
@@ -2284,7 +2282,7 @@ body {
 
 /* Recommendation item enhancements */
 .recommendation-item {
-    background: #fff;
+    background: var(--bg-secondary);
     border: 1px solid #dee2e6;
     border-radius: 8px;
     padding: 20px;
@@ -2350,7 +2348,7 @@ body {
     right: -400px;
     width: 400px;
     height: 100vh;
-    background: #ffffff;
+    background: var(--bg-secondary);
     border-left: 1px solid #dee2e6;
     box-shadow: -5px 0 15px rgba(0,0,0,0.1);
     z-index: 1050;
@@ -2368,7 +2366,7 @@ body {
     align-items: center;
     padding: 20px;
     border-bottom: 1px solid #dee2e6;
-    background: #f8f9fa;
+    background: var(--bg-tertiary);
     position: sticky;
     top: 0;
     z-index: 10;
@@ -2394,7 +2392,7 @@ body {
 .license-panel-stats .stat-item {
     text-align: center;
     padding: 15px;
-    background: #f8f9fa;
+    background: var(--bg-tertiary);
     border-radius: 8px;
     border: 1px solid #dee2e6;
 }
@@ -2448,7 +2446,7 @@ body {
 .modal-body .repository-item {
     padding: 12px;
     margin-bottom: 8px;
-    background: #f8f9fa;
+    background: var(--bg-tertiary);
     border-radius: 6px;
     border: 1px solid #dee2e6;
 }
@@ -2477,7 +2475,7 @@ body {
     justify-content: space-between;
     align-items: center;
     padding: 4px 8px;
-    background: #ffffff;
+    background: var(--bg-secondary);
     border-radius: 4px;
     font-size: 0.85rem;
 }

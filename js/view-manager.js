@@ -388,13 +388,13 @@ class ViewManager {
                 <button class="btn btn-secondary" onclick="viewManager.goBack()">
                     ← Back to Analysis
                 </button>
-                <h2>📊 ${orgData.organization} - Dependency Overview</h2>
+                <h2>📊 ${orgData.organization || orgData.name} - Dependency Overview</h2>
                 <p class="text-muted">Analyzed on ${new Date(orgData.timestamp).toLocaleString()}</p>
                 <div class="mt-2">
-                    <button class="btn btn-primary btn-sm" onclick="viewManager.runBatchVulnerabilityQuery('${orgData.organization}')">
+                    <button class="btn btn-primary btn-sm" onclick="viewManager.runBatchVulnerabilityQuery('${orgData.organization || orgData.name}')">
                         <i class="fas fa-shield-alt"></i> Vulnerability Scan (All Repos)
                     </button>
-                    <button class="btn btn-success btn-sm" onclick="viewManager.runLicenseComplianceCheck('${orgData.organization}')">
+                    <button class="btn btn-success btn-sm" onclick="viewManager.runLicenseComplianceCheck('${orgData.organization || orgData.name}')">
                         <i class="fas fa-gavel"></i> License Compliance Check
                     </button>
                     <button class="btn btn-info btn-sm" onclick="viewManager.showVulnerabilityCacheStats()">
@@ -441,7 +441,7 @@ class ViewManager {
 
         return `
             <div class="view-header">
-                <button class="btn btn-secondary" onclick="viewManager.showOrganizationOverviewFromStorage('${orgData.organization}')">
+                <button class="btn btn-secondary" onclick="viewManager.showOrganizationOverviewFromStorage('${orgData.organization || orgData.name}')">
                     ← Back to Overview
                 </button>
                 <h2>📦 ${dependency.name}@${dependency.version}</h2>
@@ -488,7 +488,7 @@ class ViewManager {
                             const allRepos = orgData.data.allRepositories;
                             const originalIndex = allRepos.findIndex(r => r.owner === repo.owner && r.name === repo.name);
                             return `
-                                <div class="repository-item" onclick="viewManager.showRepositoryDetailsFromAllReposIndex(${originalIndex}, '${orgData.organization}')" style="cursor: pointer;">
+                                <div class="repository-item" onclick="viewManager.showRepositoryDetailsFromAllReposIndex(${originalIndex}, '${orgData.organization || orgData.name}')" style="cursor: pointer;">
                                     <div class="repo-name">${repo.owner}/${repo.name}</div>
                                     <div class="repo-deps">${repo.totalDependencies} total deps</div>
                                 </div>
@@ -500,7 +500,7 @@ class ViewManager {
                 <div class="detail-section">
                     <h3>🔍 Security Analysis</h3>
                     <div class="mt-3">
-                        <button class="btn btn-primary btn-sm" onclick="viewManager.quickScanDependency('${dependency.name}', '${dependency.version}', '${orgData.organization}')">
+                        <button class="btn btn-primary btn-sm" onclick="viewManager.quickScanDependency('${dependency.name}', '${dependency.version}', '${orgData.organization || orgData.name}')">
                             <i class="fas fa-shield-alt"></i> Quick Vulnerability Scan
                         </button>
                         <button class="btn btn-info btn-sm" onclick="viewManager.showVulnerabilityCacheStats()">
@@ -584,7 +584,7 @@ class ViewManager {
                         <h6>📋 No License Analysis Available</h6>
                         <p>License analysis hasn't been performed for this organization yet. License information will be available after the next analysis run.</p>
                         <div class="mt-3">
-                            <button class="btn btn-success btn-sm" onclick="viewManager.runLicenseComplianceCheck('${orgData.organization}')">
+                            <button class="btn btn-success btn-sm" onclick="viewManager.runLicenseComplianceCheck('${orgData.organization || orgData.name}')">
                                 <i class="fas fa-gavel"></i> Run License Compliance Check
                             </button>
                         </div>
@@ -625,7 +625,7 @@ class ViewManager {
 
         return `
             <div class="view-header">
-                <button class="btn btn-secondary" onclick="viewManager.showOrganizationOverviewFromStorage('${orgData.organization}')">
+                <button class="btn btn-secondary" onclick="viewManager.showOrganizationOverviewFromStorage('${orgData.organization || orgData.name}')">
                     ← Back to Overview
                 </button>
                 <h2>📁 ${repo.owner}/${repo.name}</h2>
@@ -646,7 +646,7 @@ class ViewManager {
                         </div>
                     </div>
                     <div class="mt-3">
-                        <button class="btn btn-primary btn-sm" onclick="viewManager.runRepositoryVulnerabilityQuery('${repo.owner}', '${repo.name}', '${orgData.organization}')">
+                        <button class="btn btn-primary btn-sm" onclick="viewManager.runRepositoryVulnerabilityQuery('${repo.owner}', '${repo.name}', '${orgData.organization || orgData.name}')">
                             <i class="fas fa-shield-alt"></i> Vulnerability Scan (This Repo)
                         </button>
                         <button class="btn btn-info btn-sm" onclick="viewManager.showVulnerabilityCacheStats()">
@@ -665,7 +665,7 @@ class ViewManager {
                     </div>
                     <div class="dependency-grid" id="repo-dependencies">
                         ${repoDeps.map((dep, index) => `
-                            <div class="dependency-card" onclick="viewManager.showDependencyDetailsFromRepoIndex(${index}, '${orgData.organization}', '${repo.owner}/${repo.name}')">
+                            <div class="dependency-card" onclick="viewManager.showDependencyDetailsFromRepoIndex(${index}, '${orgData.organization || orgData.name}', '${repo.owner}/${repo.name}')">
                                 <div class="dep-name">${dep.name}</div>
                                 <div class="dep-version">${dep.version}</div>
                             </div>
@@ -852,10 +852,28 @@ class ViewManager {
         try {
             // Get organization data
             const orgData = await storageManager.loadAnalysisDataForOrganization(organization);
-            if (!orgData || !orgData.data.allDependencies) {
-                this.showAlert('No dependencies found for analysis', 'warning');
+            
+            console.log('🔍 Vulnerability Query - Organization:', organization);
+            console.log('🔍 Vulnerability Query - Loaded orgData:', orgData);
+            
+            if (!orgData) {
+                this.showAlert(`No data found for organization: ${organization}`, 'warning');
                 return;
             }
+            
+            if (!orgData.data) {
+                this.showAlert('Organization data structure is invalid (missing .data)', 'warning');
+                console.error('Invalid orgData structure:', orgData);
+                return;
+            }
+            
+            if (!orgData.data.allDependencies || orgData.data.allDependencies.length === 0) {
+                this.showAlert(`No dependencies found for analysis. Dependencies count: ${orgData.data.allDependencies ? orgData.data.allDependencies.length : 0}`, 'warning');
+                console.error('No dependencies in orgData.data:', orgData.data);
+                return;
+            }
+            
+            console.log(`✅ Found ${orgData.data.allDependencies.length} dependencies for vulnerability analysis`);
 
             // Show loading state
             this.showAlert('Running batch vulnerability query...', 'info');
@@ -2161,7 +2179,7 @@ class ViewManager {
     /**
      * Toggle license repositories panel (slide-out)
      */
-    toggleLicenseRepositoriesPanel(organization, licenseType) {
+    async toggleLicenseRepositoriesPanel(organization, licenseType) {
         const panel = document.getElementById('license-repositories-panel');
         const title = document.getElementById('license-panel-title');
         const content = document.getElementById('license-repositories-content');
@@ -2575,7 +2593,7 @@ class ViewManager {
         return `
         <div class="license-stats">
             <div class="license-stat-card total clickable-license-card license-card" 
-                 onclick="viewManager.toggleLicenseRepositoriesPanel('${orgData.organization}', 'total')">
+                 onclick="viewManager.toggleLicenseRepositoriesPanel('${orgData.organization || orgData.name}', 'total')">
                 <h4>📊 Total</h4>
                 <div class="license-number">${orgData.data.licenseAnalysis.summary?.licensedDependencies || 0}</div>
                 <div class="license-detail">licensed deps</div>
@@ -2601,13 +2619,13 @@ class ViewManager {
                             ` : ''}
                         </div>
                         <div class="license-tooltip-footer">
-                            <button class="license-tooltip-click" onclick="viewManager.toggleLicenseRepositoriesPanel('${orgData.organization}', 'total')">Click to view all</button>
+                            <button class="license-tooltip-click" onclick="viewManager.toggleLicenseRepositoriesPanel('${orgData.organization || orgData.name}', 'total')">Click to view all</button>
                         </div>
                     </div>
                 </div>
             </div>
             <div class="license-stat-card copyleft clickable-license-card license-card" 
-                 onclick="viewManager.toggleLicenseRepositoriesPanel('${orgData.organization}', 'copyleft')">
+                 onclick="viewManager.toggleLicenseRepositoriesPanel('${orgData.organization || orgData.name}', 'copyleft')">
                 <h4>⚠️ Copyleft</h4>
                 <div class="license-number">${copyleftCount}</div>
                 <div class="license-detail">high risk</div>
@@ -2633,13 +2651,13 @@ class ViewManager {
                             ` : ''}
                         </div>
                         <div class="license-tooltip-footer">
-                            <button class="license-tooltip-click" onclick="viewManager.toggleLicenseRepositoriesPanel('${orgData.organization}', 'copyleft')">Click to view all</button>
+                            <button class="license-tooltip-click" onclick="viewManager.toggleLicenseRepositoriesPanel('${orgData.organization || orgData.name}', 'copyleft')">Click to view all</button>
                         </div>
                     </div>
                 </div>
             </div>
             <div class="license-stat-card proprietary clickable-license-card license-card" 
-                 onclick="viewManager.toggleLicenseRepositoriesPanel('${orgData.organization}', 'proprietary')">
+                 onclick="viewManager.toggleLicenseRepositoriesPanel('${orgData.organization || orgData.name}', 'proprietary')">
                 <h4>🔒 Proprietary</h4>
                 <div class="license-number">${orgData.data.licenseAnalysis.summary?.categoryBreakdown?.proprietary || 0}</div>
                 <div class="license-detail">medium risk</div>
@@ -2665,13 +2683,13 @@ class ViewManager {
                             ` : ''}
                         </div>
                         <div class="license-tooltip-footer">
-                            <button class="license-tooltip-click" onclick="viewManager.toggleLicenseRepositoriesPanel('${orgData.organization}', 'proprietary')">Click to view all</button>
+                            <button class="license-tooltip-click" onclick="viewManager.toggleLicenseRepositoriesPanel('${orgData.organization || orgData.name}', 'proprietary')">Click to view all</button>
                         </div>
                     </div>
                 </div>
             </div>
             <div class="license-stat-card unknown clickable-license-card license-card" 
-                 onclick="viewManager.toggleLicenseRepositoriesPanel('${orgData.organization}', 'unknown')">
+                 onclick="viewManager.toggleLicenseRepositoriesPanel('${orgData.organization || orgData.name}', 'unknown')">
                 <h4>❓ Unknown</h4>
                 <div class="license-number">${orgData.data.licenseAnalysis.summary?.categoryBreakdown?.unknown || 0}</div>
                 <div class="license-detail">high risk</div>
@@ -2697,13 +2715,13 @@ class ViewManager {
                             ` : ''}
                         </div>
                         <div class="license-tooltip-footer">
-                            <button class="license-tooltip-click" onclick="viewManager.toggleLicenseRepositoriesPanel('${orgData.organization}', 'unknown')">Click to view all</button>
+                            <button class="license-tooltip-click" onclick="viewManager.toggleLicenseRepositoriesPanel('${orgData.organization || orgData.name}', 'unknown')">Click to view all</button>
                         </div>
                     </div>
                 </div>
             </div>
             <div class="license-stat-card unlicensed clickable-license-card license-card" 
-                 onclick="viewManager.toggleLicenseRepositoriesPanel('${orgData.organization}', 'unlicensed')">
+                 onclick="viewManager.toggleLicenseRepositoriesPanel('${orgData.organization || orgData.name}', 'unlicensed')">
                 <h4>🚨 Unlicensed</h4>
                 <div class="license-number">${orgData.data.licenseAnalysis.summary?.unlicensedDependencies || 0}</div>
                 <div class="license-detail">unlicensed deps</div>
@@ -2729,7 +2747,7 @@ class ViewManager {
                             ` : ''}
                         </div>
                         <div class="license-tooltip-footer">
-                            <button class="license-tooltip-click" onclick="viewManager.toggleLicenseRepositoriesPanel('${orgData.organization}', 'unlicensed')">Click to view all</button>
+                            <button class="license-tooltip-click" onclick="viewManager.toggleLicenseRepositoriesPanel('${orgData.organization || orgData.name}', 'unlicensed')">Click to view all</button>
                         </div>
                     </div>
                 </div>
@@ -2762,7 +2780,7 @@ class ViewManager {
                                 ${conflict.licenses.map(license => `<span class="badge badge-license">${license}</span>`).join('')}
                             </div>
                             <div class="conflict-actions">
-                                <button class="btn btn-outline-danger btn-sm" onclick="viewManager.showLicenseConflictDetailsModal('${orgData.organization}', ${index})">
+                                <button class="btn btn-outline-danger btn-sm" onclick="viewManager.showLicenseConflictDetailsModal('${orgData.organization || orgData.name}', ${index})">
                                     <i class="fas fa-eye me-1"></i>View Affected Repositories
                                 </button>
                             </div>
@@ -2790,7 +2808,7 @@ class ViewManager {
                             ` : ''}
                         </div>
                         <div class="risk-actions">
-                            <button class="btn btn-outline-warning btn-sm" onclick="viewManager.showHighRiskLicenseDetailsModal('${orgData.organization}', '${dep.name}', '${dep.version}')">
+                            <button class="btn btn-outline-warning btn-sm" onclick="viewManager.showHighRiskLicenseDetailsModal('${orgData.organization || orgData.name}', '${dep.name}', '${dep.version}')">
                                 <i class="fas fa-eye me-1"></i>View Affected Repositories
                             </button>
                         </div>
@@ -2809,7 +2827,7 @@ class ViewManager {
                         <div class="rec-priority">${rec.priority}</div>
                         <div class="rec-message">${rec.message}</div>
                         <div class="rec-actions">
-                            <button class="btn btn-outline-info btn-sm" onclick="viewManager.showRecommendationDetails('${orgData.organization}', ${index})">
+                            <button class="btn btn-outline-info btn-sm" onclick="viewManager.showRecommendationDetails('${orgData.organization || orgData.name}', ${index})">
                                 <i class="fas fa-eye me-1"></i>View Details
                             </button>
                         </div>
@@ -2999,7 +3017,7 @@ class ViewManager {
                 <h3>🔒 Vulnerability Analysis</h3>
                 ${orgData.data.vulnerabilityAnalysis ? `
                 <div class="vulnerability-actions mb-3">
-                    <button class="btn btn-primary btn-sm" onclick="viewManager.runBatchVulnerabilityQuery('${orgData.organization}')">
+                    <button class="btn btn-primary btn-sm" onclick="viewManager.runBatchVulnerabilityQuery('${orgData.organization || orgData.name}')">
                         <i class="fas fa-search"></i> Re-run Batch Vulnerability Query
                     </button>
                     <button class="btn btn-info btn-sm" onclick="viewManager.showVulnerabilityCacheStats()">
@@ -3078,7 +3096,7 @@ class ViewManager {
                 ` : ''}
                 ` : `
                 <div class="vulnerability-actions mb-3">
-                    <button class="btn btn-primary btn-sm" onclick="viewManager.runBatchVulnerabilityQuery('${orgData.organization}')">
+                    <button class="btn btn-primary btn-sm" onclick="viewManager.runBatchVulnerabilityQuery('${orgData.organization || orgData.name}')">
                         <i class="fas fa-search"></i> Run Initial Vulnerability Analysis
                     </button>
                     <button class="btn btn-info btn-sm" onclick="viewManager.showVulnerabilityCacheStats()">
@@ -3102,3 +3120,6 @@ class ViewManager {
         `;
     }
 }
+
+// Export for use in other modules
+window.ViewManager = ViewManager;

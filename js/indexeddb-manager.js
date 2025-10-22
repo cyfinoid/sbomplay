@@ -72,6 +72,10 @@ class IndexedDBManager {
      */
     async saveOrganization(name, data) {
         try {
+            if (!this.db) {
+                console.warn('⚠️ IndexedDB not initialized yet');
+                return false;
+            }
             const transaction = this.db.transaction(['organizations'], 'readwrite');
             const store = transaction.objectStore('organizations');
             
@@ -98,6 +102,10 @@ class IndexedDBManager {
      */
     async saveRepository(fullName, data) {
         try {
+            if (!this.db) {
+                console.warn('⚠️ IndexedDB not initialized yet');
+                return false;
+            }
             const transaction = this.db.transaction(['repositories'], 'readwrite');
             const store = transaction.objectStore('repositories');
             
@@ -123,6 +131,10 @@ class IndexedDBManager {
      */
     async getOrganization(name) {
         try {
+            if (!this.db) {
+                console.warn('⚠️ IndexedDB not initialized yet');
+                return null;
+            }
             const transaction = this.db.transaction(['organizations'], 'readonly');
             const store = transaction.objectStore('organizations');
             const result = await this._promisifyRequest(store.get(name));
@@ -138,6 +150,10 @@ class IndexedDBManager {
      */
     async getRepository(fullName) {
         try {
+            if (!this.db) {
+                console.warn('⚠️ IndexedDB not initialized yet');
+                return null;
+            }
             const transaction = this.db.transaction(['repositories'], 'readonly');
             const store = transaction.objectStore('repositories');
             const result = await this._promisifyRequest(store.get(fullName));
@@ -153,6 +169,10 @@ class IndexedDBManager {
      */
     async getAllOrganizations() {
         try {
+            if (!this.db) {
+                console.warn('⚠️ IndexedDB not initialized yet');
+                return [];
+            }
             const transaction = this.db.transaction(['organizations'], 'readonly');
             const store = transaction.objectStore('organizations');
             const result = await this._promisifyRequest(store.getAll());
@@ -168,6 +188,10 @@ class IndexedDBManager {
      */
     async getAllRepositories() {
         try {
+            if (!this.db) {
+                console.warn('⚠️ IndexedDB not initialized yet');
+                return [];
+            }
             const transaction = this.db.transaction(['repositories'], 'readonly');
             const store = transaction.objectStore('repositories');
             const result = await this._promisifyRequest(store.getAll());
@@ -203,6 +227,10 @@ class IndexedDBManager {
      */
     async deleteEntry(name) {
         try {
+            if (!this.db) {
+                console.warn('⚠️ IndexedDB not initialized yet');
+                return false;
+            }
             // Try to delete from organizations first
             const isRepo = name.includes('/');
             const storeName = isRepo ? 'repositories' : 'organizations';
@@ -225,6 +253,10 @@ class IndexedDBManager {
      */
     async clearAll() {
         try {
+            if (!this.db) {
+                console.warn('⚠️ IndexedDB not initialized yet');
+                return false;
+            }
             const transaction = this.db.transaction(
                 ['organizations', 'repositories', 'vulnerabilities', 'metadata'], 
                 'readwrite'
@@ -250,6 +282,10 @@ class IndexedDBManager {
      */
     async saveVulnerability(packageKey, data) {
         try {
+            if (!this.db) {
+                console.warn('⚠️ IndexedDB not initialized yet');
+                return false;
+            }
             const transaction = this.db.transaction(['vulnerabilities'], 'readwrite');
             const store = transaction.objectStore('vulnerabilities');
             
@@ -273,6 +309,10 @@ class IndexedDBManager {
      */
     async getVulnerability(packageKey) {
         try {
+            if (!this.db) {
+                console.warn('⚠️ IndexedDB not initialized yet');
+                return null;
+            }
             const transaction = this.db.transaction(['vulnerabilities'], 'readonly');
             const store = transaction.objectStore('vulnerabilities');
             const result = await this._promisifyRequest(store.get(packageKey));
@@ -288,6 +328,10 @@ class IndexedDBManager {
      */
     async getAllVulnerabilities() {
         try {
+            if (!this.db) {
+                console.warn('⚠️ IndexedDB not initialized yet');
+                return [];
+            }
             const transaction = this.db.transaction(['vulnerabilities'], 'readonly');
             const store = transaction.objectStore('vulnerabilities');
             const result = await this._promisifyRequest(store.getAll());
@@ -303,6 +347,10 @@ class IndexedDBManager {
      */
     async clearVulnerabilities() {
         try {
+            if (!this.db) {
+                console.warn('⚠️ IndexedDB not initialized yet');
+                return false;
+            }
             const transaction = this.db.transaction(['vulnerabilities'], 'readwrite');
             const store = transaction.objectStore('vulnerabilities');
             await this._promisifyRequest(store.clear());

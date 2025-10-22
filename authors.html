@@ -6,9 +6,9 @@
     <title>Author Analysis - SBOM Play</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
-    <link rel="stylesheet" href="css/style.css">
-    <link rel="stylesheet" href="css/themes.css">
-    <script src="js/theme-manager.js"></script>
+    <link rel="stylesheet" href="css/style.css?v=10">
+    <link rel="stylesheet" href="css/themes.css?v=10">
+    <script src="js/theme-manager.js?v=10"></script>
 </head>
 <body>
     <!-- Navigation -->
@@ -80,32 +80,44 @@
     </div>
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
-    <script src="js/indexeddb-manager.js"></script>
-    <script src="js/storage-manager.js"></script>
-    <script src="js/author-service.js"></script>
-    <script>
+    <script src="js/indexeddb-manager.js?v=10"></script>
+    <script src="js/storage-manager.js?v=10"></script>
+    <script src="js/author-service.js?v=10"></script>
+    <script type="module">
         document.addEventListener('DOMContentLoaded', async function() {
+            console.log('👥 Authors Page - Initializing...');
+            
             const storageManager = new StorageManager();
             await storageManager.init();
+            console.log('✅ Authors Page - Storage initialized');
             
             // Load available analyses
             await loadAnalysisList();
+            console.log('✅ Authors Page - Analysis list loaded');
             
             // Setup event listeners
             document.getElementById('analysisSelector').addEventListener('change', loadAuthorData);
             document.getElementById('ecosystemFilter').addEventListener('change', loadAuthorData);
             
             // Load initial data
+            console.log('📊 Authors Page - Loading initial author data...');
             await loadAuthorData();
             
             async function loadAnalysisList() {
                 const storageInfo = await storageManager.getStorageInfo();
                 const selector = document.getElementById('analysisSelector');
                 
+                console.log('📋 Authors Page - Storage info:', storageInfo);
+                console.log('📋 Authors Page - Organizations:', storageInfo.organizations);
+                console.log('📋 Authors Page - Repositories:', storageInfo.repositories);
+                
                 // Add combined option (already there)
                 
                 // Add individual analyses
-                [...storageInfo.organizations, ...storageInfo.repositories].forEach(entry => {
+                const allEntries = [...storageInfo.organizations, ...storageInfo.repositories];
+                console.log(`📋 Authors Page - Adding ${allEntries.length} entries to selector`);
+                
+                allEntries.forEach(entry => {
                     const option = document.createElement('option');
                     option.value = entry.name;
                     option.textContent = entry.name;
@@ -117,14 +129,19 @@
                 const analysisId = document.getElementById('analysisSelector').value;
                 const ecosystem = document.getElementById('ecosystemFilter').value;
                 
+                console.log(`📊 Authors Page - Loading data for: ${analysisId}, ecosystem: ${ecosystem}`);
+                
                 let authorData;
                 
                 if (analysisId === 'combined') {
+                    console.log('📊 Authors Page - Loading combined authors...');
                     authorData = await loadCombinedAuthors();
                 } else {
+                    console.log(`📊 Authors Page - Loading single analysis: ${analysisId}`);
                     authorData = await loadSingleAnalysisAuthors(analysisId);
                 }
                 
+                console.log(`📊 Authors Page - Loaded ${authorData ? authorData.length : 0} authors`);
                 displayAuthors(authorData, ecosystem);
             }
             
@@ -132,9 +149,26 @@
                 const storageInfo = await storageManager.getStorageInfo();
                 const allAuthors = new Map();
                 
-                for (const entry of [...storageInfo.organizations, ...storageInfo.repositories]) {
+                const allEntries = [...storageInfo.organizations, ...storageInfo.repositories];
+                console.log(`📊 Authors Page - Combining authors from ${allEntries.length} entries`);
+                
+                for (const entry of allEntries) {
+                    console.log(`📊 Authors Page - Loading data for: ${entry.name}`);
                     const data = await storageManager.loadAnalysisDataForOrganization(entry.name);
+                    
+                    if (data) {
+                        console.log(`📊 Authors Page - Data structure for ${entry.name}:`, {
+                            hasData: !!data.data,
+                            hasAuthorAnalysis: !!data.data?.authorAnalysis,
+                            hasAuthors: !!data.data?.authorAnalysis?.authors,
+                            authorCount: data.data?.authorAnalysis?.authors?.length || 0
+                        });
+                    } else {
+                        console.log(`⚠️ Authors Page - No data found for ${entry.name}`);
+                    }
+                    
                     if (data?.data?.authorAnalysis?.authors) {
+                        console.log(`✅ Authors Page - Found ${data.data.authorAnalysis.authors.length} authors in ${entry.name}`);
                         data.data.authorAnalysis.authors.forEach(author => {
                             const key = `${author.ecosystem}:${author.author}`;
                             if (!allAuthors.has(key)) {
@@ -150,26 +184,54 @@
                     }
                 }
                 
-                return Array.from(allAuthors.values())
+                const result = Array.from(allAuthors.values())
                     .sort((a, b) => b.count - a.count);
+                
+                console.log(`📊 Authors Page - Combined total: ${result.length} unique authors`);
+                return result;
             }
             
             async function loadSingleAnalysisAuthors(analysisId) {
+                console.log(`📊 Authors Page - Loading single analysis: ${analysisId}`);
                 const data = await storageManager.loadAnalysisDataForOrganization(analysisId);
-                return data?.data?.authorAnalysis?.authors || [];
+                
+                if (data) {
+                    console.log(`📊 Authors Page - Data for ${analysisId}:`, {
+                        hasData: !!data.data,
+                        hasAuthorAnalysis: !!data.data?.authorAnalysis,
+                        hasAuthors: !!data.data?.authorAnalysis?.authors,
+                        authorCount: data.data?.authorAnalysis?.authors?.length || 0
+                    });
+                } else {
+                    console.log(`⚠️ Authors Page - No data found for ${analysisId}`);
+                }
+                
+                const authors = data?.data?.authorAnalysis?.authors || [];
+                console.log(`📊 Authors Page - Returning ${authors.length} authors`);
+                return authors;
             }
             
             function displayAuthors(authors, ecosystemFilter) {
                 const container = document.getElementById('authorContent');
                 
+                console.log(`🎨 Authors Page - Displaying authors. Total: ${authors ? authors.length : 0}, Filter: ${ecosystemFilter}`);
+                
+                if (!authors || authors.length === 0) {
+                    console.log('⚠️ Authors Page - No authors to display');
+                    container.innerHTML = '<p class="text-muted text-center">No author data available. Run an analysis to generate author information.</p>';
+                    return;
+                }
+                
                 // Filter by ecosystem
                 let filtered = authors;
                 if (ecosystemFilter !== 'all') {
                     filtered = authors.filter(a => a.ecosystem === ecosystemFilter);
+                    console.log(`🎨 Authors Page - After filtering by ${ecosystemFilter}: ${filtered.length} authors`);
                 }
                 
                 if (filtered.length === 0) {
-                    container.innerHTML = '<p class="text-muted text-center">No author data available. Run an analysis to generate author information.</p>';
+                    console.log('⚠️ Authors Page - No authors after filtering');
+                    container.innerHTML = `<p class="text-muted text-center">No authors found for ecosystem: ${ecosystemFilter}. Try selecting "All Ecosystems".</p>`;
                     return;
                 }
                 
