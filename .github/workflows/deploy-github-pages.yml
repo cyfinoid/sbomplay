@@ -30,7 +30,7 @@ jobs:
     
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4  # Pinned to v4 for security
+        uses: actions/checkout@v5  # Pinned to v4 for security
         with:
           # Don't fetch history, only need current state
           fetch-depth: 1
