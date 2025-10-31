@@ -385,6 +385,58 @@ class SBOMPlayApp {
     }
 
     /**
+     * Parse GitHub URL or input to extract owner and repo
+     * Supports formats:
+     * - username
+     * - owner/repo
+     * - https://github.com/owner/repo
+     * - https://github.com/owner/
+     * - github.com/owner/repo
+     */
+    parseGitHubInput(input) {
+        // Remove trailing slashes
+        input = input.replace(/\/+$/, '');
+        
+        // Check if it's a URL
+        const urlPattern = /^(?:https?:\/\/)?(?:www\.)?github\.com\/([^\/]+)(?:\/([^\/]+))?/i;
+        const urlMatch = input.match(urlPattern);
+        
+        if (urlMatch) {
+            // It's a GitHub URL
+            const owner = urlMatch[1];
+            const repo = urlMatch[2];
+            
+            return {
+                owner,
+                repo: repo || null,
+                isRepo: !!repo,
+                original: input
+            };
+        }
+        
+        // Not a URL, check if it's owner/repo format
+        if (input.includes('/')) {
+            const parts = input.split('/');
+            if (parts.length === 2 && parts[0] && parts[1]) {
+                return {
+                    owner: parts[0],
+                    repo: parts[1],
+                    isRepo: true,
+                    original: input
+                };
+            }
+        }
+        
+        // Just an organization or username
+        return {
+            owner: input,
+            repo: null,
+            isRepo: false,
+            original: input
+        };
+    }
+
+    /**
      * Start analysis - detects org/user or single repo format
      */
     async startAnalysis() {
@@ -399,14 +451,13 @@ class SBOMPlayApp {
             return;
         }
 
-        // Detect format: org/user or owner/repo
-        const isRepo = input.includes('/') && input.split('/').length === 2;
+        // Parse the input (handles URLs, owner/repo, or just username)
+        const parsed = this.parseGitHubInput(input);
         
-        if (isRepo) {
-            const [owner, repo] = input.split('/');
-            await this.analyzeSingleRepository(owner, repo);
+        if (parsed.isRepo) {
+            await this.analyzeSingleRepository(parsed.owner, parsed.repo);
         } else {
-            await this.analyzeOrganization(input);
+            await this.analyzeOrganization(parsed.owner);
         }
     }
 

@@ -8,46 +8,59 @@ class SBOMPlayApp {
         this.storageManager = new StorageManager();
         this.isAnalyzing = false;
         this.rateLimitTimer = null;
+        this.initialized = false;
         
-        this.initializeApp();
+        // Initialize asynchronously
+        this.initializeApp().catch(error => {
+            console.error('Failed to initialize app:', error);
+        });
     }
 
     /**
-     * Initialize the application
+     * Initialize the application (async)
      */
-    initializeApp() {
-        this.loadSavedToken();
-        this.checkStorageAvailability();
-        
-        // Only initialize UI elements if they exist on the current page
-        if (document.getElementById('storageStatus')) {
-            this.showStorageStatus();
-        }
-        if (document.getElementById('storageStatusIndicator')) {
-            this.showStorageStatusIndicator();
-        }
-        if (document.getElementById('resultsSection')) {
-            this.loadPreviousResults();
-        }
-        if (document.getElementById('githubToken') && document.getElementById('orgName') && document.getElementById('analyzeBtn')) {
-            this.setupEventListeners();
-        }
-        if (document.getElementById('resumeSection')) {
-            this.checkRateLimitState();
-        }
-        if (document.getElementById('orgName')) {
-            this.handleURLParameters();
-        }
-        
-        // Show results section if there are stored organizations
-        const storageInfo = this.storageManager.getStorageInfo();
-        if (storageInfo.organizationsCount > 0 && document.getElementById('resultsSection')) {
-            document.getElementById('resultsSection').style.display = 'block';
-        }
-        
-        // Show Quick Analysis Access section if there are stored organizations
-        if (storageInfo.organizationsCount > 0 && document.getElementById('quickAnalysisSection')) {
-            document.getElementById('quickAnalysisSection').style.display = 'block';
+    async initializeApp() {
+        try {
+            // Initialize IndexedDB
+            await this.storageManager.init();
+            this.initialized = true;
+            
+            this.loadSavedToken();
+            await this.checkStorageAvailability();
+            
+            // Only initialize UI elements if they exist on the current page
+            if (document.getElementById('storageStatus')) {
+                await this.showStorageStatus();
+            }
+            if (document.getElementById('storageStatusIndicator')) {
+                await this.showStorageStatusIndicator();
+            }
+            if (document.getElementById('resultsSection')) {
+                await this.loadPreviousResults();
+            }
+            if (document.getElementById('githubToken') && document.getElementById('orgName') && document.getElementById('analyzeBtn')) {
+                this.setupEventListeners();
+            }
+            if (document.getElementById('resumeSection')) {
+                this.checkRateLimitState();
+            }
+            if (document.getElementById('orgName')) {
+                this.handleURLParameters();
+            }
+            
+            // Show results section if there are stored entries
+            const storageInfo = await this.storageManager.getStorageInfo();
+            if (storageInfo.totalEntries > 0 && document.getElementById('resultsSection')) {
+                document.getElementById('resultsSection').style.display = 'block';
+            }
+            
+            // Show Quick Analysis Access section if there are stored entries
+            if (storageInfo.totalEntries > 0 && document.getElementById('quickAnalysisSection')) {
+                document.getElementById('quickAnalysisSection').style.display = 'block';
+            }
+        } catch (error) {
+            console.error('Failed to initialize app:', error);
+            this.showAlert('Failed to initialize storage. Please refresh the page.', 'danger');
         }
     }
 
@@ -303,18 +316,18 @@ class SBOMPlayApp {
     }
 
     /**
-     * Check if local storage is available and show status
+     * Check if storage is available and show status (async)
      */
-    checkStorageAvailability() {
+    async checkStorageAvailability() {
         if (!this.storageManager.isStorageAvailable()) {
-            this.showAlert('Local storage is not available. Some features may not work properly.', 'warning');
+            this.showAlert('IndexedDB is not available. Some features may not work properly.', 'warning');
             return false;
         }
         
         // Show storage status
-        const storageInfo = this.storageManager.showStorageStatus();
+        const storageInfo = await this.storageManager.showStorageStatus();
         if (storageInfo) {
-            const usagePercent = (storageInfo.totalSize / storageInfo.maxStorageSize) * 100;
+            const usagePercent = storageInfo.usagePercent;
             
             if (usagePercent > 90) {
                 this.showAlert('Storage is nearly full! Please export your data and clear old analyses.', 'danger');
@@ -327,15 +340,15 @@ class SBOMPlayApp {
     }
 
     /**
-     * Load previous results
+     * Load previous results (async)
      */
-    loadPreviousResults() {
-        const data = this.storageManager.loadAnalysisData();
+    async loadPreviousResults() {
+        const data = await this.storageManager.loadAnalysisData();
         if (data) {
-            this.displayResults(data.data, data.organization);
+            await this.displayResults(data.data, data.organization || data.fullName);
         } else {
-            // Show overview of stored organizations even if no current analysis
-            this.displayResults(null, null);
+            // Show overview of stored entries even if no current analysis
+            await this.displayResults(null, null);
         }
     }
 
@@ -372,13 +385,65 @@ class SBOMPlayApp {
     }
 
     /**
-     * Start analysis
+     * Parse GitHub URL or input to extract owner and repo
+     * Supports formats:
+     * - username
+     * - owner/repo
+     * - https://github.com/owner/repo
+     * - https://github.com/owner/
+     * - github.com/owner/repo
+     */
+    parseGitHubInput(input) {
+        // Remove trailing slashes
+        input = input.replace(/\/+$/, '');
+        
+        // Check if it's a URL
+        const urlPattern = /^(?:https?:\/\/)?(?:www\.)?github\.com\/([^\/]+)(?:\/([^\/]+))?/i;
+        const urlMatch = input.match(urlPattern);
+        
+        if (urlMatch) {
+            // It's a GitHub URL
+            const owner = urlMatch[1];
+            const repo = urlMatch[2];
+            
+            return {
+                owner,
+                repo: repo || null,
+                isRepo: !!repo,
+                original: input
+            };
+        }
+        
+        // Not a URL, check if it's owner/repo format
+        if (input.includes('/')) {
+            const parts = input.split('/');
+            if (parts.length === 2 && parts[0] && parts[1]) {
+                return {
+                    owner: parts[0],
+                    repo: parts[1],
+                    isRepo: true,
+                    original: input
+                };
+            }
+        }
+        
+        // Just an organization or username
+        return {
+            owner: input,
+            repo: null,
+            isRepo: false,
+            original: input
+        };
+    }
+
+    /**
+     * Start analysis - detects org/user or single repo format
      */
     async startAnalysis() {
-        const ownerName = document.getElementById('orgName').value.trim();
+        const input = document.getElementById('orgName').value.trim();
         
-        if (!ownerName) {
-            this.showAlert('Please enter an organization or user name', 'warning');
+        if (!input) {
+            this.showAlert('Please enter an organization, user name, or repository (owner/repo)', 'warning');
             return;
         }
 
@@ -386,6 +451,168 @@ class SBOMPlayApp {
             return;
         }
 
+        // Parse the input (handles URLs, owner/repo, or just username)
+        const parsed = this.parseGitHubInput(input);
+        
+        if (parsed.isRepo) {
+            await this.analyzeSingleRepository(parsed.owner, parsed.repo);
+        } else {
+            await this.analyzeOrganization(parsed.owner);
+        }
+    }
+
+    /**
+     * Analyze a single repository
+     */
+    async analyzeSingleRepository(owner, repo) {
+        this.isAnalyzing = true;
+        this.sbomProcessor.reset();
+        
+        const repoKey = `${owner}/${repo}`;
+        
+        // Store current repo for rate limit state
+        localStorage.setItem('current_analysis_org', repoKey);
+        
+        // Update UI
+        const analyzeBtn = document.getElementById('analyzeBtn');
+        const progressSection = document.getElementById('progressSection');
+        const resultsSection = document.getElementById('resultsSection');
+        
+        if (analyzeBtn) analyzeBtn.disabled = true;
+        if (progressSection) progressSection.style.display = 'block';
+        if (resultsSection) resultsSection.style.display = 'none';
+        
+        this.updateProgress(0, 'Initializing repository analysis...');
+
+        try {
+            // Get rate limit info
+            const rateLimitInfo = await this.githubClient.getRateLimitInfo();
+            this.updateRateLimitInfo(rateLimitInfo);
+
+            // Fetch repository metadata
+            this.updateProgress(10, `Fetching repository ${repoKey}...`);
+            const repoData = await this.githubClient.getRepository(owner, repo);
+            
+            if (!repoData) {
+                this.showAlert(`Repository ${repoKey} not found`, 'danger');
+                this.finishAnalysis();
+                return;
+            }
+
+            // Fetch SBOM
+            this.updateProgress(30, 'Fetching SBOM data...');
+            const sbomData = await this.githubClient.fetchSBOM(owner, repo);
+            
+            if (!sbomData) {
+                this.showAlert(`No SBOM data available for ${repoKey}. Ensure Dependency Graph is enabled.`, 'warning');
+                this.finishAnalysis();
+                return;
+            }
+
+            // Process SBOM
+            this.updateProgress(50, 'Processing SBOM data...');
+            this.sbomProcessor.setTotalRepositories(1);
+            const success = this.sbomProcessor.processSBOM(owner, repo, sbomData);
+            
+            if (!success) {
+                this.showAlert(`Failed to process SBOM data for ${repoKey}`, 'danger');
+                this.finishAnalysis();
+                return;
+            }
+
+            // Generate results (use let so we can reload after author analysis)
+            this.updateProgress(80, 'Generating analysis results...');
+            let results = this.sbomProcessor.exportData();
+            
+            // Run license compliance analysis
+            const repoStats = this.sbomProcessor.repositories.get(repoKey);
+            if (repoStats && repoStats.totalDependencies > 0) {
+                this.updateProgress(85, 'Analyzing license compliance...');
+                try {
+                    const licenseAnalysis = this.sbomProcessor.analyzeLicenseCompliance();
+                    if (licenseAnalysis) {
+                        results.licenseAnalysis = licenseAnalysis;
+                        console.log('📊 License Compliance Analysis Results:', licenseAnalysis);
+                    }
+                } catch (error) {
+                    console.error('❌ License compliance analysis failed:', error);
+                }
+            }
+            
+            // Save initial results to storage (required for vulnerability and author analysis)
+            this.updateProgress(87, 'Saving initial results...');
+            let saveSuccess = await this.storageManager.saveAnalysisData(repoKey, results);
+            if (!saveSuccess) {
+                console.warn('⚠️ Failed to save initial analysis data to storage');
+            }
+            
+            // Run vulnerability and author analysis (these need data in storage)
+            if (repoStats && repoStats.totalDependencies > 0) {
+                // Run vulnerability analysis
+                this.updateProgress(90, 'Analyzing vulnerabilities...');
+                try {
+                    console.log('🔍 Starting vulnerability analysis...');
+                    // Pass progress callback to show real-time updates
+                    await this.sbomProcessor.analyzeVulnerabilitiesWithIncrementalSaving(repoKey, (percent, message) => {
+                        // Map vulnerability progress (0-100%) to progress bar range (90-93%)
+                        const mappedProgress = 90 + (percent * 0.03);
+                        this.updateProgress(mappedProgress, message);
+                    });
+                    console.log('✅ Vulnerability analysis complete');
+                } catch (error) {
+                    console.error('❌ Vulnerability analysis failed:', error);
+                }
+                
+                // Run author analysis
+                this.updateProgress(93, 'Fetching author information...');
+                try {
+                    console.log('👥 Analyzing package authors...');
+                    await this.analyzeAuthors(repoKey);
+                    console.log('✅ Author analysis complete');
+                    
+                    // Reload data to get the updated results with author analysis
+                    const updatedData = await this.storageManager.loadAnalysisDataForOrganization(repoKey);
+                    if (updatedData && updatedData.data) {
+                        results = updatedData.data;
+                        console.log('✅ Reloaded data with author analysis');
+                    }
+                } catch (error) {
+                    console.error('❌ Author analysis failed:', error);
+                }
+            }
+            
+            // Log summary
+            console.log(`📊 Single Repository Analysis Summary for ${repoKey}:`);
+            console.log(`   Total dependencies: ${results.statistics.totalDependencies}`);
+            
+            // Final save to storage (to include vulnerability and author data)
+            this.updateProgress(95, 'Saving final results...');
+            saveSuccess = await this.storageManager.saveAnalysisData(repoKey, results);
+            if (!saveSuccess) {
+                console.warn('⚠️ Failed to save analysis data to storage');
+                this.showAlert('Analysis completed but failed to save to storage.', 'warning');
+            } else {
+                await this.showStorageStatusIndicator();
+            }
+            
+            // Display results
+            await this.displaySingleRepoResults(results, repoKey);
+            
+            this.updateProgress(100, 'Analysis complete!');
+            this.showAlert(`Analysis complete for ${repoKey}!`, 'success');
+            
+        } catch (error) {
+            console.error('Single repository analysis failed:', error);
+            this.showAlert(`Analysis failed: ${error.message}`, 'danger');
+        } finally {
+            this.finishAnalysis();
+        }
+    }
+
+    /**
+     * Analyze an organization or user
+     */
+    async analyzeOrganization(ownerName) {
         this.isAnalyzing = true;
         this.sbomProcessor.reset();
         
@@ -472,12 +699,12 @@ class SBOMPlayApp {
                     const partialData = this.sbomProcessor.exportPartialData();
                     const isComplete = (i === repositories.length - 1);
                     
-                    const saveSuccess = this.storageManager.saveIncrementalAnalysisData(ownerName, partialData, isComplete);
+                    const saveSuccess = await this.storageManager.saveIncrementalAnalysisData(ownerName, partialData, isComplete);
                     if (saveSuccess) {
                         console.log(`✅ Incremental data saved for ${ownerName} (${isComplete ? 'complete' : 'partial'})`);
                         
                         // Check data size and warn if too large
-                        const sizeCheck = this.storageManager.checkDataSizeAndWarn(ownerName);
+                        const sizeCheck = await this.storageManager.checkDataSizeAndWarn(ownerName);
                         if (sizeCheck.isLarge) {
                             this.showAlert(sizeCheck.message, 'warning');
                         }
@@ -486,7 +713,7 @@ class SBOMPlayApp {
                         this.sbomProcessor.clearMemoryAfterSave();
                         
                         // Update storage indicators (only show indicator, not full status)
-                        this.showStorageStatusIndicator();
+                        await this.showStorageStatusIndicator();
                     } else {
                         console.warn(`⚠️ Failed to save incremental data for ${ownerName}`);
                     }
@@ -496,21 +723,18 @@ class SBOMPlayApp {
                 await this.sleep(100);
             }
 
-            // Generate results
+            // Generate results (use let so we can reload after author analysis)
             this.updateProgress(90, 'Generating analysis results...');
-            const results = this.sbomProcessor.exportData();
-            
-            // Note: Vulnerability analysis has been disabled to improve performance
-            // Users can run vulnerability analysis separately from the view page if needed
+            let results = this.sbomProcessor.exportData();
 
             // Run license compliance analysis
             if (reposWithDeps > 0) {
-                this.updateProgress(95, 'Analyzing license compliance...');
+                this.updateProgress(92, 'Analyzing license compliance...');
                 try {
                     const licenseAnalysis = this.sbomProcessor.analyzeLicenseCompliance();
                     if (licenseAnalysis) {
                         results.licenseAnalysis = licenseAnalysis;
-                        console.log('🔍 License Compliance Analysis Results:', licenseAnalysis);
+                        console.log('📊 License Compliance Analysis Results:', licenseAnalysis);
                     }
                 } catch (error) {
                     console.error('❌ License compliance analysis failed:', error);
@@ -532,18 +756,63 @@ class SBOMPlayApp {
                 console.log(`   4. Rate limiting prevented access to some repositories`);
             }
             
-            // Save to storage with better error handling
-            const saveSuccess = this.storageManager.saveAnalysisData(ownerName, results);
+            // Save initial results to storage (required for vulnerability and author analysis)
+            this.updateProgress(93, 'Saving initial results...');
+            let saveSuccess = await this.storageManager.saveAnalysisData(ownerName, results);
+            if (!saveSuccess) {
+                console.warn('⚠️ Failed to save initial analysis data to storage');
+            } else {
+                await this.showStorageStatusIndicator();
+            }
+            
+            // Run vulnerability and author analysis (these need data in storage)
+            if (reposWithDeps > 0) {
+                // Run vulnerability analysis
+                this.updateProgress(94, 'Analyzing vulnerabilities...');
+                try {
+                    console.log('🔍 Starting vulnerability analysis...');
+                    // Pass progress callback to show real-time updates
+                    await this.sbomProcessor.analyzeVulnerabilitiesWithIncrementalSaving(ownerName, (percent, message) => {
+                        // Map vulnerability progress (0-100%) to progress bar range (94-96%)
+                        const mappedProgress = 94 + (percent * 0.02);
+                        this.updateProgress(mappedProgress, message);
+                    });
+                    console.log('✅ Vulnerability analysis complete');
+                } catch (error) {
+                    console.error('❌ Vulnerability analysis failed:', error);
+                }
+                
+                // Run author analysis
+                this.updateProgress(96, 'Fetching author information...');
+                try {
+                    console.log('👥 Analyzing package authors...');
+                    await this.analyzeAuthors(ownerName);
+                    console.log('✅ Author analysis complete');
+                    
+                    // Reload data to get the updated results with author analysis
+                    const updatedData = await this.storageManager.loadAnalysisDataForOrganization(ownerName);
+                    if (updatedData && updatedData.data) {
+                        results = updatedData.data;
+                        console.log('✅ Reloaded data with author analysis');
+                    }
+                } catch (error) {
+                    console.error('❌ Author analysis failed:', error);
+                }
+            }
+            
+            // Final save to storage (to include vulnerability and author data)
+            this.updateProgress(98, 'Saving final results...');
+            saveSuccess = await this.storageManager.saveAnalysisData(ownerName, results);
             if (!saveSuccess) {
                 console.warn('⚠️ Failed to save analysis data to storage');
                 this.showAlert('Analysis completed but failed to save to storage. Consider exporting your data and clearing old analyses.', 'warning');
             } else {
                 // Update storage indicators after successful save (only indicator, not full status)
-                this.showStorageStatusIndicator();
+                await this.showStorageStatusIndicator();
             }
             
             // Display results
-            this.displayResults(results, ownerName);
+            await this.displayResults(results, ownerName);
             
             // Show message about partial data availability
             if (repositories.length > 10) {
@@ -604,9 +873,9 @@ class SBOMPlayApp {
     }
 
     /**
-     * Display analysis results
+     * Display analysis results (async)
      */
-    displayResults(results, ownerName) {
+    async displayResults(results, ownerName) {
         const resultsSection = document.getElementById('resultsSection');
         const resultsContent = document.getElementById('resultsContent');
         
@@ -616,43 +885,37 @@ class SBOMPlayApp {
             return;
         }
         
-        // Get storage info to show all organizations
-        const storageInfo = this.storageManager.getStorageInfo();
-        const organizations = storageInfo.organizations;
-        
-        // Get combined stats if multiple organizations exist
-        const combinedData = organizations.length > 1 ? this.storageManager.getCombinedData() : null;
+        // Get storage info to show all entries
+        const storageInfo = await this.storageManager.getStorageInfo();
+        const allEntries = [...storageInfo.organizations, ...storageInfo.repositories];
         
         let html = '';
         
-        // Note: Analysis completion is handled by the progress section
-        // The results section focuses on stored data overview
-        
-        // Show stored organizations overview
-        if (organizations.length > 0) {
+        // Show stored entries overview
+        if (allEntries.length > 0) {
             html += `
                 <div class="row mb-4">
                     <div class="col-12">
-                        <h6><i class="fas fa-database me-2"></i>Stored Organizations (${organizations.length})</h6>
+                        <h6><i class="fas fa-database me-2"></i>Stored Analyses (${allEntries.length})</h6>
                         <div class="table-responsive">
                             <table class="table table-sm">
                                 <thead>
                                     <tr>
-                                        <th>Organization</th>
+                                        <th>Name</th>
                                         <th>Repositories</th>
                                         <th>Dependencies</th>
                                         <th>Last Updated</th>
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    ${organizations.map(org => {
-                                        const date = new Date(org.timestamp).toLocaleDateString();
-                                        const time = new Date(org.timestamp).toLocaleTimeString();
+                                    ${allEntries.map(entry => {
+                                        const date = new Date(entry.timestamp).toLocaleDateString();
+                                        const time = new Date(entry.timestamp).toLocaleTimeString();
                                         return `
                                             <tr>
-                                                <td><strong>${org.name}</strong></td>
-                                                <td><span class="badge bg-primary">${org.repositories}</span></td>
-                                                <td><span class="badge bg-success">${org.dependencies}</span></td>
+                                                <td><strong>${entry.name}</strong></td>
+                                                <td><span class="badge bg-primary">${entry.repositories}</span></td>
+                                                <td><span class="badge bg-success">${entry.dependencies}</span></td>
                                                 <td><small>${date} ${time}</small></td>
                                             </tr>
                                         `;
@@ -665,14 +928,12 @@ class SBOMPlayApp {
             `;
         }
         
-
-        
-        // Show no data message if no organizations stored
-        if (organizations.length === 0) {
+        // Show no data message if no entries stored
+        if (allEntries.length === 0) {
             html += `
                 <div class="alert alert-info">
                     <h6><i class="fas fa-info-circle me-2"></i>No Stored Analyses</h6>
-                    <p class="mb-2">You haven't analyzed any organizations yet. Start your first analysis above!</p>
+                    <p class="mb-2">You haven't analyzed any organizations or repositories yet. Start your first analysis above!</p>
                 </div>
             `;
         }
@@ -680,10 +941,10 @@ class SBOMPlayApp {
         resultsContent.innerHTML = html;
         resultsSection.style.display = 'block';
         
-        // Show/hide Quick Analysis Access section based on stored organizations
+        // Show/hide Quick Analysis Access section based on stored entries
         const quickAnalysisSection = document.getElementById('quickAnalysisSection');
         if (quickAnalysisSection) {
-            if (organizations.length > 0) {
+            if (allEntries.length > 0) {
                 quickAnalysisSection.style.display = 'block';
             } else {
                 quickAnalysisSection.style.display = 'none';
@@ -692,29 +953,121 @@ class SBOMPlayApp {
     }
 
     /**
-     * Export current results
+     * Display single repository results
      */
-    exportResults() {
-        const currentData = this.storageManager.loadAnalysisData();
+    async displaySingleRepoResults(results, repoKey) {
+        const resultsSection = document.getElementById('resultsSection');
+        const resultsContent = document.getElementById('resultsContent');
+        
+        if (!resultsSection || !resultsContent) {
+            console.log('Results section elements not found on this page');
+            return;
+        }
+        
+        const stats = results.statistics;
+        const licenseAnalysis = results.licenseAnalysis;
+        
+        let html = `
+            <div class="alert alert-success">
+                <h5><i class="fas fa-check-circle me-2"></i>Analysis Complete for ${repoKey}</h5>
+                <p class="mb-0">Repository analysis has been completed and saved.</p>
+            </div>
+            
+            <div class="row mb-4">
+                <div class="col-md-4">
+                    <div class="card">
+                        <div class="card-body text-center">
+                            <h3 class="text-primary">${stats.totalDependencies || 0}</h3>
+                            <p class="text-muted mb-0">Total Dependencies</p>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-4">
+                    <div class="card">
+                        <div class="card-body text-center">
+                            <h3 class="text-success">${results.topDependencies?.length || 0}</h3>
+                            <p class="text-muted mb-0">Unique Packages</p>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-4">
+                    <div class="card">
+                        <div class="card-body text-center">
+                            <h3 class="text-info">${results.languageStats?.length || 0}</h3>
+                            <p class="text-muted mb-0">Languages Detected</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        `;
+        
+        if (licenseAnalysis) {
+            html += `
+                <div class="alert alert-info">
+                    <h6><i class="fas fa-shield-alt me-2"></i>License Compliance</h6>
+                    <p class="mb-0">
+                        <strong>${licenseAnalysis.totalLicenses || 0}</strong> licenses found. 
+                        <strong>${licenseAnalysis.conflicts?.length || 0}</strong> potential conflicts detected.
+                    </p>
+                </div>
+            `;
+        }
+        
+        html += `
+            <div class="alert alert-primary">
+                <h6><i class="fas fa-info-circle me-2"></i>Explore Results</h6>
+                <p class="mb-2">View detailed analysis in the specialized pages:</p>
+                <div class="d-flex gap-2">
+                    <a href="stats.html" class="btn btn-sm btn-outline-primary">
+                        <i class="fas fa-chart-bar me-1"></i>Statistics
+                    </a>
+                    <a href="license-compliance.html" class="btn btn-sm btn-outline-primary">
+                        <i class="fas fa-shield-alt me-1"></i>Licenses
+                    </a>
+                    <a href="vuln.html" class="btn btn-sm btn-outline-primary">
+                        <i class="fas fa-bug me-1"></i>Vulnerabilities
+                    </a>
+                    <a href="deps.html" class="btn btn-sm btn-outline-primary">
+                        <i class="fas fa-sitemap me-1"></i>Dependencies
+                    </a>
+                </div>
+            </div>
+        `;
+        
+        resultsContent.innerHTML = html;
+        resultsSection.style.display = 'block';
+        
+        // Show Quick Analysis Access section
+        const quickAnalysisSection = document.getElementById('quickAnalysisSection');
+        if (quickAnalysisSection) {
+            quickAnalysisSection.style.display = 'block';
+        }
+    }
+
+    /**
+     * Export current results (async)
+     */
+    async exportResults() {
+        const currentData = await this.storageManager.loadAnalysisData();
         if (currentData) {
-            const filename = `sbom-analysis-${currentData.organization}-${new Date().toISOString().split('T')[0]}.json`;
+            const name = currentData.organization || currentData.fullName;
+            const filename = `sbom-analysis-${name}-${new Date().toISOString().split('T')[0]}.json`;
             this.storageManager.exportData(currentData, filename);
         } else {
             this.showAlert('No data to export', 'warning');
         }
     }
 
-
-
     /**
-     * Clear current data
+     * Clear current data (async)
      */
-    clearData() {
-        const currentData = this.storageManager.loadAnalysisData();
+    async clearData() {
+        const currentData = await this.storageManager.loadAnalysisData();
         if (currentData) {
-            if (confirm(`Are you sure you want to remove data for ${currentData.organization}?`)) {
-                this.storageManager.removeOrganizationData(currentData.organization);
-                this.displayResults(null, null); // Refresh display
+            const name = currentData.organization || currentData.fullName;
+            if (confirm(`Are you sure you want to remove data for ${name}?`)) {
+                await this.storageManager.removeOrganizationData(name);
+                await this.displayResults(null, null); // Refresh display
                 this.showAlert('Data cleared successfully', 'success');
             }
         } else {
@@ -723,10 +1076,10 @@ class SBOMPlayApp {
     }
 
     /**
-     * Show storage status in UI
+     * Show storage status in UI (async)
      */
-    showStorageStatus() {
-        const storageInfo = this.storageManager.getStorageInfo();
+    async showStorageStatus() {
+        const storageInfo = await this.storageManager.getStorageInfo();
         const storageStatusDiv = document.getElementById('storageStatus');
         
         // Check if the storage status div exists on this page
@@ -736,7 +1089,7 @@ class SBOMPlayApp {
         }
         
         if (storageInfo) {
-            const usagePercent = (storageInfo.totalSize / storageInfo.maxStorageSize) * 100;
+            const usagePercent = storageInfo.usagePercent;
             const usageClass = usagePercent > 90 ? 'danger' : usagePercent > 70 ? 'warning' : 'success';
             
             storageStatusDiv.innerHTML = `
@@ -755,7 +1108,7 @@ class SBOMPlayApp {
                             <strong>Organizations:</strong> ${storageInfo.organizationsCount}
                         </div>
                         <div class="col-md-6">
-                            <strong>History Entries:</strong> ${storageInfo.historyCount}
+                            <strong>Repositories:</strong> ${storageInfo.repositoriesCount}
                         </div>
                     </div>
                     ${usagePercent > 80 ? '<div class="mt-2"><strong>⚠️ Warning:</strong> Storage usage is high. Consider exporting data.</div>' : ''}
@@ -772,10 +1125,10 @@ class SBOMPlayApp {
     }
 
     /**
-     * Show storage status indicator in header
+     * Show storage status indicator in header (async)
      */
-    showStorageStatusIndicator() {
-        const storageInfo = this.storageManager.getStorageInfo();
+    async showStorageStatusIndicator() {
+        const storageInfo = await this.storageManager.getStorageInfo();
         const indicatorDiv = document.getElementById('storageStatusIndicator');
         const statusTextDiv = document.getElementById('storageStatusText');
         
@@ -786,7 +1139,7 @@ class SBOMPlayApp {
         }
         
         if (storageInfo && storageInfo.hasData) {
-            const usagePercent = (storageInfo.totalSize / storageInfo.maxStorageSize) * 100;
+            const usagePercent = storageInfo.usagePercent;
             let statusClass = 'text-muted';
             let statusIcon = 'fas fa-hdd';
             
@@ -805,7 +1158,7 @@ class SBOMPlayApp {
                 <i class="${statusIcon} me-1"></i>
                 <span class="${statusClass}">
                     ${(storageInfo.totalSize / 1024 / 1024).toFixed(2)}MB used (${usagePercent.toFixed(1)}%) - 
-                    ${storageInfo.organizationsCount} organizations stored
+                    ${storageInfo.totalEntries} entries stored
                 </span>
             `;
             
@@ -816,12 +1169,12 @@ class SBOMPlayApp {
     }
 
     /**
-     * Export all data
+     * Export all data (async)
      */
-    exportAllData() {
+    async exportAllData() {
         try {
             const filename = `sbom-all-data-${new Date().toISOString().split('T')[0]}.json`;
-            this.storageManager.exportAllData(filename);
+            await this.storageManager.exportAllData(filename);
             this.showAlert('All data exported successfully', 'success');
         } catch (error) {
             console.error('Export failed:', error);
@@ -830,33 +1183,33 @@ class SBOMPlayApp {
     }
 
     /**
-     * Clear old data (keep only recent)
+     * Clear old data (keep only recent) (async)
      */
-    clearOldData() {
+    async clearOldData() {
         if (confirm('This will remove old analysis data while keeping the most recent. Continue?')) {
             try {
-                const storageInfo = this.storageManager.getStorageInfo();
-                const organizations = storageInfo.organizations;
+                const storageInfo = await this.storageManager.getStorageInfo();
+                const allEntries = [...storageInfo.organizations, ...storageInfo.repositories];
                 
-                if (organizations.length <= 3) {
+                if (allEntries.length <= 3) {
                     this.showAlert('Not enough data to clear. Keep at least 3 recent analyses.', 'info');
                     return;
                 }
                 
-                // Keep only the 3 most recent organizations
-                organizations.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
-                const toRemove = organizations.slice(3);
+                // Keep only the 3 most recent entries
+                allEntries.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+                const toRemove = allEntries.slice(3);
                 
                 let removedCount = 0;
-                for (const org of toRemove) {
-                    if (this.storageManager.removeOrganizationData(org.name)) {
+                for (const entry of toRemove) {
+                    if (await this.storageManager.removeOrganizationData(entry.name)) {
                         removedCount++;
                     }
                 }
                 
                 this.showAlert(`Cleared ${removedCount} old analyses. Kept 3 most recent.`, 'success');
-                this.displayResults(null, null); // Refresh display
-                this.showStorageStatusIndicator(); // Update header indicator
+                await this.displayResults(null, null); // Refresh display
+                await this.showStorageStatusIndicator(); // Update header indicator
             } catch (error) {
                 console.error('Clear old data failed:', error);
                 this.showAlert('Failed to clear old data', 'danger');
@@ -865,55 +1218,19 @@ class SBOMPlayApp {
     }
 
     /**
-     * Clear all data
+     * Clear all data (async)
      */
-    clearAllData() {
+    async clearAllData() {
         if (confirm('Are you sure you want to clear ALL stored data? This action cannot be undone.')) {
             try {
-                this.storageManager.clearAllData();
+                await this.storageManager.clearAllData();
                 this.showAlert('All data cleared successfully', 'success');
-                this.displayResults(null, null); // Refresh display
-                this.showStorageStatusIndicator(); // Update header indicator
+                await this.displayResults(null, null); // Refresh display
+                await this.showStorageStatusIndicator(); // Update header indicator
             } catch (error) {
                 console.error('Clear all data failed:', error);
                 this.showAlert('Failed to clear all data', 'danger');
             }
-        }
-    }
-
-    /**
-     * Test storage quota management
-     */
-    testStorageQuota() {
-        try {
-            const testResults = this.storageManager.testStorageQuota();
-            if (testResults) {
-                console.log('🧪 Storage quota test results:', testResults);
-                this.showAlert(`Storage test completed. Check console for details. Compression ratio: ${testResults.compressionRatio.toFixed(1)}%`, 'info');
-            } else {
-                this.showAlert('Storage test failed. Check console for details.', 'warning');
-            }
-        } catch (error) {
-            console.error('Storage test failed:', error);
-            this.showAlert('Storage test failed', 'danger');
-        }
-    }
-
-    /**
-     * Migrate old data to new compressed format
-     */
-    migrateOldData() {
-        try {
-            const migratedCount = this.storageManager.migrateOldData();
-            if (migratedCount > 0) {
-                this.showAlert(`Successfully migrated ${migratedCount} organizations to compressed format.`, 'success');
-                this.showStorageStatusIndicator(); // Update header indicator
-            } else {
-                this.showAlert('No old data found to migrate. All data is already in compressed format.', 'info');
-            }
-        } catch (error) {
-            console.error('Migration failed:', error);
-            this.showAlert('Failed to migrate old data', 'danger');
         }
     }
 
@@ -966,9 +1283,92 @@ class SBOMPlayApp {
         return new Promise(resolve => setTimeout(resolve, ms));
     }
 
+    /**
+     * Analyze authors for all dependencies
+     */
+    async analyzeAuthors(identifier) {
+        if (!window.AuthorService) {
+            console.warn('AuthorService not loaded, skipping author analysis');
+            return;
+        }
+        
+        const authorService = new window.AuthorService();
+        const data = await this.storageManager.loadAnalysisDataForOrganization(identifier);
+        
+        if (!data || !data.data || !data.data.allDependencies) {
+            console.warn('No dependency data found for author analysis');
+            return;
+        }
+        
+        // Extract unique packages with ecosystem info
+        console.log('🔍 Extracting PURLs from dependencies...');
+        console.log(`Total allDependencies: ${data.data.allDependencies.length}`);
+        
+        // Debug: Show first few dependencies
+        if (data.data.allDependencies.length > 0) {
+            console.log('Sample dependency structure:', data.data.allDependencies[0]);
+        }
+        
+        const packages = data.data.allDependencies
+            .filter(dep => dep.purl)  // Only include dependencies with PURL
+            .map(dep => ({
+                ecosystem: this.getEcosystemFromPurl(dep.purl),
+                name: this.getPackageNameFromPurl(dep.purl),
+                purl: dep.purl
+            }))
+            .filter(pkg => pkg.ecosystem && pkg.name);
+        
+        console.log(`📦 Found ${packages.length} unique packages with valid PURLs for author analysis`);
+        
+        // Debug: Show some sample packages
+        if (packages.length > 0) {
+            console.log('Sample packages for author analysis:');
+            packages.slice(0, 3).forEach(pkg => {
+                console.log(`  - ${pkg.ecosystem}:${pkg.name}`);
+            });
+        }
+        
+        // Fetch authors with progress callback
+        const authorResults = await authorService.fetchAuthorsForPackages(
+            packages,
+            (processed, total) => {
+                this.updateProgress(96 + (processed / total * 2), `Fetching authors: ${processed}/${total}`);
+            }
+        );
+        
+        // Convert Map to array and sort by count
+        const authorsList = Array.from(authorResults.values())
+            .sort((a, b) => b.count - a.count);
+        
+        // Save to analysis data
+        data.data.authorAnalysis = {
+            timestamp: Date.now(),
+            totalAuthors: authorsList.length,
+            totalPackages: packages.length,
+            authors: authorsList
+        };
+        
+        await this.storageManager.saveAnalysisData(identifier, data.data);
+        console.log(`✅ Saved ${authorsList.length} unique authors for ${identifier}`);
+    }
 
+    /**
+     * Extract ecosystem from PURL
+     */
+    getEcosystemFromPurl(purl) {
+        if (!purl) return null;
+        const match = purl.match(/^pkg:([^/]+)/);
+        return match ? match[1] : null;
+    }
 
-
+    /**
+     * Extract package name from PURL
+     */
+    getPackageNameFromPurl(purl) {
+        if (!purl) return null;
+        const match = purl.match(/^pkg:[^/]+\/([^@?]+)/);
+        return match ? match[1] : null;
+    }
 }
 
 // Global functions for HTML onclick handlers
