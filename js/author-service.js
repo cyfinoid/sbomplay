@@ -78,28 +78,30 @@ class AuthorService {
 
     /**
      * Get default mappings as fallback
+     * Based on https://packages.ecosyste.ms/api/v1/registries
      */
     getDefaultMappings() {
         return {
-            'npm': 'npm',
-            'pypi': 'pypi',
+            // Map purl types to ecosyste.ms registry names
+            'npm': 'npmjs.org',
+            'pypi': 'pypi.org',
             'cargo': 'crates.io',
-            'maven': 'maven',
-            'golang': 'go',
-            'go': 'go',
-            'gem': 'rubygems',
-            'nuget': 'nuget',
-            'composer': 'packagist',
-            'packagist': 'packagist',
-            'docker': 'docker'
+            'maven': 'repo1.maven.org',
+            'golang': 'proxy.golang.org',
+            'go': 'proxy.golang.org',
+            'gem': 'rubygems.org',
+            'nuget': 'nuget.org',
+            'composer': 'packagist.org',
+            'packagist': 'packagist.org',
+            'docker': 'hub.docker.com'
         };
     }
 
     /**
-     * Fetch authors for a package
+     * Fetch authors for a package with funding information
      * @param {string} ecosystem - e.g., 'npm', 'pypi', 'maven'
      * @param {string} packageName - package name
-     * @returns {Promise<Array>} - array of author names
+     * @returns {Promise<Object|Array>} - {authors: Array, funding: Object} or just Array for backwards compat
      */
     async fetchAuthors(ecosystem, packageName) {
         const packageKey = `${ecosystem}:${packageName}`;
@@ -114,17 +116,27 @@ class AuthorService {
         if (dbManager && dbManager.db) {
             const cached = await this.getCachedAuthors(packageKey);
             if (cached && this.isCacheValid(cached.timestamp)) {
-                this.cache.set(packageKey, cached.authors);
-                return cached.authors;
+                const result = cached.data || cached.authors;  // Support both new and old format
+                this.cache.set(packageKey, result);
+                return result;
             }
         }
         
         // Try different sources based on ecosystem
         let authors = [];
+        let funding = null;
         
         // Try native registry first (fastest and most reliable)
         if (this.registryUrls[ecosystem]) {
-            authors = await this.fetchFromNativeRegistry(ecosystem, packageName);
+            const result = await this.fetchFromNativeRegistry(ecosystem, packageName);
+            // Handle both old format (array) and new format (object with authors/funding)
+            if (Array.isArray(result)) {
+                authors = result;
+            } else {
+                authors = result.authors || [];
+                funding = result.funding || null;
+            }
+            
             if (authors.length > 0) {
                 console.log(`✅ Found ${authors.length} authors for ${packageKey} from native registry`);
             }
@@ -150,8 +162,10 @@ class AuthorService {
         // If still no authors, log warning
         if (authors.length === 0) {
             console.warn(`⚠️ No authors found for ${packageKey}`);
-            return [];
+            return { authors: [], funding: null };
         }
+        
+        const result = funding ? { authors, funding } : authors;  // Return object if we have funding, otherwise just array
         
         // Cache in IndexedDB
         if (dbManager && dbManager.db) {
@@ -159,18 +173,19 @@ class AuthorService {
                 packageKey,
                 ecosystem,
                 packageName,
-                authors,
+                data: result,  // Store the full result (either array or object)
+                authors: Array.isArray(result) ? result : result.authors,  // For backwards compat with cached.authors
                 source: 'multi',
                 timestamp: Date.now()
             });
         }
         
-        this.cache.set(packageKey, authors);
-        return authors;
+        this.cache.set(packageKey, result);
+        return result;
     }
 
     /**
-     * Fetch authors from native package registries
+     * Fetch authors and funding from native package registries
      */
     async fetchFromNativeRegistry(ecosystem, packageName) {
         try {
@@ -178,44 +193,132 @@ class AuthorService {
             
             switch (ecosystem) {
                 case 'npm':
-                    // npm registry provides full package metadata
+                    // npm registry provides full package metadata including funding
                     url = `${this.registryUrls.npm}/${packageName}/latest`;
                     const npmResponse = await fetch(url);
-                    if (!npmResponse.ok) return [];
+                    if (!npmResponse.ok) return { authors: [], funding: null };
                     data = await npmResponse.json();
-                    return this.extractNpmAuthors(data);
+                    return {
+                        authors: this.extractNpmAuthors(data),
+                        funding: this.extractNpmFunding(data)
+                    };
                 
                 case 'pypi':
-                    // PyPI JSON API
+                    // PyPI JSON API with project URLs
                     url = `${this.registryUrls.pypi}/${packageName}/json`;
                     const pypiResponse = await fetch(url);
-                    if (!pypiResponse.ok) return [];
+                    if (!pypiResponse.ok) return { authors: [], funding: null };
                     data = await pypiResponse.json();
-                    return this.extractPyPiAuthors(data);
+                    return {
+                        authors: this.extractPyPiAuthors(data),
+                        funding: this.extractPyPiFunding(data)
+                    };
                 
                 case 'cargo':
                     // crates.io API
                     url = `${this.registryUrls.cargo}/${packageName}`;
                     const cargoResponse = await fetch(url);
-                    if (!cargoResponse.ok) return [];
+                    if (!cargoResponse.ok) return { authors: [], funding: null };
                     data = await cargoResponse.json();
-                    return this.extractCargoAuthors(data);
+                    return {
+                        authors: this.extractCargoAuthors(data),
+                        funding: null  // Crates.io doesn't have funding field in API
+                    };
                 
                 case 'gem':
                     // RubyGems API
                     url = `${this.registryUrls.gem}/${packageName}.json`;
                     const gemResponse = await fetch(url);
-                    if (!gemResponse.ok) return [];
+                    if (!gemResponse.ok) return { authors: [], funding: null };
                     data = await gemResponse.json();
-                    return this.extractGemAuthors(data);
+                    return {
+                        authors: this.extractGemAuthors(data),
+                        funding: this.extractGemFunding(data)
+                    };
                 
                 default:
-                    return [];
+                    return { authors: [], funding: null };
             }
         } catch (error) {
             console.warn(`Error fetching from native registry ${ecosystem}:`, error.message);
-            return [];
+            return { authors: [], funding: null };
         }
+    }
+    
+    /**
+     * Extract funding information from npm package data
+     */
+    extractNpmFunding(data) {
+        if (!data.funding) return null;
+        
+        const funding = {};
+        
+        // funding can be string, object, or array
+        if (typeof data.funding === 'string') {
+            funding.url = data.funding;
+        } else if (Array.isArray(data.funding)) {
+            funding.urls = data.funding.map(f => typeof f === 'string' ? f : f.url).filter(Boolean);
+            funding.url = funding.urls[0]; // Use first URL as primary
+        } else if (data.funding.url) {
+            funding.url = data.funding.url;
+            funding.type = data.funding.type;
+        }
+        
+        // Check for specific platforms in URLs
+        const urls = funding.urls || [funding.url];
+        if (urls && urls.length > 0) {
+            funding.github = urls.some(u => u && u.includes('github.com/sponsors'));
+            funding.opencollective = urls.some(u => u && u.includes('opencollective.com'));
+            funding.patreon = urls.some(u => u && u.includes('patreon.com'));
+            funding.tidelift = urls.some(u => u && u.includes('tidelift.com'));
+        }
+        
+        return Object.keys(funding).length > 0 ? funding : null;
+    }
+    
+    /**
+     * Extract funding information from PyPI package data
+     */
+    extractPyPiFunding(data) {
+        if (!data.info || !data.info.project_urls) return null;
+        
+        const urls = data.info.project_urls;
+        const funding = {};
+        
+        // Check common funding keywords in project URLs
+        for (const [key, url] of Object.entries(urls)) {
+            const lowerKey = key.toLowerCase();
+            if (lowerKey.includes('funding') || lowerKey.includes('sponsor') || 
+                lowerKey.includes('donate') || lowerKey.includes('support')) {
+                if (!funding.urls) funding.urls = [];
+                funding.urls.push(url);
+                funding.url = funding.url || url;  // Set first as primary
+                
+                // Detect specific platforms
+                if (url.includes('github.com/sponsors')) funding.github = true;
+                if (url.includes('opencollective.com')) funding.opencollective = true;
+                if (url.includes('patreon.com')) funding.patreon = true;
+            }
+        }
+        
+        return Object.keys(funding).length > 0 ? funding : null;
+    }
+    
+    /**
+     * Extract funding information from RubyGems package data
+     */
+    extractGemFunding(data) {
+        const fundingUrl = data.funding_uri || data.metadata?.funding_uri;
+        if (!fundingUrl) return null;
+        
+        const funding = { url: fundingUrl };
+        
+        // Detect specific platforms
+        if (fundingUrl.includes('github.com/sponsors')) funding.github = true;
+        if (fundingUrl.includes('opencollective.com')) funding.opencollective = true;
+        if (fundingUrl.includes('patreon.com')) funding.patreon = true;
+        
+        return funding;
     }
 
     /**
@@ -378,28 +481,181 @@ class AuthorService {
      * Extract authors from npm registry response
      */
     extractNpmAuthors(data) {
-        const authors = [];
+        const authorObjects = [];
         
+        // Collect author objects with both name and email
         if (data.author) {
-            const author = typeof data.author === 'string' ? data.author : data.author.name;
-            if (author) authors.push(author);
+            if (typeof data.author === 'string') {
+                authorObjects.push({ name: data.author, email: null });
+            } else {
+                authorObjects.push({ 
+                    name: data.author.name || null, 
+                    email: data.author.email || null 
+                });
+            }
         }
         
         if (data.maintainers && Array.isArray(data.maintainers)) {
-            // Prefer name over email
-            authors.push(...data.maintainers.map(m => m.name || m.email).filter(Boolean));
+            data.maintainers.forEach(m => {
+                if (m && (m.name || m.email)) {
+                    authorObjects.push({ 
+                        name: m.name || null, 
+                        email: m.email || null 
+                    });
+                }
+            });
         }
         
         if (data.contributors && Array.isArray(data.contributors)) {
-            // Prefer name over email, handle both object and string formats
-            authors.push(...data.contributors.map(c => {
-                if (typeof c === 'string') return c;
-                return c.name || c.email;
-            }).filter(Boolean));
+            data.contributors.forEach(c => {
+                if (typeof c === 'string') {
+                    authorObjects.push({ name: c, email: null });
+                } else if (c && (c.name || c.email)) {
+                    authorObjects.push({ 
+                        name: c.name || null, 
+                        email: c.email || null 
+                    });
+                }
+            });
         }
         
-        // Deduplicate and filter out emails if we have the name
-        return this.deduplicateAuthors(authors);
+        // Deduplicate by email first, then by similar names
+        return this.deduplicateAuthorsByEmail(authorObjects);
+    }
+    
+    /**
+     * Normalize author name for comparison
+     */
+    normalizeAuthorName(name) {
+        if (!name) return '';
+        return name.toLowerCase()
+            .replace(/\s+/g, '')
+            .replace(/[^a-z0-9]/g, '');
+    }
+    
+    /**
+     * Check if two author names are similar (username vs full name)
+     */
+    areSimilarAuthors(name1, name2) {
+        const norm1 = this.normalizeAuthorName(name1);
+        const norm2 = this.normalizeAuthorName(name2);
+        
+        // Exact match after normalization
+        if (norm1 === norm2) return true;
+        
+        // Check if one is contained in the other (e.g., "cowboy" in "cowboybenalman", "sindresorhus" in "sindresorhus")
+        if (norm1.includes(norm2) || norm2.includes(norm1)) {
+            // Only if they're reasonably close in length (lowered threshold to catch username vs full name)
+            const lenRatio = Math.min(norm1.length, norm2.length) / Math.max(norm1.length, norm2.length);
+            if (lenRatio > 0.3) return true;  // Changed from 0.5 to 0.3 to catch cases like "cowboy" vs "cowboybenalman" (0.4 ratio)
+        }
+        
+        return false;
+    }
+    
+    /**
+     * Deduplicate authors by email (primary key) and similar names (fallback)
+     * Prefer full names over usernames, and names over emails
+     */
+    deduplicateAuthorsByEmail(authorObjects) {
+        if (authorObjects.length === 0) return [];
+        
+        // Step 1: Group by email (most reliable deduplication)
+        const emailMap = new Map();
+        const noEmailAuthors = [];
+        
+        authorObjects.forEach(author => {
+            if (author.email) {
+                const existing = emailMap.get(author.email);
+                if (!existing) {
+                    emailMap.set(author.email, author);
+                } else {
+                    // Same email - keep the better name (prefer longer, non-null names)
+                    if (author.name && (!existing.name || author.name.length > existing.name.length)) {
+                        emailMap.set(author.email, { name: author.name, email: author.email });
+                    }
+                }
+            } else if (author.name) {
+                noEmailAuthors.push(author);
+            }
+        });
+        
+        // Step 2: Deduplicate authors without emails by similar names
+        const mergedNoEmail = this.deduplicateSimilarNames(noEmailAuthors);
+        
+        // Step 3: Cross-check noEmailAuthors against emailAuthors for similar names
+        // If a no-email author matches an email author, upgrade the email author's name if better
+        const emailAuthors = Array.from(emailMap.values());
+        const finalAuthors = [];
+        const usedNoEmailIndices = new Set();
+        
+        emailAuthors.forEach(emailAuthor => {
+            let bestName = emailAuthor.name;
+            let bestEmail = emailAuthor.email;
+            
+            // Check if any no-email author is similar
+            mergedNoEmail.forEach((noEmailAuthor, idx) => {
+                if (usedNoEmailIndices.has(idx)) return;
+                
+                if (noEmailAuthor.name && emailAuthor.name && 
+                    this.areSimilarAuthors(noEmailAuthor.name, emailAuthor.name)) {
+                    // Prefer the longer/fuller name
+                    if (noEmailAuthor.name.length > bestName.length) {
+                        bestName = noEmailAuthor.name;
+                    }
+                    usedNoEmailIndices.add(idx);
+                }
+            });
+            
+            finalAuthors.push({ name: bestName, email: bestEmail });
+        });
+        
+        // Step 4: Add remaining no-email authors that weren't matched
+        mergedNoEmail.forEach((author, idx) => {
+            if (!usedNoEmailIndices.has(idx)) {
+                finalAuthors.push(author);
+            }
+        });
+        
+        // Step 5: Extract names (prefer name over email) and remove duplicates
+        const finalNames = finalAuthors.map(a => a.name || a.email).filter(Boolean);
+        return [...new Set(finalNames)];
+    }
+    
+    /**
+     * Deduplicate similar names when email is not available
+     */
+    deduplicateSimilarNames(authorObjects) {
+        if (authorObjects.length === 0) return [];
+        
+        const merged = [];
+        const used = new Set();
+        
+        for (let i = 0; i < authorObjects.length; i++) {
+            if (used.has(i)) continue;
+            
+            const author1 = authorObjects[i];
+            let bestMatch = author1;
+            used.add(i);
+            
+            // Find all similar authors
+            for (let j = i + 1; j < authorObjects.length; j++) {
+                if (used.has(j)) continue;
+                
+                const author2 = authorObjects[j];
+                if (author1.name && author2.name && this.areSimilarAuthors(author1.name, author2.name)) {
+                    // Keep the longer name (usually the full name vs username)
+                    if (author2.name.length > bestMatch.name.length) {
+                        bestMatch = author2;
+                    }
+                    used.add(j);
+                }
+            }
+            
+            merged.push(bestMatch);
+        }
+        
+        return merged;
     }
     
     /**
@@ -432,87 +688,141 @@ class AuthorService {
      * Extract authors from PyPI response
      */
     extractPyPiAuthors(data) {
-        const authors = [];
+        const authorObjects = [];
         
         if (data.info) {
-            // Prefer name over email - only add email if no name is available
-            const hasAuthorName = data.info.author && data.info.author.trim();
-            const hasMaintainerName = data.info.maintainer && data.info.maintainer.trim();
-            
-            if (hasAuthorName) {
-                authors.push(data.info.author);
-            } else if (data.info.author_email) {
-                // Only use email if no name is available
-                authors.push(data.info.author_email);
+            // Collect author with email
+            if (data.info.author || data.info.author_email) {
+                authorObjects.push({
+                    name: data.info.author || null,
+                    email: data.info.author_email || null
+                });
             }
             
-            if (hasMaintainerName) {
-                authors.push(data.info.maintainer);
-            } else if (data.info.maintainer_email) {
-                // Only use email if no name is available
-                authors.push(data.info.maintainer_email);
+            // Collect maintainer with email
+            if (data.info.maintainer || data.info.maintainer_email) {
+                authorObjects.push({
+                    name: data.info.maintainer || null,
+                    email: data.info.maintainer_email || null
+                });
             }
         }
         
-        return [...new Set(authors.filter(Boolean))];
+        // Use email-based deduplication
+        return this.deduplicateAuthorsByEmail(authorObjects);
     }
 
     /**
      * Extract authors from crates.io response
+     * Note: crates.io doesn't provide emails, only usernames and names
      */
     extractCargoAuthors(data) {
-        const authors = [];
+        const authorObjects = [];
         
+        // Try to get from owners/maintainers if available
+        if (data.users && Array.isArray(data.users)) {
+            data.users.forEach(user => {
+                if (user) {
+                    authorObjects.push({
+                        name: user.name || user.login || null,
+                        email: user.login || null  // Use login as pseudo-email for dedup
+                    });
+                }
+            });
+        }
+        
+        // Fallback to authors array (usually formatted strings)
         if (data.crate && data.crate.authors && Array.isArray(data.crate.authors)) {
-            authors.push(...data.crate.authors);
+            data.crate.authors.forEach(author => {
+                if (author) {
+                    authorObjects.push({ name: author, email: null });
+                }
+            });
         }
         
         if (data.versions && Array.isArray(data.versions) && data.versions[0]) {
             const latestVersion = data.versions[0];
             if (latestVersion.authors && Array.isArray(latestVersion.authors)) {
-                authors.push(...latestVersion.authors);
+                latestVersion.authors.forEach(author => {
+                    if (author) {
+                        authorObjects.push({ name: author, email: null });
+                    }
+                });
             }
         }
         
-        return [...new Set(authors.filter(Boolean))];
+        // Use email-based deduplication (will fallback to name similarity for no-email authors)
+        return this.deduplicateAuthorsByEmail(authorObjects);
     }
 
     /**
      * Extract authors from RubyGems response
+     * Note: RubyGems doesn't provide emails in the API
      */
     extractGemAuthors(data) {
-        const authors = [];
+        const authorObjects = [];
         
         if (data.authors) {
             if (typeof data.authors === 'string') {
-                authors.push(data.authors);
+                authorObjects.push({ name: data.authors, email: null });
             } else if (Array.isArray(data.authors)) {
-                authors.push(...data.authors);
+                data.authors.forEach(author => {
+                    if (author) {
+                        authorObjects.push({ name: author, email: null });
+                    }
+                });
             }
         }
         
-        return [...new Set(authors.filter(Boolean))];
+        // Use name-based deduplication (no emails available)
+        return this.deduplicateAuthorsByEmail(authorObjects);
     }
 
     /**
      * Extract authors from ecosyste.ms response
+     * ecosyste.ms provides: {login, name, email} for maintainers
      */
     extractEcosystemsAuthors(data) {
-        const authors = [];
+        const authorObjects = [];
         
-        // Check various author fields
+        // ecosyste.ms provides maintainers with login, name, and email
         if (data.maintainers && Array.isArray(data.maintainers)) {
-            authors.push(...data.maintainers.map(m => m.name || m.email || m));
-        }
-        if (data.owners && Array.isArray(data.owners)) {
-            authors.push(...data.owners.map(o => o.name || o.email || o));
-        }
-        if (data.author) {
-            authors.push(typeof data.author === 'string' ? data.author : data.author.name);
+            data.maintainers.forEach(m => {
+                if (m) {
+                    authorObjects.push({
+                        name: m.name || m.login || null,  // Prefer name, fallback to login
+                        email: m.email || m.login || null  // Use login as pseudo-email if no real email
+                    });
+                }
+            });
         }
         
-        // Deduplicate and clean
-        return [...new Set(authors.filter(Boolean))];
+        // Also check owners field (some registries use this)
+        if (data.owners && Array.isArray(data.owners)) {
+            data.owners.forEach(o => {
+                if (o) {
+                    authorObjects.push({
+                        name: o.name || o.login || null,
+                        email: o.email || o.login || null
+                    });
+                }
+            });
+        }
+        
+        // Single author field (less common in ecosyste.ms)
+        if (data.author) {
+            if (typeof data.author === 'string') {
+                authorObjects.push({ name: data.author, email: null });
+            } else {
+                authorObjects.push({
+                    name: data.author.name || data.author.login || null,
+                    email: data.author.email || null
+                });
+            }
+        }
+        
+        // Use email/login-based deduplication
+        return this.deduplicateAuthorsByEmail(authorObjects);
     }
 
     /**
@@ -524,14 +834,17 @@ class AuthorService {
     }
 
     /**
-     * Batch fetch authors for multiple packages
+     * Batch fetch authors for multiple packages with funding information
      */
     async fetchAuthorsForPackages(packages, onProgress) {
         const results = new Map();
         let processed = 0;
         
         for (const pkg of packages) {
-            const authors = await this.fetchAuthors(pkg.ecosystem, pkg.name);
+            // fetchAuthors now returns {authors: [...], funding: {...}} or just [...]
+            const authorData = await this.fetchAuthors(pkg.ecosystem, pkg.name);
+            const authors = Array.isArray(authorData) ? authorData : (authorData.authors || []);
+            const funding = Array.isArray(authorData) ? null : (authorData.funding || null);
             
             // Store authors with appropriate prefix
             authors.forEach(author => {
@@ -555,12 +868,19 @@ class AuthorService {
                         author: authorName,
                         ecosystem: authorSource,  // Will be "github", "bitbucket", "gitlab", or ecosystem name
                         count: 0,
-                        packages: []
+                        packages: [],
+                        funding: null  // Will be set if any package has funding
                     });
                 }
                 const entry = results.get(authorKey);
                 entry.count++;
                 entry.packages.push(pkg.name);
+                
+                // If this package has funding info, store it for the author
+                // We only need one funding entry per author even if they have multiple packages
+                if (funding && !entry.funding) {
+                    entry.funding = funding;
+                }
             });
             
             processed++;

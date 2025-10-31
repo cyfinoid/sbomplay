@@ -9,6 +9,71 @@
     <link rel="stylesheet" href="css/style.css?v=10">
     <link rel="stylesheet" href="css/themes.css?v=10">
     <script src="js/theme-manager.js?v=10"></script>
+    <style>
+        /* Dark mode fixes for modals */
+        [data-theme="dark"] .modal-content {
+            background-color: var(--bg-color, #1e1e1e);
+            color: var(--text-color, #e0e0e0);
+        }
+        
+        [data-theme="dark"] .modal-header {
+            border-bottom-color: rgba(255, 255, 255, 0.1);
+        }
+        
+        [data-theme="dark"] .modal-footer {
+            border-top-color: rgba(255, 255, 255, 0.1);
+        }
+        
+        [data-theme="dark"] .list-group-item {
+            background-color: rgba(255, 255, 255, 0.05);
+            border-color: rgba(255, 255, 255, 0.1);
+            color: var(--text-color, #e0e0e0);
+        }
+        
+        [data-theme="dark"] .table {
+            color: var(--text-color, #e0e0e0);
+        }
+        
+        [data-theme="dark"] .table td,
+        [data-theme="dark"] .table th {
+            border-color: rgba(255, 255, 255, 0.1);
+        }
+        
+        [data-theme="dark"] .alert-info {
+            background-color: rgba(13, 110, 253, 0.2);
+            border-color: rgba(13, 110, 253, 0.4);
+            color: #9db4ff;
+        }
+        
+        [data-theme="dark"] .alert-warning {
+            background-color: rgba(255, 193, 7, 0.2);
+            border-color: rgba(255, 193, 7, 0.4);
+            color: #ffecb3;
+        }
+        
+        [data-theme="dark"] .btn-outline-primary,
+        [data-theme="dark"] .btn-outline-secondary,
+        [data-theme="dark"] .btn-outline-info,
+        [data-theme="dark"] .btn-outline-danger {
+            border-color: currentColor;
+        }
+        
+        [data-theme="dark"] .btn-outline-primary:hover {
+            background-color: rgba(13, 110, 253, 0.2);
+        }
+        
+        [data-theme="dark"] .btn-outline-secondary:hover {
+            background-color: rgba(108, 117, 125, 0.2);
+        }
+        
+        [data-theme="dark"] .btn-outline-info:hover {
+            background-color: rgba(13, 202, 240, 0.2);
+        }
+        
+        [data-theme="dark"] .btn-outline-danger:hover {
+            background-color: rgba(220, 53, 69, 0.2);
+        }
+    </style>
 </head>
 <body>
     <!-- Navigation -->
@@ -79,6 +144,42 @@
         </div>
     </div>
 
+    <!-- Package List Modal -->
+    <div class="modal fade" id="packageModal" tabindex="-1" aria-labelledby="packageModalLabel" aria-hidden="true">
+        <div class="modal-dialog modal-lg modal-dialog-scrollable">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="packageModalLabel">Packages</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <div id="packageModalContent"></div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Author Details Modal -->
+    <div class="modal fade" id="authorDetailsModal" tabindex="-1" aria-labelledby="authorDetailsModalLabel" aria-hidden="true">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="authorDetailsModalLabel">Author Details</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <div id="authorDetailsContent"></div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
     <script src="js/indexeddb-manager.js?v=10"></script>
     <script src="js/storage-manager.js?v=10"></script>
@@ -86,6 +187,9 @@
     <script type="module">
         document.addEventListener('DOMContentLoaded', async function() {
             console.log('👥 Authors Page - Initializing...');
+            
+            // Store authors globally for event handlers (must be at top of scope)
+            let currentAuthors = [];
             
             const storageManager = new StorageManager();
             await storageManager.init();
@@ -145,6 +249,31 @@
                 displayAuthors(authorData, ecosystem);
             }
             
+            // Normalize author name for deduplication (remove case, spaces, special chars)
+            function normalizeAuthorName(name) {
+                return name.toLowerCase()
+                    .replace(/\s+/g, '')
+                    .replace(/[^a-z0-9]/g, '');
+            }
+            
+            // Check if two author names likely refer to the same person
+            function areSimilarAuthors(name1, name2) {
+                const norm1 = normalizeAuthorName(name1);
+                const norm2 = normalizeAuthorName(name2);
+                
+                // Exact match after normalization
+                if (norm1 === norm2) return true;
+                
+                // Check if one is contained in the other (e.g., "sindresorhus" in "Sindre Sorhus")
+                if (norm1.includes(norm2) || norm2.includes(norm1)) {
+                    // Only if they're reasonably close in length
+                    const lenRatio = Math.min(norm1.length, norm2.length) / Math.max(norm1.length, norm2.length);
+                    if (lenRatio > 0.5) return true;
+                }
+                
+                return false;
+            }
+
             async function loadCombinedAuthors() {
                 const storageInfo = await storageManager.getStorageInfo();
                 const allAuthors = new Map();
@@ -170,15 +299,38 @@
                     if (data?.data?.authorAnalysis?.authors) {
                         console.log(`✅ Authors Page - Found ${data.data.authorAnalysis.authors.length} authors in ${entry.name}`);
                         data.data.authorAnalysis.authors.forEach(author => {
-                            const key = `${author.ecosystem}:${author.author}`;
-                            if (!allAuthors.has(key)) {
-                                allAuthors.set(key, { ...author, packages: [...author.packages] });
-                            } else {
-                                const existing = allAuthors.get(key);
+                            // Try to find similar existing author
+                            let foundKey = null;
+                            for (const [existingKey, existingAuthor] of allAuthors.entries()) {
+                                const [existingEcosystem, existingName] = existingKey.split(':', 2);
+                                if (existingEcosystem === author.ecosystem && areSimilarAuthors(existingName, author.author)) {
+                                    foundKey = existingKey;
+                                    break;
+                                }
+                            }
+                            
+                            if (foundKey) {
+                                // Merge with existing author
+                                const existing = allAuthors.get(foundKey);
                                 existing.count += author.count;
                                 existing.packages.push(...author.packages);
-                                // Deduplicate packages
                                 existing.packages = [...new Set(existing.packages)];
+                                // Keep the longer name (usually the full name)
+                                if (author.author.length > existing.author.length) {
+                                    existing.author = author.author;
+                                }
+                                // Merge metadata if available
+                                if (author.metadata && !existing.metadata) {
+                                    existing.metadata = author.metadata;
+                                }
+                            } else {
+                                // Add new author
+                                const key = `${author.ecosystem}:${author.author}`;
+                                allAuthors.set(key, { 
+                                    ...author, 
+                                    packages: [...author.packages],
+                                    metadata: author.metadata || null
+                                });
                             }
                         });
                     }
@@ -211,6 +363,293 @@
                 return authors;
             }
             
+            function showPackageModal(author) {
+                const modal = new bootstrap.Modal(document.getElementById('packageModal'));
+                const uniquePackages = [...new Set(author.packages)].sort();
+                
+                document.getElementById('packageModalLabel').textContent = 
+                    `${author.count} Package${author.count !== 1 ? 's' : ''} by ${author.author}`;
+                
+                let html = `
+                    <div class="mb-3">
+                        <strong>Ecosystem:</strong> <span class="badge bg-info">${author.ecosystem}</span><br>
+                        <strong>Total Packages:</strong> ${uniquePackages.length}
+                    </div>
+                    <div class="list-group">
+                `;
+                
+                uniquePackages.forEach(pkg => {
+                    html += `<div class="list-group-item">${pkg}</div>`;
+                });
+                
+                html += '</div>';
+                
+                document.getElementById('packageModalContent').innerHTML = html;
+                modal.show();
+            }
+            
+        // Generate registry profile URLs only if we have verified data
+        function getVerifiedProfileLinks(author) {
+            const links = [];
+            
+            // Only show npm profile if we know they're a maintainer (from our author extraction)
+            if (author.ecosystem === 'npm' && author.author) {
+                links.push({
+                    url: `https://www.npmjs.com/~${encodeURIComponent(author.author)}`,
+                    icon: 'fab fa-npm',
+                    label: 'npm Profile',
+                    class: 'btn-outline-danger'
+                });
+            }
+            
+            // PyPI profile
+            if (author.ecosystem === 'pypi' && author.author) {
+                links.push({
+                    url: `https://pypi.org/user/${encodeURIComponent(author.author)}/`,
+                    icon: 'fas fa-cube',
+                    label: 'PyPI Profile',
+                    class: 'btn-outline-primary'
+                });
+            }
+            
+            // Crates.io profile (from login)
+            if (author.ecosystem === 'cargo' && author.author) {
+                links.push({
+                    url: `https://crates.io/users/${encodeURIComponent(author.author)}`,
+                    icon: 'fas fa-box',
+                    label: 'Crates.io Profile',
+                    class: 'btn-outline-warning'
+                });
+            }
+            
+            // RubyGems profile
+            if (author.ecosystem === 'gem' && author.author) {
+                links.push({
+                    url: `https://rubygems.org/profiles/${encodeURIComponent(author.author)}`,
+                    icon: 'fas fa-gem',
+                    label: 'RubyGems Profile',
+                    class: 'btn-outline-danger'
+                });
+            }
+            
+            // GitHub profile (only if we extracted from repo or it's a github: prefixed author)
+            if (author.ecosystem === 'github' || author.metadata?.github) {
+                const githubUsername = author.metadata?.github || author.author;
+                links.push({
+                    url: `https://github.com/${encodeURIComponent(githubUsername)}`,
+                    icon: 'fab fa-github',
+                    label: 'GitHub Profile',
+                    class: 'btn-outline-secondary'
+                });
+            }
+            
+            return links;
+        }
+
+            async function showAuthorDetailsModal(author) {
+                const modal = new bootstrap.Modal(document.getElementById('authorDetailsModal'));
+                document.getElementById('authorDetailsModalLabel').textContent = author.author;
+                
+                const allPackages = [...new Set(author.packages)].sort();
+                const packageCount = allPackages.length;
+                
+                let html = `
+                    <div class="mb-3">
+                        <h6><i class="fas fa-user me-2"></i>Basic Information</h6>
+                        <table class="table table-sm table-borderless">
+                            <tr>
+                                <td style="width: 140px;"><strong>Name:</strong></td>
+                                <td>${author.author}</td>
+                            </tr>
+                            <tr>
+                                <td><strong>Ecosystem:</strong></td>
+                                <td><span class="badge bg-info">${author.ecosystem}</span></td>
+                            </tr>
+                            <tr>
+                                <td><strong>Package Count:</strong></td>
+                                <td>
+                                    <span class="badge bg-primary">${author.count}</span>
+                                    ${author.count > 5 ? '<span class="badge bg-warning text-dark ms-2" title="High dependency risk">High Impact</span>' : ''}
+                                </td>
+                            </tr>
+                        </table>
+                    </div>
+                `;
+                
+            // Verified Profile Links
+            const verifiedLinks = getVerifiedProfileLinks(author);
+            
+            if (verifiedLinks.length > 0) {
+                html += `
+                    <div class="mb-3">
+                        <h6><i class="fas fa-link me-2"></i>Profile Links</h6>
+                        <div class="d-flex flex-wrap gap-2">
+                `;
+                
+                verifiedLinks.forEach(link => {
+                    html += `
+                        <a href="${link.url}" target="_blank" class="btn btn-sm ${link.class}">
+                            <i class="${link.icon} me-1"></i>
+                            ${link.label}
+                        </a>
+                    `;
+                });
+                
+                // Ecosyste.ms profile for aggregate stats
+                const ecosystemMap = {
+                    'npm': 'npmjs.org',
+                    'pypi': 'pypi.org',
+                    'cargo': 'crates.io',
+                    'gem': 'rubygems.org',
+                    'nuget': 'nuget.org',
+                    'packagist': 'packagist.org'
+                };
+                const registryName = ecosystemMap[author.ecosystem.toLowerCase()];
+                if (registryName) {
+                    html += `
+                        <a href="https://packages.ecosyste.ms/registries/${registryName}/maintainers/${encodeURIComponent(author.author)}" target="_blank" class="btn btn-sm btn-outline-info">
+                            <i class="fas fa-chart-bar me-1"></i>
+                            Package Statistics
+                        </a>
+                    `;
+                }
+                
+                html += '</div></div>';
+            }
+                
+                // Show metadata if available
+                if (author.metadata) {
+                    html += `
+                        <div class="mb-3">
+                            <h6><i class="fas fa-info-circle me-2"></i>Additional Details</h6>
+                            <table class="table table-sm table-borderless">
+                    `;
+                    
+                    if (author.metadata.email) {
+                        html += `
+                            <tr>
+                                <td style="width: 140px;"><strong>Email:</strong></td>
+                                <td><a href="mailto:${author.metadata.email}">${author.metadata.email}</a></td>
+                            </tr>
+                        `;
+                    }
+                    
+                    if (author.metadata.github) {
+                        html += `
+                            <tr>
+                                <td><strong>GitHub:</strong></td>
+                                <td><a href="https://github.com/${author.metadata.github}" target="_blank">
+                                    <i class="fab fa-github me-1"></i>${author.metadata.github}
+                                </a></td>
+                            </tr>
+                        `;
+                    }
+                    
+                    if (author.metadata.url) {
+                        html += `
+                            <tr>
+                                <td><strong>Website:</strong></td>
+                                <td><a href="${author.metadata.url}" target="_blank">${author.metadata.url}</a></td>
+                            </tr>
+                        `;
+                    }
+                    
+                    html += '</table></div>';
+                }
+                
+                // Sponsorship & Support Info - Only show if author has funding metadata
+                if (author.funding) {
+                    html += `
+                        <div class="mb-3">
+                            <h6><i class="fas fa-heart me-2"></i>Sponsorship Available</h6>
+                            <div class="alert alert-success mb-2">
+                                <small>
+                                    <i class="fas fa-check-circle me-1"></i>
+                                    ${author.author} is accepting sponsorships and maintains ${author.count} package${author.count !== 1 ? 's' : ''} used by your project.
+                                </small>
+                            </div>
+                            <div class="d-flex flex-wrap gap-2">
+                    `;
+                    
+                    // Show platform-specific links if available
+                    if (author.funding.github || author.funding.url?.includes('github.com/sponsors')) {
+                        html += `
+                            <a href="https://github.com/sponsors/${encodeURIComponent(author.author)}" target="_blank" class="btn btn-sm btn-outline-danger">
+                                <i class="fas fa-heart me-1"></i>GitHub Sponsors
+                            </a>
+                        `;
+                    }
+                    
+                    if (author.funding.opencollective || author.funding.url?.includes('opencollective.com')) {
+                        const ocUsername = author.funding.url ? author.funding.url.split('opencollective.com/')[1]?.split(/[/?]/)[0] : author.author;
+                        html += `
+                            <a href="https://opencollective.com/${encodeURIComponent(ocUsername || author.author)}" target="_blank" class="btn btn-sm btn-outline-primary">
+                                <i class="fas fa-hand-holding-usd me-1"></i>Open Collective
+                            </a>
+                        `;
+                    }
+                    
+                    if (author.funding.patreon || author.funding.url?.includes('patreon.com')) {
+                        html += `
+                            <a href="${author.funding.url || `https://patreon.com/${encodeURIComponent(author.author)}`}" target="_blank" class="btn btn-sm btn-outline-danger">
+                                <i class="fab fa-patreon me-1"></i>Patreon
+                            </a>
+                        `;
+                    }
+                    
+                    // Show generic funding URL if no specific platform detected
+                    if (author.funding.url && !author.funding.github && !author.funding.opencollective && !author.funding.patreon) {
+                        html += `
+                            <a href="${author.funding.url}" target="_blank" class="btn btn-sm btn-outline-info">
+                                <i class="fas fa-donate me-1"></i>Support
+                            </a>
+                        `;
+                    }
+                    
+                    html += `
+                            </div>
+                        </div>
+                    `;
+                }
+                
+                // Show ALL packages
+                html += `
+                    <div class="mb-3">
+                        <h6><i class="fas fa-box me-2"></i>All Packages (${packageCount})</h6>
+                        <div class="list-group" style="max-height: 300px; overflow-y: auto;">
+                `;
+                
+                allPackages.forEach(pkg => {
+                    html += `<div class="list-group-item list-group-item-sm">${pkg}</div>`;
+                });
+                
+                html += `
+                        </div>
+                    </div>
+                `;
+                
+                // Risk Assessment
+                if (author.count >= 10) {
+                    html += `
+                        <div class="alert alert-warning">
+                            <i class="fas fa-exclamation-triangle me-2"></i>
+                            <strong>High Dependency Risk:</strong> Your project depends on ${author.count} packages maintained by this single contributor.
+                            Consider: monitoring their activity, having backup maintainers, or contributing to their packages.
+                        </div>
+                    `;
+                } else if (author.count >= 5) {
+                    html += `
+                        <div class="alert alert-info">
+                            <i class="fas fa-info-circle me-2"></i>
+                            <strong>Moderate Dependency:</strong> This contributor maintains ${author.count} of your packages.
+                        </div>
+                    `;
+                }
+                
+                document.getElementById('authorDetailsContent').innerHTML = html;
+                modal.show();
+            }
+
             function displayAuthors(authors, ecosystemFilter) {
                 const container = document.getElementById('authorContent');
                 
@@ -235,10 +674,19 @@
                     return;
                 }
                 
+                // Separate single-package authors
+                const multiPackageAuthors = filtered.filter(a => a.count > 1);
+                const singlePackageAuthors = filtered.filter(a => a.count === 1);
+                
+                // Store for event handlers
+                currentAuthors = multiPackageAuthors;
+                
+                console.log(`🎨 Authors Page - Multi-package: ${multiPackageAuthors.length}, Single-package: ${singlePackageAuthors.length}`);
+                
                 let html = `
                     <div class="alert alert-info">
                         <i class="fas fa-info-circle me-2"></i>
-                        Showing <strong>${filtered.length}</strong> authors from <strong>${new Set(filtered.map(a => a.ecosystem)).size}</strong> ecosystems
+                        Showing <strong>${multiPackageAuthors.length}</strong> authors with multiple packages from <strong>${new Set(multiPackageAuthors.map(a => a.ecosystem)).size}</strong> ecosystems
                     </div>
                     <div class="table-responsive">
                         <table class="table table-hover">
@@ -248,24 +696,53 @@
                                     <th>Author</th>
                                     <th>Ecosystem</th>
                                     <th>Package Count</th>
-                                    <th>Packages (Sample)</th>
+                                    <th style="text-align: center;">Sponsorship</th>
+                                    <th>Packages</th>
                                 </tr>
                             </thead>
                             <tbody>
                 `;
                 
-                filtered.forEach((author, index) => {
+                multiPackageAuthors.forEach((author, index) => {
                     const uniquePackages = [...new Set(author.packages)];
-                    const packageList = uniquePackages.slice(0, 5).join(', ') + 
-                                       (uniquePackages.length > 5 ? ` ... (${uniquePackages.length - 5} more)` : '');
+                    const samplePackages = uniquePackages.slice(0, 3).join(', ');
+                    
+                    // Build sponsorship cell
+                    let sponsorshipCell = '<td style="text-align: center;">—</td>';
+                    if (author.funding) {
+                        const platforms = [];
+                        if (author.funding.github) platforms.push('<a href="' + (author.funding.url || `https://github.com/sponsors/${encodeURIComponent(author.author)}`) + '" target="_blank" title="GitHub Sponsors"><i class="fab fa-github text-dark"></i></a>');
+                        if (author.funding.opencollective) {
+                            const ocUsername = author.funding.url ? author.funding.url.split('opencollective.com/')[1]?.split(/[/?]/)[0] : author.author;
+                            platforms.push('<a href="https://opencollective.com/' + encodeURIComponent(ocUsername || author.author) + '" target="_blank" title="Open Collective"><i class="fas fa-hand-holding-usd text-primary"></i></a>');
+                        }
+                        if (author.funding.patreon) platforms.push('<a href="' + (author.funding.url || `https://patreon.com/${encodeURIComponent(author.author)}`) + '" target="_blank" title="Patreon"><i class="fab fa-patreon text-danger"></i></a>');
+                        if (author.funding.tidelift) platforms.push('<a href="' + author.funding.url + '" target="_blank" title="Tidelift"><i class="fas fa-gift text-warning"></i></a>');
+                        
+                        if (platforms.length > 0) {
+                            sponsorshipCell = '<td style="text-align: center;"><span class="d-flex justify-content-center gap-2">' + platforms.join(' ') + '</span></td>';
+                        } else if (author.funding.url) {
+                            sponsorshipCell = '<td style="text-align: center;"><a href="' + author.funding.url + '" target="_blank" title="Funding available"><i class="fas fa-donate text-success"></i></a></td>';
+                        }
+                    }
                     
                     html += `
                         <tr>
                             <td>${index + 1}</td>
-                            <td><strong>${author.ecosystem}:${author.author}</strong></td>
+                            <td>
+                                <a href="#" class="text-decoration-none author-details-link" data-author-index="${index}">
+                                    <strong><i class="fas fa-user me-1"></i>${author.author}</strong>
+                                </a>
+                            </td>
                             <td><span class="badge bg-info">${author.ecosystem}</span></td>
                             <td><span class="badge bg-primary">${author.count}</span></td>
-                            <td><small class="text-muted">${packageList}</small></td>
+                            ${sponsorshipCell}
+                            <td>
+                                <a href="#" class="text-decoration-none package-list-link" data-author-index="${index}">
+                                    <small>${samplePackages}${uniquePackages.length > 3 ? ` <strong>+ ${uniquePackages.length - 3} more</strong>` : ''}</small>
+                                    <i class="fas fa-external-link-alt ms-1 small"></i>
+                                </a>
+                            </td>
                         </tr>
                     `;
                 });
@@ -276,7 +753,47 @@
                     </div>
                 `;
                 
+                // Add single-package authors summary
+                if (singlePackageAuthors.length > 0) {
+                    html += `
+                        <div class="alert alert-secondary mt-3">
+                            <i class="fas fa-info-circle me-2"></i>
+                            <strong>${singlePackageAuthors.length}</strong> additional author${singlePackageAuthors.length !== 1 ? 's' : ''} 
+                            with only one package ${ecosystemFilter !== 'all' ? 'in this ecosystem ' : ''}(not shown above)
+                        </div>
+                    `;
+                }
+                
                 container.innerHTML = html;
+                
+                // Attach event listeners
+                attachEventListeners();
+            }
+            
+            function attachEventListeners() {
+                // Author details links
+                document.querySelectorAll('.author-details-link').forEach(link => {
+                    link.addEventListener('click', function(e) {
+                        e.preventDefault();
+                        const index = parseInt(this.getAttribute('data-author-index'));
+                        const author = currentAuthors[index];
+                        if (author) {
+                            showAuthorDetailsModal(author);
+                        }
+                    });
+                });
+                
+                // Package list links
+                document.querySelectorAll('.package-list-link').forEach(link => {
+                    link.addEventListener('click', function(e) {
+                        e.preventDefault();
+                        const index = parseInt(this.getAttribute('data-author-index'));
+                        const author = currentAuthors[index];
+                        if (author) {
+                            showPackageModal(author);
+                        }
+                    });
+                });
             }
         });
     </script>
