@@ -41,4 +41,7 @@ client-storage/
 *.backup
 docs-tonotshare/
 projects/
-test*
+
+# Analysis and testing documentation
+mdfiles/
+testhtmlfiles/

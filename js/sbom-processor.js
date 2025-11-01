@@ -434,6 +434,92 @@ class SBOMProcessor {
     }
 
     /**
+     * Resolve full dependency trees using registry APIs
+     */
+    async resolveFullDependencyTrees(onProgress = null) {
+        console.log('🌲 Starting full dependency tree resolution...');
+        
+        if (!window.DependencyTreeResolver) {
+            console.warn('⚠️ DependencyTreeResolver not available');
+            return null;
+        }
+        
+        const resolver = new window.DependencyTreeResolver();
+        const resolvedTrees = new Map(); // ecosystem -> tree
+        
+        try {
+            // Group direct dependencies by ecosystem
+            const directDepsByEcosystem = new Map();
+            
+            for (const [depKey, dep] of this.dependencies) {
+                const ecosystem = dep.category?.ecosystem?.toLowerCase();
+                if (!ecosystem || dep.directIn.size === 0) continue;
+                
+                if (!directDepsByEcosystem.has(ecosystem)) {
+                    directDepsByEcosystem.set(ecosystem, new Set());
+                }
+                directDepsByEcosystem.get(ecosystem).add(depKey);
+            }
+            
+            console.log(`📊 Found ${directDepsByEcosystem.size} ecosystems with direct dependencies`);
+            
+            let processedEcosystems = 0;
+            
+            // Resolve trees for each ecosystem
+            for (const [ecosystem, directDeps] of directDepsByEcosystem) {
+                console.log(`  🔍 Resolving ${ecosystem} dependencies (${directDeps.size} direct)...`);
+                
+                if (onProgress) {
+                    onProgress({
+                        phase: 'resolving-tree',
+                        ecosystem: ecosystem,
+                        processed: processedEcosystems,
+                        total: directDepsByEcosystem.size
+                    });
+                }
+                
+                try {
+                    const tree = await resolver.resolveDependencyTree(
+                        directDeps,
+                        this.dependencies,
+                        ecosystem
+                    );
+                    
+                    resolvedTrees.set(ecosystem, tree);
+                    
+                    // Update dependencies with depth information
+                    for (const [packageKey, treeNode] of tree) {
+                        const dep = this.dependencies.get(packageKey);
+                        if (dep) {
+                            dep.depth = treeNode.depth;
+                            dep.parents = Array.from(treeNode.parents);
+                            dep.children = Array.from(treeNode.children);
+                        }
+                    }
+                    
+                    const stats = resolver.getTreeStats(tree);
+                    console.log(`    ✅ Resolved ${ecosystem}: ${stats.totalPackages} packages, max depth: ${stats.maxDepth}`);
+                    
+                } catch (error) {
+                    console.error(`    ❌ Error resolving ${ecosystem}:`, error);
+                }
+                
+                processedEcosystems++;
+            }
+            
+            console.log('✅ Dependency tree resolution complete');
+            this.dependencyTreesResolved = true;
+            this.resolvedDependencyTrees = resolvedTrees;
+            
+            return resolvedTrees;
+            
+        } catch (error) {
+            console.error('❌ Error during dependency tree resolution:', error);
+            return null;
+        }
+    }
+
+    /**
      * Export data as JSON
      */
     exportData() {
@@ -460,7 +546,10 @@ class SBOMProcessor {
                 category: dep.category,
                 languages: Array.from(dep.languages),
                 purl: purl,  // Include extracted PURL for author analysis
-                originalPackage: dep.originalPackage  // Include original package data
+                originalPackage: dep.originalPackage,  // Include original package data
+                depth: dep.depth || null,  // Depth in dependency tree (1 = direct, 2+ = transitive)
+                parents: dep.parents || [],  // Parent dependencies (what brings this in)
+                children: dep.children || []  // Child dependencies (what this brings in)
             };
         });
         const allRepos = Array.from(this.repositories.values()).map(repo => ({

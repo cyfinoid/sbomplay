@@ -520,6 +520,22 @@ class SBOMPlayApp {
                 return;
             }
 
+            // Resolve full dependency trees with API queries
+            this.updateProgress(75, 'Resolving dependency trees...');
+            try {
+                console.log('🌲 Resolving full dependency trees with registry APIs...');
+                await this.sbomProcessor.resolveFullDependencyTrees((progress) => {
+                    if (progress.phase === 'resolving-tree') {
+                        this.updateProgress(75 + (progress.processed / progress.total) * 5, 
+                            `Resolving ${progress.ecosystem} dependencies...`);
+                    }
+                });
+                console.log('✅ Dependency tree resolution complete');
+            } catch (error) {
+                console.error('❌ Dependency tree resolution failed:', error);
+                console.log('⚠️ Continuing with partial dependency information...');
+            }
+            
             // Generate results (use let so we can reload after author analysis)
             this.updateProgress(80, 'Generating analysis results...');
             let results = this.sbomProcessor.exportData();
@@ -723,6 +739,22 @@ class SBOMPlayApp {
                 await this.sleep(100);
             }
 
+            // Resolve full dependency trees with API queries
+            this.updateProgress(85, 'Resolving dependency trees...');
+            try {
+                console.log('🌲 Resolving full dependency trees with registry APIs...');
+                await this.sbomProcessor.resolveFullDependencyTrees((progress) => {
+                    if (progress.phase === 'resolving-tree') {
+                        this.updateProgress(85 + (progress.processed / progress.total) * 5, 
+                            `Resolving ${progress.ecosystem} dependencies...`);
+                    }
+                });
+                console.log('✅ Dependency tree resolution complete');
+            } catch (error) {
+                console.error('❌ Dependency tree resolution failed:', error);
+                console.log('⚠️ Continuing with partial dependency information...');
+            }
+            
             // Generate results (use let so we can reload after author analysis)
             this.updateProgress(90, 'Generating analysis results...');
             let results = this.sbomProcessor.exportData();
