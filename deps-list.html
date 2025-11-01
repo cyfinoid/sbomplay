@@ -1,0 +1,572 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SBOM Play - List View</title>
+    <link href="css/style.css?v=10" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <link href="css/themes.css?v=10" rel="stylesheet">
+    <script src="js/theme-manager.js?v=10"></script>
+    <style>
+        .tree-view {
+            font-family: 'Courier New', Consolas, monospace;
+            font-size: 14px;
+            line-height: 1.8;
+            background: var(--bg-color, #fff);
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            padding: 20px;
+            overflow-x: auto;
+            white-space: pre;
+        }
+        
+        .tree-line {
+            cursor: pointer;
+            user-select: none;
+        }
+        
+        .tree-line:hover {
+            background-color: rgba(13, 110, 253, 0.1);
+        }
+        
+        .tree-line.collapsed .children {
+            display: none;
+        }
+        
+        .tree-icon {
+            display: inline-block;
+            width: 15px;
+            text-align: center;
+            color: #6c757d;
+        }
+        
+        .tree-direct {
+            color: #0d6efd;
+            font-weight: bold;
+        }
+        
+        .tree-transitive {
+            color: #6c757d;
+        }
+        
+        .tree-repo {
+            color: #198754;
+            font-weight: bold;
+            font-size: 16px;
+        }
+        
+        .tree-connector {
+            color: #999;
+        }
+        
+        .badge-count {
+            background: #6c757d;
+            color: white;
+            padding: 2px 6px;
+            border-radius: 10px;
+            font-size: 11px;
+            margin-left: 5px;
+        }
+        
+        [data-theme="dark"] .tree-view {
+            border-color: #555;
+        }
+        
+        [data-theme="dark"] .tree-line:hover {
+            background-color: rgba(255, 255, 255, 0.1);
+        }
+        
+        .stats-panel {
+            background: var(--bg-secondary, #f8f9fa);
+            border-radius: 8px;
+            padding: 15px;
+        }
+        
+        .stat-item {
+            text-align: center;
+            padding: 10px;
+        }
+        
+        .stat-item h4 {
+            margin: 0;
+            color: #0d6efd;
+        }
+        
+        .stat-item p {
+            margin: 5px 0 0 0;
+            color: #6c757d;
+            font-size: 0.9em;
+        }
+    </style>
+</head>
+<body>
+    <nav class="navbar navbar-expand-lg navbar-dark bg-primary">
+        <div class="container">
+            <a class="navbar-brand" href="index.html">
+                <i class="fas fa-cubes me-2"></i>SBOM Play
+            </a>
+            <div class="navbar-nav ms-auto">
+                <a class="nav-link" href="index.html">Analysis</a>
+                <a class="nav-link" href="stats.html">Stats</a>
+                <a class="nav-link" href="license-compliance.html">License</a>
+                <a class="nav-link" href="vuln.html">Vulnerabilities</a>
+                <a class="nav-link active" href="deps.html">Dependencies</a>
+                <a class="nav-link" href="authors.html">Authors</a>
+                <a class="nav-link" href="settings.html">
+                    <i class="fas fa-cog"></i>
+                </a>
+                <button class="btn btn-outline-secondary btn-sm ms-2 theme-toggle" onclick="themeManager.toggleTheme()" title="Toggle theme">
+                    <i class="fas fa-sun"></i>
+                </button>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container-fluid mt-4">
+        <div class="row mb-3">
+            <div class="col-12">
+                <div class="d-flex justify-content-between align-items-center">
+                    <div>
+                        <h1><i class="fas fa-list-ul me-2"></i>List View</h1>
+                        <p class="text-muted">Text-based tree view like npm ls or cargo tree</p>
+                    </div>
+                    <div>
+                        <a href="deps.html" class="btn btn-outline-secondary">
+                            <i class="fas fa-th me-2"></i>All Views
+                        </a>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Filters -->
+        <div class="card mb-3">
+            <div class="card-body">
+                <div class="row g-3">
+                    <div class="col-md-4">
+                        <label class="form-label">Analysis</label>
+                        <select class="form-select" id="analysisSelector">
+                            <option value="">Select...</option>
+                        </select>
+                    </div>
+                    <div class="col-md-3">
+                        <label class="form-label">Repository</label>
+                        <select class="form-select" id="repoFilter">
+                            <option value="all">All Repositories</option>
+                        </select>
+                    </div>
+                    <div class="col-md-3">
+                        <label class="form-label">Ecosystem</label>
+                        <select class="form-select" id="ecosystemFilter">
+                            <option value="all">All Ecosystems</option>
+                        </select>
+                    </div>
+                    <div class="col-md-2">
+                        <label class="form-label">&nbsp;</label>
+                        <div>
+                            <button class="btn btn-outline-primary btn-sm me-2" id="expandAllBtn">
+                                <i class="fas fa-expand-alt"></i> Expand All
+                            </button>
+                            <button class="btn btn-outline-secondary btn-sm" id="collapseAllBtn">
+                                <i class="fas fa-compress-alt"></i> Collapse
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="row" id="mainContent" style="display: none;">
+            <div class="col-lg-9">
+                <div class="card">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <h5 class="mb-0"><i class="fas fa-list me-2"></i>Dependency Tree</h5>
+                        <button class="btn btn-sm btn-success" id="copyBtn">
+                            <i class="fas fa-copy me-2"></i>Copy to Clipboard
+                        </button>
+                    </div>
+                    <div class="card-body">
+                        <div class="tree-view" id="treeView"></div>
+                    </div>
+                </div>
+                
+                <div class="alert alert-secondary mt-3">
+                    <strong>Legend:</strong>
+                    <span class="tree-repo">■ Repository</span> |
+                    <span class="tree-direct">■ Direct Dependency</span> |
+                    <span class="tree-transitive">■ Transitive Dependency</span> |
+                    <em>Click lines to expand/collapse</em>
+                </div>
+            </div>
+
+            <div class="col-lg-3">
+                <div class="card">
+                    <div class="card-header">
+                        <h5 class="mb-0"><i class="fas fa-chart-bar me-2"></i>Statistics</h5>
+                    </div>
+                    <div class="card-body stats-panel">
+                        <div class="stat-item">
+                            <h4 id="statTotal">0</h4>
+                            <p>Total Dependencies</p>
+                        </div>
+                        <div class="stat-item">
+                            <h4 id="statDirect">0</h4>
+                            <p>Direct</p>
+                        </div>
+                        <div class="stat-item">
+                            <h4 id="statTransitive">0</h4>
+                            <p>Transitive</p>
+                        </div>
+                        <div class="stat-item">
+                            <h4 id="statRepos">0</h4>
+                            <p>Repositories</p>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="alert alert-info mt-3">
+                    <h6><i class="fas fa-info-circle me-2"></i>Tip</h6>
+                    <p class="small mb-0">Click the "Copy to Clipboard" button to copy the entire tree structure for sharing or documentation.</p>
+                </div>
+            </div>
+        </div>
+
+        <div class="alert alert-info" id="noDataMessage">
+            <i class="fas fa-info-circle me-2"></i>
+            <strong>No Data Available</strong>
+            <p class="mb-0 mt-2">Please select an analysis to view dependencies.</p>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="js/indexeddb-manager.js?v=10"></script>
+    <script src="js/storage-manager.js?v=10"></script>
+    <script type="module">
+        const storageManager = new StorageManager();
+        await storageManager.init();
+        
+        let currentData = null;
+        let treeData = null;
+        
+        await loadAnalysesList();
+        
+        async function loadAnalysesList() {
+            const storageInfo = await storageManager.getStorageInfo();
+            const selector = document.getElementById('analysisSelector');
+            const allEntries = [...storageInfo.organizations, ...storageInfo.repositories];
+            
+            if (allEntries.length === 0) {
+                document.getElementById('noDataMessage').style.display = 'block';
+                return;
+            }
+            
+            allEntries.forEach(entry => {
+                const option = document.createElement('option');
+                option.value = entry.name;
+                option.textContent = `${entry.name} (${entry.dependencies} deps)`;
+                selector.appendChild(option);
+            });
+            
+            if (allEntries.length > 0) {
+                selector.value = allEntries[0].name;
+                await loadAnalysis();
+            }
+        }
+        
+        document.getElementById('analysisSelector').addEventListener('change', loadAnalysis);
+        document.getElementById('repoFilter').addEventListener('change', renderTree);
+        document.getElementById('ecosystemFilter').addEventListener('change', renderTree);
+        document.getElementById('expandAllBtn').addEventListener('click', () => toggleAll(false));
+        document.getElementById('collapseAllBtn').addEventListener('click', () => toggleAll(true));
+        document.getElementById('copyBtn').addEventListener('click', copyToClipboard);
+        
+        async function loadAnalysis() {
+            const analysisName = document.getElementById('analysisSelector').value;
+            if (!analysisName) return;
+            
+            const data = await storageManager.loadAnalysisDataForOrganization(analysisName);
+            if (!data || !data.data) {
+                alert('No data found');
+                return;
+            }
+            
+            currentData = data.data;
+            
+            // Populate repo filter
+            const repoFilter = document.getElementById('repoFilter');
+            repoFilter.innerHTML = '<option value="all">All Repositories</option>';
+            if (currentData.allRepositories) {
+                currentData.allRepositories.forEach(repo => {
+                    const option = document.createElement('option');
+                    option.value = `${repo.owner}/${repo.name}`;
+                    option.textContent = `${repo.owner}/${repo.name}`;
+                    repoFilter.appendChild(option);
+                });
+            }
+            
+            // Populate ecosystem filter
+            const ecosystems = new Set();
+            if (currentData.allDependencies) {
+                currentData.allDependencies.forEach(dep => {
+                    if (dep.category?.ecosystem) ecosystems.add(dep.category.ecosystem);
+                });
+            }
+            
+            const ecosystemFilter = document.getElementById('ecosystemFilter');
+            ecosystemFilter.innerHTML = '<option value="all">All Ecosystems</option>';
+            Array.from(ecosystems).sort().forEach(eco => {
+                const option = document.createElement('option');
+                option.value = eco;
+                option.textContent = eco.charAt(0).toUpperCase() + eco.slice(1);
+                ecosystemFilter.appendChild(option);
+            });
+            
+            document.getElementById('mainContent').style.display = 'flex';
+            document.getElementById('noDataMessage').style.display = 'none';
+            
+            renderTree();
+        }
+        
+        function buildTree() {
+            const repoFilter = document.getElementById('repoFilter').value;
+            const ecosystemFilter = document.getElementById('ecosystemFilter').value;
+            
+            let repos = currentData.allRepositories || [];
+            if (repoFilter !== 'all') {
+                repos = repos.filter(r => `${r.owner}/${r.name}` === repoFilter);
+            }
+            
+            let deps = currentData.allDependencies || [];
+            if (ecosystemFilter !== 'all') {
+                deps = deps.filter(dep => dep.category?.ecosystem === ecosystemFilter);
+            }
+            
+            const tree = [];
+            
+            repos.forEach(repo => {
+                const repoNode = {
+                    name: `${repo.owner}/${repo.name}`,
+                    type: 'repo',
+                    children: []
+                };
+                
+                // Build SPDXID mapping
+                const spdxToPackage = new Map();
+                if (repo.spdxPackages) {
+                    repo.spdxPackages.forEach(pkg => {
+                        if (pkg.SPDXID && pkg.name) {
+                            const normalizedVersion = pkg.version ? normalizeVersion(pkg.version) : '';
+                            spdxToPackage.set(pkg.SPDXID, {name: pkg.name, version: normalizedVersion});
+                        }
+                    });
+                }
+                
+                // Find direct dependencies
+                const directDeps = new Map();
+                if (repo.relationships) {
+                    repo.relationships.forEach(rel => {
+                        if (rel.isDirectFromMain) {
+                            const depInfo = spdxToPackage.get(rel.to);
+                            if (depInfo) {
+                                const depData = deps.find(d => d.name === depInfo.name && d.version === depInfo.version);
+                                if (depData) {
+                                    const key = `${depInfo.name}@${depInfo.version}`;
+                                    if (!directDeps.has(rel.to)) {
+                                        directDeps.set(rel.to, {
+                                            name: key,
+                                            type: 'direct',
+                                            spdxId: rel.to,
+                                            children: []
+                                        });
+                                    }
+                                }
+                            }
+                        }
+                    });
+                }
+                
+                // Add transitive dependencies
+                if (repo.relationships) {
+                    repo.relationships.forEach(rel => {
+                        if (!rel.isDirectFromMain) {
+                            const sourceDep = spdxToPackage.get(rel.from);
+                            const targetDep = spdxToPackage.get(rel.to);
+                            
+                            if (sourceDep && targetDep) {
+                                for (const [spdxId, node] of directDeps) {
+                                    if (spdxId === rel.from) {
+                                        const depData = deps.find(d => d.name === targetDep.name && d.version === targetDep.version);
+                                        if (depData) {
+                                            node.children.push({
+                                                name: `${targetDep.name}@${targetDep.version}`,
+                                                type: 'transitive'
+                                            });
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    });
+                }
+                
+                repoNode.children = Array.from(directDeps.values());
+                tree.push(repoNode);
+            });
+            
+            return tree;
+        }
+        
+        function normalizeVersion(version) {
+            if (!version) return '';
+            return version.trim().replace(/^[><=^~]+\s*/, '').replace(/\s*-\s*[\d.]+.*$/, '').replace(/\s*\|\|.*$/, '').replace(/\s+/g, '');
+        }
+        
+        function renderTree() {
+            treeData = buildTree();
+            const treeView = document.getElementById('treeView');
+            treeView.innerHTML = '';
+            
+            let totalDeps = 0;
+            let directCount = 0;
+            let transitiveCount = 0;
+            
+            treeData.forEach(repo => {
+                const repoLine = createTreeLine(repo.name, 0, repo.type, repo.children.length > 0, false);
+                treeView.appendChild(repoLine);
+                
+                repo.children.forEach((child, idx) => {
+                    directCount++;
+                    totalDeps++;
+                    const isLast = idx === repo.children.length - 1;
+                    const childLine = createTreeLine(child.name, 1, child.type, child.children.length > 0, isLast);
+                    treeView.appendChild(childLine);
+                    
+                    if (child.children && child.children.length > 0) {
+                        child.children.forEach((grandchild, gidx) => {
+                            transitiveCount++;
+                            totalDeps++;
+                            const isGrandLast = gidx === child.children.length - 1;
+                            const grandchildLine = createTreeLine(grandchild.name, 2, grandchild.type, false, isGrandLast, isLast);
+                            treeView.appendChild(grandchildLine);
+                        });
+                    }
+                });
+            });
+            
+            document.getElementById('statTotal').textContent = totalDeps;
+            document.getElementById('statDirect').textContent = directCount;
+            document.getElementById('statTransitive').textContent = transitiveCount;
+            document.getElementById('statRepos').textContent = treeData.length;
+        }
+        
+        function createTreeLine(name, level, type, hasChildren, isLast, parentIsLast = false) {
+            const line = document.createElement('div');
+            line.className = 'tree-line';
+            
+            let prefix = '';
+            if (level === 0) {
+                prefix = '';
+            } else if (level === 1) {
+                prefix = isLast ? '└── ' : '├── ';
+            } else if (level === 2) {
+                prefix = (parentIsLast ? '    ' : '│   ') + (isLast ? '└── ' : '├── ');
+            }
+            
+            const icon = hasChildren ? '▼' : '  ';
+            const colorClass = type === 'repo' ? 'tree-repo' : type === 'direct' ? 'tree-direct' : 'tree-transitive';
+            
+            line.innerHTML = `<span class="tree-connector">${prefix}</span><span class="tree-icon">${icon}</span><span class="${colorClass}">${escapeHtml(name)}</span>`;
+            
+            if (hasChildren) {
+                line.style.cursor = 'pointer';
+                line.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    line.classList.toggle('collapsed');
+                    const nextSiblings = [];
+                    let next = line.nextElementSibling;
+                    const currentLevel = level;
+                    
+                    while (next && getLineLevel(next) > currentLevel) {
+                        nextSiblings.push(next);
+                        next = next.nextElementSibling;
+                    }
+                    
+                    nextSiblings.forEach(sibling => {
+                        sibling.style.display = line.classList.contains('collapsed') ? 'none' : 'block';
+                    });
+                    
+                    const iconSpan = line.querySelector('.tree-icon');
+                    iconSpan.textContent = line.classList.contains('collapsed') ? '▶' : '▼';
+                });
+            }
+            
+            return line;
+        }
+        
+        function getLineLevel(line) {
+            const connector = line.querySelector('.tree-connector');
+            if (!connector) return 0;
+            const text = connector.textContent;
+            if (text === '') return 0;
+            if (text.includes('    ')) return 2;
+            return 1;
+        }
+        
+        function toggleAll(collapse) {
+            const lines = document.querySelectorAll('.tree-line');
+            lines.forEach(line => {
+                const icon = line.querySelector('.tree-icon');
+                if (icon && icon.textContent.trim() !== '') {
+                    if (collapse) {
+                        line.classList.add('collapsed');
+                        icon.textContent = '▶';
+                    } else {
+                        line.classList.remove('collapsed');
+                        icon.textContent = '▼';
+                    }
+                }
+            });
+            
+            if (collapse) {
+                lines.forEach((line, idx) => {
+                    if (idx > 0 && getLineLevel(line) > 0) {
+                        line.style.display = 'none';
+                    }
+                });
+            } else {
+                lines.forEach(line => {
+                    line.style.display = 'block';
+                });
+            }
+        }
+        
+        function copyToClipboard() {
+            const treeView = document.getElementById('treeView');
+            const text = treeView.textContent;
+            
+            navigator.clipboard.writeText(text).then(() => {
+                const btn = document.getElementById('copyBtn');
+                const originalHtml = btn.innerHTML;
+                btn.innerHTML = '<i class="fas fa-check me-2"></i>Copied!';
+                btn.classList.remove('btn-success');
+                btn.classList.add('btn-success');
+                
+                setTimeout(() => {
+                    btn.innerHTML = originalHtml;
+                }, 2000);
+            }).catch(err => {
+                alert('Failed to copy to clipboard');
+            });
+        }
+        
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+    </script>
+</body>
+</html>
+

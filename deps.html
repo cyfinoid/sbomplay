@@ -3,15 +3,75 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>SBOM Play - Dependency Overview</title>
+    <title>SBOM Play - Dependency Views</title>
     <link href="css/style.css?v=10" rel="stylesheet">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
     <link href="css/themes.css?v=10" rel="stylesheet">
     <script src="js/theme-manager.js?v=10"></script>
-    <script defer data-domain="cyfinoid.github.io" src="https://plausible.io/js/script.outbound-links.js"></script>
-<script>window.plausible = window.plausible || function() { (window.plausible.q = window.plausible.q || []).push(arguments) }</script>
-
+    <style>
+        .view-card {
+            transition: transform 0.3s ease, box-shadow 0.3s ease;
+            cursor: pointer;
+            height: 100%;
+        }
+        
+        .view-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 10px 25px rgba(0,0,0,0.15);
+        }
+        
+        .view-preview {
+            height: 150px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            border-radius: 8px 8px 0 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 64px;
+            color: white;
+        }
+        
+        .view-card:nth-child(2) .view-preview {
+            background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+        }
+        
+        .view-card:nth-child(3) .view-preview {
+            background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
+        }
+        
+        .badge-recommended {
+            background: #ffc107;
+            color: #000;
+            font-weight: bold;
+        }
+        
+        .feature-list {
+            list-style: none;
+            padding: 0;
+        }
+        
+        .feature-list li {
+            padding: 5px 0;
+            display: flex;
+            align-items: center;
+        }
+        
+        .feature-list li i {
+            color: #28a745;
+            margin-right: 10px;
+        }
+        
+        .visual-link {
+            text-decoration: none;
+            color: #6c757d;
+            font-size: 0.9em;
+        }
+        
+        .visual-link:hover {
+            color: #495057;
+        }
+    </style>
 </head>
 <body>
     <!-- Navigation -->
@@ -36,99 +96,201 @@
             </div>
         </div>
     </nav>
+
     <div class="container mt-4">
         <!-- Header -->
         <div class="row mb-4">
             <div class="col-12">
-                <div class="d-flex justify-content-between align-items-center">
-                    <div>
-                        <h1><i class="fas fa-sitemap me-2"></i>Dependency Overview</h1>
-                        <p class="text-muted">Explore dependency categories, languages, and usage patterns</p>
+                <h1><i class="fas fa-list me-2"></i>Dependency Views</h1>
+                <p class="text-muted">Choose a view format to explore your dependencies</p>
+            </div>
+        </div>
+
+        <!-- Info Alert -->
+        <div class="alert alert-info mb-4">
+            <i class="fas fa-info-circle me-2"></i>
+            <strong>Simple, Accessible Views</strong>
+            <p class="mb-0 mt-2">Three practical formats for viewing and analyzing your dependencies. Pick the one that works best for your workflow.</p>
+        </div>
+
+        <!-- View Cards -->
+        <div class="row g-4">
+            <!-- Table View -->
+            <div class="col-md-4">
+                <div class="card view-card" onclick="window.location.href='deps-table.html'">
+                    <div class="view-preview">
+                        <i class="fas fa-table"></i>
                     </div>
-                    <div>
-                        <a href="index.html" class="btn btn-outline-primary">
-                            <i class="fas fa-arrow-left me-2"></i>Back to Analysis
-                        </a>
+                    <div class="card-body">
+                        <h5 class="card-title">
+                            Table View
+                            <span class="badge badge-recommended ms-2">RECOMMENDED</span>
+                        </h5>
+                        <p class="card-text text-muted">Simple searchable and sortable table like a spreadsheet</p>
+                        
+                        <h6 class="mt-3">Features:</h6>
+                        <ul class="feature-list">
+                            <li><i class="fas fa-check"></i> Search across all fields</li>
+                            <li><i class="fas fa-check"></i> Sort by any column</li>
+                            <li><i class="fas fa-check"></i> Filter by type/ecosystem</li>
+                            <li><i class="fas fa-check"></i> Export to CSV</li>
+                            <li><i class="fas fa-check"></i> See parent dependencies</li>
+                        </ul>
+                        
+                        <h6 class="mt-3">Best For:</h6>
+                        <p class="small text-muted">Finding specific packages, sorting by usage, getting quick answers</p>
+                        
+                        <button class="btn btn-primary w-100 mt-3">
+                            <i class="fas fa-eye me-2"></i>View Table
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- List View -->
+            <div class="col-md-4">
+                <div class="card view-card" onclick="window.location.href='deps-list.html'">
+                    <div class="view-preview">
+                        <i class="fas fa-list-ul"></i>
+                    </div>
+                    <div class="card-body">
+                        <h5 class="card-title">List View</h5>
+                        <p class="card-text text-muted">Text-based tree view like npm ls or cargo tree</p>
+                        
+                        <h6 class="mt-3">Features:</h6>
+                        <ul class="feature-list">
+                            <li><i class="fas fa-check"></i> Collapsible tree structure</li>
+                            <li><i class="fas fa-check"></i> Clear parent-child lines</li>
+                            <li><i class="fas fa-check"></i> Copy-paste friendly</li>
+                            <li><i class="fas fa-check"></i> Like terminal output</li>
+                            <li><i class="fas fa-check"></i> Expand/collapse all</li>
+                        </ul>
+                        
+                        <h6 class="mt-3">Best For:</h6>
+                        <p class="small text-muted">Understanding hierarchy, seeing dependency chains, familiar format</p>
+                        
+                        <button class="btn btn-primary w-100 mt-3">
+                            <i class="fas fa-eye me-2"></i>View List
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Grid View -->
+            <div class="col-md-4">
+                <div class="card view-card" onclick="window.location.href='deps-grid.html'">
+                    <div class="view-preview">
+                        <i class="fas fa-th"></i>
+                    </div>
+                    <div class="card-body">
+                        <h5 class="card-title">Grid View</h5>
+                        <p class="card-text text-muted">Advanced data grid with grouping and pivoting</p>
+                        
+                        <h6 class="mt-3">Features:</h6>
+                        <ul class="feature-list">
+                            <li><i class="fas fa-check"></i> Group by ecosystem/repo</li>
+                            <li><i class="fas fa-check"></i> Multi-column sorting</li>
+                            <li><i class="fas fa-check"></i> Inline filtering</li>
+                            <li><i class="fas fa-check"></i> Column reordering</li>
+                            <li><i class="fas fa-check"></i> Export to CSV/JSON</li>
+                        </ul>
+                        
+                        <h6 class="mt-3">Best For:</h6>
+                        <p class="small text-muted">Power users, data analysis, complex filtering and grouping</p>
+                        
+                        <button class="btn btn-primary w-100 mt-3">
+                            <i class="fas fa-eye me-2"></i>View Grid
+                        </button>
                     </div>
                 </div>
             </div>
         </div>
 
-        <!-- Tool Description and Assurance -->
-        <div class="row mb-4">
-            <div class="col-12">
-                <div class="alert alert-info text-center" role="alert">
-                    <i class="fas fa-chart-bar me-2"></i>
-                    <strong>Dependency Overview:</strong> This tool provides insights into dependency categories, languages, and usage patterns. 
-                    All processing happens in your browser for maximum privacy and security.
-                </div>
-            </div>
-        </div>
-
-        <!-- Stored Analyses Section -->
-        <div id="organizationsSection" class="card mb-4">
+        <!-- Comparison Table -->
+        <div class="card mt-5">
             <div class="card-header">
-                <h5 class="mb-0">
-                    <i class="fas fa-database me-2"></i>Stored Analyses
-                </h5>
+                <h5 class="mb-0"><i class="fas fa-balance-scale me-2"></i>Quick Comparison</h5>
             </div>
             <div class="card-body">
-                <div id="organizationsContent">
-                    <div class="text-center text-muted">
-                        <i class="fas fa-spinner fa-spin fa-2x mb-3"></i>
-                        <p>Loading stored analyses...</p>
-                    </div>
+                <div class="table-responsive">
+                    <table class="table table-hover">
+                        <thead>
+                            <tr>
+                                <th>View</th>
+                                <th>Ease of Use</th>
+                                <th>Search/Filter</th>
+                                <th>Export</th>
+                                <th>Best Use Case</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td><strong>Table</strong></td>
+                                <td><span class="badge bg-success">Very Easy</span></td>
+                                <td><span class="badge bg-success">Excellent</span></td>
+                                <td><span class="badge bg-success">CSV</span></td>
+                                <td>Daily use, quick searches</td>
+                            </tr>
+                            <tr>
+                                <td><strong>List</strong></td>
+                                <td><span class="badge bg-success">Very Easy</span></td>
+                                <td><span class="badge bg-info">Good</span></td>
+                                <td><span class="badge bg-info">Text</span></td>
+                                <td>Understanding hierarchy</td>
+                            </tr>
+                            <tr>
+                                <td><strong>Grid</strong></td>
+                                <td><span class="badge bg-info">Moderate</span></td>
+                                <td><span class="badge bg-success">Excellent</span></td>
+                                <td><span class="badge bg-success">CSV/JSON</span></td>
+                                <td>Advanced analysis</td>
+                            </tr>
+                        </tbody>
+                    </table>
                 </div>
             </div>
         </div>
 
-        <!-- Hidden organization input for analysis -->
-        <input type="hidden" id="orgName" value="">
-        
-        <div id="dependency-overview-page">
-            <!-- Dependency Overview content will be rendered here by JS -->
+        <!-- Getting Started -->
+        <div class="alert alert-primary mt-4">
+            <h5><i class="fas fa-lightbulb me-2"></i>Getting Started</h5>
+            <ol class="mb-0">
+                <li>Click on any view card above to open that format</li>
+                <li>Select an analysis from the dropdown</li>
+                <li>Use the search and filter tools to find what you need</li>
+                <li>Export data if needed (CSV/JSON available)</li>
+            </ol>
         </div>
 
-        <!-- No Data Section -->
-        <div id="noDataSection" class="card mb-4" style="display: none;">
-            <div class="card-header">
-                <h5 class="mb-0">
-                    <i class="fas fa-info-circle me-2"></i>No Data Available
-                </h5>
-            </div>
-            <div class="card-body text-center">
-                <i class="fas fa-sitemap fa-3x text-muted mb-3"></i>
-                <h5>No Dependency Analysis Data Found</h5>
-                <p class="text-muted">
-                    You haven't analyzed any organizations yet, or all data has been cleared.
-                </p>
-                <a href="index.html" class="btn btn-primary">
-                    <i class="fas fa-play me-2"></i>Start Your First Analysis
+        <!-- Visual Options -->
+        <div class="text-center mt-4 mb-2">
+            <p class="text-muted mb-2">
+                <i class="fas fa-chart-network me-2"></i>
+                Looking for visual graphs? 
+                <a href="deps-visual.html" class="visual-link">
+                    View all visualization options <i class="fas fa-arrow-right ms-1"></i>
                 </a>
-            </div>
+            </p>
+            <p class="text-muted small">
+                <strong>Featured:</strong> 
+                <a href="deps-sunburst.html" class="visual-link">
+                    <i class="fas fa-chart-pie me-1"></i>Sunburst Chart
+                </a>
+                - Interactive radial partition with zoom
+            </p>
         </div>
-
+    </div>
 
     <!-- Footer -->
     <footer class="bg-light mt-5 py-4">
         <div class="container">
             <div class="row">
-                <!-- First Column: SBOM Play Tool -->
                 <div class="col-md-4">
                     <h6 class="text-primary">SBOM Play</h6>
                     <p class="text-muted small mb-3">
                         A client-side tool for analyzing Software Bill of Materials from GitHub organizations and users.
-                        All processing happens in your browser for maximum privacy and security.
-                    </p>
-                    <p class="text-muted small mb-0">
-                        <strong>Privacy-First:</strong> All processing happens in your browser<br>
-                        <strong>No Server Required:</strong> Works entirely client-side<br>
-                        <strong>Persistent Storage:</strong> Results saved in browser storage<br>
-                        <strong>Rate Limit Aware:</strong> Handles GitHub API limits intelligently
                     </p>
                 </div>
-                
-                <!-- Second Column: Links -->
                 <div class="col-md-4">
                     <h6 class="text-primary">Resources</h6>
                     <div class="d-flex flex-column gap-2">
@@ -138,22 +300,12 @@
                         <a href="https://cyfinoid.com/blog/" target="_blank" class="btn btn-outline-primary btn-sm">
                             <i class="fas fa-blog me-1"></i>Blog
                         </a>
-                        <a href="https://cyfinoid.com/trainings/#upcoming-trainings" target="_blank" class="btn btn-outline-primary btn-sm">
-                            <i class="fas fa-graduation-cap me-1"></i>Upcoming Trainings
-                        </a>
-                        <a href="https://cyfinoid.com/opensource-by-cyfinoid/" target="_blank" class="btn btn-outline-primary btn-sm">
-                            <i class="fab fa-github me-1"></i>Open Source by Cyfinoid
-                        </a>
                     </div>
                 </div>
-                
-                <!-- Third Column: Company Information -->
                 <div class="col-md-4">
                     <h6 class="text-primary">About Cyfinoid Research</h6>
                     <p class="text-muted small mb-3">
-                        Leading cybersecurity research company specializing in software supply chain security, 
-                        Android security, and cloud security. Our expertise spans across comprehensive software 
-                        supply chain protection.
+                        Leading cybersecurity research company specializing in software supply chain security.
                     </p>
                 </div>
             </div>
@@ -168,277 +320,7 @@
             </div>
         </div>
     </footer>
-    <script src="js/indexeddb-manager.js?v=10"></script>
-    <script src="js/app.js?v=10"></script>
-    <script src="js/view-manager.js?v=10"></script>
-    <script src="js/license-processor.js?v=10"></script>
-    <script src="js/osv-service.js?v=10"></script>
-    <script src="js/sbom-processor.js?v=10"></script>
-    <script src="js/storage-manager.js?v=10"></script>
-    <script src="js/github-client.js?v=10"></script>
+
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
-    <script type="module">
-    document.addEventListener('DOMContentLoaded', async function() {
-        const storageManager = new StorageManager();
-        await storageManager.init();
-        const viewManager = new ViewManager();
-        
-        // Make viewManager available globally for onclick handlers
-        window.viewManager = viewManager;
-        
-        // Display entries overview
-        await displayOrganizationsOverview();
-        
-        async function displayOrganizationsOverview() {
-            const storageInfo = await storageManager.getStorageInfo();
-            const organizationsContent = document.getElementById('organizationsContent');
-            
-            if (storageInfo.totalEntries === 0) {
-                document.getElementById('organizationsSection').style.display = 'none';
-                document.getElementById('noDataSection').style.display = 'block';
-                return;
-            }
-
-            const allEntries = [...storageInfo.organizations, ...storageInfo.repositories];
-            
-            let html = `
-                <div class="row mb-3">
-                    <div class="col-md-6">
-                        <h6>Stored Analyses (${allEntries.length})</h6>
-                    </div>
-                    <div class="col-md-6 text-end">
-                        <button class="btn btn-outline-primary btn-sm" onclick="exportAllData()">
-                            <i class="fas fa-download me-2"></i>Export All
-                        </button>
-                        <button class="btn btn-outline-danger btn-sm" onclick="clearAllData()">
-                            <i class="fas fa-trash me-2"></i>Clear All
-                        </button>
-                    </div>
-                </div>
-            `;
-
-            if (allEntries.length > 0) {
-                html += `
-                    <div class="table-responsive">
-                        <table class="table table-sm">
-                            <thead>
-                                <tr>
-                                    <th>Name</th>
-                                    <th>Repositories</th>
-                                    <th>Dependencies</th>
-                                    <th>Last Updated</th>
-                                    <th>Actions</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                `;
-
-                allEntries.forEach(entry => {
-                    const date = new Date(entry.timestamp).toLocaleDateString();
-                    const time = new Date(entry.timestamp).toLocaleTimeString();
-                    
-                    html += `
-                        <tr>
-                            <td><strong>${entry.name}</strong></td>
-                            <td><span class="badge bg-primary">${entry.repositories}</span></td>
-                            <td><span class="badge bg-success">${entry.dependencies}</span></td>
-                            <td><small>${date} ${time}</small></td>
-                            <td>
-                                <button class="btn btn-outline-primary btn-sm" onclick="loadOrganizationData('${entry.name}')">
-                                    <i class="fas fa-eye me-1"></i>View Dependencies
-                                </button>
-                                <button class="btn btn-outline-success btn-sm" onclick="restartDependencyAnalysis('${entry.name}')">
-                                    <i class="fas fa-redo me-1"></i>Restart Analysis
-                                </button>
-                                <button class="btn btn-outline-info btn-sm" onclick="debugOrganizationData('${entry.name}')">
-                                    <i class="fas fa-bug me-1"></i>Debug
-                                </button>
-                                <button class="btn btn-outline-danger btn-sm" onclick="removeOrganizationData('${entry.name}')">
-                                    <i class="fas fa-trash me-1"></i>Remove
-                                </button>
-                            </td>
-                        </tr>
-                    `;
-                });
-
-                html += `
-                            </tbody>
-                        </table>
-                    </div>
-                `;
-            }
-
-            organizationsContent.innerHTML = html;
-        }
-
-        // Load entry data for dependency overview
-        window.loadOrganizationData = async function(name) {
-            const data = await storageManager.loadAnalysisDataForOrganization(name);
-            const container = document.getElementById('dependency-overview-page');
-            
-            if (!data || !data.data) {
-                container.innerHTML = '<div class="alert alert-warning">No data found for this entry.</div>';
-                return;
-            }
-            
-            // Render dependency/category overview section only
-            container.innerHTML = viewManager.generateDependencyOverviewHTML(data);
-            if (typeof viewManager.addOverviewEventListeners === 'function') {
-                viewManager.addOverviewEventListeners();
-            }
-        };
-
-        // Debug entry data
-        window.debugOrganizationData = async function(name) {
-            const data = await storageManager.loadAnalysisDataForOrganization(name);
-            const container = document.getElementById('dependency-overview-page');
-            
-            if (data) {
-                container.innerHTML = `
-                    <div class="alert alert-info">
-                        <h6>🔍 Debug Data for ${name}</h6>
-                        <pre class="bg-light p-3 rounded" style="max-height: 400px; overflow-y: auto;">${JSON.stringify(data, null, 2)}</pre>
-                    </div>
-                `;
-            } else {
-                container.innerHTML = '<div class="alert alert-warning">No data found for this entry.</div>';
-            }
-        };
-
-        // Remove entry data
-        window.removeOrganizationData = async function(name) {
-            if (confirm(`Are you sure you want to remove all data for ${name}?`)) {
-                const success = await storageManager.removeOrganizationData(name);
-                if (success) {
-                    await displayOrganizationsOverview();
-                    document.getElementById('dependency-overview-page').innerHTML = '<div class="alert alert-info">Please select an entry to view dependency data.</div>';
-                    
-                    // Check if no entries left
-                    const storageInfo = await storageManager.getStorageInfo();
-                    if (storageInfo.totalEntries === 0) {
-                        document.getElementById('organizationsSection').style.display = 'none';
-                        document.getElementById('noDataSection').style.display = 'block';
-                    }
-                } else {
-                    alert('Failed to remove data for ' + name);
-                }
-            }
-        };
-
-        // Export all data
-        window.exportAllData = async function() {
-            try {
-                await storageManager.exportAllData();
-                alert('All data exported successfully');
-            } catch (error) {
-                alert('Failed to export all data: ' + error.message);
-            }
-        };
-
-        // Clear all data
-        window.clearAllData = async function() {
-            if (confirm('Are you sure you want to clear all stored data? This action cannot be undone.')) {
-                try {
-                    await storageManager.clearAllData();
-                    await displayOrganizationsOverview();
-                    document.getElementById('dependency-overview-page').innerHTML = '<div class="alert alert-info">Please select an entry to view dependency data.</div>';
-                    
-                    // Show no data section
-                    document.getElementById('organizationsSection').style.display = 'none';
-                    document.getElementById('noDataSection').style.display = 'block';
-                } catch (error) {
-                    alert('Failed to clear data: ' + error.message);
-                }
-            }
-        };
-
-        // Start dependency analysis
-        window.startDependencyAnalysis = function() {
-            // Show modal for organization input
-            const modalHtml = `
-                <div class="modal fade" id="dependencyAnalysisModal" tabindex="-1">
-                    <div class="modal-dialog">
-                        <div class="modal-content">
-                            <div class="modal-header">
-                                <h5 class="modal-title">
-                                    <i class="fas fa-sitemap me-2"></i>Dependency Analysis
-                                </h5>
-                                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-                            </div>
-                            <div class="modal-body">
-                                <div class="alert alert-info">
-                                    <i class="fas fa-info-circle me-2"></i>
-                                    <strong>Note:</strong> This will redirect you to the main analysis page where you can run a dependency analysis.
-                                </div>
-                                <div class="mb-3">
-                                    <label for="orgNameInput" class="form-label">GitHub Organization or User Name</label>
-                                    <input type="text" class="form-control" id="orgNameInput" 
-                                           placeholder="e.g., microsoft, facebook, torvalds">
-                                    <div class="form-text">
-                                        Enter a GitHub organization name or username to analyze dependencies
-                                    </div>
-                                </div>
-                            </div>
-                            <div class="modal-footer">
-                                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                                <button type="button" class="btn btn-success" onclick="proceedToDependencyAnalysis()">
-                                    <i class="fas fa-sitemap me-2"></i>Start Analysis
-                                </button>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            `;
-            
-            // Remove existing modal if any
-            const existingModal = document.getElementById('dependencyAnalysisModal');
-            if (existingModal) {
-                existingModal.remove();
-            }
-            
-            // Add modal to body
-            document.body.insertAdjacentHTML('beforeend', modalHtml);
-            
-            // Show modal
-            const modal = new bootstrap.Modal(document.getElementById('dependencyAnalysisModal'));
-            modal.show();
-        };
-
-        // Proceed to dependency analysis
-        window.proceedToDependencyAnalysis = function() {
-            const orgName = document.getElementById('orgNameInput').value.trim();
-            if (!orgName) {
-                alert('Please enter an organization or user name.');
-                return;
-            }
-            
-            // Close modal
-            const modal = bootstrap.Modal.getInstance(document.getElementById('dependencyAnalysisModal'));
-            modal.hide();
-            
-            // Redirect to main page with organization pre-filled
-            const url = new URL('index.html', window.location.href);
-            url.searchParams.set('org', orgName);
-            url.searchParams.set('focus', 'deps');
-            window.location.href = url.toString();
-        };
-
-        // Restart dependency analysis for specific organization
-        window.restartDependencyAnalysis = function(orgName) {
-            // Set the organization name and start analysis directly
-            document.getElementById('orgName').value = orgName;
-            app.startAnalysis();
-        };
-
-        // Load the most recent organization by default
-        const orgs = await storageManager.getOrganizations();
-        if (orgs && orgs.length > 0) {
-            const orgName = orgs[orgs.length - 1].organization || orgs[orgs.length - 1].name;
-            await loadOrganizationData(orgName);
-        } else {
-            document.getElementById('dependency-overview-page').innerHTML = '<div class="alert alert-info">Please select an organization to view dependency data.</div>';
-        }
-    });
-    </script>
 </body>
-</html> 
+</html>

@@ -1,0 +1,879 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SBOM Play - Dependency Visualization</title>
+    <link href="css/style.css?v=10" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <link href="css/themes.css?v=10" rel="stylesheet">
+    <script src="js/theme-manager.js?v=10"></script>
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+    <style>
+        .graph-container {
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            background: var(--bg-color, #fff);
+            position: relative;
+            overflow: hidden;
+        }
+        
+        .node {
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+        
+        .node:hover {
+            stroke-width: 3px !important;
+            filter: brightness(1.2);
+        }
+        
+        .node-direct {
+            fill: #0d6efd;
+        }
+        
+        .node-transitive {
+            fill: #6c757d;
+        }
+        
+        .node-repo {
+            fill: #198754;
+        }
+        
+        .link {
+            stroke: #999;
+            stroke-opacity: 0.6;
+        }
+        
+        .link-direct {
+            stroke: #0d6efd;
+            stroke-width: 2px;
+        }
+        
+        .link-transitive {
+            stroke: #ccc;
+            stroke-width: 1px;
+            stroke-dasharray: 5,5;
+        }
+        
+        .node-label {
+            font-size: 10px;
+            pointer-events: none;
+            fill: var(--text-color, #333);
+        }
+        
+        .tooltip {
+            position: absolute;
+            background: rgba(0, 0, 0, 0.9);
+            color: #fff;
+            padding: 10px;
+            border-radius: 5px;
+            font-size: 12px;
+            pointer-events: none;
+            z-index: 1000;
+            max-width: 300px;
+        }
+        
+        .legend {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            background: rgba(255, 255, 255, 0.95);
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            padding: 10px;
+            font-size: 12px;
+            z-index: 100;
+        }
+        
+        [data-theme="dark"] .legend {
+            background: rgba(30, 30, 30, 0.95);
+            border-color: #555;
+        }
+        
+        .legend-item {
+            display: flex;
+            align-items: center;
+            margin: 5px 0;
+        }
+        
+        .legend-color {
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            margin-right: 8px;
+        }
+        
+        .controls-panel {
+            background: var(--bg-color, #f8f9fa);
+            border-radius: 8px;
+            padding: 15px;
+            margin-bottom: 20px;
+        }
+        
+        .details-panel {
+            background: var(--bg-color, #fff);
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            padding: 20px;
+            max-height: 600px;
+            overflow-y: auto;
+        }
+        
+        .metric-card {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border-radius: 8px;
+            padding: 15px;
+            text-align: center;
+            margin-bottom: 15px;
+        }
+        
+        .metric-card h4 {
+            margin: 0;
+            font-size: 32px;
+            font-weight: bold;
+        }
+        
+        .metric-card p {
+            margin: 5px 0 0 0;
+            font-size: 14px;
+            opacity: 0.9;
+        }
+        
+        .dependency-badge {
+            display: inline-block;
+            padding: 3px 8px;
+            border-radius: 3px;
+            font-size: 11px;
+            font-weight: bold;
+            margin: 2px;
+        }
+        
+        .badge-direct {
+            background: #0d6efd;
+            color: white;
+        }
+        
+        .badge-transitive {
+            background: #6c757d;
+            color: white;
+        }
+        
+        .search-highlight {
+            background: yellow;
+            padding: 2px 4px;
+            border-radius: 3px;
+        }
+    </style>
+</head>
+<body>
+    <!-- Navigation -->
+    <nav class="navbar navbar-expand-lg navbar-dark bg-primary">
+        <div class="container">
+            <a class="navbar-brand" href="index.html">
+                <i class="fas fa-cubes me-2"></i>SBOM Play
+            </a>
+            <div class="navbar-nav ms-auto">
+                <a class="nav-link" href="index.html">Analysis</a>
+                <a class="nav-link" href="stats.html">Stats</a>
+                <a class="nav-link" href="license-compliance.html">License</a>
+                <a class="nav-link" href="vuln.html">Vulnerabilities</a>
+                <a class="nav-link active" href="deps.html">Dependencies</a>
+                <a class="nav-link" href="authors.html">Authors</a>
+                <a class="nav-link" href="settings.html">
+                    <i class="fas fa-cog"></i>
+                </a>
+                <button class="btn btn-outline-secondary btn-sm ms-2 theme-toggle" onclick="themeManager.toggleTheme()" title="Toggle theme">
+                    <i class="fas fa-sun"></i>
+                </button>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container-fluid mt-4">
+        <!-- Header -->
+        <div class="row mb-4">
+            <div class="col-12">
+                <div class="d-flex justify-content-between align-items-center">
+                    <div>
+                        <h1><i class="fas fa-project-diagram me-2"></i>Dependency Visualization</h1>
+                        <p class="text-muted">Interactive dependency graph showing direct and transitive relationships</p>
+                    </div>
+                    <div>
+                        <a href="index.html" class="btn btn-outline-primary">
+                            <i class="fas fa-arrow-left me-2"></i>Back to Analysis
+                        </a>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Analysis Selector -->
+        <div class="card mb-4">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="fas fa-database me-2"></i>Select Analysis</h5>
+            </div>
+            <div class="card-body">
+                <div class="row">
+                    <div class="col-md-6">
+                        <label for="analysisSelector" class="form-label">Analysis</label>
+                        <select class="form-select" id="analysisSelector">
+                            <option value="">Select an analysis...</option>
+                        </select>
+                    </div>
+                    <div class="col-md-6">
+                        <label for="repoSelector" class="form-label">Repository (optional)</label>
+                        <select class="form-select" id="repoSelector">
+                            <option value="all">All Repositories</option>
+                        </select>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Controls Panel -->
+        <div class="controls-panel" id="controlsPanel" style="display: none;">
+            <div class="row g-3">
+                <div class="col-md-3">
+                    <label class="form-label"><i class="fas fa-filter me-2"></i>Dependency Type</label>
+                    <select class="form-select" id="typeFilter">
+                        <option value="all">All Dependencies</option>
+                        <option value="direct">Direct Only</option>
+                        <option value="transitive">Transitive Only</option>
+                    </select>
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label"><i class="fas fa-code me-2"></i>Ecosystem</label>
+                    <select class="form-select" id="ecosystemFilter">
+                        <option value="all">All Ecosystems</option>
+                    </select>
+                </div>
+                <div class="col-md-4">
+                    <label class="form-label"><i class="fas fa-search me-2"></i>Search</label>
+                    <input type="text" class="form-control" id="searchInput" placeholder="Search dependencies...">
+                </div>
+                <div class="col-md-2">
+                    <label class="form-label">&nbsp;</label>
+                    <button class="btn btn-primary w-100" id="resetButton">
+                        <i class="fas fa-sync me-2"></i>Reset
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Main Content -->
+        <div class="row mt-4" id="mainContent" style="display: none;">
+            <!-- Graph Visualization -->
+            <div class="col-lg-8">
+                <div class="card">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <h5 class="mb-0"><i class="fas fa-sitemap me-2"></i>Dependency Graph</h5>
+                        <div>
+                            <button class="btn btn-sm btn-outline-primary" id="zoomInBtn">
+                                <i class="fas fa-search-plus"></i>
+                            </button>
+                            <button class="btn btn-sm btn-outline-primary" id="zoomOutBtn">
+                                <i class="fas fa-search-minus"></i>
+                            </button>
+                            <button class="btn btn-sm btn-outline-secondary" id="resetZoomBtn">
+                                <i class="fas fa-compress"></i>
+                            </button>
+                        </div>
+                    </div>
+                    <div class="card-body p-0">
+                        <div class="graph-container" id="graphContainer" style="height: 600px;">
+                            <svg id="dependencyGraph" width="100%" height="600"></svg>
+                            <div class="legend" id="legend">
+                                <div style="font-weight: bold; margin-bottom: 10px;">Legend</div>
+                                <div class="legend-item">
+                                    <div class="legend-color node-direct"></div>
+                                    <span>Direct Dependency</span>
+                                </div>
+                                <div class="legend-item">
+                                    <div class="legend-color node-transitive"></div>
+                                    <span>Transitive Dependency</span>
+                                </div>
+                                <div class="legend-item">
+                                    <div class="legend-color node-repo"></div>
+                                    <span>Repository</span>
+                                </div>
+                            </div>
+                            <div class="tooltip" id="tooltip" style="display: none;"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Details Panel -->
+            <div class="col-lg-4">
+                <div class="card">
+                    <div class="card-header">
+                        <h5 class="mb-0"><i class="fas fa-info-circle me-2"></i>Statistics</h5>
+                    </div>
+                    <div class="card-body">
+                        <div id="statsContainer"></div>
+                    </div>
+                </div>
+                
+                <div class="card mt-3">
+                    <div class="card-header">
+                        <h5 class="mb-0"><i class="fas fa-cube me-2"></i>Selected Node</h5>
+                    </div>
+                    <div class="card-body details-panel" id="detailsPanel">
+                        <p class="text-muted text-center">Click on a node to see details</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- No Data Message -->
+        <div class="alert alert-info" id="noDataMessage">
+            <i class="fas fa-info-circle me-2"></i>
+            <strong>No Data Available</strong>
+            <p class="mb-0 mt-2">Please select an analysis to visualize dependencies.</p>
+            <a href="index.html" class="btn btn-primary btn-sm mt-3">
+                <i class="fas fa-play me-2"></i>Run New Analysis
+            </a>
+        </div>
+    </div>
+
+    <!-- Footer -->
+    <footer class="bg-light mt-5 py-4">
+        <div class="container">
+            <div class="row">
+                <div class="col-md-4">
+                    <h6 class="text-primary">SBOM Play</h6>
+                    <p class="text-muted small mb-3">
+                        A client-side tool for analyzing Software Bill of Materials from GitHub organizations and users.
+                        All processing happens in your browser for maximum privacy and security.
+                    </p>
+                </div>
+                <div class="col-md-4">
+                    <h6 class="text-primary">Resources</h6>
+                    <div class="d-flex flex-column gap-2">
+                        <a href="https://cyfinoid.com/" target="_blank" class="btn btn-outline-primary btn-sm">
+                            <i class="fas fa-globe me-1"></i>Website
+                        </a>
+                        <a href="https://cyfinoid.com/blog/" target="_blank" class="btn btn-outline-primary btn-sm">
+                            <i class="fas fa-blog me-1"></i>Blog
+                        </a>
+                    </div>
+                </div>
+                <div class="col-md-4">
+                    <h6 class="text-primary">About Cyfinoid Research</h6>
+                    <p class="text-muted small mb-3">
+                        Leading cybersecurity research company specializing in software supply chain security.
+                    </p>
+                </div>
+            </div>
+            <hr class="my-3">
+            <div class="text-center">
+                <small class="text-muted">
+                    © 2025 Cyfinoid Research. All rights reserved. | 
+                    <a href="https://github.com/cyfinoid/sbomplay" target="_blank" class="text-muted">
+                        <i class="fab fa-github me-1"></i>View on GitHub
+                    </a>
+                </small>
+            </div>
+        </div>
+    </footer>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="js/indexeddb-manager.js?v=10"></script>
+    <script src="js/storage-manager.js?v=10"></script>
+    <script type="module">
+        // Initialize storage manager
+        const storageManager = new StorageManager();
+        await storageManager.init();
+        
+        let currentData = null;
+        let simulation = null;
+        let svg, g, link, node, label;
+        let zoom;
+        
+        // Load available analyses
+        await loadAnalysesList();
+        
+        async function loadAnalysesList() {
+            const storageInfo = await storageManager.getStorageInfo();
+            const selector = document.getElementById('analysisSelector');
+            
+            const allEntries = [...storageInfo.organizations, ...storageInfo.repositories];
+            
+            if (allEntries.length === 0) {
+                document.getElementById('noDataMessage').style.display = 'block';
+                return;
+            }
+            
+            allEntries.forEach(entry => {
+                const option = document.createElement('option');
+                option.value = entry.name;
+                option.textContent = `${entry.name} (${entry.dependencies} deps, ${entry.repositories} repos)`;
+                selector.appendChild(option);
+            });
+            
+            // Auto-load first analysis
+            if (allEntries.length > 0) {
+                selector.value = allEntries[0].name;
+                await loadAnalysis();
+            }
+        }
+        
+        document.getElementById('analysisSelector').addEventListener('change', loadAnalysis);
+        document.getElementById('repoSelector').addEventListener('change', updateVisualization);
+        document.getElementById('typeFilter').addEventListener('change', updateVisualization);
+        document.getElementById('ecosystemFilter').addEventListener('change', updateVisualization);
+        document.getElementById('searchInput').addEventListener('input', updateVisualization);
+        document.getElementById('resetButton').addEventListener('click', resetFilters);
+        document.getElementById('zoomInBtn').addEventListener('click', () => {
+            svg.transition().call(zoom.scaleBy, 1.3);
+        });
+        document.getElementById('zoomOutBtn').addEventListener('click', () => {
+            svg.transition().call(zoom.scaleBy, 0.7);
+        });
+        document.getElementById('resetZoomBtn').addEventListener('click', () => {
+            svg.transition().call(zoom.transform, d3.zoomIdentity);
+        });
+        
+        async function loadAnalysis() {
+            const analysisName = document.getElementById('analysisSelector').value;
+            if (!analysisName) return;
+            
+            const data = await storageManager.loadAnalysisDataForOrganization(analysisName);
+            if (!data || !data.data) {
+                alert('No data found for this analysis');
+                return;
+            }
+            
+            currentData = data.data;
+            
+            // Populate repository selector
+            const repoSelector = document.getElementById('repoSelector');
+            repoSelector.innerHTML = '<option value="all">All Repositories</option>';
+            
+            if (currentData.allRepositories) {
+                currentData.allRepositories.forEach(repo => {
+                    const option = document.createElement('option');
+                    option.value = `${repo.owner}/${repo.name}`;
+                    option.textContent = `${repo.owner}/${repo.name} (${repo.totalDependencies} deps)`;
+                    repoSelector.appendChild(option);
+                });
+            }
+            
+            // Populate ecosystem filter
+            const ecosystems = new Set();
+            if (currentData.allDependencies) {
+                currentData.allDependencies.forEach(dep => {
+                    if (dep.category && dep.category.ecosystem) {
+                        ecosystems.add(dep.category.ecosystem);
+                    }
+                });
+            }
+            
+            const ecosystemFilter = document.getElementById('ecosystemFilter');
+            ecosystemFilter.innerHTML = '<option value="all">All Ecosystems</option>';
+            Array.from(ecosystems).sort().forEach(eco => {
+                const option = document.createElement('option');
+                option.value = eco;
+                option.textContent = eco.charAt(0).toUpperCase() + eco.slice(1);
+                ecosystemFilter.appendChild(option);
+            });
+            
+            // Show controls and main content
+            document.getElementById('controlsPanel').style.display = 'block';
+            document.getElementById('mainContent').style.display = 'flex';
+            document.getElementById('noDataMessage').style.display = 'none';
+            
+            // Initialize visualization
+            initializeGraph();
+            updateVisualization();
+        }
+        
+        function initializeGraph() {
+            const container = document.getElementById('graphContainer');
+            const width = container.clientWidth;
+            const height = 600;
+            
+            // Clear existing
+            d3.select('#dependencyGraph').selectAll('*').remove();
+            
+            svg = d3.select('#dependencyGraph')
+                .attr('width', width)
+                .attr('height', height);
+            
+            // Add zoom behavior
+            zoom = d3.zoom()
+                .scaleExtent([0.1, 4])
+                .on('zoom', (event) => {
+                    g.attr('transform', event.transform);
+                });
+            
+            svg.call(zoom);
+            
+            g = svg.append('g');
+            
+            // Add arrow markers for directed edges
+            svg.append('defs').selectAll('marker')
+                .data(['direct', 'transitive'])
+                .join('marker')
+                .attr('id', d => `arrow-${d}`)
+                .attr('viewBox', '0 -5 10 10')
+                .attr('refX', 20)
+                .attr('refY', 0)
+                .attr('markerWidth', 6)
+                .attr('markerHeight', 6)
+                .attr('orient', 'auto')
+                .append('path')
+                .attr('d', 'M0,-5L10,0L0,5')
+                .attr('fill', d => d === 'direct' ? '#0d6efd' : '#999');
+            
+            // Initialize force simulation
+            simulation = d3.forceSimulation()
+                .force('link', d3.forceLink().id(d => d.id).distance(100))
+                .force('charge', d3.forceManyBody().strength(-300))
+                .force('center', d3.forceCenter(width / 2, height / 2))
+                .force('collision', d3.forceCollide().radius(30));
+        }
+        
+        function updateVisualization() {
+            if (!currentData) return;
+            
+            const repoFilter = document.getElementById('repoSelector').value;
+            const typeFilter = document.getElementById('typeFilter').value;
+            const ecosystemFilter = document.getElementById('ecosystemFilter').value;
+            const searchQuery = document.getElementById('searchInput').value.toLowerCase();
+            
+            // Build graph data
+            const graphData = buildGraphData(repoFilter, typeFilter, ecosystemFilter, searchQuery);
+            
+            // Update statistics
+            updateStatistics(graphData);
+            
+            // Render graph
+            renderGraph(graphData);
+        }
+        
+        function buildGraphData(repoFilter, typeFilter, ecosystemFilter, searchQuery) {
+            const nodes = [];
+            const links = [];
+            const nodeMap = new Map();
+            
+            // Filter repositories
+            let repos = currentData.allRepositories || [];
+            if (repoFilter !== 'all') {
+                repos = repos.filter(r => `${r.owner}/${r.name}` === repoFilter);
+            }
+            
+            // Filter dependencies
+            let deps = currentData.allDependencies || [];
+            
+            if (typeFilter !== 'all') {
+                deps = deps.filter(dep => {
+                    if (typeFilter === 'direct') {
+                        return dep.directIn && dep.directIn.length > 0;
+                    } else {
+                        return dep.transitiveIn && dep.transitiveIn.length > 0;
+                    }
+                });
+            }
+            
+            if (ecosystemFilter !== 'all') {
+                deps = deps.filter(dep => dep.category?.ecosystem === ecosystemFilter);
+            }
+            
+            if (searchQuery) {
+                deps = deps.filter(dep => dep.name.toLowerCase().includes(searchQuery));
+            }
+            
+            // Add repository nodes
+            repos.forEach(repo => {
+                const id = `repo:${repo.owner}/${repo.name}`;
+                nodeMap.set(id, {
+                    id,
+                    name: `${repo.owner}/${repo.name}`,
+                    type: 'repo',
+                    data: repo
+                });
+            });
+            
+            // Add dependency nodes
+            deps.forEach(dep => {
+                const depId = `dep:${dep.name}@${dep.version}`;
+                
+                if (!nodeMap.has(depId)) {
+                    const isDirect = dep.directIn && dep.directIn.length > 0;
+                    nodeMap.set(depId, {
+                        id: depId,
+                        name: dep.name,
+                        version: dep.version,
+                        type: isDirect ? 'direct' : 'transitive',
+                        data: dep,
+                        spdxId: dep.originalPackage?.SPDXID
+                    });
+                }
+            });
+            
+            // Build links based on SPDX relationships
+            // This creates the proper hierarchy: repo → direct → transitive
+            repos.forEach(repo => {
+                const repoId = `repo:${repo.owner}/${repo.name}`;
+                if (!nodeMap.has(repoId)) return;
+                
+                // Build SPDXID to package name mapping
+                const spdxToPackage = new Map();
+                if (repo.spdxPackages && Array.isArray(repo.spdxPackages)) {
+                    repo.spdxPackages.forEach(pkg => {
+                        if (pkg.SPDXID && pkg.name) {
+                            const normalizedVersion = pkg.version ? normalizeVersion(pkg.version) : '';
+                            const depKey = `dep:${pkg.name}@${normalizedVersion}`;
+                            spdxToPackage.set(pkg.SPDXID, depKey);
+                        }
+                    });
+                }
+                
+                // Process relationships
+                if (repo.relationships && Array.isArray(repo.relationships)) {
+                    repo.relationships.forEach(rel => {
+                        // Map SPDXID to our dep IDs
+                        const sourceDepId = spdxToPackage.get(rel.from);
+                        const targetDepId = spdxToPackage.get(rel.to);
+                        
+                        // If it's a direct dependency from main package
+                        if (rel.isDirectFromMain && targetDepId && nodeMap.has(targetDepId)) {
+                            links.push({
+                                source: repoId,
+                                target: targetDepId,
+                                type: 'direct'
+                            });
+                        }
+                        // If it's a transitive dependency (from another dependency)
+                        else if (!rel.isDirectFromMain && sourceDepId && targetDepId && 
+                                 nodeMap.has(sourceDepId) && nodeMap.has(targetDepId)) {
+                            links.push({
+                                source: sourceDepId,
+                                target: targetDepId,
+                                type: 'transitive'
+                            });
+                        }
+                    });
+                }
+            });
+            
+            // Helper function to normalize version (matching sbom-processor.js)
+            function normalizeVersion(version) {
+                if (!version) return '';
+                return version.trim()
+                    .replace(/^[><=^~]+\s*/, '')
+                    .replace(/\s*-\s*[\d.]+.*$/, '')
+                    .replace(/\s*\|\|.*$/, '')
+                    .replace(/\s+/g, '');
+            }
+            
+            return {
+                nodes: Array.from(nodeMap.values()),
+                links
+            };
+        }
+        
+        function renderGraph(graphData) {
+            // Update links
+            link = g.selectAll('.link')
+                .data(graphData.links, d => `${d.source}-${d.target}`)
+                .join('line')
+                .attr('class', d => `link link-${d.type}`)
+                .attr('marker-end', d => `url(#arrow-${d.type})`);
+            
+            // Update nodes
+            node = g.selectAll('.node')
+                .data(graphData.nodes, d => d.id)
+                .join('circle')
+                .attr('class', d => `node node-${d.type}`)
+                .attr('r', d => d.type === 'repo' ? 12 : 8)
+                .attr('stroke', '#fff')
+                .attr('stroke-width', 2)
+                .on('mouseover', showTooltip)
+                .on('mouseout', hideTooltip)
+                .on('click', showNodeDetails)
+                .call(d3.drag()
+                    .on('start', dragstarted)
+                    .on('drag', dragged)
+                    .on('end', dragended));
+            
+            // Update labels
+            label = g.selectAll('.node-label')
+                .data(graphData.nodes, d => d.id)
+                .join('text')
+                .attr('class', 'node-label')
+                .attr('text-anchor', 'middle')
+                .attr('dy', -15)
+                .text(d => d.name.length > 20 ? d.name.substring(0, 20) + '...' : d.name);
+            
+            // Update simulation
+            simulation.nodes(graphData.nodes);
+            simulation.force('link').links(graphData.links);
+            simulation.alpha(1).restart();
+            
+            simulation.on('tick', () => {
+                link
+                    .attr('x1', d => d.source.x)
+                    .attr('y1', d => d.source.y)
+                    .attr('x2', d => d.target.x)
+                    .attr('y2', d => d.target.y);
+                
+                node
+                    .attr('cx', d => d.x)
+                    .attr('cy', d => d.y);
+                
+                label
+                    .attr('x', d => d.x)
+                    .attr('y', d => d.y);
+            });
+        }
+        
+        function updateStatistics(graphData) {
+            const stats = {
+                totalNodes: graphData.nodes.length,
+                repos: graphData.nodes.filter(n => n.type === 'repo').length,
+                directDeps: graphData.nodes.filter(n => n.type === 'direct').length,
+                transitiveDeps: graphData.nodes.filter(n => n.type === 'transitive').length,
+                links: graphData.links.length
+            };
+            
+            const html = `
+                <div class="metric-card" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);">
+                    <h4>${stats.totalNodes}</h4>
+                    <p>Total Nodes</p>
+                </div>
+                <div class="metric-card" style="background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);">
+                    <h4>${stats.repos}</h4>
+                    <p>Repositories</p>
+                </div>
+                <div class="metric-card" style="background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);">
+                    <h4>${stats.directDeps}</h4>
+                    <p>Direct Dependencies</p>
+                </div>
+                <div class="metric-card" style="background: linear-gradient(135deg, #43e97b 0%, #38f9d7 100%);">
+                    <h4>${stats.transitiveDeps}</h4>
+                    <p>Transitive Dependencies</p>
+                </div>
+                <div class="metric-card" style="background: linear-gradient(135deg, #fa709a 0%, #fee140 100%);">
+                    <h4>${stats.links}</h4>
+                    <p>Relationships</p>
+                </div>
+            `;
+            
+            document.getElementById('statsContainer').innerHTML = html;
+        }
+        
+        function showTooltip(event, d) {
+            const tooltip = document.getElementById('tooltip');
+            tooltip.style.display = 'block';
+            tooltip.style.left = (event.pageX + 10) + 'px';
+            tooltip.style.top = (event.pageY - 10) + 'px';
+            
+            let content = `<strong>${d.name}</strong><br>`;
+            if (d.version) content += `Version: ${d.version}<br>`;
+            content += `Type: ${d.type}<br>`;
+            
+            if (d.type !== 'repo') {
+                content += `Used in: ${d.data.repositories?.length || 0} repos<br>`;
+                if (d.data.directIn) content += `Direct: ${d.data.directIn.length}<br>`;
+                if (d.data.transitiveIn) content += `Transitive: ${d.data.transitiveIn.length}`;
+            } else {
+                content += `Dependencies: ${d.data.totalDependencies || 0}`;
+            }
+            
+            tooltip.innerHTML = content;
+        }
+        
+        function hideTooltip() {
+            document.getElementById('tooltip').style.display = 'none';
+        }
+        
+        function showNodeDetails(event, d) {
+            const panel = document.getElementById('detailsPanel');
+            
+            let html = `
+                <h5>${d.name}</h5>
+                ${d.version ? `<p class="text-muted">Version: ${d.version}</p>` : ''}
+                <hr>
+                <div class="mb-3">
+                    <strong>Type:</strong> 
+                    <span class="dependency-badge badge-${d.type}">${d.type.toUpperCase()}</span>
+                </div>
+            `;
+            
+            if (d.type !== 'repo') {
+                html += `
+                    <div class="mb-3">
+                        <strong>Ecosystem:</strong> ${d.data.category?.ecosystem || 'Unknown'}<br>
+                        <strong>Language:</strong> ${d.data.category?.language || 'Unknown'}<br>
+                        <strong>Category:</strong> ${d.data.category?.type || 'Unknown'}
+                    </div>
+                    <div class="mb-3">
+                        <strong>Usage:</strong><br>
+                        <small>
+                            Total: ${d.data.count || 0} repositories<br>
+                            Direct: ${d.data.directIn?.length || 0}<br>
+                            Transitive: ${d.data.transitiveIn?.length || 0}
+                        </small>
+                    </div>
+                    <div class="mb-3">
+                        <strong>Used in repositories:</strong><br>
+                        <small>
+                            ${d.data.repositories?.slice(0, 10).join('<br>') || 'None'}
+                            ${d.data.repositories?.length > 10 ? `<br>...and ${d.data.repositories.length - 10} more` : ''}
+                        </small>
+                    </div>
+                `;
+            } else {
+                html += `
+                    <div class="mb-3">
+                        <strong>Total Dependencies:</strong> ${d.data.totalDependencies || 0}<br>
+                        <strong>Direct Dependencies:</strong> ${d.data.directDependencies?.length || 0}<br>
+                        <strong>Languages:</strong> ${d.data.languages?.join(', ') || 'Unknown'}
+                    </div>
+                    <div class="mb-3">
+                        <strong>Category Breakdown:</strong><br>
+                        <small>
+                            Code: ${d.data.categoryBreakdown?.code || 0}<br>
+                            Workflow: ${d.data.categoryBreakdown?.workflow || 0}<br>
+                            Infrastructure: ${d.data.categoryBreakdown?.infrastructure || 0}<br>
+                            Unknown: ${d.data.categoryBreakdown?.unknown || 0}
+                        </small>
+                    </div>
+                `;
+            }
+            
+            panel.innerHTML = html;
+        }
+        
+        function resetFilters() {
+            document.getElementById('repoSelector').value = 'all';
+            document.getElementById('typeFilter').value = 'all';
+            document.getElementById('ecosystemFilter').value = 'all';
+            document.getElementById('searchInput').value = '';
+            updateVisualization();
+        }
+        
+        function dragstarted(event, d) {
+            if (!event.active) simulation.alphaTarget(0.3).restart();
+            d.fx = d.x;
+            d.fy = d.y;
+        }
+        
+        function dragged(event, d) {
+            d.fx = event.x;
+            d.fy = event.y;
+        }
+        
+        function dragended(event, d) {
+            if (!event.active) simulation.alphaTarget(0);
+            d.fx = null;
+            d.fy = null;
+        }
+    </script>
+</body>
+</html>

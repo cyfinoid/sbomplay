@@ -1,0 +1,666 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SBOM Play - Dagre Layout</title>
+    <link href="css/style.css?v=10" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <link href="css/themes.css?v=10" rel="stylesheet">
+    <script src="js/theme-manager.js?v=10"></script>
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/dagre@0.8.5/dist/dagre.min.js"></script>
+    <style>
+        .graph-container {
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            background: var(--bg-color, #fff);
+            overflow: auto;
+            position: relative;
+        }
+        
+        .node {
+            cursor: pointer;
+        }
+        
+        .node rect {
+            stroke-width: 2px;
+            rx: 5;
+            ry: 5;
+        }
+        
+        .node-repo rect {
+            fill: #198754;
+            stroke: #146c43;
+        }
+        
+        .node-direct rect {
+            fill: #0d6efd;
+            stroke: #0a58ca;
+        }
+        
+        .node-transitive rect {
+            fill: #6c757d;
+            stroke: #565e64;
+        }
+        
+        .node text {
+            fill: white;
+            font: 12px sans-serif;
+            text-anchor: middle;
+            pointer-events: none;
+        }
+        
+        .node:hover rect {
+            stroke-width: 3px;
+            filter: brightness(1.2);
+        }
+        
+        .edge path {
+            fill: none;
+            stroke-width: 2px;
+        }
+        
+        .edge-direct path {
+            stroke: #0d6efd;
+            stroke-width: 2.5px;
+        }
+        
+        .edge-transitive path {
+            stroke: #999;
+            stroke-width: 1.5px;
+            stroke-dasharray: 5,5;
+        }
+        
+        .edge marker {
+            fill: #999;
+        }
+        
+        .tooltip {
+            position: absolute;
+            background: rgba(0, 0, 0, 0.9);
+            color: #fff;
+            padding: 10px;
+            border-radius: 5px;
+            font-size: 12px;
+            pointer-events: none;
+            z-index: 1000;
+            max-width: 300px;
+        }
+        
+        .details-panel {
+            max-height: 600px;
+            overflow-y: auto;
+        }
+        
+        .metric-card {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border-radius: 8px;
+            padding: 15px;
+            text-align: center;
+            margin-bottom: 15px;
+        }
+        
+        .metric-card h4 {
+            margin: 0;
+            font-size: 32px;
+            font-weight: bold;
+        }
+        
+        .metric-card p {
+            margin: 5px 0 0 0;
+            font-size: 14px;
+            opacity: 0.9;
+        }
+        
+        .legend {
+            background: rgba(255, 255, 255, 0.95);
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            padding: 10px;
+            margin-top: 10px;
+        }
+        
+        [data-theme="dark"] .legend {
+            background: rgba(30, 30, 30, 0.95);
+            border-color: #555;
+        }
+        
+        .zoom-controls {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            z-index: 100;
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+        }
+        
+        .zoom-controls button {
+            width: 35px;
+            height: 35px;
+            padding: 0;
+        }
+    </style>
+</head>
+<body>
+    <nav class="navbar navbar-expand-lg navbar-dark bg-primary">
+        <div class="container">
+            <a class="navbar-brand" href="index.html">
+                <i class="fas fa-cubes me-2"></i>SBOM Play
+            </a>
+            <div class="navbar-nav ms-auto">
+                <a class="nav-link" href="index.html">Analysis</a>
+                <a class="nav-link" href="stats.html">Stats</a>
+                <a class="nav-link" href="license-compliance.html">License</a>
+                <a class="nav-link" href="vuln.html">Vulnerabilities</a>
+                <a class="nav-link active" href="deps.html">Dependencies</a>
+                <a class="nav-link" href="authors.html">Authors</a>
+                <a class="nav-link" href="settings.html">
+                    <i class="fas fa-cog"></i>
+                </a>
+                <button class="btn btn-outline-secondary btn-sm ms-2 theme-toggle" onclick="themeManager.toggleTheme()" title="Toggle theme">
+                    <i class="fas fa-sun"></i>
+                </button>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container-fluid mt-4">
+        <div class="row mb-3">
+            <div class="col-12">
+                <div class="d-flex justify-content-between align-items-center">
+                    <div>
+                        <h1><i class="fas fa-project-diagram me-2"></i>Dagre Layout</h1>
+                        <p class="text-muted">Professional directed acyclic graph with automatic layer positioning</p>
+                    </div>
+                    <div>
+                        <a href="deps.html" class="btn btn-outline-secondary">
+                            <i class="fas fa-th me-2"></i>All Layouts
+                        </a>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="card mb-3">
+            <div class="card-body">
+                <div class="row g-3">
+                    <div class="col-md-4">
+                        <label class="form-label">Analysis</label>
+                        <select class="form-select" id="analysisSelector">
+                            <option value="">Select...</option>
+                        </select>
+                    </div>
+                    <div class="col-md-3">
+                        <label class="form-label">Repository</label>
+                        <select class="form-select" id="repoSelector">
+                            <option value="all">All Repositories</option>
+                        </select>
+                    </div>
+                    <div class="col-md-3">
+                        <label class="form-label">Ecosystem</label>
+                        <select class="form-select" id="ecosystemFilter">
+                            <option value="all">All Ecosystems</option>
+                        </select>
+                    </div>
+                    <div class="col-md-2">
+                        <label class="form-label">Direction</label>
+                        <select class="form-select" id="directionSelect">
+                            <option value="TB">Top to Bottom</option>
+                            <option value="BT">Bottom to Top</option>
+                            <option value="LR">Left to Right</option>
+                            <option value="RL">Right to Left</option>
+                        </select>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="row" id="mainContent" style="display: none;">
+            <div class="col-lg-9">
+                <div class="card">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <h5 class="mb-0"><i class="fas fa-project-diagram me-2"></i>Dependency Graph</h5>
+                        <div>
+                            <button class="btn btn-sm btn-outline-primary" id="fitBtn">
+                                <i class="fas fa-expand"></i> Fit to View
+                            </button>
+                        </div>
+                    </div>
+                    <div class="card-body p-0">
+                        <div class="graph-container" id="graphContainer">
+                            <div class="zoom-controls">
+                                <button class="btn btn-sm btn-light" id="zoomInBtn" title="Zoom In">
+                                    <i class="fas fa-plus"></i>
+                                </button>
+                                <button class="btn btn-sm btn-light" id="zoomOutBtn" title="Zoom Out">
+                                    <i class="fas fa-minus"></i>
+                                </button>
+                                <button class="btn btn-sm btn-light" id="zoomResetBtn" title="Reset Zoom">
+                                    <i class="fas fa-compress"></i>
+                                </button>
+                            </div>
+                            <svg id="graph" width="100%" height="800"></svg>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="legend">
+                    <div style="font-weight: bold; margin-bottom: 10px;">Legend</div>
+                    <div class="d-flex gap-3">
+                        <div><span style="display:inline-block; width:15px; height:15px; background:#198754;"></span> Repository</div>
+                        <div><span style="display:inline-block; width:15px; height:15px; background:#0d6efd;"></span> Direct Dependency</div>
+                        <div><span style="display:inline-block; width:15px; height:15px; background:#6c757d;"></span> Transitive Dependency</div>
+                        <div><em>Solid = Direct, Dashed = Transitive</em></div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="col-lg-3">
+                <div class="card">
+                    <div class="card-header">
+                        <h5 class="mb-0"><i class="fas fa-chart-bar me-2"></i>Statistics</h5>
+                    </div>
+                    <div class="card-body" id="statsContainer"></div>
+                </div>
+
+                <div class="card mt-3">
+                    <div class="card-header">
+                        <h5 class="mb-0"><i class="fas fa-info-circle me-2"></i>Selected Node</h5>
+                    </div>
+                    <div class="card-body details-panel" id="detailsPanel">
+                        <p class="text-muted text-center">Click a node to see details</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="alert alert-info" id="noDataMessage">
+            <i class="fas fa-info-circle me-2"></i>
+            <strong>No Data Available</strong>
+            <p class="mb-0 mt-2">Please select an analysis to visualize dependencies.</p>
+        </div>
+    </div>
+
+    <div class="tooltip" id="tooltip" style="display: none;"></div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="js/indexeddb-manager.js?v=10"></script>
+    <script src="js/storage-manager.js?v=10"></script>
+    <script type="module">
+        const storageManager = new StorageManager();
+        await storageManager.init();
+        
+        let currentData = null;
+        let svg, g, zoom;
+        let direction = 'TB';
+        
+        await loadAnalysesList();
+        
+        async function loadAnalysesList() {
+            const storageInfo = await storageManager.getStorageInfo();
+            const selector = document.getElementById('analysisSelector');
+            const allEntries = [...storageInfo.organizations, ...storageInfo.repositories];
+            
+            if (allEntries.length === 0) {
+                document.getElementById('noDataMessage').style.display = 'block';
+                return;
+            }
+            
+            allEntries.forEach(entry => {
+                const option = document.createElement('option');
+                option.value = entry.name;
+                option.textContent = `${entry.name} (${entry.dependencies} deps)`;
+                selector.appendChild(option);
+            });
+            
+            if (allEntries.length > 0) {
+                selector.value = allEntries[0].name;
+                await loadAnalysis();
+            }
+        }
+        
+        document.getElementById('analysisSelector').addEventListener('change', loadAnalysis);
+        document.getElementById('repoSelector').addEventListener('change', updateVisualization);
+        document.getElementById('ecosystemFilter').addEventListener('change', updateVisualization);
+        document.getElementById('directionSelect').addEventListener('change', (e) => {
+            direction = e.target.value;
+            updateVisualization();
+        });
+        
+        document.getElementById('zoomInBtn').addEventListener('click', () => {
+            zoom.scaleBy(svg.transition().duration(300), 1.3);
+        });
+        
+        document.getElementById('zoomOutBtn').addEventListener('click', () => {
+            zoom.scaleBy(svg.transition().duration(300), 1 / 1.3);
+        });
+        
+        document.getElementById('zoomResetBtn').addEventListener('click', () => {
+            svg.transition().duration(300).call(zoom.transform, d3.zoomIdentity);
+        });
+        
+        document.getElementById('fitBtn').addEventListener('click', fitToView);
+        
+        async function loadAnalysis() {
+            const analysisName = document.getElementById('analysisSelector').value;
+            if (!analysisName) return;
+            
+            const data = await storageManager.loadAnalysisDataForOrganization(analysisName);
+            if (!data || !data.data) {
+                alert('No data found');
+                return;
+            }
+            
+            currentData = data.data;
+            
+            const repoSelector = document.getElementById('repoSelector');
+            repoSelector.innerHTML = '<option value="all">All Repositories</option>';
+            
+            if (currentData.allRepositories) {
+                currentData.allRepositories.forEach(repo => {
+                    const option = document.createElement('option');
+                    option.value = `${repo.owner}/${repo.name}`;
+                    option.textContent = `${repo.owner}/${repo.name}`;
+                    repoSelector.appendChild(option);
+                });
+            }
+            
+            const ecosystems = new Set();
+            if (currentData.allDependencies) {
+                currentData.allDependencies.forEach(dep => {
+                    if (dep.category?.ecosystem) ecosystems.add(dep.category.ecosystem);
+                });
+            }
+            
+            const ecosystemFilter = document.getElementById('ecosystemFilter');
+            ecosystemFilter.innerHTML = '<option value="all">All Ecosystems</option>';
+            Array.from(ecosystems).sort().forEach(eco => {
+                const option = document.createElement('option');
+                option.value = eco;
+                option.textContent = eco.charAt(0).toUpperCase() + eco.slice(1);
+                ecosystemFilter.appendChild(option);
+            });
+            
+            document.getElementById('mainContent').style.display = 'flex';
+            document.getElementById('noDataMessage').style.display = 'none';
+            
+            updateVisualization();
+        }
+        
+        function buildGraphData() {
+            const repoFilter = document.getElementById('repoSelector').value;
+            const ecosystemFilter = document.getElementById('ecosystemFilter').value;
+            
+            let repos = currentData.allRepositories || [];
+            if (repoFilter !== 'all') {
+                repos = repos.filter(r => `${r.owner}/${r.name}` === repoFilter);
+            }
+            
+            let deps = currentData.allDependencies || [];
+            if (ecosystemFilter !== 'all') {
+                deps = deps.filter(dep => dep.category?.ecosystem === ecosystemFilter);
+            }
+            
+            const nodes = [];
+            const edges = [];
+            const nodeMap = new Map();
+            
+            // Add repository nodes
+            repos.forEach(repo => {
+                const repoId = `repo:${repo.owner}/${repo.name}`;
+                nodes.push({
+                    id: repoId,
+                    label: `${repo.owner}/${repo.name}`,
+                    type: 'repo',
+                    data: repo
+                });
+                nodeMap.set(repoId, nodes.length - 1);
+            });
+            
+            // Build dependency graph
+            repos.forEach(repo => {
+                const repoId = `repo:${repo.owner}/${repo.name}`;
+                
+                // Build SPDXID mapping
+                const spdxToPackage = new Map();
+                if (repo.spdxPackages) {
+                    repo.spdxPackages.forEach(pkg => {
+                        if (pkg.SPDXID && pkg.name) {
+                            const normalizedVersion = pkg.version ? normalizeVersion(pkg.version) : '';
+                            const depKey = `dep:${pkg.name}@${normalizedVersion}`;
+                            spdxToPackage.set(pkg.SPDXID, { key: depKey, name: pkg.name, version: normalizedVersion });
+                        }
+                    });
+                }
+                
+                // Process relationships
+                if (repo.relationships) {
+                    repo.relationships.forEach(rel => {
+                        const targetInfo = spdxToPackage.get(rel.to);
+                        if (targetInfo) {
+                            const depData = deps.find(d => d.name === targetInfo.name && d.version === targetInfo.version);
+                            
+                            if (depData && !nodeMap.has(targetInfo.key)) {
+                                nodes.push({
+                                    id: targetInfo.key,
+                                    label: `${targetInfo.name}@${targetInfo.version}`,
+                                    type: rel.isDirectFromMain ? 'direct' : 'transitive',
+                                    data: depData
+                                });
+                                nodeMap.set(targetInfo.key, nodes.length - 1);
+                            }
+                            
+                            // Add edge
+                            const sourceInfo = spdxToPackage.get(rel.from);
+                            const sourceKey = rel.isDirectFromMain ? repoId : (sourceInfo ? sourceInfo.key : null);
+                            
+                            if (sourceKey && nodeMap.has(sourceKey) && nodeMap.has(targetInfo.key)) {
+                                edges.push({
+                                    source: sourceKey,
+                                    target: targetInfo.key,
+                                    type: rel.isDirectFromMain ? 'direct' : 'transitive'
+                                });
+                            }
+                        }
+                    });
+                }
+            });
+            
+            return { nodes, edges };
+        }
+        
+        function normalizeVersion(version) {
+            if (!version) return '';
+            return version.trim().replace(/^[><=^~]+\s*/, '').replace(/\s*-\s*[\d.]+.*$/, '').replace(/\s*\|\|.*$/, '').replace(/\s+/g, '');
+        }
+        
+        function updateVisualization() {
+            const { nodes, edges } = buildGraphData();
+            
+            // Create dagre graph
+            const g = new dagre.graphlib.Graph();
+            g.setGraph({ rankdir: direction, nodesep: 50, ranksep: 80, marginx: 50, marginy: 50 });
+            g.setDefaultEdgeLabel(() => ({}));
+            
+            // Add nodes
+            nodes.forEach(node => {
+                const label = node.label.length > 40 ? node.label.substring(0, 40) + '...' : node.label;
+                g.setNode(node.id, { 
+                    label, 
+                    width: Math.max(100, label.length * 7), 
+                    height: 40,
+                    data: node
+                });
+            });
+            
+            // Add edges
+            edges.forEach(edge => {
+                g.setEdge(edge.source, edge.target, { type: edge.type });
+            });
+            
+            // Layout
+            dagre.layout(g);
+            
+            // Render
+            renderGraph(g, nodes, edges);
+            updateStats(nodes);
+        }
+        
+        function renderGraph(graph, nodes, edges) {
+            const width = document.getElementById('graphContainer').clientWidth;
+            const height = 800;
+            
+            svg = d3.select('#graph')
+                .attr('width', width)
+                .attr('height', height);
+            
+            svg.selectAll('*').remove();
+            
+            // Add zoom behavior
+            zoom = d3.zoom()
+                .scaleExtent([0.1, 4])
+                .on('zoom', (event) => {
+                    g.attr('transform', event.transform);
+                });
+            
+            svg.call(zoom);
+            
+            g = svg.append('g');
+            
+            // Define arrow markers
+            svg.append('defs').selectAll('marker')
+                .data(['direct', 'transitive'])
+                .join('marker')
+                .attr('id', d => `arrow-${d}`)
+                .attr('viewBox', '0 -5 10 10')
+                .attr('refX', 10)
+                .attr('refY', 0)
+                .attr('markerWidth', 6)
+                .attr('markerHeight', 6)
+                .attr('orient', 'auto')
+                .append('path')
+                .attr('d', 'M0,-5L10,0L0,5')
+                .attr('fill', d => d === 'direct' ? '#0d6efd' : '#999');
+            
+            // Draw edges
+            const edgeGroup = g.append('g').attr('class', 'edges');
+            graph.edges().forEach(e => {
+                const edge = graph.edge(e);
+                const edgeData = edges.find(ed => ed.source === e.v && ed.target === e.w);
+                
+                edgeGroup.append('path')
+                    .attr('class', `edge edge-${edgeData.type}`)
+                    .attr('d', `M${edge.points.map(p => `${p.x},${p.y}`).join('L')}`)
+                    .attr('marker-end', `url(#arrow-${edgeData.type})`);
+            });
+            
+            // Draw nodes
+            const nodeGroup = g.append('g').attr('class', 'nodes');
+            graph.nodes().forEach(v => {
+                const node = graph.node(v);
+                const nodeData = node.data;
+                
+                const nodeG = nodeGroup.append('g')
+                    .attr('class', `node node-${nodeData.type}`)
+                    .attr('transform', `translate(${node.x},${node.y})`)
+                    .on('click', () => showNodeDetails(nodeData))
+                    .on('mouseover', (event) => showTooltip(event, nodeData))
+                    .on('mouseout', hideTooltip);
+                
+                nodeG.append('rect')
+                    .attr('x', -node.width / 2)
+                    .attr('y', -node.height / 2)
+                    .attr('width', node.width)
+                    .attr('height', node.height);
+                
+                nodeG.append('text')
+                    .attr('dy', '.35em')
+                    .text(node.label);
+            });
+            
+            // Center the graph
+            fitToView();
+        }
+        
+        function fitToView() {
+            const svg = d3.select('#graph');
+            const g = svg.select('g');
+            const bounds = g.node().getBBox();
+            const parent = svg.node().parentElement;
+            const fullWidth = parent.clientWidth;
+            const fullHeight = parent.clientHeight;
+            
+            const width = bounds.width;
+            const height = bounds.height;
+            const midX = bounds.x + width / 2;
+            const midY = bounds.y + height / 2;
+            
+            if (width === 0 || height === 0) return;
+            
+            const scale = 0.9 / Math.max(width / fullWidth, height / fullHeight);
+            const translate = [fullWidth / 2 - scale * midX, fullHeight / 2 - scale * midY];
+            
+            svg.transition()
+                .duration(750)
+                .call(zoom.transform, d3.zoomIdentity.translate(translate[0], translate[1]).scale(scale));
+        }
+        
+        function updateStats(nodes) {
+            const stats = {
+                total: nodes.length,
+                repos: nodes.filter(n => n.type === 'repo').length,
+                direct: nodes.filter(n => n.type === 'direct').length,
+                transitive: nodes.filter(n => n.type === 'transitive').length
+            };
+            
+            document.getElementById('statsContainer').innerHTML = `
+                <div class="metric-card" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);">
+                    <h4>${stats.total}</h4><p>Total Nodes</p>
+                </div>
+                <div class="metric-card" style="background: linear-gradient(135deg, #198754 0%, #146c43 100%);">
+                    <h4>${stats.repos}</h4><p>Repositories</p>
+                </div>
+                <div class="metric-card" style="background: linear-gradient(135deg, #0d6efd 0%, #0a58ca 100%);">
+                    <h4>${stats.direct}</h4><p>Direct Dependencies</p>
+                </div>
+                <div class="metric-card" style="background: linear-gradient(135deg, #6c757d 0%, #565e64 100%);">
+                    <h4>${stats.transitive}</h4><p>Transitive</p>
+                </div>
+            `;
+        }
+        
+        function showTooltip(event, d) {
+            const tooltip = document.getElementById('tooltip');
+            tooltip.style.display = 'block';
+            tooltip.style.left = (event.pageX + 10) + 'px';
+            tooltip.style.top = (event.pageY - 10) + 'px';
+            tooltip.innerHTML = `<strong>${d.label}</strong><br>Type: ${d.type}`;
+        }
+        
+        function hideTooltip() {
+            document.getElementById('tooltip').style.display = 'none';
+        }
+        
+        function showNodeDetails(d) {
+            const panel = document.getElementById('detailsPanel');
+            let html = `<h5>${d.label}</h5><hr><div class="mb-2"><strong>Type:</strong> ${d.type}</div>`;
+            
+            if (d.data && d.data.category) {
+                html += `<div><strong>Ecosystem:</strong> ${d.data.category.ecosystem}</div>`;
+                html += `<div><strong>Language:</strong> ${d.data.category.language}</div>`;
+            }
+            
+            if (d.data && d.data.repositories) {
+                html += `<div class="mt-2"><strong>Used in:</strong> ${d.data.repositories.length} repos</div>`;
+            }
+            
+            panel.innerHTML = html;
+        }
+    </script>
+</body>
+</html>
+

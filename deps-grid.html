@@ -1,0 +1,628 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SBOM Play - Grid View</title>
+    <link href="css/style.css?v=10" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <link href="css/themes.css?v=10" rel="stylesheet">
+    <script src="js/theme-manager.js?v=10"></script>
+    <style>
+        .grid-container {
+            background: var(--bg-color, #fff);
+            border-radius: 8px;
+            overflow-x: auto;
+        }
+        
+        .grid-table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+        
+        .grid-table th {
+            background: var(--bg-secondary, #f8f9fa);
+            position: sticky;
+            top: 0;
+            z-index: 10;
+            padding: 12px 8px;
+            border-bottom: 2px solid #dee2e6;
+            font-weight: 600;
+            text-align: left;
+        }
+        
+        .grid-table td {
+            padding: 10px 8px;
+            border-bottom: 1px solid #dee2e6;
+        }
+        
+        .grid-table tbody tr:hover {
+            background-color: rgba(13, 110, 253, 0.05);
+        }
+        
+        .sortable {
+            cursor: pointer;
+            user-select: none;
+        }
+        
+        .sortable:hover {
+            background-color: rgba(0,0,0,0.05) !important;
+        }
+        
+        .sort-icon {
+            opacity: 0.3;
+            font-size: 0.8em;
+            margin-left: 5px;
+        }
+        
+        .sort-icon.active {
+            opacity: 1;
+        }
+        
+        .filter-input {
+            width: 100%;
+            padding: 4px 8px;
+            border: 1px solid #dee2e6;
+            border-radius: 4px;
+            font-size: 0.9em;
+            margin-top: 5px;
+        }
+        
+        .group-row {
+            background: var(--bg-secondary, #e9ecef);
+            font-weight: bold;
+            cursor: pointer;
+        }
+        
+        .group-row:hover {
+            background: #dee2e6 !important;
+        }
+        
+        .group-icon {
+            margin-right: 5px;
+        }
+        
+        .grouped-row {
+            padding-left: 30px !important;
+        }
+        
+        .badge-direct {
+            background: #0d6efd;
+        }
+        
+        .badge-transitive {
+            background: #6c757d;
+        }
+        
+        [data-theme="dark"] .grid-table th {
+            background: rgba(255, 255, 255, 0.05);
+        }
+        
+        [data-theme="dark"] .grid-table tbody tr:hover {
+            background-color: rgba(255, 255, 255, 0.1);
+        }
+        
+        [data-theme="dark"] .group-row {
+            background: rgba(255, 255, 255, 0.1);
+        }
+        
+        [data-theme="dark"] .filter-input {
+            background: var(--bg-color);
+            color: var(--text-color);
+            border-color: #555;
+        }
+        
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+        
+        .stat-card {
+            background: var(--bg-secondary, #f8f9fa);
+            border-radius: 8px;
+            padding: 15px;
+            text-align: center;
+        }
+        
+        .stat-card h4 {
+            margin: 0;
+            color: #0d6efd;
+        }
+        
+        .stat-card p {
+            margin: 5px 0 0 0;
+            color: #6c757d;
+            font-size: 0.9em;
+        }
+    </style>
+</head>
+<body>
+    <nav class="navbar navbar-expand-lg navbar-dark bg-primary">
+        <div class="container">
+            <a class="navbar-brand" href="index.html">
+                <i class="fas fa-cubes me-2"></i>SBOM Play
+            </a>
+            <div class="navbar-nav ms-auto">
+                <a class="nav-link" href="index.html">Analysis</a>
+                <a class="nav-link" href="stats.html">Stats</a>
+                <a class="nav-link" href="license-compliance.html">License</a>
+                <a class="nav-link" href="vuln.html">Vulnerabilities</a>
+                <a class="nav-link active" href="deps.html">Dependencies</a>
+                <a class="nav-link" href="authors.html">Authors</a>
+                <a class="nav-link" href="settings.html">
+                    <i class="fas fa-cog"></i>
+                </a>
+                <button class="btn btn-outline-secondary btn-sm ms-2 theme-toggle" onclick="themeManager.toggleTheme()" title="Toggle theme">
+                    <i class="fas fa-sun"></i>
+                </button>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container-fluid mt-4">
+        <div class="row mb-3">
+            <div class="col-12">
+                <div class="d-flex justify-content-between align-items-center">
+                    <div>
+                        <h1><i class="fas fa-th me-2"></i>Grid View</h1>
+                        <p class="text-muted">Advanced data grid with grouping, sorting, and filtering</p>
+                    </div>
+                    <div>
+                        <a href="deps.html" class="btn btn-outline-secondary">
+                            <i class="fas fa-th me-2"></i>All Views
+                        </a>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Controls -->
+        <div class="card mb-3">
+            <div class="card-body">
+                <div class="row g-3">
+                    <div class="col-md-3">
+                        <label class="form-label">Analysis</label>
+                        <select class="form-select" id="analysisSelector">
+                            <option value="">Select...</option>
+                        </select>
+                    </div>
+                    <div class="col-md-2">
+                        <label class="form-label">Group By</label>
+                        <select class="form-select" id="groupBySelect">
+                            <option value="none">None</option>
+                            <option value="type">Type</option>
+                            <option value="ecosystem">Ecosystem</option>
+                            <option value="repository">Repository</option>
+                        </select>
+                    </div>
+                    <div class="col-md-2">
+                        <label class="form-label">Show Columns</label>
+                        <button class="btn btn-outline-secondary w-100" data-bs-toggle="modal" data-bs-target="#columnsModal">
+                            <i class="fas fa-columns me-2"></i>Customize
+                        </button>
+                    </div>
+                    <div class="col-md-5 text-end">
+                        <label class="form-label">Export</label>
+                        <div>
+                            <button class="btn btn-success me-2" id="exportCsvBtn">
+                                <i class="fas fa-file-csv me-2"></i>CSV
+                            </button>
+                            <button class="btn btn-info" id="exportJsonBtn">
+                                <i class="fas fa-file-code me-2"></i>JSON
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Stats -->
+        <div class="stats-grid" id="statsGrid" style="display: none;"></div>
+
+        <!-- Grid -->
+        <div class="card" id="gridCard" style="display: none;">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="fas fa-table me-2"></i>Dependencies Grid</h5>
+            </div>
+            <div class="card-body p-0">
+                <div class="grid-container">
+                    <table class="grid-table">
+                        <thead id="gridHeader"></thead>
+                        <tbody id="gridBody"></tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <div class="alert alert-info" id="noDataMessage">
+            <i class="fas fa-info-circle me-2"></i>
+            <strong>No Data Available</strong>
+            <p class="mb-0 mt-2">Please select an analysis to view dependencies.</p>
+        </div>
+    </div>
+
+    <!-- Columns Modal -->
+    <div class="modal fade" id="columnsModal" tabindex="-1">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">Show/Hide Columns</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body" id="columnsModalBody"></div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="js/indexeddb-manager.js?v=10"></script>
+    <script src="js/storage-manager.js?v=10"></script>
+    <script type="module">
+        const storageManager = new StorageManager();
+        await storageManager.init();
+        
+        let allDependencies = [];
+        let currentData = null;
+        let sortColumns = [{col: 'name', dir: 'asc'}];
+        let columnFilters = {};
+        let groupBy = 'none';
+        
+        const columns = [
+            {id: 'name', label: 'Package Name', visible: true, sortable: true, filterable: true},
+            {id: 'version', label: 'Version', visible: true, sortable: true, filterable: true},
+            {id: 'type', label: 'Type', visible: true, sortable: true, filterable: true},
+            {id: 'ecosystem', label: 'Ecosystem', visible: true, sortable: true, filterable: true},
+            {id: 'language', label: 'Language', visible: false, sortable: true, filterable: true},
+            {id: 'repoCount', label: 'Repos', visible: true, sortable: true, filterable: false},
+            {id: 'repositories', label: 'Used In', visible: true, sortable: false, filterable: false}
+        ];
+        
+        await loadAnalysesList();
+        initColumnsModal();
+        
+        async function loadAnalysesList() {
+            const storageInfo = await storageManager.getStorageInfo();
+            const selector = document.getElementById('analysisSelector');
+            const allEntries = [...storageInfo.organizations, ...storageInfo.repositories];
+            
+            if (allEntries.length === 0) {
+                document.getElementById('noDataMessage').style.display = 'block';
+                return;
+            }
+            
+            allEntries.forEach(entry => {
+                const option = document.createElement('option');
+                option.value = entry.name;
+                option.textContent = `${entry.name} (${entry.dependencies} deps)`;
+                selector.appendChild(option);
+            });
+            
+            if (allEntries.length > 0) {
+                selector.value = allEntries[0].name;
+                await loadAnalysis();
+            }
+        }
+        
+        document.getElementById('analysisSelector').addEventListener('change', loadAnalysis);
+        document.getElementById('groupBySelect').addEventListener('change', (e) => {
+            groupBy = e.target.value;
+            renderGrid();
+        });
+        document.getElementById('exportCsvBtn').addEventListener('click', () => exportData('csv'));
+        document.getElementById('exportJsonBtn').addEventListener('click', () => exportData('json'));
+        
+        async function loadAnalysis() {
+            const analysisName = document.getElementById('analysisSelector').value;
+            if (!analysisName) return;
+            
+            const data = await storageManager.loadAnalysisDataForOrganization(analysisName);
+            if (!data || !data.data) {
+                alert('No data found');
+                return;
+            }
+            
+            currentData = data.data;
+            allDependencies = processData(currentData);
+            
+            document.getElementById('gridCard').style.display = 'block';
+            document.getElementById('statsGrid').style.display = 'grid';
+            document.getElementById('noDataMessage').style.display = 'none';
+            
+            renderGrid();
+        }
+        
+        function processData(data) {
+            const deps = [];
+            const allDeps = data.allDependencies || [];
+            
+            allDeps.forEach(dep => {
+                const isDirect = dep.directIn && dep.directIn.length > 0;
+                
+                deps.push({
+                    name: dep.name,
+                    version: dep.version,
+                    type: isDirect ? 'direct' : 'transitive',
+                    ecosystem: dep.category?.ecosystem || 'unknown',
+                    language: dep.category?.language || '',
+                    repositories: dep.repositories || [],
+                    repoCount: (dep.repositories || []).length,
+                    raw: dep
+                });
+            });
+            
+            return deps;
+        }
+        
+        function initColumnsModal() {
+            const modalBody = document.getElementById('columnsModalBody');
+            columns.forEach(col => {
+                const div = document.createElement('div');
+                div.className = 'form-check';
+                div.innerHTML = `
+                    <input class="form-check-input" type="checkbox" id="col-${col.id}" ${col.visible ? 'checked' : ''}>
+                    <label class="form-check-label" for="col-${col.id}">${col.label}</label>
+                `;
+                modalBody.appendChild(div);
+                
+                div.querySelector('input').addEventListener('change', (e) => {
+                    col.visible = e.target.checked;
+                    renderGrid();
+                });
+            });
+        }
+        
+        function renderGrid() {
+            renderHeader();
+            renderBody();
+            updateStats();
+        }
+        
+        function renderHeader() {
+            const thead = document.getElementById('gridHeader');
+            thead.innerHTML = '';
+            
+            const tr = document.createElement('tr');
+            columns.filter(col => col.visible).forEach(col => {
+                const th = document.createElement('th');
+                th.className = col.sortable ? 'sortable' : '';
+                
+                let html = col.label;
+                if (col.sortable) {
+                    const sortInfo = sortColumns.find(s => s.col === col.id);
+                    const icon = sortInfo ? (sortInfo.dir === 'asc' ? 'fa-sort-up' : 'fa-sort-down') : 'fa-sort';
+                    const iconClass = sortInfo ? 'sort-icon active' : 'sort-icon';
+                    html += `<i class="fas ${icon} ${iconClass}"></i>`;
+                }
+                
+                th.innerHTML = html;
+                
+                if (col.sortable) {
+                    th.addEventListener('click', () => {
+                        const existing = sortColumns.find(s => s.col === col.id);
+                        if (existing) {
+                            existing.dir = existing.dir === 'asc' ? 'desc' : 'asc';
+                        } else {
+                            sortColumns = [{col: col.id, dir: 'asc'}];
+                        }
+                        renderGrid();
+                    });
+                }
+                
+                tr.appendChild(th);
+            });
+            thead.appendChild(tr);
+            
+            // Filter row
+            const filterTr = document.createElement('tr');
+            columns.filter(col => col.visible).forEach(col => {
+                const th = document.createElement('th');
+                if (col.filterable) {
+                    const input = document.createElement('input');
+                    input.type = 'text';
+                    input.className = 'filter-input';
+                    input.placeholder = `Filter ${col.label}...`;
+                    input.value = columnFilters[col.id] || '';
+                    input.addEventListener('input', (e) => {
+                        columnFilters[col.id] = e.target.value;
+                        renderBody();
+                    });
+                    th.appendChild(input);
+                }
+                filterTr.appendChild(th);
+            });
+            thead.appendChild(filterTr);
+        }
+        
+        function renderBody() {
+            const tbody = document.getElementById('gridBody');
+            tbody.innerHTML = '';
+            
+            let filtered = allDependencies.filter(dep => {
+                for (const [key, value] of Object.entries(columnFilters)) {
+                    if (value && !String(dep[key]).toLowerCase().includes(value.toLowerCase())) {
+                        return false;
+                    }
+                }
+                return true;
+            });
+            
+            // Sort
+            filtered.sort((a, b) => {
+                for (const sort of sortColumns) {
+                    let aVal = a[sort.col];
+                    let bVal = b[sort.col];
+                    
+                    if (typeof aVal === 'string') {
+                        aVal = aVal.toLowerCase();
+                        bVal = bVal.toLowerCase();
+                    }
+                    
+                    const comparison = aVal < bVal ? -1 : aVal > bVal ? 1 : 0;
+                    if (comparison !== 0) {
+                        return sort.dir === 'asc' ? comparison : -comparison;
+                    }
+                }
+                return 0;
+            });
+            
+            // Group
+            if (groupBy !== 'none') {
+                const groups = new Map();
+                filtered.forEach(dep => {
+                    const key = groupBy === 'repository' ? dep.repositories.join(', ') || 'None' : dep[groupBy];
+                    if (!groups.has(key)) {
+                        groups.set(key, []);
+                    }
+                    groups.get(key).push(dep);
+                });
+                
+                for (const [key, items] of groups) {
+                    const groupTr = document.createElement('tr');
+                    groupTr.className = 'group-row';
+                    groupTr.innerHTML = `
+                        <td colspan="${columns.filter(c => c.visible).length}">
+                            <i class="fas fa-caret-down group-icon"></i>
+                            <strong>${key}</strong> (${items.length} ${items.length === 1 ? 'item' : 'items'})
+                        </td>
+                    `;
+                    tbody.appendChild(groupTr);
+                    
+                    const groupBodyTr = document.createElement('tr');
+                    const groupBodyTd = document.createElement('td');
+                    groupBodyTd.colSpan = columns.filter(c => c.visible).length;
+                    groupBodyTd.style.padding = 0;
+                    
+                    const groupTable = document.createElement('table');
+                    groupTable.className = 'grid-table';
+                    groupTable.style.width = '100%';
+                    groupTable.style.marginBottom = 0;
+                    const groupTbody = document.createElement('tbody');
+                    
+                    items.forEach(dep => {
+                        const tr = createRow(dep, true);
+                        groupTbody.appendChild(tr);
+                    });
+                    
+                    groupTable.appendChild(groupTbody);
+                    groupBodyTd.appendChild(groupTable);
+                    groupBodyTr.appendChild(groupBodyTd);
+                    tbody.appendChild(groupBodyTr);
+                    
+                    groupTr.addEventListener('click', () => {
+                        const icon = groupTr.querySelector('.group-icon');
+                        if (groupBodyTr.style.display === 'none') {
+                            groupBodyTr.style.display = '';
+                            icon.className = 'fas fa-caret-down group-icon';
+                        } else {
+                            groupBodyTr.style.display = 'none';
+                            icon.className = 'fas fa-caret-right group-icon';
+                        }
+                    });
+                }
+            } else {
+                filtered.forEach(dep => {
+                    const tr = createRow(dep, false);
+                    tbody.appendChild(tr);
+                });
+            }
+        }
+        
+        function createRow(dep, grouped) {
+            const tr = document.createElement('tr');
+            columns.filter(col => col.visible).forEach(col => {
+                const td = document.createElement('td');
+                if (grouped && col.id === 'name') {
+                    td.className = 'grouped-row';
+                }
+                
+                if (col.id === 'type') {
+                    td.innerHTML = `<span class="badge badge-${dep[col.id]}">${dep[col.id]}</span>`;
+                } else if (col.id === 'repositories') {
+                    td.textContent = dep[col.id].join(', ') || 'None';
+                } else {
+                    td.textContent = dep[col.id] || '';
+                }
+                tr.appendChild(td);
+            });
+            return tr;
+        }
+        
+        function updateStats() {
+            const statsGrid = document.getElementById('statsGrid');
+            const directCount = allDependencies.filter(d => d.type === 'direct').length;
+            const transitiveCount = allDependencies.filter(d => d.type === 'transitive').length;
+            const ecosystems = new Set(allDependencies.map(d => d.ecosystem)).size;
+            const repos = new Set(allDependencies.flatMap(d => d.repositories)).size;
+            
+            statsGrid.innerHTML = `
+                <div class="stat-card">
+                    <h4>${allDependencies.length}</h4>
+                    <p>Total Dependencies</p>
+                </div>
+                <div class="stat-card">
+                    <h4>${directCount}</h4>
+                    <p>Direct</p>
+                </div>
+                <div class="stat-card">
+                    <h4>${transitiveCount}</h4>
+                    <p>Transitive</p>
+                </div>
+                <div class="stat-card">
+                    <h4>${ecosystems}</h4>
+                    <p>Ecosystems</p>
+                </div>
+                <div class="stat-card">
+                    <h4>${repos}</h4>
+                    <p>Repositories</p>
+                </div>
+            `;
+        }
+        
+        function exportData(format) {
+            let filtered = allDependencies.filter(dep => {
+                for (const [key, value] of Object.entries(columnFilters)) {
+                    if (value && !String(dep[key]).toLowerCase().includes(value.toLowerCase())) {
+                        return false;
+                    }
+                }
+                return true;
+            });
+            
+            if (format === 'csv') {
+                const visibleCols = columns.filter(c => c.visible);
+                const csv = [
+                    visibleCols.map(c => c.label).join(','),
+                    ...filtered.map(dep => visibleCols.map(col => {
+                        const val = col.id === 'repositories' ? dep[col.id].join('; ') : dep[col.id];
+                        return `"${String(val).replace(/"/g, '""')}"`;
+                    }).join(','))
+                ].join('\n');
+                
+                const blob = new Blob([csv], { type: 'text/csv' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `dependencies-${Date.now()}.csv`;
+                a.click();
+                URL.revokeObjectURL(url);
+            } else if (format === 'json') {
+                const json = JSON.stringify(filtered, null, 2);
+                const blob = new Blob([json], { type: 'application/json' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `dependencies-${Date.now()}.json`;
+                a.click();
+                URL.revokeObjectURL(url);
+            }
+        }
+    </script>
+</body>
+</html>
+

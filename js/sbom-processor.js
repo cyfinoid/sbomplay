@@ -114,6 +114,7 @@ class SBOMProcessor {
             name: repo,
             owner: owner,
             dependencies: new Set(),
+            directDependencies: new Set(),  // Track direct dependencies from relationships
             totalDependencies: 0,
             dependencyCategories: {
                 code: new Set(),
@@ -121,8 +122,30 @@ class SBOMProcessor {
                 infrastructure: new Set(),
                 unknown: new Set()
             },
-            languages: new Set()
+            languages: new Set(),
+            relationships: [],  // Store relationship data for graph visualization
+            spdxPackages: []  // Store SPDX package info for mapping SPDXID to package details
         };
+        
+        // Extract ALL dependency relationships (not just direct from main package)
+        // This allows us to build the full dependency tree
+        const mainPackageSPDXID = sbomData.sbom.packages.find(p => 
+            p.name === `com.github.${owner}/${repo}` || p.name === `${owner}/${repo}`
+        )?.SPDXID;
+        
+        if (sbomData.sbom.relationships && Array.isArray(sbomData.sbom.relationships)) {
+            // Store all DEPENDS_ON relationships for graph visualization
+            sbomData.sbom.relationships.forEach(rel => {
+                if (rel.relationshipType === 'DEPENDS_ON') {
+                    repoData.relationships.push({
+                        from: rel.spdxElementId,
+                        to: rel.relatedSpdxElement,
+                        type: rel.relationshipType,
+                        isDirectFromMain: rel.spdxElementId === mainPackageSPDXID
+                    });
+                }
+            });
+        }
 
         let processedPackages = 0;
         let skippedPackages = 0;
@@ -148,6 +171,14 @@ class SBOMProcessor {
                 repoData.dependencies.add(depKey);
                 processedPackages++;
                 
+                // Check if this is a direct dependency (directly from main package)
+                const isDirect = repoData.relationships.some(rel => 
+                    rel.to === pkg.SPDXID && rel.isDirectFromMain
+                );
+                if (isDirect) {
+                    repoData.directDependencies.add(depKey);
+                }
+                
                 // Categorize the dependency
                 const category = this.categorizeDependency(pkg);
                 repoData.languages.add(category.language);
@@ -164,7 +195,9 @@ class SBOMProcessor {
                         count: 0,
                         category: category,
                         languages: new Set([category.language]),
-                        originalPackage: pkg  // Store original package data for PURL extraction
+                        originalPackage: pkg,  // Store original package data for PURL extraction
+                        directIn: new Set(),  // Track which repos use this as direct dependency
+                        transitiveIn: new Set()  // Track which repos use this as transitive dependency
                     });
                 }
                 
@@ -172,6 +205,13 @@ class SBOMProcessor {
                 dep.repositories.add(repoKey);
                 dep.count++;
                 dep.languages.add(category.language);
+                
+                // Track if it's direct or transitive in this repo
+                if (isDirect) {
+                    dep.directIn.add(repoKey);
+                } else {
+                    dep.transitiveIn.add(repoKey);
+                }
                 
                 // Log first few packages for debugging
                 if (index < 3) {
@@ -188,6 +228,14 @@ class SBOMProcessor {
         });
 
         repoData.totalDependencies = repoData.dependencies.size;
+        
+        // Store SPDX package info for graph visualization
+        repoData.spdxPackages = sbomData.sbom.packages.map(pkg => ({
+            SPDXID: pkg.SPDXID,
+            name: pkg.name,
+            version: pkg.versionInfo || pkg.version
+        }));
+        
         this.repositories.set(repoKey, repoData);
         
         console.log(`📦 Processed ${repoKey}: ${processedPackages} packages, ${skippedPackages} skipped, ${repoData.totalDependencies} unique dependencies`);
@@ -407,6 +455,8 @@ class SBOMProcessor {
                 version: dep.version,
                 count: dep.count,
                 repositories: Array.from(dep.repositories),
+                directIn: Array.from(dep.directIn || []),  // Repos using as direct dependency
+                transitiveIn: Array.from(dep.transitiveIn || []),  // Repos using as transitive dependency
                 category: dep.category,
                 languages: Array.from(dep.languages),
                 purl: purl,  // Include extracted PURL for author analysis
@@ -418,13 +468,16 @@ class SBOMProcessor {
             owner: repo.owner,
             totalDependencies: repo.totalDependencies,
             dependencies: Array.from(repo.dependencies),
+            directDependencies: Array.from(repo.directDependencies || []),  // Direct dependencies
             categoryBreakdown: {
                 code: repo.dependencyCategories.code.size,
                 workflow: repo.dependencyCategories.workflow.size,
                 infrastructure: repo.dependencyCategories.infrastructure.size,
                 unknown: repo.dependencyCategories.unknown.size
             },
-            languages: Array.from(repo.languages)
+            languages: Array.from(repo.languages),
+            relationships: repo.relationships || [],  // Include ALL relationships for graph visualization
+            spdxPackages: repo.spdxPackages || []  // Store SPDX package data for mapping
         }));
 
         return {
