@@ -1341,26 +1341,28 @@ class SBOMPlayApp {
             console.log('Sample dependency structure:', data.data.allDependencies[0]);
         }
         
+        // Build packages array with repository information
         const packages = data.data.allDependencies
             .filter(dep => dep.purl)  // Only include dependencies with PURL
             .map(dep => ({
                 ecosystem: this.getEcosystemFromPurl(dep.purl),
                 name: this.getPackageNameFromPurl(dep.purl),
-                purl: dep.purl
+                purl: dep.purl,
+                repositories: dep.repositories || []  // Track which repos use this package
             }))
             .filter(pkg => pkg.ecosystem && pkg.name);
         
         console.log(`📦 Found ${packages.length} unique packages with valid PURLs for author analysis`);
         
-        // Debug: Show some sample packages
+        // Debug: Show some sample packages with repo info
         if (packages.length > 0) {
             console.log('Sample packages for author analysis:');
             packages.slice(0, 3).forEach(pkg => {
-                console.log(`  - ${pkg.ecosystem}:${pkg.name}`);
+                console.log(`  - ${pkg.ecosystem}:${pkg.name} (used in ${pkg.repositories.length} repos)`);
             });
         }
         
-        // Fetch authors with progress callback
+        // Fetch authors with progress callback (includes repository tracking)
         const authorResults = await authorService.fetchAuthorsForPackages(
             packages,
             (processed, total) => {
@@ -1368,9 +1370,23 @@ class SBOMPlayApp {
             }
         );
         
-        // Convert Map to array and sort by count
+        // Convert Map to array and sort by repository count (risk factor) then package count
+        // Higher repository count = higher risk (single point of failure across multiple projects)
         const authorsList = Array.from(authorResults.values())
-            .sort((a, b) => b.count - a.count);
+            .sort((a, b) => {
+                // Primary sort: repository count (descending) - identifies single points of failure
+                if (b.repositoryCount !== a.repositoryCount) {
+                    return b.repositoryCount - a.repositoryCount;
+                }
+                // Secondary sort: package count (descending)
+                const aPackageCount = [...new Set(a.packages)].length;
+                const bPackageCount = [...new Set(b.packages)].length;
+                if (bPackageCount !== aPackageCount) {
+                    return bPackageCount - aPackageCount;
+                }
+                // Tertiary sort: total occurrences (descending)
+                return b.count - a.count;
+            });
         
         // Save to analysis data
         data.data.authorAnalysis = {

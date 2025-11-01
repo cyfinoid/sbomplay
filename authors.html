@@ -366,20 +366,57 @@
             function showPackageModal(author) {
                 const modal = new bootstrap.Modal(document.getElementById('packageModal'));
                 const uniquePackages = [...new Set(author.packages)].sort();
+                const packageRepositories = author.packageRepositories || {};
+                const repositoryCount = author.repositoryCount || 0;
                 
                 document.getElementById('packageModalLabel').textContent = 
-                    `${author.count} Package${author.count !== 1 ? 's' : ''} by ${author.author}`;
+                    `${uniquePackages.length} Package${uniquePackages.length !== 1 ? 's' : ''} by ${author.author}`;
                 
                 let html = `
                     <div class="mb-3">
                         <strong>Ecosystem:</strong> <span class="badge bg-info">${author.ecosystem}</span><br>
-                        <strong>Total Packages:</strong> ${uniquePackages.length}
+                        <strong>Total Packages:</strong> <span class="badge bg-primary">${uniquePackages.length}</span><br>
+                        <strong>Repository Usage:</strong> <span class="badge bg-secondary">${repositoryCount} repo${repositoryCount !== 1 ? 's' : ''}</span>
                     </div>
-                    <div class="list-group">
+                    <div class="list-group" style="max-height: 400px; overflow-y: auto;">
                 `;
                 
                 uniquePackages.forEach(pkg => {
-                    html += `<div class="list-group-item">${pkg}</div>`;
+                    const repos = packageRepositories[pkg] || [];
+                    const repoCount = repos.length;
+                    
+                    html += `
+                        <div class="list-group-item">
+                            <div class="d-flex justify-content-between align-items-start">
+                                <div class="flex-grow-1">
+                                    <strong>${pkg}</strong>
+                                    ${repoCount > 0 ? `
+                                        <br><small class="text-muted">
+                                            <i class="fas fa-folder me-1"></i>
+                                            Used in <strong>${repoCount}</strong> repositor${repoCount !== 1 ? 'ies' : 'y'}
+                                        </small>
+                                    ` : ''}
+                                </div>
+                                ${repoCount > 0 ? `<span class="badge bg-secondary ms-2">${repoCount}</span>` : ''}
+                            </div>
+                            ${repoCount > 0 && repoCount <= 10 ? `
+                                <div class="mt-2">
+                                    <small class="text-muted">
+                                        <i class="fas fa-code-branch me-1"></i>
+                                        ${repos.map(r => `<code>${r}</code>`).join(', ')}
+                                    </small>
+                                </div>
+                            ` : repoCount > 10 ? `
+                                <div class="mt-2">
+                                    <small class="text-muted">
+                                        <i class="fas fa-code-branch me-1"></i>
+                                        ${repos.slice(0, 5).map(r => `<code>${r}</code>`).join(', ')}
+                                        <strong>+ ${repoCount - 5} more</strong>
+                                    </small>
+                                </div>
+                            ` : ''}
+                        </div>
+                    `;
                 });
                 
                 html += '</div>';
@@ -402,14 +439,63 @@
                 });
             }
             
-            // PyPI profile
+            // PyPI profile - handle both organizations and users
+            // NOTE: PyPI JSON API doesn't provide explicit organization field
+            // We detect organizations from patterns in the JSON response (name + email domain analysis)
             if (author.ecosystem === 'pypi' && author.author) {
-                links.push({
-                    url: `https://pypi.org/user/${encodeURIComponent(author.author)}/`,
-                    icon: 'fas fa-cube',
-                    label: 'PyPI Profile',
-                    class: 'btn-outline-primary'
-                });
+                // Check metadata first (organization detection done during extraction)
+                if (author.metadata?.pypi_organization) {
+                    // This is an organization (detected from PyPI JSON patterns)
+                    links.push({
+                        url: `https://pypi.org/org/${encodeURIComponent(author.metadata.pypi_organization)}/`,
+                        icon: 'fas fa-cube',
+                        label: 'PyPI Organization',
+                        class: 'btn-outline-primary'
+                    });
+                } else if (author.metadata?.pypi_username) {
+                    // This is a user with known username
+                    links.push({
+                        url: `https://pypi.org/user/${encodeURIComponent(author.metadata.pypi_username)}/`,
+                        icon: 'fas fa-cube',
+                        label: 'PyPI Profile',
+                        class: 'btn-outline-primary'
+                    });
+                } else {
+                    // Fallback: try to infer from author name/email patterns
+                    const authorName = author.author.trim();
+                    const isLikelyOrg = !authorName.includes(' ') && !authorName.includes(',') && 
+                                       authorName.length > 0;
+                    
+                    if (isLikelyOrg) {
+                        // Try organization URL format as fallback
+                        links.push({
+                            url: `https://pypi.org/org/${encodeURIComponent(authorName.toLowerCase())}/`,
+                            icon: 'fas fa-cube',
+                            label: 'PyPI Organization',
+                            class: 'btn-outline-primary'
+                        });
+                    } else {
+                        // Try to extract username from author string if it contains email format
+                        const emailMatch = author.author.match(/<([^>]+)>/);
+                        if (emailMatch) {
+                            const username = emailMatch[1].split('@')[0];
+                            links.push({
+                                url: `https://pypi.org/user/${encodeURIComponent(username)}/`,
+                                icon: 'fas fa-cube',
+                                label: 'PyPI Profile',
+                                class: 'btn-outline-primary'
+                            });
+                        } else if (author.author.includes('@')) {
+                            const username = author.author.split('@')[0];
+                            links.push({
+                                url: `https://pypi.org/user/${encodeURIComponent(username)}/`,
+                                icon: 'fas fa-cube',
+                                label: 'PyPI Profile',
+                                class: 'btn-outline-primary'
+                            });
+                        }
+                    }
+                }
             }
             
             // Crates.io profile (from login)
@@ -451,7 +537,10 @@
                 document.getElementById('authorDetailsModalLabel').textContent = author.author;
                 
                 const allPackages = [...new Set(author.packages)].sort();
-                const packageCount = allPackages.length;
+                const uniquePackageCount = allPackages.length;
+                const occurrenceCount = author.count; // How many times author was found across dependencies
+                const repositoryCount = author.repositoryCount || 0;
+                const packageRepositories = author.packageRepositories || {};
                 
                 let html = `
                     <div class="mb-3">
@@ -468,8 +557,16 @@
                             <tr>
                                 <td><strong>Package Count:</strong></td>
                                 <td>
-                                    <span class="badge bg-primary">${author.count}</span>
-                                    ${author.count > 5 ? '<span class="badge bg-warning text-dark ms-2" title="High dependency risk">High Impact</span>' : ''}
+                                    <span class="badge bg-primary">${uniquePackageCount}</span>
+                                    ${occurrenceCount > uniquePackageCount ? `<small class="text-muted ms-2">(${occurrenceCount} occurrences)</small>` : ''}
+                                </td>
+                            </tr>
+                            <tr>
+                                <td><strong>Repository Usage:</strong></td>
+                                <td>
+                                    <span class="badge bg-secondary">${repositoryCount} repo${repositoryCount !== 1 ? 's' : ''}</span>
+                                    ${repositoryCount >= 5 ? '<span class="badge bg-danger ms-2" title="High risk: Single point of failure">High Risk</span>' : ''}
+                                    ${repositoryCount >= 3 && repositoryCount < 5 ? '<span class="badge bg-warning text-dark ms-2" title="Moderate risk">Moderate Risk</span>' : ''}
                                 </td>
                             </tr>
                         </table>
@@ -506,8 +603,23 @@
                 };
                 const registryName = ecosystemMap[author.ecosystem.toLowerCase()];
                 if (registryName) {
+                    // For ecosyste.ms, use username/maintainer identifier, not full name
+                    // PyPI uses username from metadata, npm uses author name directly
+                    let maintainerIdentifier = author.author;
+                    
+                    // For PyPI, prefer username from metadata (e.g., "gastlygem" not "Weiwei Wang")
+                    if (author.ecosystem === 'pypi' && author.metadata?.pypi_username) {
+                        maintainerIdentifier = author.metadata.pypi_username;
+                    }
+                    // For npm, check if author name might need normalization
+                    else if (author.ecosystem === 'npm') {
+                        // npm usernames are usually lowercase, no spaces
+                        // But if we have email, we could extract username
+                        // For now, use author name as-is (ecosyste.ms should handle it)
+                    }
+                    
                     html += `
-                        <a href="https://packages.ecosyste.ms/registries/${registryName}/maintainers/${encodeURIComponent(author.author)}" target="_blank" class="btn btn-sm btn-outline-info">
+                        <a href="https://packages.ecosyste.ms/registries/${registryName}/maintainers/${encodeURIComponent(maintainerIdentifier)}" target="_blank" class="btn btn-sm btn-outline-info">
                             <i class="fas fa-chart-bar me-1"></i>
                             Package Statistics
                         </a>
@@ -612,15 +724,49 @@
                     `;
                 }
                 
-                // Show ALL packages
+                // Show ALL packages with repository usage
                 html += `
                     <div class="mb-3">
-                        <h6><i class="fas fa-box me-2"></i>All Packages (${packageCount})</h6>
-                        <div class="list-group" style="max-height: 300px; overflow-y: auto;">
+                        <h6><i class="fas fa-box me-2"></i>Packages & Repository Usage (${uniquePackageCount})</h6>
+                        <div class="list-group" style="max-height: 400px; overflow-y: auto;">
                 `;
                 
                 allPackages.forEach(pkg => {
-                    html += `<div class="list-group-item list-group-item-sm">${pkg}</div>`;
+                    const repos = packageRepositories[pkg] || [];
+                    const repoCount = repos.length;
+                    
+                    html += `
+                        <div class="list-group-item">
+                            <div class="d-flex justify-content-between align-items-start">
+                                <div class="flex-grow-1">
+                                    <strong>${pkg}</strong>
+                                    ${repoCount > 0 ? `
+                                        <br><small class="text-muted">
+                                            <i class="fas fa-folder me-1"></i>
+                                            Used in <strong>${repoCount}</strong> repositor${repoCount !== 1 ? 'ies' : 'y'}
+                                        </small>
+                                    ` : '<br><small class="text-muted">Repository usage data not available</small>'}
+                                </div>
+                                ${repoCount > 0 ? `<span class="badge bg-secondary ms-2">${repoCount}</span>` : ''}
+                            </div>
+                            ${repoCount > 0 && repoCount <= 10 ? `
+                                <div class="mt-2">
+                                    <small class="text-muted">
+                                        <i class="fas fa-code-branch me-1"></i>
+                                        ${repos.map(r => `<code>${r}</code>`).join(', ')}
+                                    </small>
+                                </div>
+                            ` : repoCount > 10 ? `
+                                <div class="mt-2">
+                                    <small class="text-muted">
+                                        <i class="fas fa-code-branch me-1"></i>
+                                        ${repos.slice(0, 5).map(r => `<code>${r}</code>`).join(', ')}
+                                        <strong>+ ${repoCount - 5} more</strong>
+                                    </small>
+                                </div>
+                            ` : ''}
+                        </div>
+                    `;
                 });
                 
                 html += `
@@ -628,20 +774,38 @@
                     </div>
                 `;
                 
-                // Risk Assessment
-                if (author.count >= 10) {
+                // Risk Assessment - Focus on repository usage (single point of failure risk)
+                if (repositoryCount >= 5) {
                     html += `
-                        <div class="alert alert-warning">
+                        <div class="alert alert-danger">
                             <i class="fas fa-exclamation-triangle me-2"></i>
-                            <strong>High Dependency Risk:</strong> Your project depends on ${author.count} packages maintained by this single contributor.
-                            Consider: monitoring their activity, having backup maintainers, or contributing to their packages.
+                            <strong>High Single Point of Failure Risk:</strong> This contributor's packages are used across <strong>${repositoryCount} repositories</strong> (${uniquePackageCount} unique package${uniquePackageCount !== 1 ? 's' : ''}).
+                            <br><br>
+                            <strong>Risk:</strong> If this maintainer becomes unavailable, inactive, or compromised, ${repositoryCount} of your projects could be affected.
+                            <br><br>
+                            <strong>Recommendations:</strong>
+                            <ul class="mb-0">
+                                <li>Monitor this maintainer's activity and repository health</li>
+                                <li>Consider identifying backup or alternative packages</li>
+                                <li>Contribute to their projects to support sustainability</li>
+                                <li>Document dependencies and mitigation plans</li>
+                            </ul>
                         </div>
                     `;
-                } else if (author.count >= 5) {
+                } else if (repositoryCount >= 3) {
+                    html += `
+                        <div class="alert alert-warning">
+                            <i class="fas fa-info-circle me-2"></i>
+                            <strong>Moderate Single Point of Failure Risk:</strong> This contributor's packages are used across <strong>${repositoryCount} repositories</strong> (${uniquePackageCount} unique package${uniquePackageCount !== 1 ? 's' : ''}).
+                            <br><br>
+                            Consider monitoring their activity and having contingency plans.
+                        </div>
+                    `;
+                } else if (uniquePackageCount >= 5) {
                     html += `
                         <div class="alert alert-info">
                             <i class="fas fa-info-circle me-2"></i>
-                            <strong>Moderate Dependency:</strong> This contributor maintains ${author.count} of your packages.
+                            <strong>Package Diversity:</strong> This contributor maintains ${uniquePackageCount} unique packages in your project.
                         </div>
                     `;
                 }
@@ -674,12 +838,29 @@
                     return;
                 }
                 
-                // Separate single-package authors
-                const multiPackageAuthors = filtered.filter(a => a.count > 1);
-                const singlePackageAuthors = filtered.filter(a => a.count === 1);
+                // Separate single-package authors (based on unique package count, not occurrences)
+                const multiPackageAuthors = filtered.filter(a => {
+                    const uniquePackages = [...new Set(a.packages || [])];
+                    return uniquePackages.length > 1;
+                });
+                const singlePackageAuthors = filtered.filter(a => {
+                    const uniquePackages = [...new Set(a.packages || [])];
+                    return uniquePackages.length === 1;
+                });
+                
+                // Sort single-package authors by repository count (descending) - identify high-risk single packages
+                singlePackageAuthors.sort((a, b) => {
+                    const aRepoCount = a.repositoryCount || 0;
+                    const bRepoCount = b.repositoryCount || 0;
+                    if (bRepoCount !== aRepoCount) {
+                        return bRepoCount - aRepoCount;
+                    }
+                    return (b.count || 0) - (a.count || 0);
+                });
                 
                 // Store for event handlers
                 currentAuthors = multiPackageAuthors;
+                window.currentSinglePackageAuthors = singlePackageAuthors; // Store globally for toggle
                 
                 console.log(`🎨 Authors Page - Multi-package: ${multiPackageAuthors.length}, Single-package: ${singlePackageAuthors.length}`);
                 
@@ -695,9 +876,10 @@
                                     <th>#</th>
                                     <th>Author</th>
                                     <th>Ecosystem</th>
-                                    <th>Package Count</th>
-                                    <th style="text-align: center;">Sponsorship</th>
                                     <th>Packages</th>
+                                    <th>Repository Usage</th>
+                                    <th style="text-align: center;">Sponsorship</th>
+                                    <th>Package List</th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -705,6 +887,8 @@
                 
                 multiPackageAuthors.forEach((author, index) => {
                     const uniquePackages = [...new Set(author.packages)];
+                    const uniquePackageCount = uniquePackages.length;
+                    const repositoryCount = author.repositoryCount || 0;
                     const samplePackages = uniquePackages.slice(0, 3).join(', ');
                     
                     // Build sponsorship cell
@@ -726,6 +910,14 @@
                         }
                     }
                     
+                    // Risk indicator: High repository usage = single point of failure
+                    let riskBadge = '';
+                    if (repositoryCount >= 5) {
+                        riskBadge = ' <span class="badge bg-danger ms-1" title="High risk: Single point of failure across multiple projects">High Risk</span>';
+                    } else if (repositoryCount >= 3) {
+                        riskBadge = ' <span class="badge bg-warning text-dark ms-1" title="Moderate risk: Used across multiple projects">Moderate Risk</span>';
+                    }
+                    
                     html += `
                         <tr>
                             <td>${index + 1}</td>
@@ -735,7 +927,11 @@
                                 </a>
                             </td>
                             <td><span class="badge bg-info">${author.ecosystem}</span></td>
-                            <td><span class="badge bg-primary">${author.count}</span></td>
+                            <td><span class="badge bg-primary">${uniquePackageCount}</span></td>
+                            <td>
+                                <span class="badge bg-secondary">${repositoryCount} repo${repositoryCount !== 1 ? 's' : ''}</span>
+                                ${riskBadge}
+                            </td>
                             ${sponsorshipCell}
                             <td>
                                 <a href="#" class="text-decoration-none package-list-link" data-author-index="${index}">
@@ -753,13 +949,69 @@
                     </div>
                 `;
                 
-                // Add single-package authors summary
+                // Add single-package authors summary with toggle
                 if (singlePackageAuthors.length > 0) {
                     html += `
-                        <div class="alert alert-secondary mt-3">
+                        <div class="alert alert-secondary mt-3" style="cursor: pointer;" id="singlePackageAuthorsToggle">
                             <i class="fas fa-info-circle me-2"></i>
                             <strong>${singlePackageAuthors.length}</strong> additional author${singlePackageAuthors.length !== 1 ? 's' : ''} 
-                            with only one package ${ecosystemFilter !== 'all' ? 'in this ecosystem ' : ''}(not shown above)
+                            with only one package ${ecosystemFilter !== 'all' ? 'in this ecosystem ' : ''}
+                            <span class="text-decoration-underline ms-2">
+                                <i class="fas fa-chevron-down" id="singlePackageAuthorsToggleIcon"></i>
+                                <span id="singlePackageAuthorsToggleText">Click to show</span>
+                            </span>
+                        </div>
+                        <div id="singlePackageAuthorsList" style="display: none;" class="mt-3">
+                            <div class="alert alert-info">
+                                <i class="fas fa-info-circle me-2"></i>
+                                These authors maintain only one package. <strong>High repository usage</strong> indicates a single point of failure risk.
+                            </div>
+                            <div class="table-responsive">
+                                <table class="table table-hover table-sm">
+                                    <thead>
+                                        <tr>
+                                            <th>#</th>
+                                            <th>Author</th>
+                                            <th>Ecosystem</th>
+                                            <th>Package</th>
+                                            <th>Repository Usage</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                    `;
+                    
+                    singlePackageAuthors.forEach((author, index) => {
+                        const packageName = author.packages[0] || 'N/A';
+                        const repositoryCount = author.repositoryCount || 0;
+                        let riskBadge = '';
+                        if (repositoryCount >= 5) {
+                            riskBadge = ' <span class="badge bg-danger ms-1" title="High risk: Single package used across multiple projects">High Risk</span>';
+                        } else if (repositoryCount >= 3) {
+                            riskBadge = ' <span class="badge bg-warning text-dark ms-1" title="Moderate risk">Moderate</span>';
+                        }
+                        
+                        html += `
+                            <tr>
+                                <td>${index + 1}</td>
+                                <td>
+                                    <a href="#" class="text-decoration-none single-author-details-link" data-author-index="${index}">
+                                        <i class="fas fa-user me-1"></i>${author.author}
+                                    </a>
+                                </td>
+                                <td><span class="badge bg-info">${author.ecosystem}</span></td>
+                                <td><code>${packageName}</code></td>
+                                <td>
+                                    <span class="badge bg-secondary">${repositoryCount} repo${repositoryCount !== 1 ? 's' : ''}</span>
+                                    ${riskBadge}
+                                </td>
+                            </tr>
+                        `;
+                    });
+                    
+                    html += `
+                                    </tbody>
+                                </table>
+                            </div>
                         </div>
                     `;
                 }
@@ -791,6 +1043,41 @@
                         const author = currentAuthors[index];
                         if (author) {
                             showPackageModal(author);
+                        }
+                    });
+                });
+                
+                // Single package authors toggle
+                const toggleElement = document.getElementById('singlePackageAuthorsToggle');
+                if (toggleElement) {
+                    toggleElement.addEventListener('click', function(e) {
+                        e.preventDefault();
+                        const listElement = document.getElementById('singlePackageAuthorsList');
+                        const iconElement = document.getElementById('singlePackageAuthorsToggleIcon');
+                        const textElement = document.getElementById('singlePackageAuthorsToggleText');
+                        
+                        if (listElement.style.display === 'none') {
+                            listElement.style.display = 'block';
+                            iconElement.classList.remove('fa-chevron-down');
+                            iconElement.classList.add('fa-chevron-up');
+                            textElement.textContent = 'Click to hide';
+                        } else {
+                            listElement.style.display = 'none';
+                            iconElement.classList.remove('fa-chevron-up');
+                            iconElement.classList.add('fa-chevron-down');
+                            textElement.textContent = 'Click to show';
+                        }
+                    });
+                }
+                
+                // Single author details links
+                document.querySelectorAll('.single-author-details-link').forEach(link => {
+                    link.addEventListener('click', function(e) {
+                        e.preventDefault();
+                        const index = parseInt(this.getAttribute('data-author-index'));
+                        const author = window.currentSinglePackageAuthors?.[index];
+                        if (author) {
+                            showAuthorDetailsModal(author);
                         }
                     });
                 });
