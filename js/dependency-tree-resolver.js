@@ -12,6 +12,11 @@ class DependencyTreeResolver {
         this.requestDelay = 100; // ms between requests to avoid rate limiting
         this.lastRequestTime = 0;
         
+        // Registry mapping cache for ecosyste.ms
+        this.registryCache = null;  // Cache for registry mappings (purl -> registry name)
+        this.registryPromise = null;  // Promise for fetching registries
+        this.ecosystemsBaseUrl = 'https://packages.ecosyste.ms/api/v1';
+        
         // Registry URL templates
         this.registryAPIs = {
             npm: 'https://registry.npmjs.org/{package}',
@@ -25,8 +30,104 @@ class DependencyTreeResolver {
         
         this.depsDevAPI = 'https://api.deps.dev/v3alpha/systems/{system}/packages/{package}/versions/{version}:dependencies';
         this.ecosystemsAPI = 'https://packages.ecosyste.ms/api/v1/registries/{registry}/packages/{package}';
+        
+        // Initialize registry mappings on startup
+        this.initializeRegistries();
     }
     
+    /**
+     * Initialize registries list - fetch once at startup and cache locally
+     */
+    async initializeRegistries() {
+        if (this.registryCache) {
+            return; // Already initialized
+        }
+
+        // If already fetching, wait for that request
+        if (this.registryPromise) {
+            await this.registryPromise;
+            return;
+        }
+
+        // Start fetching
+        this.registryPromise = (async () => {
+            try {
+                const response = await fetch(`${this.ecosystemsBaseUrl}/registries/`);
+                if (!response.ok) {
+                    console.warn('Failed to fetch registry list from ecosyste.ms');
+                    this.registryCache = this.getDefaultMappings();
+                    return;
+                }
+
+                const registries = await response.json();
+                
+                // Build mapping from purl_type to registry name
+                // Prefer registries with default: true when multiple exist for same purl_type
+                const mapping = {};
+                registries.forEach(registry => {
+                    if (!registry.purl_type || !registry.name) {
+                        return; // Skip registries with missing required fields
+                    }
+                    
+                    const purlType = registry.purl_type.toLowerCase();
+                    
+                    // If we haven't seen this purl_type yet, or if current is default and existing is not
+                    if (!mapping[purlType]) {
+                        mapping[purlType] = registry.name;
+                    } else if (registry.default === true) {
+                        // Prefer default registries when multiple exist for same purl_type
+                        mapping[purlType] = registry.name;
+                    }
+                    // Otherwise keep the existing mapping (first non-default or already default)
+                });
+
+                console.log('✅ Loaded', registries.length, 'registries from ecosyste.ms for DependencyTreeResolver');
+                this.registryCache = mapping;
+            } catch (error) {
+                console.warn('Error fetching registry list:', error.message);
+                this.registryCache = this.getDefaultMappings();
+            } finally {
+                this.registryPromise = null;
+            }
+        })();
+
+        return this.registryPromise;
+    }
+
+    /**
+     * Get default mappings as fallback
+     * Based on https://packages.ecosyste.ms/api/v1/registries
+     */
+    getDefaultMappings() {
+        return {
+            // Map purl types to ecosyste.ms registry names
+            'npm': 'npmjs.org',
+            'pypi': 'pypi.org',
+            'cargo': 'crates.io',
+            'rubygems': 'rubygems.org',
+            'maven': 'repo1.maven.org',  // Fixed: use repo1.maven.org instead of maven.org
+            'golang': 'proxy.golang.org',
+            'go': 'proxy.golang.org'
+        };
+    }
+
+    /**
+     * Get registry name for an ecosystem, using cached mappings
+     */
+    async getRegistryName(ecosystem) {
+        // Ensure registries are initialized
+        await this.initializeRegistries();
+        
+        let normalizedEcosystem = ecosystem.toLowerCase();
+        
+        // Handle aliases: "go" -> "golang" (API uses "golang" as purl_type)
+        if (normalizedEcosystem === 'go') {
+            normalizedEcosystem = 'golang';
+        }
+        
+        return this.registryCache[normalizedEcosystem] || null;
+    }
+
     /**
      * Rate limiting helper
      */
@@ -458,19 +559,10 @@ class DependencyTreeResolver {
         try {
             await this.rateLimit();
             
-            // Map ecosystem to ecosyste.ms registry names
-            const registryMap = {
-                'npm': 'npmjs.org',
-                'pypi': 'pypi.org',
-                'cargo': 'crates.io',
-                'rubygems': 'rubygems.org',
-                'maven': 'maven.org',
-                'go': 'go.dev',
-                'golang': 'go.dev'
-            };
-            
-            const registry = registryMap[ecosystem.toLowerCase()];
+            // Get registry name from cached mappings (fetched from /registries/ endpoint)
+            const registry = await this.getRegistryName(ecosystem);
             if (!registry) {
+                console.log(`      ⚠️  No registry mapping found for ecosystem: ${ecosystem}`);
                 return null;
             }
             
@@ -478,7 +570,7 @@ class DependencyTreeResolver {
                 .replace('{registry}', registry)
                 .replace('{package}', encodeURIComponent(packageName));
             
-            console.log(`      🔍 Querying ecosyste.ms: ${packageName}@${version}`);
+            console.log(`      🔍 Querying ecosyste.ms: ${packageName}@${version} (registry: ${registry})`);
             
             const response = await fetch(url);
             if (!response.ok) {

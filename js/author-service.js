@@ -55,13 +55,24 @@ class AuthorService {
                 this.registryList = registries; // Store full registry objects array
                 
                 // Build mapping from purl_type to registry name for backwards compatibility
+                // Prefer registries with default: true when multiple exist for same purl_type
                 const mapping = {};
                 registries.forEach(registry => {
-                    if (registry.purl_type && registry.name) {
-                        // Registry has purl_type field (e.g., "pypi", "npm", etc.)
-                        const purlType = registry.purl_type.toLowerCase();
+                    if (!registry.purl_type || !registry.name) {
+                        return; // Skip registries with missing required fields
+                    }
+                    
+                    // Registry has purl_type field (e.g., "pypi", "npm", etc.)
+                    const purlType = registry.purl_type.toLowerCase();
+                    
+                    // If we haven't seen this purl_type yet, or if current is default and existing is not
+                    if (!mapping[purlType]) {
+                        mapping[purlType] = registry.name;
+                    } else if (registry.default === true) {
+                        // Prefer default registries when multiple exist for same purl_type
                         mapping[purlType] = registry.name;
                     }
+                    // Otherwise keep the existing mapping (first non-default or already default)
                 });
 
                 console.log('✅ Loaded', registries.length, 'registries from ecosyste.ms');
@@ -92,23 +103,39 @@ class AuthorService {
     
     /**
      * Find registry object by purl type
+     * Prefers registries with default: true when multiple exist for same purl_type
      */
     findRegistryByPurl(purlType) {
         if (!this.registryList || this.registryList.length === 0) {
             return null;
         }
         
-        const normalizedPurl = purlType.toLowerCase();
+        let normalizedPurl = purlType.toLowerCase();
+        
+        // Handle aliases: "go" -> "golang" (API uses "golang" as purl_type)
+        if (normalizedPurl === 'go') {
+            normalizedPurl = 'golang';
+        }
         
         // Search through registry list for matching purl_type
-        // Each registry has a purl_type field (e.g., "pypi", "npm", etc.)
+        // Prefer registries with default: true when multiple exist for same purl_type
+        let foundRegistry = null;
         for (const registry of this.registryList) {
-            if (registry.purl_type && registry.purl_type.toLowerCase() === normalizedPurl) {
-                return registry;
+            if (!registry.purl_type || registry.purl_type.toLowerCase() !== normalizedPurl) {
+                continue;
+            }
+            
+            // If we haven't found one yet, or this is a default registry, use it
+            if (!foundRegistry || registry.default === true) {
+                foundRegistry = registry;
+                // If we found a default registry, we can stop (there should only be one default per purl_type)
+                if (registry.default === true) {
+                    break;
+                }
             }
         }
         
-        return null;
+        return foundRegistry;
     }
 
     /**
