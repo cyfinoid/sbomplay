@@ -25,7 +25,6 @@ class SBOMPlayApp {
             await this.storageManager.init();
             this.initialized = true;
             
-            this.loadSavedToken();
             await this.checkStorageAvailability();
             
             // Only initialize UI elements if they exist on the current page
@@ -307,13 +306,6 @@ class SBOMPlayApp {
         return `${minutes.toString().padStart(2, '0')}:${remainingSeconds.toString().padStart(2, '0')}`;
     }
 
-    /**
-     * Load saved GitHub token
-     */
-    loadSavedToken() {
-        // Don't load token from localStorage - tokens are not persisted
-        // This method is kept for future use if needed
-    }
 
     /**
      * Check if storage is available and show status (async)

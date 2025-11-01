@@ -4,8 +4,7 @@
 class OSVService {
     constructor() {
         this.baseUrl = 'https://api.osv.dev';
-        this.cache = new Map(); // Simple in-memory cache
-        this.cacheTimeout = 5 * 60 * 1000; // 5 minutes
+        // Cache is handled by unified cacheManager
     }
 
     /**
@@ -44,14 +43,7 @@ class OSVService {
             }
         }
         
-        // Check in-memory cache (legacy)
-        if (this.cache.has(cacheKey)) {
-            const cached = this.cache.get(cacheKey);
-            if (Date.now() - cached.timestamp < this.cacheTimeout) {
-                console.log(`📦 OSV: Using in-memory cache for ${cacheKey}`);
-                return cached.data;
-            }
-        }
+        // In-memory cache is handled by unified cacheManager
 
         try {
             console.log(`🔍 OSV: Querying vulnerabilities for ${cleanName}@${cleanVersion}`);
@@ -89,12 +81,6 @@ class OSVService {
             if (window.cacheManager) {
                 await window.cacheManager.saveVulnerability(cacheKey, data);
             }
-
-            // Also cache in memory (legacy)
-            this.cache.set(cacheKey, {
-                data: data,
-                timestamp: Date.now()
-            });
 
             // Save to centralized storage (legacy)
             if (window.storageManager) {
@@ -194,173 +180,46 @@ class OSVService {
 
     /**
      * Map ecosystem names to OSV-compatible names
+     * Uses shared EcosystemMapper for consistency
      */
     mapEcosystemToOSV(ecosystem) {
-        if (!ecosystem) return null;
-        
-        const ecosystemMap = {
-            'golang': 'Go',
-            'go': 'Go',
-            'pypi': 'PyPI',
-            'npm': 'npm',
-            'maven': 'Maven',
-            'nuget': 'NuGet',
-            'cargo': 'cargo',
-            'composer': 'Packagist',
-            'githubactions': 'GitHub Actions',
-            'github': 'GitHub',
-            'docker': 'Docker',
-            'helm': 'Helm',
-            'terraform': 'Terraform',
-            'rubygems': 'RubyGems'
-        };
-        
-        return ecosystemMap[ecosystem.toLowerCase()] || ecosystem;
+        if (window.ecosystemMapper) {
+            return window.ecosystemMapper.mapToOSV(ecosystem) || ecosystem;
+        }
+        // Fallback if EcosystemMapper not available
+        return ecosystem;
     }
 
     /**
      * Extract ecosystem from PURL or package data
      * Using only valid OSV ecosystem values
+     * Uses shared EcosystemMapper for consistency
      */
     extractEcosystemFromPurl(pkg) {
         if (!pkg) return null;
         
-        // Try to extract from PURL first (most reliable)
-        if (pkg.externalRefs) {
-            const purlRef = pkg.externalRefs.find(ref => ref.referenceType === 'purl');
-            if (purlRef && purlRef.referenceLocator) {
-                const purl = purlRef.referenceLocator;
-                const purlParts = purl.split('/');
-                
-                if (purlParts.length >= 2) {
-                    const ecosystem = purlParts[0].replace('pkg:', '');
-                    
-                    // Map PURL ecosystem to OSV ecosystem
-                    // Based on OSV API documentation: https://ossf.github.io/osv-schema/#affectedpackage-field
-                    const ecosystemMap = {
-                        'pypi': 'PyPI',
-                        'npm': 'npm', 
-                        'maven': 'Maven',
-                        'nuget': 'NuGet',
-                        'cargo': 'cargo',
-                        'composer': 'Packagist',
-                        'go': 'Go',
-                        'golang': 'Go',  // Handle golang ecosystem from SBOM
-                        'githubactions': 'GitHub Actions',
-                        'github': 'GitHub',
-                        'docker': 'Docker',
-                        'helm': 'Helm',
-                        'terraform': 'Terraform',
-                        'rubygems': 'RubyGems'
-                    };
-                    
-                    const mappedEcosystem = ecosystemMap[ecosystem];
-                    if (mappedEcosystem) {
-                        console.log(`🔍 OSV: Extracted ecosystem '${mappedEcosystem}' from PURL for ${pkg.name}`);
-                        return mappedEcosystem;
-                    } else {
-                        console.log(`⚠️ OSV: Unknown ecosystem '${ecosystem}' from PURL for ${pkg.name}`);
-                    }
-                }
+        // Use shared EcosystemMapper if available
+        if (window.ecosystemMapper) {
+            const mapped = window.ecosystemMapper.extractEcosystemFromPurl(pkg);
+            if (mapped) {
+                return mapped;
             }
         }
         
-        // Try to extract ecosystem from SPDXID as fallback
-        if (pkg.SPDXID) {
-            const spdxMatch = pkg.SPDXID.match(/SPDXRef-([^-]+)-/);
-            if (spdxMatch) {
-                const ecosystem = spdxMatch[1];
-                const ecosystemMap = {
-                    'pypi': 'PyPI',
-                    'npm': 'npm', 
-                    'maven': 'Maven',
-                    'nuget': 'NuGet',
-                    'cargo': 'cargo',
-                    'composer': 'Packagist',
-                    'go': 'Go',
-                    'githubactions': 'GitHub Actions',
-                    'github': 'GitHub',
-                    'docker': 'Docker',
-                    'helm': 'Helm',
-                    'terraform': 'Terraform',
-                    'rubygems': 'RubyGems'
-                };
-                
-                const mappedEcosystem = ecosystemMap[ecosystem];
-                if (mappedEcosystem) {
-                    console.log(`🔍 OSV: Extracted ecosystem '${mappedEcosystem}' from SPDXID for ${pkg.name}`);
-                    return mappedEcosystem;
-                }
-            }
-        }
-        
-        // Only fallback to name-based detection if no PURL or SPDXID is available
+        // Fallback to name-based detection if no PURL or SPDXID is available
         console.log(`⚠️ OSV: No PURL or SPDXID found for ${pkg.name}, falling back to name-based detection`);
         return this.detectEcosystemFromName(pkg.name);
     }
     
     /**
      * Detect ecosystem based on package name (fallback method)
-     * Using only valid OSV ecosystem values - conservative but practical approach
+     * Uses shared EcosystemMapper for consistency
      */
     detectEcosystemFromName(packageName) {
-        if (!packageName) return null;
-        
-        const name = packageName.toLowerCase();
-        
-        // NPM packages with @ prefix
-        if (name.startsWith('@')) {
-            return 'npm';
+        if (window.ecosystemMapper) {
+            return window.ecosystemMapper.detectFromName(packageName);
         }
-        
-        // Maven packages with group:artifact format
-        if (name.includes(':')) {
-            return 'Maven';
-        }
-        
-        // Go modules with clear domain patterns
-        if (name.startsWith('github.com/') || name.startsWith('golang.org/')) {
-            return 'Go';
-        }
-        
-        // GitHub Actions packages
-        if (name.startsWith('actions/') || name.startsWith('github/')) {
-            return 'GitHub Actions';
-        }
-        
-        // Common NPM packages (without @ prefix)
-        const npmPackages = [
-            'lodash', 'react', 'axios', 'moment', 'jquery', 'express', 'vue', 'angular',
-            'bootstrap', 'webpack', 'babel', 'eslint', 'prettier', 'jest', 'mocha',
-            'chai', 'sinon', 'cypress', 'typescript', 'node', 'npm', 'yarn', 'socket.io',
-            'underscore', 'grunt', 'node-sass'
-        ];
-        if (npmPackages.includes(name)) {
-            return 'npm';
-        }
-        
-        // Common Python packages
-        const pypiPackages = [
-            'requests', 'flask', 'django', 'numpy', 'pandas', 'matplotlib', 'scipy',
-            'pillow', 'sqlalchemy', 'jinja2', 'werkzeug', 'click', 'pyyaml',
-            'beautifulsoup4', 'lxml', 'pytest', 'pytest-cov', 'black', 'flake8',
-            'gitpython', 'gitdb', 'smmap', 'pynacl', 'itsdangerous'
-        ];
-        if (pypiPackages.includes(name)) {
-            return 'PyPI';
-        }
-        
-        // Common Ruby gems
-        const rubyGems = [
-            'rails', 'sinatra', 'rack', 'bundler', 'rake', 'rspec', 'capybara',
-            'jekyll', 'octokit', 'nokogiri', 'faraday', 'addressable', 'ffi',
-            'activesupport', 'typhoeus', 'yell', 'coffee-script', 'fast-stemmer'
-        ];
-        if (rubyGems.includes(name)) {
-            return 'RubyGems';
-        }
-        
-        // For everything else, return null to avoid false positives
+        // Fallback if EcosystemMapper not available
         return null;
     }
 
@@ -827,201 +686,26 @@ class OSVService {
 
     /**
      * Clear cache
+     * Uses unified cacheManager
      */
     clearCache() {
-        this.cache.clear();
-        console.log('🗑️ OSV: Cache cleared');
-    }
-
-    /**
-     * Get cache statistics
-     */
-    getCacheStats() {
-        return {
-            size: this.cache.size,
-            entries: Array.from(this.cache.keys())
-        };
-    }
-
-    /**
-     * Test ecosystem detection with sample packages
-     */
-    testEcosystemDetection() {
-        const testPackages = [
-            // NPM packages
-            'lodash',
-            '@angular/core',
-            'react',
-            'axios',
-            'moment',
-            'jquery',
-            'express',
-            'vue',
-            'bootstrap',
-            'webpack',
-            // Python packages
-            'requests',
-            'flask',
-            'django',
-            'numpy',
-            'pandas',
-            'matplotlib',
-            'beautifulsoup4',
-            // Java/Maven packages
-            'org.springframework.boot:spring-boot-starter-web',
-            'com.google.guava:guava',
-            'io.netty:netty-all',
-            // Go packages
-            'github.com/gorilla/mux',
-            'golang.org/x/text',
-            'go.uber.org/zap',
-            // Ruby gems
-            'rails',
-            'sinatra',
-            'rack',
-            'bundler',
-            'rspec'
-        ];
-
-        console.log('🧪 Testing name-based ecosystem detection:');
-        testPackages.forEach(pkg => {
-            const ecosystem = this.detectEcosystemFromName(pkg);
-            console.log(`  ${pkg} -> ${ecosystem || 'null'}`);
-        });
-    }
-
-    /**
-     * Test vulnerability details with external links
-     */
-    testVulnerabilityDetails() {
-        // Sample vulnerability data with external links
-        const sampleVulnerabilities = [
-            {
-                id: "GHSA-1234-5678-9abc",
-                summary: "Cross-site scripting (XSS) vulnerability in example package",
-                details: "A cross-site scripting vulnerability was found in the example package that allows attackers to inject arbitrary web scripts or HTML via a crafted payload.",
-                severity: [
-                    {
-                        type: "CVSS_V3",
-                        score: "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H"
-                    }
-                ],
-                database_specific: {
-                    severity: "HIGH"
-                },
-                published: "2023-01-15T10:00:00Z",
-                modified: "2023-01-20T14:30:00Z",
-                references: [
-                    {
-                        type: "ADVISORY",
-                        url: "https://github.com/advisories/GHSA-1234-5678-9abc"
-                    },
-                    {
-                        type: "REPORT",
-                        url: "https://nvd.nist.gov/vuln/detail/CVE-2023-12345"
-                    },
-                    {
-                        type: "FIX",
-                        url: "https://github.com/example/package/commit/abc123def456"
-                    },
-                    {
-                        type: "PACKAGE",
-                        url: "https://pypi.org/project/example-package/"
-                    }
-                ]
-            },
-            {
-                id: "GHSA-9876-5432-def0",
-                summary: "SQL injection vulnerability in database component",
-                details: "A SQL injection vulnerability exists in the database component that allows attackers to execute arbitrary SQL commands.",
-                severity: [
-                    {
-                        type: "CVSS_V3",
-                        score: "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:L/I:L/A:N"
-                    }
-                ],
-                database_specific: {
-                    severity: "MEDIUM"
-                },
-                published: "2023-02-10T09:00:00Z",
-                modified: "2023-02-15T16:45:00Z",
-                references: [
-                    {
-                        type: "ADVISORY",
-                        url: "https://github.com/advisories/GHSA-9876-5432-def0"
-                    },
-                    {
-                        type: "REPORT",
-                        url: "https://nvd.nist.gov/vuln/detail/CVE-2023-67890"
-                    },
-                    {
-                        type: "FIX",
-                        url: "https://github.com/example/database/commit/def456ghi789"
-                    }
-                ]
-            }
-        ];
-
-        // Show the vulnerability details modal with sample data
-        if (window.viewManager) {
-            window.viewManager.showVulnerabilityDetails('example-package', '1.0.0', sampleVulnerabilities);
-        } else {
-            console.log('Sample vulnerability data with external links:', sampleVulnerabilities);
+        if (window.cacheManager) {
+            window.cacheManager.clearCache('vulnerabilities');
+            console.log('🗑️ OSV: Cache cleared via cacheManager');
         }
     }
 
     /**
-     * Test PURL-based ecosystem detection with sample SBOM packages
+     * Get cache statistics
+     * Note: Cache stats are now managed by unified cacheManager
      */
-    testPurlEcosystemDetection() {
-        const testPackages = [
-            // PyPI packages
-            {
-                name: 'flask',
-                externalRefs: [{
-                    referenceType: 'purl',
-                    referenceLocator: 'pkg:pypi/flask@1.1.2'
-                }]
-            },
-            {
-                name: 'requests',
-                externalRefs: [{
-                    referenceType: 'purl',
-                    referenceLocator: 'pkg:pypi/requests@2.25.1'
-                }]
-            },
-            // NPM packages
-            {
-                name: 'lodash',
-                externalRefs: [{
-                    referenceType: 'purl',
-                    referenceLocator: 'pkg:npm/lodash@4.17.21'
-                }]
-            },
-            // Maven packages
-            {
-                name: 'org.springframework.boot:spring-boot-starter-web',
-                externalRefs: [{
-                    referenceType: 'purl',
-                    referenceLocator: 'pkg:maven/org.springframework.boot/spring-boot-starter-web@2.5.0'
-                }]
-            },
-            // GitHub Actions
-            {
-                name: 'actions/checkout',
-                externalRefs: [{
-                    referenceType: 'purl',
-                    referenceLocator: 'pkg:githubactions/actions/checkout@4'
-                }]
-            }
-        ];
-
-        console.log('🧪 Testing PURL-based ecosystem detection:');
-        testPackages.forEach(pkg => {
-            const ecosystem = this.extractEcosystemFromPurl(pkg);
-            console.log(`  ${pkg.name} (${pkg.externalRefs[0].referenceLocator}) -> ${ecosystem || 'null'}`);
-        });
+    getCacheStats() {
+        // Cache stats are handled by unified cacheManager
+        return {
+            message: 'Cache stats available via window.cacheManager'
+        };
     }
+
 }
 
 // Export for use in other modules

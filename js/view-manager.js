@@ -3066,14 +3066,15 @@ class ViewManager {
      * Build dependency path for a transitive dependency
      */
     buildDependencyPath(repo, targetDep, allDependencies) {
-        const normalizeVersion = (version) => {
+        // Use shared normalizeVersion utility if available, otherwise inline fallback
+        const normalizeVersion = window.normalizeVersion || ((version) => {
             if (!version) return '';
             return version.trim()
                 .replace(/^[><=^~]+\s*/, '')
                 .replace(/\s*-\s*[\d.]+.*$/, '')
                 .replace(/\s*\|\|.*$/, '')
                 .replace(/\s+/g, '');
-        };
+        });
 
         // Build SPDXID to package mapping
         const spdxToPackage = new Map();
@@ -3343,9 +3344,6 @@ class ViewManager {
                     </button>
                     <button class="btn btn-warning btn-sm" onclick="viewManager.clearVulnerabilityCache()">
                         <i class="fas fa-trash"></i> Clear Cache
-                    </button>
-                    <button class="btn btn-success btn-sm" onclick="window.osvService.testVulnerabilityDetails()">
-                        <i class="fas fa-eye"></i> Test External Links
                     </button>
                 </div>
                 <div class="alert alert-info">

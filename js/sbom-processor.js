@@ -53,14 +53,25 @@ class SBOMProcessor {
                 if (purlParts.length >= 2) {
                     let ecosystem = purlParts[0].replace('pkg:', '');
                     
-                    // Map ecosystem names to OSV-compatible names
-                    const ecosystemMap = {
-                        'golang': 'go',
-                        'go': 'go'
-                    };
+                    // Normalize ecosystem using shared EcosystemMapper
+                    if (window.ecosystemMapper) {
+                        ecosystem = window.ecosystemMapper.normalizeEcosystem(ecosystem);
+                    } else {
+                        // Fallback: handle common aliases
+                        const ecosystemMap = {
+                            'golang': 'go',
+                            'go': 'go'
+                        };
+                        ecosystem = ecosystemMap[ecosystem] || ecosystem;
+                    }
                     
-                    ecosystem = ecosystemMap[ecosystem] || ecosystem;
-                    const typeInfo = this.purlTypeMap[ecosystem];
+                    // Get category info using shared EcosystemMapper if available
+                    let typeInfo;
+                    if (window.ecosystemMapper) {
+                        typeInfo = window.ecosystemMapper.getCategoryInfo(ecosystem) || this.purlTypeMap[ecosystem];
+                    } else {
+                        typeInfo = this.purlTypeMap[ecosystem];
+                    }
                     
                     if (typeInfo) {
                         category = {
@@ -245,25 +256,19 @@ class SBOMProcessor {
 
     /**
      * Normalize version string by removing comparison operators
-     * Converts ">= 25.1.0" to "25.1.0", "^1.2.3" to "1.2.3", etc.
+     * Uses shared VersionUtils for consistency
      */
     normalizeVersion(version) {
-        if (!version) return version;
-        
-        // Remove common version comparison operators and ranges
-        // Handles: >=, <=, >, <, ^, ~, =, etc.
-        let normalized = version.trim()
-            .replace(/^[><=^~]+\s*/, '')  // Remove prefix operators with optional space
-            .replace(/\s*-\s*[\d.]+.*$/, '')  // Remove range suffix (e.g., "1.0.0 - 2.0.0" -> "1.0.0")
-            .replace(/\s*\|\|.*$/, '')  // Remove OR alternatives (e.g., "1.0.0 || 2.0.0" -> "1.0.0")
-            .trim();
-        
-        // If the normalized version is empty or doesn't look like a version, return original
-        if (!normalized || !/[\d.]/.test(normalized)) {
-            return version;
+        if (window.normalizeVersion) {
+            return window.normalizeVersion(version);
         }
-        
-        return normalized;
+        // Fallback if VersionUtils not available
+        if (!version) return version;
+        return version.trim()
+            .replace(/^[><=^~]+\s*/, '')
+            .replace(/\s*-\s*[\d.]+.*$/, '')
+            .replace(/\s*\|\|.*$/, '')
+            .trim();
     }
 
     /**

@@ -4,12 +4,7 @@
  */
 class AuthorService {
     constructor() {
-        this.ecosystemsBaseUrl = 'https://packages.ecosyste.ms/api/v1';
         this.depsDevBaseUrl = 'https://api.deps.dev/v3alpha';
-        this.cache = new Map();
-        this.registryCache = null;  // Cache for registry mappings (purl -> registry name)
-        this.registryList = null;   // Cache for full registry objects array
-        this.registryPromise = null;  // Promise for fetching registries
         
         // Registry URLs for direct access
         this.registryUrls = {
@@ -22,71 +17,10 @@ class AuthorService {
             'gem': 'https://rubygems.org/api/v1/gems'
         };
         
-        // Initialize registry list on startup
-        this.initializeRegistries();
-    }
-
-    /**
-     * Initialize registries list - fetch once at startup and cache locally
-     */
-    async initializeRegistries() {
-        if (this.registryList) {
-            return; // Already initialized
+        // Initialize registry list on startup (using shared RegistryManager)
+        if (window.registryManager) {
+            window.registryManager.initializeRegistries();
         }
-
-        // If already fetching, wait for that request
-        if (this.registryPromise) {
-            await this.registryPromise;
-            return;
-        }
-
-        // Start fetching
-        this.registryPromise = (async () => {
-            try {
-                const response = await fetch(`${this.ecosystemsBaseUrl}/registries/`);
-                if (!response.ok) {
-                    console.warn('Failed to fetch registry list from ecosyste.ms');
-                    this.registryList = [];
-                    this.registryCache = this.getDefaultMappings();
-                    return;
-                }
-
-                const registries = await response.json();
-                this.registryList = registries; // Store full registry objects array
-                
-                // Build mapping from purl_type to registry name for backwards compatibility
-                // Prefer registries with default: true when multiple exist for same purl_type
-                const mapping = {};
-                registries.forEach(registry => {
-                    if (!registry.purl_type || !registry.name) {
-                        return; // Skip registries with missing required fields
-                    }
-                    
-                    // Registry has purl_type field (e.g., "pypi", "npm", etc.)
-                    const purlType = registry.purl_type.toLowerCase();
-                    
-                    // If we haven't seen this purl_type yet, or if current is default and existing is not
-                    if (!mapping[purlType]) {
-                        mapping[purlType] = registry.name;
-                    } else if (registry.default === true) {
-                        // Prefer default registries when multiple exist for same purl_type
-                        mapping[purlType] = registry.name;
-                    }
-                    // Otherwise keep the existing mapping (first non-default or already default)
-                });
-
-                console.log('✅ Loaded', registries.length, 'registries from ecosyste.ms');
-                this.registryCache = mapping;
-            } catch (error) {
-                console.warn('Error fetching registry list:', error.message);
-                this.registryList = [];
-                this.registryCache = this.getDefaultMappings();
-            } finally {
-                this.registryPromise = null;
-            }
-        })();
-
-        return this.registryPromise;
     }
 
     /**
@@ -94,11 +28,10 @@ class AuthorService {
      * This provides the authoritative list of registry names and their purl types
      */
     async fetchRegistryMappings() {
-        // Ensure registries are loaded
-        await this.initializeRegistries();
-        
-        // Return cached mapping
-        return this.registryCache || this.getDefaultMappings();
+        if (!window.registryManager) {
+            return this.getDefaultMappings();
+        }
+        return await window.registryManager.fetchRegistryMappings();
     }
     
     /**
@@ -106,36 +39,10 @@ class AuthorService {
      * Prefers registries with default: true when multiple exist for same purl_type
      */
     findRegistryByPurl(purlType) {
-        if (!this.registryList || this.registryList.length === 0) {
+        if (!window.registryManager) {
             return null;
         }
-        
-        let normalizedPurl = purlType.toLowerCase();
-        
-        // Handle aliases: "go" -> "golang" (API uses "golang" as purl_type)
-        if (normalizedPurl === 'go') {
-            normalizedPurl = 'golang';
-        }
-        
-        // Search through registry list for matching purl_type
-        // Prefer registries with default: true when multiple exist for same purl_type
-        let foundRegistry = null;
-        for (const registry of this.registryList) {
-            if (!registry.purl_type || registry.purl_type.toLowerCase() !== normalizedPurl) {
-                continue;
-            }
-            
-            // If we haven't found one yet, or this is a default registry, use it
-            if (!foundRegistry || registry.default === true) {
-                foundRegistry = registry;
-                // If we found a default registry, we can stop (there should only be one default per purl_type)
-                if (registry.default === true) {
-                    break;
-                }
-            }
-        }
-        
-        return foundRegistry;
+        return window.registryManager.findRegistryByPurl(purlType);
     }
 
     /**
@@ -143,8 +50,11 @@ class AuthorService {
      * Based on https://packages.ecosyste.ms/api/v1/registries
      */
     getDefaultMappings() {
+        if (window.registryManager) {
+            return window.registryManager.getDefaultMappings();
+        }
+        // Fallback if registryManager not available
         return {
-            // Map purl types to ecosyste.ms registry names
             'npm': 'npmjs.org',
             'pypi': 'pypi.org',
             'cargo': 'crates.io',
@@ -193,15 +103,9 @@ class AuthorService {
                 
                 const result = funding ? { authors, funding } : authors;
                 
-                // Also cache in memory for faster access
-                this.cache.set(packageKey, result);
+                // cacheManager already handles in-memory caching
                 return result;
             }
-        }
-        
-        // Check memory cache (legacy)
-        if (this.cache.has(packageKey)) {
-            return this.cache.get(packageKey);
         }
         
         // Check IndexedDB cache (legacy format for backward compatibility)
@@ -210,7 +114,7 @@ class AuthorService {
             const cached = await this.getCachedAuthors(packageKey);
             if (cached && this.isCacheValid(cached.timestamp)) {
                 const result = cached.data || cached.authors;
-                this.cache.set(packageKey, result);
+                // cacheManager already handles caching
                 return result;
             }
         }
@@ -282,7 +186,7 @@ class AuthorService {
         
         // Return format: {authors, funding} where funding is packageFunding (for backward compatibility)
         const result = funding ? { authors, funding } : authors;
-        this.cache.set(packageKey, result);
+        // cacheManager already handles caching via saveAuthorsToCache
         return result;
     }
 
@@ -626,7 +530,9 @@ class AuthorService {
     async fetchFromEcosystems(ecosystem, packageName) {
         try {
             // Ensure registries are loaded
-            await this.initializeRegistries();
+            if (window.registryManager) {
+                await window.registryManager.initializeRegistries();
+            }
             
             // Find the registry object by purl type (ecosystem matches purl_type field)
             const registry = this.findRegistryByPurl(ecosystem);
