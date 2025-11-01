@@ -13,6 +13,8 @@ class StorageManager {
     async init() {
         if (!this.initialized) {
             await this.indexedDB.initDB();
+            // Expose indexedDBManager globally for cache access
+            window.indexedDBManager = this.indexedDB;
             this.initialized = true;
         }
         return this.initialized;

@@ -22,16 +22,29 @@ class OSVService {
         const cleanVersion = version.trim();
         const cacheKey = `${cleanName}@${cleanVersion}`;
         
-        // Check centralized storage first
+        // Check unified cache first (NEW ARCHITECTURE)
+        if (window.cacheManager) {
+            const cached = await window.cacheManager.getVulnerability(cacheKey);
+            if (cached) {
+                console.log(`📦 OSV: Using unified cache for ${cacheKey}`);
+                return cached;
+            }
+        }
+        
+        // Check centralized storage (legacy)
         if (window.storageManager && window.storageManager.hasVulnerabilityData(cacheKey)) {
             const storedData = window.storageManager.getVulnerabilityDataForPackage(cacheKey);
             if (storedData && storedData.data) {
                 console.log(`📦 OSV: Using centralized storage for ${cacheKey}`);
+                // Also save to unified cache
+                if (window.cacheManager) {
+                    await window.cacheManager.saveVulnerability(cacheKey, storedData.data);
+                }
                 return storedData.data;
             }
         }
         
-        // Check in-memory cache second
+        // Check in-memory cache (legacy)
         if (this.cache.has(cacheKey)) {
             const cached = this.cache.get(cacheKey);
             if (Date.now() - cached.timestamp < this.cacheTimeout) {
@@ -72,13 +85,18 @@ class OSVService {
 
             const data = await response.json();
             
-            // Cache the result in memory
+            // Save to unified cache (NEW ARCHITECTURE)
+            if (window.cacheManager) {
+                await window.cacheManager.saveVulnerability(cacheKey, data);
+            }
+
+            // Also cache in memory (legacy)
             this.cache.set(cacheKey, {
                 data: data,
                 timestamp: Date.now()
             });
 
-            // Save to centralized storage
+            // Save to centralized storage (legacy)
             if (window.storageManager) {
                 window.storageManager.saveVulnerabilityData(cacheKey, {
                     data: data,
@@ -515,12 +533,21 @@ class OSVService {
 
         for (let index = 0; index < dependencies.length; index++) {
             const dep = dependencies[index];
-            const vulnResult = results[index];
+            const vulnResult = results[index] || { vulns: [] };
             const vulnerabilities = vulnResult?.vulns || [];
             
-            // Save to centralized storage if vulnerabilities found
-            if (vulnerabilities.length > 0 && window.storageManager) {
-                const cacheKey = `${dep.name}@${dep.version}`;
+            // ALWAYS save to cache immediately (even if no vulnerabilities found)
+            // This ensures incremental storage during analysis
+            const cacheKey = `${dep.name}@${dep.version}`;
+            
+            // Save to unified cache (NEW ARCHITECTURE) - saves immediately for each entry
+            if (window.cacheManager) {
+                await window.cacheManager.saveVulnerability(cacheKey, vulnResult);
+                console.log(`💾 OSV: Saved vulnerability data to cache: ${cacheKey} (${vulnerabilities.length} vulns)`);
+            }
+            
+            // Also save to legacy centralized storage (for backward compatibility)
+            if (window.storageManager) {
                 window.storageManager.saveVulnerabilityData(cacheKey, {
                     data: vulnResult,
                     packageName: dep.name,

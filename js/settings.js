@@ -12,10 +12,11 @@ class SettingsApp {
      * Initialize settings page
      */
     async initializeSettings() {
-        await this.storageManager.init();
+        await this.storageManager.init();  // This will initialize IndexedDB and expose window.indexedDBManager
         this.loadSavedToken();
         await this.showStorageStatus();
         await this.displayOrganizationsOverview();
+        await this.showCacheStats();  // Load cache statistics
         this.loadRateLimitInfo();
         this.setupEventListeners();
     }
@@ -497,6 +498,130 @@ class SettingsApp {
             } else {
                 this.showAlert(`Failed to remove data for ${name}`, 'danger');
             }
+        }
+    }
+
+    /**
+     * Show cache statistics
+     */
+    async showCacheStats() {
+        const statsElement = document.getElementById('cacheStats');
+        if (!statsElement) return;
+
+        try {
+            // Ensure database is initialized
+            if (!this.storageManager.initialized) {
+                await this.storageManager.init();
+            }
+
+            // Try to get indexedDBManager from storageManager if not globally available
+            const dbManager = window.indexedDBManager || this.storageManager.indexedDB;
+            
+            if (!dbManager || !dbManager.db) {
+                statsElement.innerHTML = '<p class="text-muted">Cache not available. Database not initialized.</p>';
+                console.warn('IndexedDB not available. dbManager:', dbManager, 'db:', dbManager?.db);
+                return;
+            }
+
+            const stats = await dbManager.getCacheStats();
+            if (!stats) {
+                statsElement.innerHTML = '<p class="text-muted">Failed to load cache statistics.</p>';
+                return;
+            }
+
+            statsElement.innerHTML = `
+                <div class="row">
+                    <div class="col-md-6">
+                        <h6>Entity Caches</h6>
+                        <ul class="list-unstyled small">
+                            <li><i class="fas fa-users me-2"></i><strong>Authors:</strong> ${stats.authorEntities.toLocaleString()} entities</li>
+                            <li><i class="fas fa-box me-2"></i><strong>Packages:</strong> ${stats.packages.toLocaleString()} packages</li>
+                            <li><i class="fas fa-shield-alt me-2"></i><strong>Vulnerabilities:</strong> ${stats.vulnerabilities.toLocaleString()} entries</li>
+                            <li><i class="fas fa-link me-2"></i><strong>Relationships:</strong> ${stats.packageAuthors.toLocaleString()} links</li>
+                        </ul>
+                    </div>
+                    <div class="col-md-6">
+                        <h6>Analysis Data</h6>
+                        <ul class="list-unstyled small">
+                            <li><i class="fas fa-building me-2"></i><strong>Organizations:</strong> ${stats.organizations.toLocaleString()} analyses</li>
+                            <li><i class="fas fa-code-branch me-2"></i><strong>Repositories:</strong> ${stats.repositories.toLocaleString()} analyses</li>
+                        </ul>
+                    </div>
+                </div>
+            `;
+        } catch (error) {
+            console.error('Failed to load cache stats:', error);
+            statsElement.innerHTML = '<p class="text-danger">Failed to load cache statistics.</p>';
+        }
+    }
+
+    /**
+     * Clear specific cache
+     */
+    async clearCache(cacheType) {
+        const cacheTypeNames = {
+            'authors': 'Authors',
+            'packages': 'Packages',
+            'vulnerabilities': 'Vulnerabilities',
+            'all': 'All Entity Caches'
+        };
+
+        const name = cacheTypeNames[cacheType] || cacheType;
+        if (!confirm(`Are you sure you want to clear the ${name} cache? This will remove cached data but keep analysis data intact.`)) {
+            return;
+        }
+
+        try {
+            if (window.cacheManager) {
+                const success = await window.cacheManager.clearCache(cacheType);
+                if (success) {
+                    this.showAlert(`${name} cache cleared successfully!`, 'success');
+                    await this.showCacheStats();  // Refresh stats
+                } else {
+                    this.showAlert(`Failed to clear ${name} cache`, 'danger');
+                }
+            } else {
+                this.showAlert('Cache manager not available', 'warning');
+            }
+        } catch (error) {
+            console.error('Clear cache failed:', error);
+            this.showAlert(`Failed to clear ${name} cache: ${error.message}`, 'danger');
+        }
+    }
+
+    /**
+     * Clear only analysis data (keep entity caches)
+     */
+    async clearAnalysisData() {
+        if (!confirm('Are you sure you want to clear all analysis data? This will remove all organization/repository analyses but keep the global entity caches (authors, packages, vulnerabilities) intact. You can re-analyze faster using cached data.')) {
+            return;
+        }
+
+        try {
+            // Ensure database is initialized
+            if (!this.storageManager.initialized) {
+                await this.storageManager.init();
+            }
+
+            // Try to get indexedDBManager from storageManager if not globally available
+            const dbManager = window.indexedDBManager || this.storageManager.indexedDB;
+            
+            if (dbManager && dbManager.db) {
+                const success = await dbManager.clearAnalysisData();
+                if (success) {
+                    this.showAlert('Analysis data cleared successfully! Entity caches remain intact.', 'success');
+                    await this.showStorageStatus();  // Refresh storage status
+                    await this.displayOrganizationsOverview();  // Refresh organizations list
+                    await this.showCacheStats();  // Refresh cache stats
+                } else {
+                    this.showAlert('Failed to clear analysis data', 'danger');
+                }
+            } else {
+                this.showAlert('Database not available', 'warning');
+            }
+        } catch (error) {
+            console.error('Clear analysis data failed:', error);
+            this.showAlert(`Failed to clear analysis data: ${error.message}`, 'danger');
         }
     }
 

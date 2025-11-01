@@ -4,7 +4,7 @@
 class IndexedDBManager {
     constructor() {
         this.dbName = 'sbomplay_db';
-        this.version = 2;
+        this.version = 3; // Bump version for new normalized schema
         this.db = null;
     }
 
@@ -62,6 +62,33 @@ class IndexedDBManager {
                     authorStore.createIndex('author', 'author', { unique: false });
                     authorStore.createIndex('timestamp', 'timestamp', { unique: false });
                     console.log('✅ Created authors object store');
+                }
+
+                // NEW: Global package metadata cache
+                if (!db.objectStoreNames.contains('packages')) {
+                    const packageStore = db.createObjectStore('packages', { keyPath: 'packageKey' });
+                    packageStore.createIndex('ecosystem', 'ecosystem', { unique: false });
+                    packageStore.createIndex('name', 'name', { unique: false });
+                    packageStore.createIndex('timestamp', 'timestamp', { unique: false });
+                    console.log('✅ Created packages object store');
+                }
+
+                // NEW: Junction table for package-author relationships
+                if (!db.objectStoreNames.contains('packageAuthors')) {
+                    const pkgAuthorStore = db.createObjectStore('packageAuthors', { keyPath: 'packageAuthorKey' });
+                    pkgAuthorStore.createIndex('packageKey', 'packageKey', { unique: false });
+                    pkgAuthorStore.createIndex('authorKey', 'authorKey', { unique: false });
+                    pkgAuthorStore.createIndex('timestamp', 'timestamp', { unique: false });
+                    console.log('✅ Created packageAuthors object store');
+                }
+
+                // NEW: Global author entity cache (by authorKey, not packageKey)
+                if (!db.objectStoreNames.contains('authorEntities')) {
+                    const authorEntityStore = db.createObjectStore('authorEntities', { keyPath: 'authorKey' });
+                    authorEntityStore.createIndex('ecosystem', 'ecosystem', { unique: false });
+                    authorEntityStore.createIndex('author', 'author', { unique: false });
+                    authorEntityStore.createIndex('timestamp', 'timestamp', { unique: false });
+                    console.log('✅ Created authorEntities object store');
                 }
             };
         });
@@ -258,7 +285,8 @@ class IndexedDBManager {
                 return false;
             }
             const transaction = this.db.transaction(
-                ['organizations', 'repositories', 'vulnerabilities', 'metadata'], 
+                ['organizations', 'repositories', 'vulnerabilities', 'metadata', 'authors', 
+                 'packages', 'packageAuthors', 'authorEntities'], 
                 'readwrite'
             );
             
@@ -266,13 +294,267 @@ class IndexedDBManager {
                 this._promisifyRequest(transaction.objectStore('organizations').clear()),
                 this._promisifyRequest(transaction.objectStore('repositories').clear()),
                 this._promisifyRequest(transaction.objectStore('vulnerabilities').clear()),
-                this._promisifyRequest(transaction.objectStore('metadata').clear())
+                this._promisifyRequest(transaction.objectStore('metadata').clear()),
+                this._promisifyRequest(transaction.objectStore('authors').clear()),
+                this._promisifyRequest(transaction.objectStore('packages').clear()),
+                this._promisifyRequest(transaction.objectStore('packageAuthors').clear()),
+                this._promisifyRequest(transaction.objectStore('authorEntities').clear())
             ]);
             
             console.log('✅ Cleared all IndexedDB data');
             return true;
         } catch (error) {
             console.error('❌ Failed to clear all data:', error);
+            return false;
+        }
+    }
+
+    /**
+     * ============================================
+     * GLOBAL ENTITY CACHE METHODS (New Architecture)
+     * ============================================
+     */
+
+    /**
+     * Save package metadata to global cache
+     */
+    async savePackage(packageKey, packageData) {
+        try {
+            if (!this.db) {
+                console.warn('⚠️ IndexedDB not initialized yet');
+                return false;
+            }
+            const transaction = this.db.transaction(['packages'], 'readwrite');
+            const store = transaction.objectStore('packages');
+            
+            const entry = {
+                packageKey: packageKey,
+                ...packageData,
+                timestamp: new Date().toISOString()
+            };
+
+            await this._promisifyRequest(store.put(entry));
+            return true;
+        } catch (error) {
+            console.error('❌ Failed to save package:', error);
+            return false;
+        }
+    }
+
+    /**
+     * Get package metadata from global cache
+     */
+    async getPackage(packageKey) {
+        try {
+            if (!this.db) {
+                console.warn('⚠️ IndexedDB not initialized yet');
+                return null;
+            }
+            const transaction = this.db.transaction(['packages'], 'readonly');
+            const store = transaction.objectStore('packages');
+            const result = await this._promisifyRequest(store.get(packageKey));
+            return result || null;
+        } catch (error) {
+            console.error('❌ Failed to get package:', error);
+            return null;
+        }
+    }
+
+    /**
+     * Save author entity to global cache
+     */
+    async saveAuthorEntity(authorKey, authorData) {
+        try {
+            if (!this.db) {
+                console.warn('⚠️ IndexedDB not initialized yet');
+                return false;
+            }
+            const transaction = this.db.transaction(['authorEntities'], 'readwrite');
+            const store = transaction.objectStore('authorEntities');
+            
+            const entry = {
+                authorKey: authorKey,
+                ...authorData,
+                timestamp: new Date().toISOString()
+            };
+
+            await this._promisifyRequest(store.put(entry));
+            return true;
+        } catch (error) {
+            console.error('❌ Failed to save author entity:', error);
+            return false;
+        }
+    }
+
+    /**
+     * Get author entity from global cache
+     */
+    async getAuthorEntity(authorKey) {
+        try {
+            if (!this.db) {
+                console.warn('⚠️ IndexedDB not initialized yet');
+                return null;
+            }
+            const transaction = this.db.transaction(['authorEntities'], 'readonly');
+            const store = transaction.objectStore('authorEntities');
+            const result = await this._promisifyRequest(store.get(authorKey));
+            return result || null;
+        } catch (error) {
+            console.error('❌ Failed to get author entity:', error);
+            return null;
+        }
+    }
+
+    /**
+     * Save package-author relationship
+     */
+    async savePackageAuthor(packageKey, authorKey, isMaintainer = false) {
+        try {
+            if (!this.db) {
+                console.warn('⚠️ IndexedDB not initialized yet');
+                return false;
+            }
+            const transaction = this.db.transaction(['packageAuthors'], 'readwrite');
+            const store = transaction.objectStore('packageAuthors');
+            
+            const packageAuthorKey = `${packageKey}:${authorKey}`;
+            const entry = {
+                packageAuthorKey: packageAuthorKey,
+                packageKey: packageKey,
+                authorKey: authorKey,
+                isMaintainer: isMaintainer,
+                timestamp: new Date().toISOString()
+            };
+
+            await this._promisifyRequest(store.put(entry));
+            return true;
+        } catch (error) {
+            console.error('❌ Failed to save package-author relationship:', error);
+            return false;
+        }
+    }
+
+    /**
+     * Get all authors for a package
+     */
+    async getPackageAuthors(packageKey) {
+        try {
+            if (!this.db) {
+                console.warn('⚠️ IndexedDB not initialized yet');
+                return [];
+            }
+            const transaction = this.db.transaction(['packageAuthors'], 'readonly');
+            const store = transaction.objectStore('packageAuthors');
+            const index = store.index('packageKey');
+            const result = await this._promisifyRequest(index.getAll(packageKey));
+            return result || [];
+        } catch (error) {
+            console.error('❌ Failed to get package authors:', error);
+            return [];
+        }
+    }
+
+    /**
+     * Get all packages for an author
+     */
+    async getAuthorPackages(authorKey) {
+        try {
+            if (!this.db) {
+                console.warn('⚠️ IndexedDB not initialized yet');
+                return [];
+            }
+            const transaction = this.db.transaction(['packageAuthors'], 'readonly');
+            const store = transaction.objectStore('packageAuthors');
+            const index = store.index('authorKey');
+            const result = await this._promisifyRequest(index.getAll(authorKey));
+            return result || [];
+        } catch (error) {
+            console.error('❌ Failed to get author packages:', error);
+            return [];
+        }
+    }
+
+    /**
+     * Get cache statistics
+     */
+    async getCacheStats() {
+        try {
+            if (!this.db) {
+                console.warn('⚠️ IndexedDB not initialized yet');
+                return null;
+            }
+            
+            const [packages, authorEntities, packageAuthors, vulnerabilities, organizations, repositories] = await Promise.all([
+                this._promisifyRequest(this.db.transaction(['packages'], 'readonly').objectStore('packages').count()),
+                this._promisifyRequest(this.db.transaction(['authorEntities'], 'readonly').objectStore('authorEntities').count()),
+                this._promisifyRequest(this.db.transaction(['packageAuthors'], 'readonly').objectStore('packageAuthors').count()),
+                this._promisifyRequest(this.db.transaction(['vulnerabilities'], 'readonly').objectStore('vulnerabilities').count()),
+                this._promisifyRequest(this.db.transaction(['organizations'], 'readonly').objectStore('organizations').count()),
+                this._promisifyRequest(this.db.transaction(['repositories'], 'readonly').objectStore('repositories').count())
+            ]);
+
+            return {
+                packages: packages || 0,
+                authorEntities: authorEntities || 0,
+                packageAuthors: packageAuthors || 0,
+                vulnerabilities: vulnerabilities || 0,
+                organizations: organizations || 0,
+                repositories: repositories || 0
+            };
+        } catch (error) {
+            console.error('❌ Failed to get cache stats:', error);
+            return null;
+        }
+    }
+
+    /**
+     * Clear specific cache stores
+     */
+    async clearCacheStore(storeName) {
+        try {
+            if (!this.db) {
+                console.warn('⚠️ IndexedDB not initialized yet');
+                return false;
+            }
+            
+            const validStores = ['packages', 'authorEntities', 'packageAuthors', 'vulnerabilities', 
+                                 'authors', 'organizations', 'repositories', 'metadata'];
+            
+            if (!validStores.includes(storeName)) {
+                console.error(`❌ Invalid store name: ${storeName}`);
+                return false;
+            }
+            
+            const transaction = this.db.transaction([storeName], 'readwrite');
+            await this._promisifyRequest(transaction.objectStore(storeName).clear());
+            console.log(`✅ Cleared ${storeName} cache`);
+            return true;
+        } catch (error) {
+            console.error(`❌ Failed to clear ${storeName}:`, error);
+            return false;
+        }
+    }
+
+    /**
+     * Clear only analysis data (organizations/repositories), keep entity caches
+     */
+    async clearAnalysisData() {
+        try {
+            if (!this.db) {
+                console.warn('⚠️ IndexedDB not initialized yet');
+                return false;
+            }
+            const transaction = this.db.transaction(['organizations', 'repositories'], 'readwrite');
+            
+            await Promise.all([
+                this._promisifyRequest(transaction.objectStore('organizations').clear()),
+                this._promisifyRequest(transaction.objectStore('repositories').clear())
+            ]);
+            
+            console.log('✅ Cleared analysis data (kept entity caches)');
+            return true;
+        } catch (error) {
+            console.error('❌ Failed to clear analysis data:', error);
             return false;
         }
     }

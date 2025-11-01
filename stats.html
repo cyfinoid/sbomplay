@@ -162,6 +162,7 @@
     <!-- Scripts -->
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
     <script src="js/indexeddb-manager.js?v=10"></script>
+    <script src="js/cache-manager.js?v=10"></script>
     <script src="js/github-client.js?v=10"></script>
     <script src="js/sbom-processor.js?v=10"></script>
     <script src="js/license-processor.js?v=10"></script>
@@ -209,7 +210,7 @@
                 
                 if (combinedData) {
                     console.log('🔍 Stats Page - Displaying dashboard with data');
-                    this.displayDashboardOverview(combinedData);
+                    await this.displayDashboardOverview(combinedData);
                     this.displayStatsCards(combinedData);
                 } else {
                     console.log('🔍 Stats Page - No combined data available, showing no data message');
@@ -220,7 +221,7 @@
             /**
              * Display dashboard overview
              */
-            displayDashboardOverview(data) {
+            async displayDashboardOverview(data) {
                 const content = document.getElementById('overviewContent');
                 
                 console.log('🔍 Stats Page - Display Dashboard Data:', data);
@@ -253,11 +254,17 @@
                     totalLicenses = data.data.licenseAnalysis.summary.totalDependencies || 0;
                 }
 
+                // Count packages and authors seeking sponsorship/donations
+                const fundingStats = await this.getFundingStats(data);
+                console.log('🔍 Stats Page - Funding stats:', fundingStats);
+
                 console.log('🔍 Stats Page - Calculated totals:', {
                     totalRepos,
                     totalDeps,
-                    totalVulns,
-                    totalLicenses
+                    totalVulns: totalVulns,
+                    totalLicenses,
+                    packagesWithFunding: fundingStats.packagesWithFunding,
+                    authorsWithFunding: fundingStats.authorsWithFunding
                 });
 
                 const html = `
@@ -306,6 +313,28 @@
                             </div>
                         </div>
                     </div>
+                    ${fundingStats.packagesWithFunding > 0 || fundingStats.authorsWithFunding > 0 ? `
+                    <div class="row mt-3 pt-3 border-top">
+                        <div class="col-md-6">
+                            <div class="text-center">
+                                <h4 class="text-success">
+                                    <i class="fas fa-heart me-2"></i>${fundingStats.packagesWithFunding}
+                                </h4>
+                                <small class="text-muted">Packages Seeking Support</small>
+                                <p class="text-muted small mb-0 mt-1">These dependencies accept donations/sponsorships</p>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="text-center">
+                                <h4 class="text-primary">
+                                    <i class="fas fa-users me-2"></i>${fundingStats.authorsWithFunding}
+                                </h4>
+                                <small class="text-muted">Authors Seeking Support</small>
+                                <p class="text-muted small mb-0 mt-1">These maintainers accept personal sponsorships</p>
+                            </div>
+                        </div>
+                    </div>
+                    ` : ''}
                 `;
                 
                 content.innerHTML = html;
@@ -506,6 +535,106 @@
                         </div>
                     </div>
                 `;
+            }
+
+            /**
+             * Get funding statistics (packages and authors seeking sponsorship)
+             */
+            async getFundingStats(data) {
+                let packagesWithFunding = 0;
+                let authorsWithFunding = 0;
+
+                if (!window.cacheManager || !window.indexedDBManager) {
+                    console.warn('⚠️ Stats: Cache manager not available for funding stats');
+                    return { packagesWithFunding: 0, authorsWithFunding: 0 };
+                }
+
+                try {
+                    // Count packages with funding
+                    // Get all unique packages from allDependencies
+                    if (data.data.allDependencies && Array.isArray(data.data.allDependencies)) {
+                        const uniquePackages = new Set();
+                        data.data.allDependencies.forEach(dep => {
+                            // Try multiple methods to extract package key
+                            let packageKey = null;
+                            
+                            // Method 1: Check if dep has packageKey directly
+                            if (dep.packageKey) {
+                                packageKey = dep.packageKey;
+                            }
+                            // Method 2: Extract from PURL
+                            else if (dep.purl) {
+                                const purlMatch = dep.purl.match(/pkg:([^\/]+)\/([^@\/]+)/);
+                                if (purlMatch) {
+                                    const ecosystem = purlMatch[1];
+                                    const name = purlMatch[2];
+                                    packageKey = `${ecosystem}:${name}`;
+                                }
+                            }
+                            // Method 3: Use name and ecosystem if available
+                            else if (dep.name && dep.ecosystem) {
+                                packageKey = `${dep.ecosystem}:${dep.name}`;
+                            }
+                            // Method 4: Try to infer ecosystem from category
+                            else if (dep.name && dep.category?.ecosystem) {
+                                packageKey = `${dep.category.ecosystem}:${dep.name}`;
+                            }
+
+                            if (packageKey) {
+                                uniquePackages.add(packageKey);
+                            }
+                        });
+
+                        console.log(`📊 Stats: Checking ${uniquePackages.size} unique packages for funding...`);
+
+                        // Check each package for funding (use Promise.all for parallel lookups)
+                        const packageArray = Array.from(uniquePackages);
+                        const packageChecks = packageArray.map(async (packageKey) => {
+                            const packageData = await window.cacheManager.getPackage(packageKey);
+                            return packageData && packageData.funding ? 1 : 0;
+                        });
+
+                        // Wait for all checks to complete
+                        const results = await Promise.all(packageChecks);
+                        packagesWithFunding = results.reduce((sum, count) => sum + count, 0);
+                        console.log(`📊 Stats: Found ${packagesWithFunding} packages with funding`);
+                    }
+
+                    // Count authors with funding
+                    // Get all author references from authorAnalysis
+                    if (data.data.authorAnalysis && data.data.authorAnalysis.authors) {
+                        const authorRefs = data.data.authorAnalysis.authors;
+                        const uniqueAuthorKeys = new Set();
+
+                        // Collect unique author keys
+                        authorRefs.forEach(ref => {
+                            if (ref.authorKey) {
+                                uniqueAuthorKeys.add(ref.authorKey);
+                            }
+                        });
+
+                        // Check each author for funding (use Promise.all for parallel lookups)
+                        const authorChecks = Array.from(uniqueAuthorKeys).map(async (authorKey) => {
+                            const authorEntity = await window.cacheManager.getAuthorEntity(authorKey);
+                            return authorEntity && authorEntity.funding ? 1 : 0;
+                        });
+
+                        // Wait for all checks to complete
+                        const authorResults = await Promise.all(authorChecks);
+                        authorsWithFunding = authorResults.reduce((sum, count) => sum + count, 0);
+                        console.log(`📊 Stats: Found ${authorsWithFunding} authors with funding`);
+                    }
+
+                    console.log('📊 Stats: Funding stats calculated', {
+                        packagesWithFunding,
+                        authorsWithFunding
+                    });
+
+                } catch (error) {
+                    console.error('❌ Stats: Failed to calculate funding stats:', error);
+                }
+
+                return { packagesWithFunding, authorsWithFunding };
             }
 
             /**

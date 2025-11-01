@@ -1341,16 +1341,38 @@ class SBOMPlayApp {
             console.log('Sample dependency structure:', data.data.allDependencies[0]);
         }
         
-        // Build packages array with repository information
-        const packages = data.data.allDependencies
+        // Build packages array with repository information and deduplicate by name+ecosystem
+        const packageMap = new Map(); // Key: ecosystem:name, Value: {package info with merged repositories}
+        
+        data.data.allDependencies
             .filter(dep => dep.purl)  // Only include dependencies with PURL
-            .map(dep => ({
-                ecosystem: this.getEcosystemFromPurl(dep.purl),
-                name: this.getPackageNameFromPurl(dep.purl),
-                purl: dep.purl,
-                repositories: dep.repositories || []  // Track which repos use this package
-            }))
-            .filter(pkg => pkg.ecosystem && pkg.name);
+            .forEach(dep => {
+                const ecosystem = this.getEcosystemFromPurl(dep.purl);
+                const name = this.getPackageNameFromPurl(dep.purl);
+                
+                if (!ecosystem || !name) return;
+                
+                const key = `${ecosystem}:${name}`;
+                const repositories = dep.repositories || [];
+                
+                if (packageMap.has(key)) {
+                    // Merge repositories from this occurrence
+                    const existing = packageMap.get(key);
+                    const existingRepos = new Set(existing.repositories || []);
+                    repositories.forEach(repo => existingRepos.add(repo));
+                    existing.repositories = Array.from(existingRepos);
+                } else {
+                    // First occurrence of this package
+                    packageMap.set(key, {
+                        ecosystem: ecosystem,
+                        name: name,
+                        purl: dep.purl,  // Keep first PURL encountered
+                        repositories: Array.from(new Set(repositories))  // Deduplicate repos
+                    });
+                }
+            });
+        
+        const packages = Array.from(packageMap.values());
         
         console.log(`📦 Found ${packages.length} unique packages with valid PURLs for author analysis`);
         
@@ -1388,12 +1410,35 @@ class SBOMPlayApp {
                 return b.count - a.count;
             });
         
-        // Save to analysis data
+        // Store only references (author keys) instead of full author data
+        // Full author details will be looked up from cache when displaying
+        const authorReferences = authorsList.map(author => {
+            // Determine authorKey
+            let authorKey;
+            if (author.author.includes(':')) {
+                authorKey = author.author;  // Already prefixed
+            } else {
+                authorKey = `${author.ecosystem}:${author.author}`;
+            }
+            
+            return {
+                authorKey: authorKey,
+                ecosystem: author.ecosystem,
+                packages: [...new Set(author.packages)],  // Unique package names only
+                packageRepositories: author.packageRepositories,  // Keep this for display
+                repositories: author.repositories,  // Array of repository keys
+                repositoryCount: author.repositoryCount,
+                count: author.count  // Total occurrences
+            };
+        });
+        
+        // Save to analysis data (STORES ONLY REFERENCES, NOT FULL AUTHOR DATA)
         data.data.authorAnalysis = {
             timestamp: Date.now(),
-            totalAuthors: authorsList.length,
+            totalAuthors: authorReferences.length,
             totalPackages: packages.length,
-            authors: authorsList
+            authors: authorReferences,  // References only
+            _cacheVersion: 3  // Mark as using new cache architecture
         };
         
         await this.storageManager.saveAnalysisData(identifier, data.data);

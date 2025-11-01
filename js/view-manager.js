@@ -104,12 +104,16 @@ class ViewManager {
         }
         
         if (container) {
-            container.innerHTML = this.generateDependencyHTML(dependency, orgData);
-            
-            // Add event listeners
-            this.addDependencyEventListeners();
-            
-            console.log('📦 Showing dependency details:', dependency.name);
+            // generateDependencyHTML is now async (to fetch package funding)
+            this.generateDependencyHTML(dependency, orgData).then(html => {
+                container.innerHTML = html;
+                // Add event listeners
+                this.addDependencyEventListeners();
+                console.log('📦 Showing dependency details:', dependency.name);
+            }).catch(err => {
+                console.error('Error generating dependency HTML:', err);
+                container.innerHTML = `<div class="alert alert-danger">Error loading dependency details: ${err.message}</div>`;
+            });
         } else {
             console.error('No suitable container found for dependency details');
             this.showAlert('Unable to display dependency details - no container found', 'warning');
@@ -433,11 +437,58 @@ class ViewManager {
     /**
      * Generate dependency details HTML
      */
-    generateDependencyHTML(dependency, orgData) {
+    async generateDependencyHTML(dependency, orgData) {
         const allRepos = orgData.data.allRepositories;
         const matchingRepos = allRepos.filter(repo => 
             repo.dependencies.some(dep => dep === `${dependency.name}@${dependency.version}`)
         );
+
+        // Get package funding (package-level, not author-level)
+        let packageFunding = null;
+        if (dependency.category?.ecosystem && window.cacheManager) {
+            const packageKey = `${dependency.category.ecosystem}:${dependency.name}`;
+            const packageData = await window.cacheManager.getPackage(packageKey);
+            packageFunding = packageData?.funding || null;
+        }
+
+        const fundingHTML = packageFunding ? `
+                <div class="detail-section">
+                    <h3>💝 Package Funding</h3>
+                    <div class="alert alert-info mb-2">
+                        <small>
+                            <i class="fas fa-info-circle me-1"></i>
+                            This package accepts donations/sponsorships.
+                        </small>
+                    </div>
+                    <div class="d-flex flex-wrap gap-2">
+                        ${packageFunding.github || packageFunding.url?.includes('github.com/sponsors') ? `
+                            <a href="${packageFunding.url || `https://github.com/sponsors/${encodeURIComponent(dependency.name)}`}" target="_blank" class="btn btn-sm btn-outline-danger">
+                                <i class="fas fa-heart me-1"></i>GitHub Sponsors
+                            </a>
+                        ` : ''}
+                        ${packageFunding.opencollective || packageFunding.url?.includes('opencollective.com') ? `
+                            <a href="${packageFunding.url}" target="_blank" class="btn btn-sm btn-outline-primary">
+                                <i class="fas fa-hand-holding-usd me-1"></i>Open Collective
+                            </a>
+                        ` : ''}
+                        ${packageFunding.patreon || packageFunding.url?.includes('patreon.com') ? `
+                            <a href="${packageFunding.url}" target="_blank" class="btn btn-sm btn-outline-danger">
+                                <i class="fab fa-patreon me-1"></i>Patreon
+                            </a>
+                        ` : ''}
+                        ${packageFunding.tidelift || packageFunding.url?.includes('tidelift.com') ? `
+                            <a href="${packageFunding.url}" target="_blank" class="btn btn-sm btn-outline-warning">
+                                <i class="fas fa-gift me-1"></i>Tidelift
+                            </a>
+                        ` : ''}
+                        ${packageFunding.url && !packageFunding.github && !packageFunding.opencollective && !packageFunding.patreon && !packageFunding.tidelift ? `
+                            <a href="${packageFunding.url}" target="_blank" class="btn btn-sm btn-outline-info">
+                                <i class="fas fa-donate me-1"></i>Support
+                            </a>
+                        ` : ''}
+                    </div>
+                </div>
+        ` : '';
 
         return `
             <div class="view-header">
@@ -480,6 +531,8 @@ class ViewManager {
                         ` : ''}
                     </div>
                 </div>
+
+                ${fundingHTML}
 
                 <div class="detail-section">
                     <h3>📁 Used in Repositories</h3>

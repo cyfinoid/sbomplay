@@ -182,6 +182,7 @@
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
     <script src="js/indexeddb-manager.js?v=10"></script>
+    <script src="js/cache-manager.js?v=10"></script>
     <script src="js/storage-manager.js?v=10"></script>
     <script src="js/author-service.js?v=10"></script>
     <script type="module">
@@ -298,41 +299,112 @@
                     
                     if (data?.data?.authorAnalysis?.authors) {
                         console.log(`✅ Authors Page - Found ${data.data.authorAnalysis.authors.length} authors in ${entry.name}`);
-                        data.data.authorAnalysis.authors.forEach(author => {
-                            // Try to find similar existing author
-                            let foundKey = null;
-                            for (const [existingKey, existingAuthor] of allAuthors.entries()) {
-                                const [existingEcosystem, existingName] = existingKey.split(':', 2);
-                                if (existingEcosystem === author.ecosystem && areSimilarAuthors(existingName, author.author)) {
-                                    foundKey = existingKey;
-                                    break;
+                        
+                        const authorRefs = data.data.authorAnalysis.authors;
+                        const isNewFormat = data.data.authorAnalysis._cacheVersion === 3 || 
+                                           (authorRefs.length > 0 && authorRefs[0].authorKey);
+                        
+                        if (isNewFormat && window.cacheManager) {
+                            // NEW FORMAT: Resolve references from cache
+                            for (const ref of authorRefs) {
+                                const authorEntity = await window.cacheManager.getAuthorEntity(ref.authorKey);
+                                const author = {
+                                    author: authorEntity?.author || ref.authorKey.split(':')[1] || ref.authorKey,
+                                    ecosystem: authorEntity?.ecosystem || ref.ecosystem,
+                                    packages: ref.packages || [],
+                                    packageRepositories: ref.packageRepositories || {},
+                                    repositories: ref.repositories || [],
+                                    repositoryCount: ref.repositoryCount || 0,
+                                    count: ref.count || 0,
+                                    funding: authorEntity?.funding || null,
+                                    metadata: authorEntity?.metadata || null
+                                };
+                                
+                                // Try to find similar existing author
+                                let foundKey = null;
+                                for (const [existingKey, existingAuthor] of allAuthors.entries()) {
+                                    const [existingEcosystem, existingName] = existingKey.split(':', 2);
+                                    if (existingEcosystem === author.ecosystem && areSimilarAuthors(existingName, author.author)) {
+                                        foundKey = existingKey;
+                                        break;
+                                    }
+                                }
+                                
+                                if (foundKey) {
+                                    // Merge with existing author
+                                    const existing = allAuthors.get(foundKey);
+                                    existing.count += author.count;
+                                    existing.packages.push(...author.packages);
+                                    existing.packages = [...new Set(existing.packages)];
+                                    // Merge repository data
+                                    if (author.packageRepositories) {
+                                        Object.keys(author.packageRepositories).forEach(pkg => {
+                                            if (!existing.packageRepositories[pkg]) {
+                                                existing.packageRepositories[pkg] = [];
+                                            }
+                                            existing.packageRepositories[pkg].push(...author.packageRepositories[pkg]);
+                                            existing.packageRepositories[pkg] = [...new Set(existing.packageRepositories[pkg])];
+                                        });
+                                    }
+                                    // Keep the longer name
+                                    if (author.author.length > existing.author.length) {
+                                        existing.author = author.author;
+                                    }
+                                    // Merge metadata if available
+                                    if (author.metadata && !existing.metadata) {
+                                        existing.metadata = author.metadata;
+                                    }
+                                    if (author.funding && !existing.funding) {
+                                        existing.funding = author.funding;
+                                    }
+                                } else {
+                                    // Add new author
+                                    const key = ref.authorKey || `${author.ecosystem}:${author.author}`;
+                                    allAuthors.set(key, { 
+                                        ...author, 
+                                        packages: [...author.packages],
+                                        metadata: author.metadata || null
+                                    });
                                 }
                             }
-                            
-                            if (foundKey) {
-                                // Merge with existing author
-                                const existing = allAuthors.get(foundKey);
-                                existing.count += author.count;
-                                existing.packages.push(...author.packages);
-                                existing.packages = [...new Set(existing.packages)];
-                                // Keep the longer name (usually the full name)
-                                if (author.author.length > existing.author.length) {
-                                    existing.author = author.author;
+                        } else {
+                            // OLD FORMAT: Handle as before (backward compatibility)
+                            data.data.authorAnalysis.authors.forEach(author => {
+                                // Try to find similar existing author
+                                let foundKey = null;
+                                for (const [existingKey, existingAuthor] of allAuthors.entries()) {
+                                    const [existingEcosystem, existingName] = existingKey.split(':', 2);
+                                    if (existingEcosystem === author.ecosystem && areSimilarAuthors(existingName, author.author)) {
+                                        foundKey = existingKey;
+                                        break;
+                                    }
                                 }
-                                // Merge metadata if available
-                                if (author.metadata && !existing.metadata) {
-                                    existing.metadata = author.metadata;
+                                
+                                if (foundKey) {
+                                    // Merge with existing author
+                                    const existing = allAuthors.get(foundKey);
+                                    existing.count += author.count;
+                                    existing.packages.push(...author.packages);
+                                    existing.packages = [...new Set(existing.packages)];
+                                    // Keep the longer name (usually the full name)
+                                    if (author.author.length > existing.author.length) {
+                                        existing.author = author.author;
+                                    }
+                                    // Merge metadata if available
+                                    if (author.metadata && !existing.metadata) {
+                                        existing.metadata = author.metadata;
+                                    }
+                                } else {
+                                    // Add new author
+                                    const key = `${author.ecosystem}:${author.author}`;
+                                    allAuthors.set(key, { 
+                                        ...author, 
+                                        packages: [...author.packages],
+                                        metadata: author.metadata || null
+                                    });
                                 }
-                            } else {
-                                // Add new author
-                                const key = `${author.ecosystem}:${author.author}`;
-                                allAuthors.set(key, { 
-                                    ...author, 
-                                    packages: [...author.packages],
-                                    metadata: author.metadata || null
-                                });
-                            }
-                        });
+                            });
+                        }
                     }
                 }
                 
@@ -352,15 +424,61 @@
                         hasData: !!data.data,
                         hasAuthorAnalysis: !!data.data?.authorAnalysis,
                         hasAuthors: !!data.data?.authorAnalysis?.authors,
-                        authorCount: data.data?.authorAnalysis?.authors?.length || 0
+                        authorCount: data.data?.authorAnalysis?.authors?.length || 0,
+                        cacheVersion: data.data?.authorAnalysis?._cacheVersion
                     });
                 } else {
                     console.log(`⚠️ Authors Page - No data found for ${analysisId}`);
                 }
                 
-                const authors = data?.data?.authorAnalysis?.authors || [];
-                console.log(`📊 Authors Page - Returning ${authors.length} authors`);
-                return authors;
+                const authorRefs = data?.data?.authorAnalysis?.authors || [];
+                
+                // Check if this is new format (references) or old format (full data)
+                const isNewFormat = data?.data?.authorAnalysis?._cacheVersion === 3 || 
+                                   (authorRefs.length > 0 && authorRefs[0].authorKey);
+                
+                if (isNewFormat && window.cacheManager) {
+                    // NEW FORMAT: Resolve author references from cache
+                    console.log(`📦 Authors Page - Resolving ${authorRefs.length} author references from cache...`);
+                    const authors = await Promise.all(
+                        authorRefs.map(async (ref) => {
+                            const authorEntity = await window.cacheManager.getAuthorEntity(ref.authorKey);
+                            if (authorEntity) {
+                                return {
+                                    author: authorEntity.author || ref.authorKey.split(':')[1],
+                                    ecosystem: authorEntity.ecosystem || ref.ecosystem,
+                                    packages: ref.packages || [],
+                                    packageRepositories: ref.packageRepositories || {},
+                                    repositories: ref.repositories || [],
+                                    repositoryCount: ref.repositoryCount || 0,
+                                    count: ref.count || 0,
+                                    funding: authorEntity.funding || null,
+                                    metadata: authorEntity.metadata || null
+                                };
+                            } else {
+                                // Fallback if cache miss
+                                const [, authorName] = ref.authorKey.split(':');
+                                return {
+                                    author: authorName || ref.authorKey,
+                                    ecosystem: ref.ecosystem,
+                                    packages: ref.packages || [],
+                                    packageRepositories: ref.packageRepositories || {},
+                                    repositories: ref.repositories || [],
+                                    repositoryCount: ref.repositoryCount || 0,
+                                    count: ref.count || 0,
+                                    funding: null,
+                                    metadata: null
+                                };
+                            }
+                        })
+                    );
+                    console.log(`✅ Authors Page - Resolved ${authors.length} authors from cache`);
+                    return authors;
+                } else {
+                    // OLD FORMAT: Return as-is (backward compatibility)
+                    console.log(`📊 Authors Page - Using legacy format (${authorRefs.length} authors)`);
+                    return authorRefs;
+                }
             }
             
             function showPackageModal(author) {
@@ -669,15 +787,16 @@
                     html += '</table></div>';
                 }
                 
-                // Sponsorship & Support Info - Only show if author has funding metadata
+                // Sponsorship & Support Info - Only show if author has funding metadata (author-level, not package-level)
                 if (author.funding) {
                     html += `
                         <div class="mb-3">
-                            <h6><i class="fas fa-heart me-2"></i>Sponsorship Available</h6>
+                            <h6><i class="fas fa-heart me-2"></i>Author Sponsorship Available</h6>
                             <div class="alert alert-success mb-2">
                                 <small>
                                     <i class="fas fa-check-circle me-1"></i>
-                                    ${author.author} is accepting sponsorships and maintains ${author.count} package${author.count !== 1 ? 's' : ''} used by your project.
+                                    <strong>${author.author}</strong> is accepting personal sponsorships (author-level support).
+                                    They maintain ${uniquePackageCount} package${uniquePackageCount !== 1 ? 's' : ''} used by your project.
                                 </small>
                             </div>
                             <div class="d-flex flex-wrap gap-2">
@@ -838,36 +957,61 @@
                     return;
                 }
                 
-                // Separate single-package authors (based on unique package count, not occurrences)
+                // Separate authors:
+                // 1. Multi-package authors (2+ packages) -> Always show in main table
+                // 2. Single-package authors with multiple repos (1 package, 2+ repos) -> Show in main table (risk)
+                // 3. Single-package authors with single repo (1 package, 1 repo) -> Hide behind section (low risk)
                 const multiPackageAuthors = filtered.filter(a => {
                     const uniquePackages = [...new Set(a.packages || [])];
                     return uniquePackages.length > 1;
                 });
-                const singlePackageAuthors = filtered.filter(a => {
+                
+                const singlePackageMultipleRepos = filtered.filter(a => {
                     const uniquePackages = [...new Set(a.packages || [])];
-                    return uniquePackages.length === 1;
+                    const repoCount = a.repositoryCount || 0;
+                    return uniquePackages.length === 1 && repoCount > 1;
                 });
                 
-                // Sort single-package authors by repository count (descending) - identify high-risk single packages
-                singlePackageAuthors.sort((a, b) => {
+                const singlePackageSingleRepo = filtered.filter(a => {
+                    const uniquePackages = [...new Set(a.packages || [])];
+                    const repoCount = a.repositoryCount || 0;
+                    return uniquePackages.length === 1 && repoCount === 1;
+                });
+                
+                // Combine multi-package and single-package-multiple-repos for main display
+                const visibleAuthors = [...multiPackageAuthors, ...singlePackageMultipleRepos];
+                
+                // Sort visible authors by repository count (risk factor), then package count
+                visibleAuthors.sort((a, b) => {
                     const aRepoCount = a.repositoryCount || 0;
                     const bRepoCount = b.repositoryCount || 0;
                     if (bRepoCount !== aRepoCount) {
                         return bRepoCount - aRepoCount;
                     }
+                    const aPkgCount = [...new Set(a.packages || [])].length;
+                    const bPkgCount = [...new Set(b.packages || [])].length;
+                    if (bPkgCount !== aPkgCount) {
+                        return bPkgCount - aPkgCount;
+                    }
+                    return (b.count || 0) - (a.count || 0);
+                });
+                
+                // Sort single-package-single-repo authors by occurrence count (descending)
+                singlePackageSingleRepo.sort((a, b) => {
                     return (b.count || 0) - (a.count || 0);
                 });
                 
                 // Store for event handlers
-                currentAuthors = multiPackageAuthors;
-                window.currentSinglePackageAuthors = singlePackageAuthors; // Store globally for toggle
+                currentAuthors = visibleAuthors;
+                window.currentSinglePackageAuthors = singlePackageSingleRepo; // Store globally for toggle (low-risk authors)
                 
-                console.log(`🎨 Authors Page - Multi-package: ${multiPackageAuthors.length}, Single-package: ${singlePackageAuthors.length}`);
+                console.log(`🎨 Authors Page - Visible: ${visibleAuthors.length} (${multiPackageAuthors.length} multi-package + ${singlePackageMultipleRepos.length} single-package-multi-repo), Hidden: ${singlePackageSingleRepo.length} (single-package-single-repo)`);
                 
                 let html = `
                     <div class="alert alert-info">
                         <i class="fas fa-info-circle me-2"></i>
-                        Showing <strong>${multiPackageAuthors.length}</strong> authors with multiple packages from <strong>${new Set(multiPackageAuthors.map(a => a.ecosystem)).size}</strong> ecosystems
+                        Showing <strong>${visibleAuthors.length}</strong> authors from <strong>${new Set(visibleAuthors.map(a => a.ecosystem)).size}</strong> ecosystems
+                        ${multiPackageAuthors.length > 0 ? `(${multiPackageAuthors.length} with multiple packages, ${singlePackageMultipleRepos.length} with single package across multiple repos)` : ''}
                     </div>
                     <div class="table-responsive">
                         <table class="table table-hover">
@@ -885,7 +1029,7 @@
                             <tbody>
                 `;
                 
-                multiPackageAuthors.forEach((author, index) => {
+                visibleAuthors.forEach((author, index) => {
                     const uniquePackages = [...new Set(author.packages)];
                     const uniquePackageCount = uniquePackages.length;
                     const repositoryCount = author.repositoryCount || 0;
@@ -949,13 +1093,13 @@
                     </div>
                 `;
                 
-                // Add single-package authors summary with toggle
-                if (singlePackageAuthors.length > 0) {
+                // Add single-package-single-repo authors summary with toggle (low-risk, hidden by default)
+                if (singlePackageSingleRepo.length > 0) {
                     html += `
                         <div class="alert alert-secondary mt-3" style="cursor: pointer;" id="singlePackageAuthorsToggle">
                             <i class="fas fa-info-circle me-2"></i>
-                            <strong>${singlePackageAuthors.length}</strong> additional author${singlePackageAuthors.length !== 1 ? 's' : ''} 
-                            with only one package ${ecosystemFilter !== 'all' ? 'in this ecosystem ' : ''}
+                            <strong>${singlePackageSingleRepo.length}</strong> additional author${singlePackageSingleRepo.length !== 1 ? 's' : ''} 
+                            with one package used in one repository ${ecosystemFilter !== 'all' ? 'in this ecosystem ' : ''}
                             <span class="text-decoration-underline ms-2">
                                 <i class="fas fa-chevron-down" id="singlePackageAuthorsToggleIcon"></i>
                                 <span id="singlePackageAuthorsToggleText">Click to show</span>
@@ -964,7 +1108,7 @@
                         <div id="singlePackageAuthorsList" style="display: none;" class="mt-3">
                             <div class="alert alert-info">
                                 <i class="fas fa-info-circle me-2"></i>
-                                These authors maintain only one package. <strong>High repository usage</strong> indicates a single point of failure risk.
+                                These authors maintain only one package used in a single repository (lower risk - isolated impact).
                             </div>
                             <div class="table-responsive">
                                 <table class="table table-hover table-sm">
@@ -974,21 +1118,16 @@
                                             <th>Author</th>
                                             <th>Ecosystem</th>
                                             <th>Package</th>
-                                            <th>Repository Usage</th>
+                                            <th>Repository</th>
                                         </tr>
                                     </thead>
                                     <tbody>
                     `;
                     
-                    singlePackageAuthors.forEach((author, index) => {
+                    singlePackageSingleRepo.forEach((author, index) => {
                         const packageName = author.packages[0] || 'N/A';
-                        const repositoryCount = author.repositoryCount || 0;
-                        let riskBadge = '';
-                        if (repositoryCount >= 5) {
-                            riskBadge = ' <span class="badge bg-danger ms-1" title="High risk: Single package used across multiple projects">High Risk</span>';
-                        } else if (repositoryCount >= 3) {
-                            riskBadge = ' <span class="badge bg-warning text-dark ms-1" title="Moderate risk">Moderate</span>';
-                        }
+                        const repositories = author.repositories || [];
+                        const repoName = repositories.length > 0 ? repositories[0] : 'N/A';
                         
                         html += `
                             <tr>
@@ -1000,10 +1139,7 @@
                                 </td>
                                 <td><span class="badge bg-info">${author.ecosystem}</span></td>
                                 <td><code>${packageName}</code></td>
-                                <td>
-                                    <span class="badge bg-secondary">${repositoryCount} repo${repositoryCount !== 1 ? 's' : ''}</span>
-                                    ${riskBadge}
-                                </td>
+                                <td><code>${repoName}</code></td>
                             </tr>
                         `;
                     });

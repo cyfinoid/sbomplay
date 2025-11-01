@@ -141,35 +141,67 @@ class AuthorService {
     async fetchAuthors(ecosystem, packageName) {
         const packageKey = `${ecosystem}:${packageName}`;
         
-        // Check memory cache first
-        if (this.cache.has(packageKey)) {
-            return this.cache.get(packageKey);
-        }
-        
-        // Check IndexedDB cache
-        const dbManager = window.indexedDBManager;
-        if (dbManager && dbManager.db) {
-            const cached = await this.getCachedAuthors(packageKey);
-            if (cached && this.isCacheValid(cached.timestamp)) {
-                const result = cached.data || cached.authors;  // Support both new and old format
+        // Check unified cache first (NEW ARCHITECTURE)
+        if (window.cacheManager) {
+            const cachedAuthors = await window.cacheManager.getPackageAuthors(packageKey);
+            if (cachedAuthors && cachedAuthors.length > 0) {
+                console.log(`📦 Cache: Found ${cachedAuthors.length} cached authors for ${packageKey}`);
+                
+                // Convert to return format (array or object with funding)
+                const authors = cachedAuthors.map(a => {
+                    // Return in format compatible with old code
+                    if (a.name || a.author) {
+                        return {
+                            name: a.name || a.author,
+                            email: a.email || null,
+                            metadata: a.metadata || null,
+                            isMaintainer: a.isMaintainer || false
+                        };
+                    }
+                    return a.author || a.name;
+                });
+                
+                // Check for funding info (from any author)
+                const funding = cachedAuthors.find(a => a.funding)?.funding || null;
+                
+                const result = funding ? { authors, funding } : authors;
+                
+                // Also cache in memory for faster access
                 this.cache.set(packageKey, result);
                 return result;
             }
         }
         
-        // Try different sources based on ecosystem
+        // Check memory cache (legacy)
+        if (this.cache.has(packageKey)) {
+            return this.cache.get(packageKey);
+        }
+        
+        // Check IndexedDB cache (legacy format for backward compatibility)
+        const dbManager = window.indexedDBManager;
+        if (dbManager && dbManager.db) {
+            const cached = await this.getCachedAuthors(packageKey);
+            if (cached && this.isCacheValid(cached.timestamp)) {
+                const result = cached.data || cached.authors;
+                this.cache.set(packageKey, result);
+                return result;
+            }
+        }
+        
+        // If not in cache, fetch from APIs
+        console.log(`🔍 Fetching authors for ${packageKey} from APIs...`);
         let authors = [];
         let funding = null;
         
         // Try native registry first (fastest and most reliable)
         if (this.registryUrls[ecosystem]) {
             const result = await this.fetchFromNativeRegistry(ecosystem, packageName);
-            // Handle both old format (array) and new format (object with authors/funding)
+            // Handle both old format (array) and new format (object with authors/packageFunding)
             if (Array.isArray(result)) {
                 authors = result;
             } else {
                 authors = result.authors || [];
-                funding = result.funding || null;
+                funding = result.packageFunding || null;  // Renamed from funding to packageFunding
             }
             
             if (authors.length > 0) {
@@ -194,29 +226,142 @@ class AuthorService {
             }
         }
         
-        // If still no authors, log warning
+        // Save to new cache architecture (packageFunding stored separately in package cache)
+        // ALWAYS save package to cache, even if no authors found
+        // This ensures incremental storage during analysis
         if (authors.length === 0) {
-            console.warn(`⚠️ No authors found for ${packageKey}`);
-            return { authors: [], funding: null };
+            console.warn(`⚠️ No authors found for ${packageKey} - saving package metadata only`);
         }
         
-        const result = funding ? { authors, funding } : authors;  // Return object if we have funding, otherwise just array
+        // Save package and authors to cache immediately (incremental save)
+        // This happens for EVERY package discovered, regardless of whether authors were found
+        await this.saveAuthorsToCache(packageKey, ecosystem, authors, funding);
+        console.log(`💾 Author: Saved package ${packageKey} to cache immediately (${authors.length} authors)`);
         
-        // Cache in IndexedDB
+        // Also save to legacy cache for backward compatibility
+        // Note: In legacy cache, we still use "funding" key for compatibility
         if (dbManager && dbManager.db) {
+            const result = funding ? { authors, funding } : authors;
             await this.cacheAuthors({
                 packageKey,
                 ecosystem,
                 packageName,
-                data: result,  // Store the full result (either array or object)
-                authors: Array.isArray(result) ? result : result.authors,  // For backwards compat with cached.authors
+                data: result,
+                authors: authors,
                 source: 'multi',
                 timestamp: Date.now()
             });
         }
         
+        // Return format: {authors, funding} where funding is packageFunding (for backward compatibility)
+        const result = funding ? { authors, funding } : authors;
         this.cache.set(packageKey, result);
         return result;
+    }
+
+    /**
+     * Save authors to new cache architecture (authorEntities + packageAuthors)
+     * @param {string} packageKey - Package identifier
+     * @param {string} ecosystem - Ecosystem name
+     * @param {Array} authors - Array of author objects or strings
+     * @param {Object} packageFunding - Package-level funding (from package.json) - stored in package cache, NOT author entity
+     */
+    async saveAuthorsToCache(packageKey, ecosystem, authors, packageFunding = null) {
+        if (!window.cacheManager) return;
+
+        // ALWAYS save package metadata to package cache (even if no funding or no authors)
+        // This ensures all packages are tracked in the normalized cache
+        const existingPackage = await window.cacheManager.getPackage(packageKey);
+        const packageData = existingPackage || {
+            packageKey: packageKey,
+            ecosystem: ecosystem,
+            name: packageKey.split(':')[1] || packageKey
+        };
+        
+        // Add or update funding if available
+        if (packageFunding) {
+            packageData.funding = packageFunding;  // Package-level funding
+        }
+        
+        // Save package to cache immediately (with or without funding, with or without authors)
+        await window.cacheManager.savePackage(packageKey, packageData);
+        console.log(`📦 Saved package to cache: ${packageKey}${packageFunding ? ' (with funding)' : ''}${authors.length === 0 ? ' (no authors)' : ''}`);
+
+        // Process each author (if any)
+        if (!authors || authors.length === 0) {
+            // Package saved but no authors to process
+            return;
+        }
+
+        for (const author of authors) {
+            // Extract author info
+            let authorString, authorMetadata, isMaintainer;
+            if (typeof author === 'string') {
+                authorString = author;
+                authorMetadata = null;
+                isMaintainer = false;
+            } else if (author && typeof author === 'object') {
+                authorString = author.name || author.author || '';
+                authorMetadata = author.metadata || null;
+                isMaintainer = author.isMaintainer || false;
+            } else {
+                continue; // Skip invalid authors
+            }
+
+            if (!authorString) continue;
+
+            // Determine authorKey
+            let authorKey, authorName, authorSource;
+            if (authorString.includes(':')) {
+                authorKey = authorString;  // Already prefixed (e.g., "github:jackc")
+                const parts = authorString.split(':');
+                authorSource = parts[0];
+                authorName = parts[1];
+            } else {
+                authorKey = `${ecosystem}:${authorString}`;
+                authorSource = ecosystem;
+                authorName = authorString;
+            }
+
+            // Check if author entity already exists
+            let authorEntity = await window.cacheManager.getAuthorEntity(authorKey);
+            
+            if (!authorEntity) {
+                // Create new author entity (NO package funding here - that's stored with package)
+                authorEntity = {
+                    author: authorName,
+                    ecosystem: authorSource,
+                    email: authorMetadata?.email || null,
+                    metadata: authorMetadata || null,
+                    funding: null  // Author-level funding will be fetched separately if needed
+                };
+                await window.cacheManager.saveAuthorEntity(authorKey, authorEntity);
+                console.log(`👤 Saved new author entity: ${authorKey}`);
+            } else {
+                // Update existing entity if we have new information
+                // Note: We don't store package funding in author entity
+                let updated = false;
+                if (authorMetadata && !authorEntity.metadata) {
+                    authorEntity.metadata = authorMetadata;
+                    updated = true;
+                }
+                if (updated) {
+                    await window.cacheManager.saveAuthorEntity(authorKey, authorEntity);
+                    console.log(`👤 Updated author entity: ${authorKey}`);
+                }
+            }
+
+            // Fetch author-level funding if we have GitHub username or email
+            // This will be done asynchronously and updated separately
+            if (authorMetadata?.github || authorMetadata?.email) {
+                this.fetchAuthorFunding(authorKey, authorEntity).catch(err => 
+                    console.warn(`Failed to fetch author funding for ${authorKey}:`, err)
+                );
+            }
+
+            // Save package-author relationship (junction table)
+            await window.cacheManager.savePackageAuthorRelationship(packageKey, authorKey, isMaintainer);
+        }
     }
 
     /**
@@ -231,52 +376,52 @@ class AuthorService {
                     // npm registry provides full package metadata including funding
                     url = `${this.registryUrls.npm}/${packageName}/latest`;
                     const npmResponse = await fetch(url);
-                    if (!npmResponse.ok) return { authors: [], funding: null };
+                    if (!npmResponse.ok) return { authors: [], packageFunding: null };
                     data = await npmResponse.json();
                     return {
                         authors: this.extractNpmAuthors(data),
-                        funding: this.extractNpmFunding(data)
+                        packageFunding: this.extractNpmFunding(data)  // Package-level funding (from package.json)
                     };
                 
                 case 'pypi':
                     // PyPI JSON API with project URLs
                     url = `${this.registryUrls.pypi}/${packageName}/json`;
                     const pypiResponse = await fetch(url);
-                    if (!pypiResponse.ok) return { authors: [], funding: null };
+                    if (!pypiResponse.ok) return { authors: [], packageFunding: null };
                     data = await pypiResponse.json();
                     return {
                         authors: this.extractPyPiAuthors(data),
-                        funding: this.extractPyPiFunding(data)
+                        packageFunding: this.extractPyPiFunding(data)  // Package-level funding (from project_urls)
                     };
                 
                 case 'cargo':
                     // crates.io API
                     url = `${this.registryUrls.cargo}/${packageName}`;
                     const cargoResponse = await fetch(url);
-                    if (!cargoResponse.ok) return { authors: [], funding: null };
+                    if (!cargoResponse.ok) return { authors: [], packageFunding: null };
                     data = await cargoResponse.json();
                     return {
                         authors: this.extractCargoAuthors(data),
-                        funding: null  // Crates.io doesn't have funding field in API
+                        packageFunding: null  // Crates.io doesn't have funding field in API
                     };
                 
                 case 'gem':
                     // RubyGems API
                     url = `${this.registryUrls.gem}/${packageName}.json`;
                     const gemResponse = await fetch(url);
-                    if (!gemResponse.ok) return { authors: [], funding: null };
+                    if (!gemResponse.ok) return { authors: [], packageFunding: null };
                     data = await gemResponse.json();
                     return {
                         authors: this.extractGemAuthors(data),
-                        funding: this.extractGemFunding(data)
+                        packageFunding: this.extractGemFunding(data)  // Package-level funding
                     };
                 
                 default:
-                    return { authors: [], funding: null };
+                    return { authors: [], packageFunding: null };
             }
         } catch (error) {
             console.warn(`Error fetching from native registry ${ecosystem}:`, error.message);
-            return { authors: [], funding: null };
+            return { authors: [], packageFunding: null };
         }
     }
     
@@ -354,6 +499,98 @@ class AuthorService {
         if (fundingUrl.includes('patreon.com')) funding.patreon = true;
         
         return funding;
+    }
+
+    /**
+     * Fetch author-level funding from GitHub profiles, author.json files, etc.
+     * This is separate from package-level funding (from package.json)
+     * @param {string} authorKey - Author identifier (e.g., "github:username" or "pypi:authorName")
+     * @param {Object} authorEntity - Existing author entity
+     * @returns {Promise<Object|null>} - Author-level funding information
+     */
+    async fetchAuthorFunding(authorKey, authorEntity) {
+        // If author already has funding, don't refetch
+        if (authorEntity?.funding) {
+            return authorEntity.funding;
+        }
+
+        const githubUsername = authorEntity?.metadata?.github;
+        if (!githubUsername) {
+            return null;  // Can't fetch without GitHub username
+        }
+
+        try {
+            // Try fetching from GitHub profile JSON files
+            // GitHub supports profile.json at root of user's .github repository
+            const githubProfileJsonUrl = `https://raw.githubusercontent.com/${githubUsername}/.github/main/profile.json`;
+            let response = await fetch(githubProfileJsonUrl, { 
+                method: 'HEAD',  // Check if file exists without downloading
+                cache: 'no-cache'
+            });
+
+            if (response.ok) {
+                // File exists, fetch it
+                response = await fetch(githubProfileJsonUrl, { cache: 'no-cache' });
+                if (response.ok) {
+                    const profile = await response.json();
+                    if (profile.sponsor && profile.sponsor.github) {
+                        const funding = {
+                            url: `https://github.com/sponsors/${githubUsername}`,
+                            github: true
+                        };
+                        // Update author entity with funding
+                        authorEntity.funding = funding;
+                        await window.cacheManager.saveAuthorEntity(authorKey, authorEntity);
+                        return funding;
+                    }
+                }
+            }
+
+            // Try alternative: .github/FUNDING.yml (GitHub Sponsors)
+            const fundingYmlUrl = `https://raw.githubusercontent.com/${githubUsername}/.github/main/FUNDING.yml`;
+            response = await fetch(fundingYmlUrl, { cache: 'no-cache' });
+            if (response.ok) {
+                const yml = await response.text();
+                // Simple parsing for FUNDING.yml
+                const githubMatch = yml.match(/github:\s*(\S+)/i);
+                const customMatch = yml.match(/custom:\s*(\S+)/i);
+                
+                if (githubMatch) {
+                    const username = githubMatch[1].replace(/['"]/g, '');
+                    const funding = {
+                        url: `https://github.com/sponsors/${username}`,
+                        github: true
+                    };
+                    authorEntity.funding = funding;
+                    await window.cacheManager.saveAuthorEntity(authorKey, authorEntity);
+                    return funding;
+                }
+                
+                if (customMatch) {
+                    const url = customMatch[1].replace(/['"]/g, '');
+                    const funding = { url: url };
+                    
+                    // Detect platform
+                    if (url.includes('opencollective.com')) funding.opencollective = true;
+                    if (url.includes('patreon.com')) funding.patreon = true;
+                    
+                    authorEntity.funding = funding;
+                    await window.cacheManager.saveAuthorEntity(authorKey, authorEntity);
+                    return funding;
+                }
+            }
+
+            // Check if GitHub Sponsors profile exists (by checking if sponsors page exists)
+            // Note: This is a lightweight check, actual sponsorship status requires API
+            // We'll just note that GitHub Sponsors might be available
+            // In practice, we'd need to use GitHub API to check if user has sponsorships enabled
+            
+        } catch (error) {
+            // Silently fail - author funding is optional
+            console.debug(`Could not fetch author funding for ${authorKey}:`, error.message);
+        }
+
+        return null;
     }
 
     /**
@@ -1173,17 +1410,35 @@ class AuthorService {
     /**
      * Extract authors from RubyGems response
      * Note: RubyGems doesn't provide emails in the API
+     * RubyGems often lists multiple authors in a single comma-separated string
      */
     extractGemAuthors(data) {
         const authorObjects = [];
         
         if (data.authors) {
             if (typeof data.authors === 'string') {
-                authorObjects.push({ name: data.authors, email: null });
+                // RubyGems may have comma-separated authors: "Author1, Author2, Author3"
+                const authorNames = this.splitCommaSeparatedAuthors(data.authors);
+                authorNames.forEach(authorName => {
+                    if (authorName && authorName.trim()) {
+                        authorObjects.push({ name: authorName.trim(), email: null });
+                    }
+                });
             } else if (Array.isArray(data.authors)) {
+                // Each array item might also be a comma-separated string
                 data.authors.forEach(author => {
                     if (author) {
-                        authorObjects.push({ name: author, email: null });
+                        if (typeof author === 'string' && author.includes(',')) {
+                            // Split if it's a comma-separated string
+                            const authorNames = this.splitCommaSeparatedAuthors(author);
+                            authorNames.forEach(authorName => {
+                                if (authorName && authorName.trim()) {
+                                    authorObjects.push({ name: authorName.trim(), email: null });
+                                }
+                            });
+                        } else {
+                            authorObjects.push({ name: author, email: null });
+                        }
                     }
                 });
             }
@@ -1257,9 +1512,13 @@ class AuthorService {
         
         for (const pkg of packages) {
             // fetchAuthors now returns {authors: [...], funding: {...}} or just [...]
+            // NOTE: fetchAuthors() already saves package, authors, and relationships to cache immediately
             const authorData = await this.fetchAuthors(pkg.ecosystem, pkg.name);
             const authors = Array.isArray(authorData) ? authorData : (authorData.authors || []);
             const funding = Array.isArray(authorData) ? null : (authorData.funding || null);
+            
+            // Verify: fetchAuthors() should have already saved package and authors to cache
+            // This happens inside saveAuthorsToCache() which is called by fetchAuthors()
             
             // Store authors with appropriate prefix
             authors.forEach(author => {
@@ -1299,7 +1558,7 @@ class AuthorService {
                         packageRepositories: {},  // Map: packageName -> array of repositories using it
                         repositories: new Set(),  // Set of all repositories using any of this author's packages
                         repositoryCount: 0,  // Unique repository count (calculated at end)
-                        funding: null,  // Will be set if any package has funding
+                        funding: null,  // Author-level funding (from author profile, NOT package funding)
                         metadata: null  // Will be set if any package has metadata
                     });
                 }
@@ -1322,11 +1581,9 @@ class AuthorService {
                     });
                 }
                 
-                // If this package has funding info, store it for the author
-                // We only need one funding entry per author even if they have multiple packages
-                if (funding && !entry.funding) {
-                    entry.funding = funding;
-                }
+                // IMPORTANT: Do NOT store package funding here - package funding is stored separately in package cache
+                // Author funding should come from author entity (fetched from GitHub profile, author.json, etc.)
+                // We'll fetch author funding from author entities at the end
                 
                 // If this package has metadata, merge it with existing metadata
                 if (authorMetadata && !entry.metadata) {
@@ -1356,6 +1613,18 @@ class AuthorService {
                 entry.packageRepositories[pkgName].sort();
             });
         });
+        
+        // Fetch author-level funding from author entities (NOT package funding)
+        if (window.cacheManager) {
+            const authorKeyPromises = Array.from(results.keys()).map(async (authorKey) => {
+                const authorEntity = await window.cacheManager.getAuthorEntity(authorKey);
+                if (authorEntity?.funding) {
+                    const entry = results.get(authorKey);
+                    entry.funding = authorEntity.funding;  // Author-level funding from profile
+                }
+            });
+            await Promise.all(authorKeyPromises);
+        }
         
         return results;
     }
