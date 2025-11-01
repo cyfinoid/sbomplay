@@ -200,6 +200,20 @@
             await loadAnalysisList();
             console.log('✅ Authors Page - Analysis list loaded');
             
+            // Check for funding filter in URL
+            const urlParams = new URLSearchParams(window.location.search);
+            if (urlParams.get('funding') === 'true') {
+                // Show notice about funding filter
+                const notice = document.createElement('div');
+                notice.className = 'alert alert-info alert-dismissible fade show mt-3';
+                notice.innerHTML = `
+                    <i class="fas fa-heart me-2"></i>
+                    <strong>Funding Filter Active:</strong> Showing only authors that accept personal sponsorships.
+                    <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+                `;
+                document.querySelector('.container').insertBefore(notice, document.querySelector('.container').firstChild);
+            }
+            
             // Setup event listeners
             document.getElementById('analysisSelector').addEventListener('change', loadAuthorData);
             document.getElementById('ecosystemFilter').addEventListener('change', loadAuthorData);
@@ -951,9 +965,26 @@
                     console.log(`🎨 Authors Page - After filtering by ${ecosystemFilter}: ${filtered.length} authors`);
                 }
                 
+                // Filter by funding if URL parameter is set
+                const urlParams = new URLSearchParams(window.location.search);
+                if (urlParams.get('funding') === 'true') {
+                    filtered = filtered.filter(a => a.funding && (a.funding.github || a.funding.opencollective || a.funding.patreon || a.funding.tidelift || a.funding.url));
+                    console.log(`🎨 Authors Page - After filtering by funding: ${filtered.length} authors`);
+                }
+                
                 if (filtered.length === 0) {
                     console.log('⚠️ Authors Page - No authors after filtering');
-                    container.innerHTML = `<p class="text-muted text-center">No authors found for ecosystem: ${ecosystemFilter}. Try selecting "All Ecosystems".</p>`;
+                    const urlParams = new URLSearchParams(window.location.search);
+                    const fundingFilterActive = urlParams.get('funding') === 'true';
+                    let message = 'No authors found';
+                    if (ecosystemFilter !== 'all' && fundingFilterActive) {
+                        message = `No authors found for ecosystem "${ecosystemFilter}" with funding. Try selecting "All Ecosystems" or removing the funding filter.`;
+                    } else if (ecosystemFilter !== 'all') {
+                        message = `No authors found for ecosystem "${ecosystemFilter}". Try selecting "All Ecosystems".`;
+                    } else if (fundingFilterActive) {
+                        message = 'No authors found with funding information.';
+                    }
+                    container.innerHTML = `<p class="text-muted text-center">${message}</p>`;
                     return;
                 }
                 

@@ -262,6 +262,22 @@
         let currentData = null;
         let sortColumn = 'name';
         let sortDirection = 'asc';
+        let fundingFilterActive = false;
+        
+        // Check for funding filter in URL
+        const urlParams = new URLSearchParams(window.location.search);
+        if (urlParams.get('funding') === 'true') {
+            fundingFilterActive = true;
+            // Show notice about funding filter
+            const notice = document.createElement('div');
+            notice.className = 'alert alert-info alert-dismissible fade show mt-3';
+            notice.innerHTML = `
+                <i class="fas fa-heart me-2"></i>
+                <strong>Funding Filter Active:</strong> Showing only dependencies that accept donations/sponsorships.
+                <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+            `;
+            document.querySelector('.container').insertBefore(notice, document.querySelector('.container').firstChild);
+        }
         
         await loadAnalysesList();
         
@@ -288,11 +304,13 @@
             }
         }
         
-        document.getElementById('analysisSelector').addEventListener('change', loadAnalysis);
-        document.getElementById('searchInput').addEventListener('input', filterTable);
-        document.getElementById('typeFilter').addEventListener('change', filterTable);
-        document.getElementById('ecosystemFilter').addEventListener('change', filterTable);
-        document.getElementById('repoFilter').addEventListener('change', filterTable);
+        document.getElementById('analysisSelector').addEventListener('change', () => {
+            loadAnalysis().then(() => filterTable());
+        });
+        document.getElementById('searchInput').addEventListener('input', () => filterTable());
+        document.getElementById('typeFilter').addEventListener('change', () => filterTable());
+        document.getElementById('ecosystemFilter').addEventListener('change', () => filterTable());
+        document.getElementById('repoFilter').addEventListener('change', () => filterTable());
         document.getElementById('exportBtn').addEventListener('click', exportCSV);
         
         // Sort handlers
@@ -306,7 +324,7 @@
                     sortDirection = 'asc';
                 }
                 updateSortIcons();
-                filterTable();
+                filterTable(); // filterTable is async but we don't need to await here
             });
         });
         
@@ -360,7 +378,7 @@
             document.getElementById('statsRow').style.display = 'block';
             document.getElementById('noDataMessage').style.display = 'none';
             
-            filterTable();
+            await filterTable();
         }
         
         function processData(data) {
@@ -396,6 +414,27 @@
                     }
                 });
                 
+                // Extract package key for funding lookup
+                let packageKey = null;
+                if (dep.category?.ecosystem && dep.name) {
+                    packageKey = `${dep.category.ecosystem}:${dep.name}`;
+                } else if (dep.purl) {
+                    // PURL format: pkg:ecosystem/name@version
+                    const purlMatch = dep.purl.match(/pkg:([^\/]+)\/([^@\/]+)/);
+                    if (purlMatch) {
+                        packageKey = `${purlMatch[1]}:${purlMatch[2]}`;
+                    }
+                } else if (dep.originalPackage?.externalRefs) {
+                    // Try to extract from originalPackage externalRefs
+                    const purlRef = dep.originalPackage.externalRefs.find(ref => ref.referenceType === 'purl');
+                    if (purlRef && purlRef.referenceLocator) {
+                        const purlMatch = purlRef.referenceLocator.match(/pkg:([^\/]+)\/([^@\/]+)/);
+                        if (purlMatch) {
+                            packageKey = `${purlMatch[1]}:${purlMatch[2]}`;
+                        }
+                    }
+                }
+                
                 deps.push({
                     name: dep.name,
                     version: dep.version,
@@ -405,6 +444,7 @@
                     repositories: dep.repositories || [],
                     repoCount: (dep.repositories || []).length,
                     parents: Array.from(parents),
+                    packageKey: packageKey,  // Store for funding lookup
                     raw: dep
                 });
             });
@@ -417,13 +457,28 @@
             return version.trim().replace(/^[><=^~]+\s*/, '').replace(/\s*-\s*[\d.]+.*$/, '').replace(/\s*\|\|.*$/, '').replace(/\s+/g, '');
         }
         
-        function filterTable() {
+        async function filterTable() {
             const search = document.getElementById('searchInput').value.toLowerCase();
             const typeFilter = document.getElementById('typeFilter').value;
             const ecosystemFilter = document.getElementById('ecosystemFilter').value;
             const repoFilter = document.getElementById('repoFilter').value;
             
-            let filtered = allDependencies.filter(dep => {
+            let filtered = allDependencies;
+            
+            // Apply funding filter if active
+            if (fundingFilterActive && window.cacheManager) {
+                // Filter to only packages with funding
+                const fundingChecks = filtered.map(async (dep) => {
+                    if (!dep.packageKey) return false;
+                    const packageData = await window.cacheManager.getPackage(dep.packageKey);
+                    return packageData && packageData.funding ? true : false;
+                });
+                const fundingResults = await Promise.all(fundingChecks);
+                filtered = filtered.filter((dep, index) => fundingResults[index]);
+            }
+            
+            // Apply other filters
+            filtered = filtered.filter(dep => {
                 if (search && !dep.name.toLowerCase().includes(search)) return false;
                 if (typeFilter !== 'all' && dep.type !== typeFilter) return false;
                 if (ecosystemFilter !== 'all' && dep.ecosystem !== ecosystemFilter) return false;

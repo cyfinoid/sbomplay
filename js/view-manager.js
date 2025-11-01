@@ -3062,7 +3062,227 @@ class ViewManager {
         `;
     }
 
+    /**
+     * Build dependency path for a transitive dependency
+     */
+    buildDependencyPath(repo, targetDep, allDependencies) {
+        const normalizeVersion = (version) => {
+            if (!version) return '';
+            return version.trim()
+                .replace(/^[><=^~]+\s*/, '')
+                .replace(/\s*-\s*[\d.]+.*$/, '')
+                .replace(/\s*\|\|.*$/, '')
+                .replace(/\s+/g, '');
+        };
+
+        // Build SPDXID to package mapping
+        const spdxToPackage = new Map();
+        if (repo.spdxPackages) {
+            repo.spdxPackages.forEach(pkg => {
+                if (pkg.SPDXID && pkg.name) {
+                    const normalizedVersion = normalizeVersion(pkg.version || '');
+                    spdxToPackage.set(pkg.SPDXID, {
+                        name: pkg.name,
+                        version: normalizedVersion,
+                        key: `${pkg.name}@${normalizedVersion}`
+                    });
+                }
+            });
+        }
+
+        const targetKey = `${targetDep.name}@${targetDep.version}`;
+        
+        // Find the SPDXID for the target dependency
+        let targetSpdxId = null;
+        for (const [spdxId, pkg] of spdxToPackage.entries()) {
+            if (pkg.key === targetKey) {
+                targetSpdxId = spdxId;
+                break;
+            }
+        }
+
+        if (!targetSpdxId || !repo.relationships) {
+            return null;
+        }
+
+        // Build reverse relationship map (child -> parent)
+        const parentMap = new Map();
+        repo.relationships.forEach(rel => {
+            if (!rel.isDirectFromMain && rel.to === targetSpdxId) {
+                parentMap.set(targetSpdxId, rel.from);
+            }
+        });
+
+        // If it's a direct dependency, return early
+        const isDirect = repo.relationships.some(rel => 
+            rel.to === targetSpdxId && rel.isDirectFromMain
+        );
+        if (isDirect) {
+            return {
+                isDirect: true,
+                path: [targetKey],
+                repoKey: `${repo.owner}/${repo.name}`
+            };
+        }
+
+        // Trace back through parent dependencies
+        const path = [];
+        let currentSpdxId = targetSpdxId;
+        const visited = new Set();
+
+        while (currentSpdxId && !visited.has(currentSpdxId)) {
+            visited.add(currentSpdxId);
+            const pkg = spdxToPackage.get(currentSpdxId);
+            if (pkg) {
+                path.unshift(pkg.key); // Add to front
+            }
+
+            // Find parent
+            const parentRel = repo.relationships.find(rel => 
+                rel.to === currentSpdxId && !rel.isDirectFromMain
+            );
+            
+            if (parentRel) {
+                currentSpdxId = parentRel.from;
+            } else {
+                // Check if current is a direct dependency
+                const directRel = repo.relationships.find(rel => 
+                    rel.to === currentSpdxId && rel.isDirectFromMain
+                );
+                if (directRel) {
+                    break; // Reached root
+                }
+                currentSpdxId = null;
+            }
+        }
+
+        return {
+            isDirect: false,
+            path: path,
+            repoKey: `${repo.owner}/${repo.name}`
+        };
+    }
+
+    /**
+     * Get repository usage and paths for a vulnerable dependency
+     */
+    getVulnerableDepUsage(vulnDep, orgData) {
+        const allDeps = orgData.data.allDependencies || [];
+        const repos = orgData.data.allRepositories || [];
+        
+        // Find the dependency in allDependencies
+        const fullDep = allDeps.find(d => 
+            d.name === vulnDep.name && d.version === vulnDep.version
+        );
+
+        if (!fullDep) {
+            return [];
+        }
+
+        const usage = [];
+        const repoKeys = fullDep.repositories || [];
+
+        repoKeys.forEach(repoKey => {
+            const repo = repos.find(r => `${r.owner}/${r.name}` === repoKey);
+            if (!repo) return;
+
+            const pathInfo = this.buildDependencyPath(repo, vulnDep, allDeps);
+            if (pathInfo) {
+                usage.push(pathInfo);
+            }
+        });
+
+        return usage;
+    }
+
     generateVulnerabilityAnalysisHTML(orgData) {
+        // Pre-process vulnerable dependencies with usage info
+        let vulnerableDepsHTML = '';
+        if (orgData.data.vulnerabilityAnalysis && orgData.data.vulnerabilityAnalysis.vulnerableDependencies) {
+            const vulnerableDeps = orgData.data.vulnerabilityAnalysis.vulnerableDependencies || [];
+            const processedDeps = vulnerableDeps.slice(0, 10).map(dep => {
+                const usage = this.getVulnerableDepUsage(dep, orgData);
+                return {
+                    dep: dep,
+                    usage: usage,
+                    uniqueRepos: [...new Set(usage.map(u => u.repoKey))]
+                };
+            });
+            
+            if (processedDeps.length > 0) {
+                vulnerableDepsHTML = `
+                <div class="vulnerable-dependencies">
+                    <h4>🚨 Vulnerable Dependencies</h4>
+                    <div class="vulnerable-deps-list">
+                        ${processedDeps.map((item) => {
+                            const dep = item.dep;
+                            const usage = item.usage;
+                            const uniqueRepos = item.uniqueRepos;
+                            const safeDepName = dep.name.replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+                            const safeDepVersion = dep.version.replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+                            
+                            return `
+                            <div class="vulnerable-dep-item mb-3" style="border-left: 3px solid #dc3545; padding-left: 15px;">
+                                <div class="vuln-dep-info">
+                                    <div class="vuln-dep-name" style="font-weight: bold; font-size: 1.1em;">${dep.name}@${dep.version}</div>
+                                    <div class="vuln-dep-count mb-2">${dep.vulnerabilities.length} vulnerability${dep.vulnerabilities.length !== 1 ? 'ies' : 'y'}</div>
+                                    <div class="vuln-severity-badges mb-2">
+                                        ${dep.vulnerabilities.map(vuln => {
+                                            if (!vuln || typeof vuln !== 'object') return '';
+                                            const severity = window.osvService ? window.osvService.getHighestSeverity(vuln) : 'UNKNOWN';
+                                            const tooltip = `${vuln.id || 'Unknown ID'}\n${vuln.summary || 'No summary'}`;
+                                            const cssSeverity = severity.toLowerCase() === 'moderate' ? 'medium' : severity.toLowerCase();
+                                            return `
+                                                <span class="badge severity-${cssSeverity} clickable-severity-badge me-1" 
+                                                      title="${tooltip.replace(/"/g, '&quot;')}" 
+                                                      onclick="viewManager.showVulnerabilityDetails('${safeDepName}', '${safeDepVersion}', [${JSON.stringify(vuln).replace(/"/g, '&quot;')}])">
+                                                    ${severity}
+                                                </span>
+                                            `;
+                                        }).join('')}
+                                    </div>
+                                    ${usage.length > 0 ? `
+                                    <div class="vuln-repo-usage mt-3 p-2 bg-light rounded">
+                                        <small class="text-muted d-block mb-2">
+                                            <i class="fas fa-code-branch me-1"></i>
+                                            <strong>Used in ${uniqueRepos.length} repository${uniqueRepos.length !== 1 ? 'ies' : 'y'}:</strong>
+                                        </small>
+                                        <div class="vuln-paths" style="font-size: 0.85em;">
+                                            ${usage.map(u => {
+                                                const pathStr = u.isDirect 
+                                                    ? u.path[0]
+                                                    : u.path.join(' → ');
+                                                const escapedPath = pathStr.replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+                                                return `
+                                                    <div class="mb-2" style="padding-left: 10px;">
+                                                        <code class="text-primary fw-bold">${u.repoKey}</code>: <code>${escapedPath}</code>
+                                                    </div>
+                                                `;
+                                            }).join('')}
+                                        </div>
+                                    </div>
+                                    ` : `
+                                    <div class="mt-2">
+                                        <small class="text-muted">
+                                            <i class="fas fa-info-circle me-1"></i>Repository usage information not available
+                                        </small>
+                                    </div>
+                                    `}
+                                </div>
+                                <div class="vuln-dep-actions mt-2">
+                                    <button class="btn btn-sm btn-outline-info" onclick="viewManager.showVulnerabilityDetails('${safeDepName}', '${safeDepVersion}', ${JSON.stringify(dep.vulnerabilities).replace(/"/g, '&quot;')})">
+                                        <i class="fas fa-eye me-1"></i>View Details
+                                    </button>
+                                </div>
+                            </div>
+                        `;
+                        }).join('')}
+                    </div>
+                </div>
+                `;
+            }
+        }
+
         // Extracted from generateOverviewHTML: vulnerability section only
         return `
         <div id="vulnerability-section" class="independent-section">
@@ -3112,41 +3332,7 @@ class ViewManager {
                         <div class="vuln-detail">vulnerability rate</div>
                     </div>
                 </div>
-                ${orgData.data.vulnerabilityAnalysis.vulnerableDependencies && orgData.data.vulnerabilityAnalysis.vulnerableDependencies.length > 0 ? `
-                <div class="vulnerable-dependencies">
-                    <h4>🚨 Vulnerable Dependencies</h4>
-                    <div class="vulnerable-deps-list">
-                        ${orgData.data.vulnerabilityAnalysis.vulnerableDependencies.slice(0, 10).map(dep => `
-                            <div class="vulnerable-dep-item">
-                                <div class="vuln-dep-info">
-                                    <div class="vuln-dep-name">${dep.name}@${dep.version}</div>
-                                    <div class="vuln-dep-count">${dep.vulnerabilities.length} vulnerabilities</div>
-                                    <div class="vuln-severity-badges">
-                                        ${dep.vulnerabilities.map(vuln => {
-                                            if (!vuln || typeof vuln !== 'object') return '';
-                                            const severity = window.osvService ? window.osvService.getHighestSeverity(vuln) : 'UNKNOWN';
-                                            const tooltip = `${vuln.id || 'Unknown ID'}\n${vuln.summary || 'No summary'}`;
-                                            const cssSeverity = severity.toLowerCase() === 'moderate' ? 'medium' : severity.toLowerCase();
-                                            return `
-                                                <span class="badge severity-${cssSeverity} clickable-severity-badge" 
-                                                      title="${tooltip}" 
-                                                      onclick="viewManager.showVulnerabilityDetails('${dep.name}', '${dep.version}', [${JSON.stringify(vuln).replace(/"/g, '&quot;')}])">
-                                                    ${severity}
-                                                </span>
-                                            `;
-                                        }).join('')}
-                                    </div>
-                                </div>
-                                <div class="vuln-dep-actions">
-                                    <button class="btn btn-sm btn-outline-info" onclick="viewManager.showVulnerabilityDetails('${dep.name}', '${dep.version}', ${JSON.stringify(dep.vulnerabilities).replace(/"/g, '&quot;')})">
-                                        <i class="fas fa-eye me-1"></i>View Details
-                                    </button>
-                                </div>
-                            </div>
-                        `).join('')}
-                    </div>
-                </div>
-                ` : ''}
+                ${vulnerableDepsHTML}
                 ` : `
                 <div class="vulnerability-actions mb-3">
                     <button class="btn btn-primary btn-sm" onclick="viewManager.runBatchVulnerabilityQuery('${orgData.organization || orgData.name}')">
