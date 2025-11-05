@@ -13,6 +13,9 @@ class SBOMProcessor {
         // Initialize license processor
         this.licenseProcessor = new LicenseProcessor();
         
+        // Initialize quality processor
+        this.qualityProcessor = window.SBOMQualityProcessor ? new window.SBOMQualityProcessor() : null;
+        
         // Categorization mappings
         this.purlTypeMap = {
             'pypi': { type: 'code', language: 'Python', ecosystem: 'PyPI' },
@@ -246,6 +249,21 @@ class SBOMProcessor {
             name: pkg.name,
             version: pkg.versionInfo || pkg.version
         }));
+        
+        // Assess SBOM quality if quality processor is available
+        if (this.qualityProcessor) {
+            try {
+                const qualityAssessment = this.qualityProcessor.assessQuality(sbomData, owner, repo);
+                repoData.qualityAssessment = qualityAssessment;
+                console.log(`✅ SBOM Quality for ${repoKey}: ${qualityAssessment.overallScore}/100 (Grade ${qualityAssessment.grade})`);
+            } catch (error) {
+                console.error(`❌ Failed to assess SBOM quality for ${repoKey}:`, error);
+                repoData.qualityAssessment = null;
+            }
+        } else {
+            console.warn('⚠️  SBOM Quality Processor not available');
+            repoData.qualityAssessment = null;
+        }
         
         this.repositories.set(repoKey, repoData);
         
@@ -571,8 +589,21 @@ class SBOMProcessor {
             },
             languages: Array.from(repo.languages),
             relationships: repo.relationships || [],  // Include ALL relationships for graph visualization
-            spdxPackages: repo.spdxPackages || []  // Store SPDX package data for mapping
+            spdxPackages: repo.spdxPackages || [],  // Store SPDX package data for mapping
+            qualityAssessment: repo.qualityAssessment || null  // Include SBOM quality assessment
         }));
+
+        // Calculate aggregate quality analysis if quality processor is available
+        let qualityAnalysis = null;
+        if (this.qualityProcessor) {
+            const qualityAssessments = allRepos
+                .filter(repo => repo.qualityAssessment)
+                .map(repo => repo.qualityAssessment);
+            
+            if (qualityAssessments.length > 0) {
+                qualityAnalysis = this.qualityProcessor.calculateAggregateQuality(qualityAssessments);
+            }
+        }
 
         return {
             timestamp: new Date().toISOString(),
@@ -585,7 +616,8 @@ class SBOMProcessor {
             categoryStats: this.getDependencyCategoryStats(),
             languageStats: this.getLanguageStats(),
             vulnerabilityAnalysis: this.vulnerabilityAnalysis || null,
-            licenseAnalysis: this.licenseAnalysis || null
+            licenseAnalysis: this.licenseAnalysis || null,
+            qualityAnalysis: qualityAnalysis  // Add aggregate quality analysis
         };
     }
 

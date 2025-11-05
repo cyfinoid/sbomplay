@@ -2975,6 +2975,258 @@ class ViewManager {
 
         return await window.templateLoader.renderTemplate('vulnerability-analysis.html', templateData);
     }
+
+    /**
+     * Render SBOM quality badge
+     */
+    renderQualityBadge(score, size = 'normal') {
+        if (score === null || score === undefined) {
+            return '<span class="badge bg-secondary">N/A</span>';
+        }
+        
+        const getColorClass = (score) => {
+            if (score >= 80) return 'success';
+            if (score >= 60) return 'warning';
+            return 'danger';
+        };
+        
+        const sizeClass = size === 'large' ? 'fs-5' : '';
+        const color = getColorClass(score);
+        
+        return `<span class="badge bg-${color} ${sizeClass}">${score}/100</span>`;
+    }
+
+    /**
+     * Render quality grade badge
+     */
+    renderQualityGradeBadge(grade) {
+        if (!grade || grade === 'N/A') {
+            return '<span class="badge bg-secondary">N/A</span>';
+        }
+        
+        const colorMap = {
+            'A': 'success',
+            'B': 'info',
+            'C': 'primary',
+            'D': 'warning',
+            'F': 'danger'
+        };
+        
+        const color = colorMap[grade] || 'secondary';
+        return `<span class="badge bg-${color}">${grade}</span>`;
+    }
+
+    /**
+     * Render quality score breakdown
+     */
+    renderQualityBreakdown(qualityAssessment, detailed = false) {
+        if (!qualityAssessment) {
+            return '<p class="text-muted">No quality assessment available</p>';
+        }
+        
+        const qa = qualityAssessment;
+        const cats = qa.categories;
+        
+        const getColorClass = (score) => {
+            if (score >= 80) return 'success';
+            if (score >= 60) return 'warning';
+            return 'danger';
+        };
+        
+        let html = `
+            <div class="row mb-3">
+                <div class="col-md-3 text-center">
+                    ${this.renderQualityBadge(qa.overallScore, 'large')}
+                    <p class="small text-muted mt-1">Overall</p>
+                </div>
+                <div class="col-md-9">
+                    <div class="row">
+                        <div class="col-6 col-md-3 mb-2">
+                            <small class="d-block">Identification</small>
+                            ${this.renderQualityBadge(cats.identification.score)}
+                        </div>
+                        <div class="col-6 col-md-3 mb-2">
+                            <small class="d-block">Structure</small>
+                            ${this.renderQualityBadge(cats.structure.score)}
+                        </div>
+                        <div class="col-6 col-md-3 mb-2">
+                            <small class="d-block">Metadata</small>
+                            ${this.renderQualityBadge(cats.metadata.score)}
+                        </div>
+                        <div class="col-6 col-md-3 mb-2">
+                            <small class="d-block">Completeness</small>
+                            ${this.renderQualityBadge(cats.completeness.score)}
+                        </div>
+                    </div>
+                </div>
+            </div>
+        `;
+        
+        if (detailed && qa.summary) {
+            html += `
+                <div class="alert alert-info">
+                    <small>${qa.summary}</small>
+                </div>
+            `;
+        }
+        
+        if (detailed && qa.issues && qa.issues.length > 0) {
+            html += '<div class="mt-3"><h6>Issues Found:</h6>';
+            qa.issues.forEach(issueGroup => {
+                if (issueGroup.issues.length > 0) {
+                    html += `
+                        <div class="mb-2">
+                            <strong class="text-muted">${issueGroup.category}:</strong>
+                            <ul class="small mb-0">
+                    `;
+                    issueGroup.issues.slice(0, 5).forEach(issue => {
+                        html += `<li>${issue}</li>`;
+                    });
+                    if (issueGroup.issues.length > 5) {
+                        html += `<li><em>... and ${issueGroup.issues.length - 5} more</em></li>`;
+                    }
+                    html += '</ul></div>';
+                }
+            });
+            html += '</div>';
+        }
+        
+        return html;
+    }
+
+    /**
+     * Render repository quality table
+     */
+    renderRepositoryQualityTable(repositories) {
+        if (!repositories || repositories.length === 0) {
+            return '<p class="text-muted">No repository quality data available</p>';
+        }
+        
+        // Filter repositories with quality assessments
+        const reposWithQuality = repositories.filter(repo => repo.qualityAssessment);
+        
+        if (reposWithQuality.length === 0) {
+            return '<p class="text-muted">No quality assessments available for repositories</p>';
+        }
+        
+        // Sort by quality score (lowest first to highlight issues)
+        const sorted = [...reposWithQuality].sort((a, b) => 
+            a.qualityAssessment.overallScore - b.qualityAssessment.overallScore
+        );
+        
+        let html = `
+            <div class="table-responsive">
+                <table class="table table-hover">
+                    <thead>
+                        <tr>
+                            <th>Repository</th>
+                            <th>Overall Score</th>
+                            <th>Grade</th>
+                            <th>Identification</th>
+                            <th>Structure</th>
+                            <th>Metadata</th>
+                            <th>Completeness</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+        `;
+        
+        sorted.forEach(repo => {
+            const qa = repo.qualityAssessment;
+            const repoName = `${repo.owner}/${repo.name}`;
+            
+            html += `
+                <tr>
+                    <td><code>${repoName}</code></td>
+                    <td>${this.renderQualityBadge(qa.overallScore)}</td>
+                    <td>${this.renderQualityGradeBadge(qa.grade)}</td>
+                    <td>${this.renderQualityBadge(qa.categories.identification.score)}</td>
+                    <td>${this.renderQualityBadge(qa.categories.structure.score)}</td>
+                    <td>${this.renderQualityBadge(qa.categories.metadata.score)}</td>
+                    <td>${this.renderQualityBadge(qa.categories.completeness.score)}</td>
+                </tr>
+            `;
+        });
+        
+        html += `
+                    </tbody>
+                </table>
+            </div>
+        `;
+        
+        return html;
+    }
+
+    /**
+     * Render quality summary card
+     */
+    renderQualitySummaryCard(qualityAnalysis) {
+        if (!qualityAnalysis) {
+            return '';
+        }
+        
+        const getColorClass = (score) => {
+            if (score >= 80) return 'success';
+            if (score >= 60) return 'warning';
+            return 'danger';
+        };
+        
+        const qa = qualityAnalysis;
+        
+        return `
+            <div class="card">
+                <div class="card-header">
+                    <h5 class="mb-0"><i class="fas fa-certificate me-2"></i>SBOM Quality</h5>
+                </div>
+                <div class="card-body">
+                    <div class="text-center mb-3">
+                        <h2 class="text-${getColorClass(qa.averageOverallScore)}">${qa.averageOverallScore}/100</h2>
+                        <p class="text-muted">Average Quality Score</p>
+                        <p class="small">Across ${qa.totalRepositories} repositories</p>
+                    </div>
+                    
+                    <div class="row text-center mb-3">
+                        <div class="col-3">
+                            <small class="d-block text-muted">Identification</small>
+                            <strong class="text-${getColorClass(qa.averageIdentification)}">${qa.averageIdentification}</strong>
+                        </div>
+                        <div class="col-3">
+                            <small class="d-block text-muted">Structure</small>
+                            <strong class="text-${getColorClass(qa.averageStructure)}">${qa.averageStructure}</strong>
+                        </div>
+                        <div class="col-3">
+                            <small class="d-block text-muted">Metadata</small>
+                            <strong class="text-${getColorClass(qa.averageMetadata)}">${qa.averageMetadata}</strong>
+                        </div>
+                        <div class="col-3">
+                            <small class="d-block text-muted">Completeness</small>
+                            <strong class="text-${getColorClass(qa.averageCompleteness)}">${qa.averageCompleteness}</strong>
+                        </div>
+                    </div>
+                    
+                    <div class="border-top pt-3">
+                        <h6>Grade Distribution</h6>
+                        <div class="d-flex gap-2">
+                            <span class="badge bg-success">A: ${qa.gradeDistribution.A || 0}</span>
+                            <span class="badge bg-info">B: ${qa.gradeDistribution.B || 0}</span>
+                            <span class="badge bg-primary">C: ${qa.gradeDistribution.C || 0}</span>
+                            <span class="badge bg-warning">D: ${qa.gradeDistribution.D || 0}</span>
+                            <span class="badge bg-danger">F: ${qa.gradeDistribution.F || 0}</span>
+                        </div>
+                    </div>
+                    
+                    ${qa.repositoriesNeedingAttention && qa.repositoriesNeedingAttention.length > 0 ? `
+                    <div class="alert alert-warning mt-3 mb-0">
+                        <small>
+                            <i class="fas fa-exclamation-triangle me-1"></i>
+                            <strong>${qa.repositoriesNeedingAttention.length}</strong> repositories need attention (score < 70)
+                        </small>
+                    </div>
+                    ` : ''}
+                </div>
+            </div>
+        `;
+    }
 }
 
 // Export for use in other modules

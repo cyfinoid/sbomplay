@@ -73,6 +73,20 @@
             </div>
         </div>
 
+        <!-- SBOM Quality Dashboard -->
+        <div id="qualityDashboard" class="card mb-4" style="display: none;">
+            <div class="card-header">
+                <h5 class="mb-0">
+                    <i class="fas fa-certificate me-2"></i>SBOM Quality Assessment
+                </h5>
+            </div>
+            <div class="card-body">
+                <div id="qualityContent">
+                    <!-- Quality data will be populated by JavaScript -->
+                </div>
+            </div>
+        </div>
+
         <!-- Quick Stats Cards -->
         <div id="statsCards" class="row mb-4">
             <!-- Stats will be populated by JavaScript -->
@@ -167,6 +181,7 @@
     <script src="js/ecosystem-utils.js?v=10"></script>
     <script src="js/cache-manager.js?v=10"></script>
     <script src="js/github-client.js?v=10"></script>
+    <script src="js/sbom-quality-processor.js?v=10"></script>
     <script src="js/sbom-processor.js?v=10"></script>
     <script src="js/license-processor.js?v=10"></script>
     <script src="js/osv-service.js?v=10"></script>
@@ -214,6 +229,7 @@
                 if (combinedData) {
                     console.log('🔍 Stats Page - Displaying dashboard with data');
                     await this.displayDashboardOverview(combinedData);
+                    this.displayQualityDashboard(combinedData);
                     this.displayStatsCards(combinedData);
                 } else {
                     console.log('🔍 Stats Page - No combined data available, showing no data message');
@@ -318,46 +334,71 @@
                     </div>
                     ${fundingStats.packagesWithFunding > 0 || fundingStats.authorsWithFunding > 0 ? `
                     <div class="row mt-3 pt-3 border-top">
-                        <div class="col-md-6">
+                        <div class="col-12 mb-2">
+                            <h6><i class="fas fa-heart me-2"></i>Funding & Sponsorship Opportunities</h6>
+                        </div>
+                        <div class="col-md-4">
                             <div class="text-center">
-                                ${fundingStats.packagesWithFunding > 0 ? `
-                                <a href="deps-table.html?funding=true" class="text-decoration-none text-success">
+                                ${fundingStats.directPackagesWithFunding > 0 ? `
+                                <a href="deps-table.html?funding=true&direct=true" class="text-decoration-none text-success">
                                     <h4 class="text-success">
-                                        <i class="fas fa-heart me-2"></i>${fundingStats.packagesWithFunding}
+                                        <i class="fas fa-layer-group me-2"></i>${fundingStats.directPackagesWithFunding}
                                     </h4>
-                                    <small class="text-muted">Packages Seeking Support</small>
+                                    <small class="text-muted">Direct Dependencies</small>
                                     <p class="text-muted small mb-0 mt-1">
-                                        <i class="fas fa-external-link-alt me-1"></i>
-                                        Click to view dependencies that accept donations/sponsorships
+                                        <i class="fas fa-info-circle me-1"></i>
+                                        Packages directly used by your repositories
                                     </p>
                                 </a>
                                 ` : `
                                 <h4 class="text-success">
-                                    <i class="fas fa-heart me-2"></i>0
+                                    <i class="fas fa-layer-group me-2"></i>0
                                 </h4>
-                                <small class="text-muted">Packages Seeking Support</small>
-                                <p class="text-muted small mb-0 mt-1">No packages with funding found</p>
+                                <small class="text-muted">Direct Dependencies</small>
+                                <p class="text-muted small mb-0 mt-1">No direct dependencies with funding</p>
                                 `}
                             </div>
                         </div>
-                        <div class="col-md-6">
+                        <div class="col-md-4">
+                            <div class="text-center">
+                                ${fundingStats.packagesWithFunding > 0 ? `
+                                <a href="deps-table.html?funding=true" class="text-decoration-none text-info">
+                                    <h4 class="text-info">
+                                        <i class="fas fa-sitemap me-2"></i>${fundingStats.packagesWithFunding}
+                                    </h4>
+                                    <small class="text-muted">All Dependencies</small>
+                                    <p class="text-muted small mb-0 mt-1">
+                                        <i class="fas fa-info-circle me-1"></i>
+                                        Includes transitive dependencies in supply chain
+                                    </p>
+                                </a>
+                                ` : `
+                                <h4 class="text-info">
+                                    <i class="fas fa-sitemap me-2"></i>0
+                                </h4>
+                                <small class="text-muted">All Dependencies</small>
+                                <p class="text-muted small mb-0 mt-1">No dependencies with funding found</p>
+                                `}
+                            </div>
+                        </div>
+                        <div class="col-md-4">
                             <div class="text-center">
                                 ${fundingStats.authorsWithFunding > 0 ? `
                                 <a href="authors.html?funding=true" class="text-decoration-none text-primary">
                                     <h4 class="text-primary">
                                         <i class="fas fa-users me-2"></i>${fundingStats.authorsWithFunding}
                                     </h4>
-                                    <small class="text-muted">Authors Seeking Support</small>
+                                    <small class="text-muted">Package Authors</small>
                                     <p class="text-muted small mb-0 mt-1">
-                                        <i class="fas fa-external-link-alt me-1"></i>
-                                        Click to view authors accepting personal sponsorships
+                                        <i class="fas fa-info-circle me-1"></i>
+                                        Maintainers accepting personal sponsorships
                                     </p>
                                 </a>
                                 ` : `
                                 <h4 class="text-primary">
                                     <i class="fas fa-users me-2"></i>0
                                 </h4>
-                                <small class="text-muted">Authors Seeking Support</small>
+                                <small class="text-muted">Package Authors</small>
                                 <p class="text-muted small mb-0 mt-1">No authors with funding found</p>
                                 `}
                             </div>
@@ -367,6 +408,142 @@
                 `;
                 
                 content.innerHTML = html;
+            }
+
+            /**
+             * Display SBOM Quality Dashboard
+             */
+            displayQualityDashboard(data) {
+                const qualityDashboard = document.getElementById('qualityDashboard');
+                const qualityContent = document.getElementById('qualityContent');
+                
+                if (!data.data.qualityAnalysis) {
+                    qualityDashboard.style.display = 'none';
+                    return;
+                }
+                
+                qualityDashboard.style.display = 'block';
+                const qa = data.data.qualityAnalysis;
+                
+                // Get color class for score
+                const getScoreColor = (score) => {
+                    if (score >= 80) return 'success';
+                    if (score >= 60) return 'warning';
+                    return 'danger';
+                };
+                
+                // Build HTML
+                let html = `
+                    <div class="row mb-4">
+                        <div class="col-md-3 text-center">
+                            <h2 class="text-${getScoreColor(qa.averageOverallScore)}">${qa.averageOverallScore}/100</h2>
+                            <p class="text-muted">Average Quality Score</p>
+                        </div>
+                        <div class="col-md-9">
+                            <div class="row">
+                                <div class="col-md-3">
+                                    <p class="mb-1 small"><strong>Identification</strong></p>
+                                    <div class="progress" style="height: 20px;">
+                                        <div class="progress-bar bg-${getScoreColor(qa.averageIdentification)}" 
+                                             role="progressbar" 
+                                             style="width: ${qa.averageIdentification}%"
+                                             aria-valuenow="${qa.averageIdentification}" 
+                                             aria-valuemin="0" 
+                                             aria-valuemax="100">${qa.averageIdentification}</div>
+                                    </div>
+                                </div>
+                                <div class="col-md-3">
+                                    <p class="mb-1 small"><strong>Structure</strong></p>
+                                    <div class="progress" style="height: 20px;">
+                                        <div class="progress-bar bg-${getScoreColor(qa.averageStructure)}" 
+                                             role="progressbar" 
+                                             style="width: ${qa.averageStructure}%"
+                                             aria-valuenow="${qa.averageStructure}" 
+                                             aria-valuemin="0" 
+                                             aria-valuemax="100">${qa.averageStructure}</div>
+                                    </div>
+                                </div>
+                                <div class="col-md-3">
+                                    <p class="mb-1 small"><strong>Metadata</strong></p>
+                                    <div class="progress" style="height: 20px;">
+                                        <div class="progress-bar bg-${getScoreColor(qa.averageMetadata)}" 
+                                             role="progressbar" 
+                                             style="width: ${qa.averageMetadata}%"
+                                             aria-valuenow="${qa.averageMetadata}" 
+                                             aria-valuemin="0" 
+                                             aria-valuemax="100">${qa.averageMetadata}</div>
+                                    </div>
+                                </div>
+                                <div class="col-md-3">
+                                    <p class="mb-1 small"><strong>Completeness</strong></p>
+                                    <div class="progress" style="height: 20px;">
+                                        <div class="progress-bar bg-${getScoreColor(qa.averageCompleteness)}" 
+                                             role="progressbar" 
+                                             style="width: ${qa.averageCompleteness}%"
+                                             aria-valuenow="${qa.averageCompleteness}" 
+                                             aria-valuemin="0" 
+                                             aria-valuemax="100">${qa.averageCompleteness}</div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="row mb-3">
+                        <div class="col-md-12">
+                            <h6>Grade Distribution</h6>
+                            <div class="d-flex gap-3">
+                                <span class="badge bg-success">A: ${qa.gradeDistribution.A || 0}</span>
+                                <span class="badge bg-info">B: ${qa.gradeDistribution.B || 0}</span>
+                                <span class="badge bg-primary">C: ${qa.gradeDistribution.C || 0}</span>
+                                <span class="badge bg-warning">D: ${qa.gradeDistribution.D || 0}</span>
+                                <span class="badge bg-danger">F: ${qa.gradeDistribution.F || 0}</span>
+                                ${qa.gradeDistribution['N/A'] > 0 ? `<span class="badge bg-secondary">N/A: ${qa.gradeDistribution['N/A']}</span>` : ''}
+                            </div>
+                        </div>
+                    </div>
+                `;
+                
+                // Add repositories needing attention
+                if (qa.repositoriesNeedingAttention && qa.repositoriesNeedingAttention.length > 0) {
+                    html += `
+                        <div class="alert alert-warning">
+                            <h6><i class="fas fa-exclamation-triangle me-2"></i>Repositories Needing Attention (${qa.repositoriesNeedingAttention.length})</h6>
+                            <p class="small mb-2">These repositories have SBOM quality scores below 70%:</p>
+                            <div class="table-responsive">
+                                <table class="table table-sm table-hover mb-0">
+                                    <thead>
+                                        <tr>
+                                            <th>Repository</th>
+                                            <th>Score</th>
+                                            <th>Grade</th>
+                                            <th>Top Issues</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                    `;
+                    
+                    qa.repositoriesNeedingAttention.slice(0, 10).forEach(repo => {
+                        const issueCategories = repo.topIssues.map(issue => issue.category).join(', ');
+                        html += `
+                            <tr>
+                                <td><code>${repo.repository}</code></td>
+                                <td><span class="badge bg-${getScoreColor(repo.score)}">${repo.score}</span></td>
+                                <td><span class="badge bg-secondary">${repo.grade}</span></td>
+                                <td><small>${issueCategories}</small></td>
+                            </tr>
+                        `;
+                    });
+                    
+                    html += `
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    `;
+                }
+                
+                qualityContent.innerHTML = html;
             }
 
             /**
@@ -571,11 +748,12 @@
              */
             async getFundingStats(data) {
                 let packagesWithFunding = 0;
+                let directPackagesWithFunding = 0;
                 let authorsWithFunding = 0;
 
                 if (!window.cacheManager || !window.indexedDBManager) {
                     console.warn('⚠️ Stats: Cache manager not available for funding stats');
-                    return { packagesWithFunding: 0, authorsWithFunding: 0 };
+                    return { packagesWithFunding: 0, directPackagesWithFunding: 0, authorsWithFunding: 0 };
                 }
 
                 try {
@@ -616,17 +794,42 @@
 
                         console.log(`📊 Stats: Checking ${uniquePackages.size} unique packages for funding...`);
 
+                        // Also track which packages are direct vs transitive
+                        const directPackages = new Set();
+                        data.data.allDependencies.forEach(dep => {
+                            if (dep.directIn && Array.isArray(dep.directIn) && dep.directIn.length > 0) {
+                                // This dependency is direct in at least one repository
+                                let packageKey = null;
+                                if (dep.packageKey) {
+                                    packageKey = dep.packageKey;
+                                } else if (dep.purl) {
+                                    const purlMatch = dep.purl.match(/pkg:([^\/]+)\/([^@\/]+)/);
+                                    if (purlMatch) {
+                                        packageKey = `${purlMatch[1]}:${purlMatch[2]}`;
+                                    }
+                                } else if (dep.name && dep.category?.ecosystem) {
+                                    packageKey = `${dep.category.ecosystem}:${dep.name}`;
+                                }
+                                if (packageKey) {
+                                    directPackages.add(packageKey);
+                                }
+                            }
+                        });
+
                         // Check each package for funding (use Promise.all for parallel lookups)
                         const packageArray = Array.from(uniquePackages);
                         const packageChecks = packageArray.map(async (packageKey) => {
                             const packageData = await window.cacheManager.getPackage(packageKey);
-                            return packageData && packageData.funding ? 1 : 0;
+                            const hasFunding = packageData && packageData.funding ? 1 : 0;
+                            const isDirect = directPackages.has(packageKey) ? 1 : 0;
+                            return { hasFunding, isDirect };
                         });
 
                         // Wait for all checks to complete
                         const results = await Promise.all(packageChecks);
-                        packagesWithFunding = results.reduce((sum, count) => sum + count, 0);
-                        console.log(`📊 Stats: Found ${packagesWithFunding} packages with funding`);
+                        packagesWithFunding = results.reduce((sum, pkg) => sum + pkg.hasFunding, 0);
+                        directPackagesWithFunding = results.reduce((sum, pkg) => sum + (pkg.hasFunding && pkg.isDirect ? 1 : 0), 0);
+                        console.log(`📊 Stats: Found ${packagesWithFunding} packages with funding (${directPackagesWithFunding} direct)`);
                     }
 
                     // Count authors with funding
@@ -656,6 +859,7 @@
 
                     console.log('📊 Stats: Funding stats calculated', {
                         packagesWithFunding,
+                        directPackagesWithFunding,
                         authorsWithFunding
                     });
 
@@ -663,7 +867,7 @@
                     console.error('❌ Stats: Failed to calculate funding stats:', error);
                 }
 
-                return { packagesWithFunding, authorsWithFunding };
+                return { packagesWithFunding, directPackagesWithFunding, authorsWithFunding };
             }
 
             /**

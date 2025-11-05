@@ -453,7 +453,8 @@ class StorageManager {
             vulnerabilities: [],
             licenses: [],
             vulnerabilityAnalysis: null,
-            licenseAnalysis: null
+            licenseAnalysis: null,
+            qualityAnalysis: null
         };
 
         // Aggregate statistics
@@ -552,6 +553,18 @@ class StorageManager {
             .sort((a, b) => (b.totalDependencies || 0) - (a.totalDependencies || 0));
 
         combined.topRepositories = combined.allRepositories.slice(0, 50);
+
+        // Aggregate quality analysis from all repositories
+        if (window.SBOMQualityProcessor) {
+            const qualityProcessor = new window.SBOMQualityProcessor();
+            const allQualityAssessments = combined.allRepositories
+                .filter(repo => repo.qualityAssessment)
+                .map(repo => repo.qualityAssessment);
+            
+            if (allQualityAssessments.length > 0) {
+                combined.qualityAnalysis = qualityProcessor.calculateAggregateQuality(allQualityAssessments);
+            }
+        }
 
         return combined;
     }

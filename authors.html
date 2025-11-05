@@ -101,7 +101,14 @@
 
     <div class="container mt-4">
         <h1><i class="fas fa-users me-2"></i>Author Analysis</h1>
-        <p class="text-muted mb-4">View package authors ranked by contribution across your dependencies</p>
+        <div class="alert alert-info alert-dismissible fade show" role="alert">
+            <i class="fas fa-info-circle me-2"></i>
+            <strong>Important:</strong> The authors, contributors, and maintainers listed here are from 
+            <strong>third-party packages and dependencies</strong> used by your repositories, not the 
+            repository authors themselves. This shows who maintains the external libraries your project depends on.
+            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+        </div>
+        <p class="text-muted mb-4">View package authors and maintainers from third-party dependencies ranked by contribution across your supply chain</p>
         
         <!-- View Selector -->
         <div class="card mb-4">
