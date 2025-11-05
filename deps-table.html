@@ -454,7 +454,7 @@
         
         function normalizeVersion(version) {
             if (!version) return '';
-            return version.trim().replace(/^[><=^~]+\s*/, '').replace(/\s*-\s*[\d.]+.*$/, '').replace(/\s*\|\|.*$/, '').replace(/\s+/g, '');
+            return version.trim().replace(/^[><=^~]+\s*/, '').replace(/\s+-\s+[\d.]+.*$/, '').replace(/\s*\|\|.*$/, '').replace(/\s+/g, '');
         }
         
         async function filterTable() {

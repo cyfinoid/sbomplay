@@ -1,0 +1,124 @@
+<div class="stats-grid">
+    <div class="stat-card">
+        <h3>📁 Repositories</h3>
+        <div class="stat-number">{{stats.totalRepositories}}</div>
+        <div class="stat-detail">{{stats.processedRepositories}} processed</div>
+    </div>
+    <div class="stat-card">
+        <h3>📦 Dependencies</h3>
+        <div class="stat-number">{{stats.totalDependencies}}</div>
+        <div class="stat-detail">{{stats.averageDependenciesPerRepo}} avg per repo</div>
+    </div>
+    <div class="stat-card">
+        <h3>✅ Success Rate</h3>
+        <div class="stat-number">{{stats.successfulRepositories}}</div>
+        <div class="stat-detail">{{stats.failedRepositories}} failed</div>
+    </div>
+</div>
+
+{{#if categoryStats}}
+<div class="category-breakdown">
+    <h3>📊 Dependency Categories</h3>
+    <div class="category-grid">
+        {{#each categoryCards}}
+        <div class="category-card {{type}}">
+            <h4>{{title}}</h4>
+            <div class="category-number">{{count}}</div>
+            <div class="category-detail">{{unique}} unique</div>
+        </div>
+        {{/each}}
+    </div>
+</div>
+{{/if}}
+
+{{#if languageStats}}
+<div class="language-breakdown">
+    <h3>🌐 Programming Languages</h3>
+    <div class="language-grid">
+        {{#each languageCards}}
+        <div class="language-card">
+            <h4>{{language|escape}}</h4>
+            <div class="language-number">{{count}}</div>
+            <div class="language-detail">{{uniqueDeps|escape}} unique deps</div>
+        </div>
+        {{/each}}
+    </div>
+</div>
+{{/if}}
+
+<div class="view-sections">
+    <div class="section">
+        <h3>🏆 Top Dependencies ({{topDepsCount}})</h3>
+        <div class="filter-buttons">
+            <button class="btn btn-sm btn-outline-primary" onclick="viewManager.filterDependenciesByCategory('all')">All</button>
+            <button class="btn btn-sm btn-outline-primary" onclick="viewManager.filterDependenciesByCategory('code')">Code</button>
+            <button class="btn btn-sm btn-outline-primary" onclick="viewManager.filterDependenciesByCategory('workflow')">Workflow</button>
+            <button class="btn btn-sm btn-outline-primary" onclick="viewManager.filterDependenciesByCategory('infrastructure')">Infrastructure</button>
+        </div>
+        <div class="dependency-grid" id="top-dependencies">
+            {{#if topDeps}}
+            {{#each topDeps}}
+            <div class="dependency-item {{categoryType}}">
+                <div class="dep-content" onclick="viewManager.showDependencyDetailsFromIndex({{@index}}, '{{organization|quote}}')">
+                    <div class="dep-name">{{name|escape}}</div>
+                    <div class="dep-version">{{version|escape}}</div>
+                    <div class="dep-count">{{count}} repos</div>
+                    <div class="dep-category">{{categoryType|escape}}</div>
+                </div>
+                <div class="dep-actions">
+                    <button class="btn btn-sm btn-outline-primary" onclick="viewManager.queryVulnerabilityForDependency('{{name|quote}}', '{{version|quote}}', '{{organization|quote}}')" title="Query vulnerabilities">
+                        <i class="fas fa-shield-alt"></i>
+                    </button>
+                    {{#if showQuickScan}}
+                    <button class="btn btn-sm btn-outline-success" onclick="viewManager.quickScanDependency('{{name|quote}}', '{{version|quote}}', '{{organization|quote}}')" title="Quick scan for vulnerabilities">
+                        <i class="fas fa-bolt"></i>
+                    </button>
+                    {{/if}}
+                </div>
+            </div>
+            {{/each}}
+            {{else}}
+            <p class="text-muted">No dependencies found</p>
+            {{/if}}
+        </div>
+    </div>
+</div>
+
+{{#if allDeps}}
+<div class="all-dependencies">
+    <h3>📊 All Dependencies ({{allDepsCount}})</h3>
+    <div class="search-box">
+        <input type="text" id="dep-search" placeholder="Search dependencies..." onkeyup="viewManager.filterDependencies()">
+    </div>
+    <div class="filter-buttons">
+        <button class="btn btn-outline-primary btn-sm" onclick="viewManager.filterDependenciesByCategory('all')">All</button>
+        <button class="btn btn-outline-primary btn-sm" onclick="viewManager.filterDependenciesByCategory('code')">Code</button>
+        <button class="btn btn-outline-primary btn-sm" onclick="viewManager.filterDependenciesByCategory('workflow')">Workflow</button>
+        <button class="btn btn-outline-primary btn-sm" onclick="viewManager.filterDependenciesByCategory('infrastructure')">Infrastructure</button>
+        <button class="btn btn-outline-primary btn-sm" onclick="viewManager.filterDependenciesByCategory('unknown')">Unknown</button>
+    </div>
+    <div class="dependency-grid" id="all-dependencies">
+        {{#each allDeps}}
+        <div class="dependency-card {{categoryType}}">
+            <div class="dep-content" onclick="viewManager.showDependencyDetailsFromAllDepsIndex({{@index}}, '{{organization|quote}}')">
+                <div class="dep-name">{{name|escape}}</div>
+                <div class="dep-version">{{version|escape}}</div>
+                <div class="dep-count">{{count}} repos</div>
+                <div class="dep-category">{{categoryType|escape}}</div>
+            </div>
+            <div class="dep-actions">
+                <button class="btn btn-sm btn-outline-primary" onclick="viewManager.queryVulnerabilityForDependency('{{name|quote}}', '{{version|quote}}', '{{organization|quote}}')" title="Query vulnerabilities">
+                    <i class="fas fa-shield-alt"></i>
+                </button>
+                {{#if showQuickScan}}
+                <button class="btn btn-sm btn-outline-success" onclick="viewManager.quickScanDependency('{{name|quote}}', '{{version|quote}}', '{{organization|quote}}')" title="Quick scan for vulnerabilities">
+                    <i class="fas fa-bolt"></i>
+                </button>
+                {{/if}}
+            </div>
+        </div>
+        {{/each}}
+    </div>
+</div>
+{{/if}}
+

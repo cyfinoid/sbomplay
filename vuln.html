@@ -173,6 +173,7 @@
     <script src="js/version-utils.js?v=10"></script>
     <script src="js/ecosystem-utils.js?v=10"></script>
     <script src="js/cache-manager.js?v=10"></script>
+    <script src="js/template-loader.js?v=10"></script>
     <script src="js/view-manager.js?v=10"></script>
     <script src="js/license-processor.js?v=10"></script>
     <script src="js/osv-service.js?v=10"></script>
@@ -181,11 +182,21 @@
     <script src="js/github-client.js?v=10"></script>
     <script src="js/app.js?v=10"></script>
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
-    <script type="module">
+    <script>
     // Global variables
     let viewManager;
     
     document.addEventListener('DOMContentLoaded', async function() {
+        // Wait for required classes to be available
+        if (typeof StorageManager === 'undefined') {
+            console.error('StorageManager is not defined. Please ensure storage-manager.js is loaded.');
+            return;
+        }
+        if (typeof ViewManager === 'undefined') {
+            console.error('ViewManager is not defined. Please ensure view-manager.js is loaded.');
+            return;
+        }
+        
         // Use the global storageManager instance from storage-manager.js
         const storageManager = new StorageManager();
         await storageManager.init();

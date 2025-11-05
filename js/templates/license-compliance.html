@@ -1,0 +1,93 @@
+<div class="license-stats">
+    {{#each licenseCards}}
+    {{licenseCardHTML}}
+    {{/each}}
+</div>
+
+<!-- License Repositories Slide-out Panel -->
+<div id="license-repositories-panel" class="license-repositories-panel" style="display: none;">
+    <div class="panel-header">
+        <h4 id="license-panel-title">License Repositories</h4>
+        <button class="btn btn-sm btn-outline-secondary" onclick="viewManager.closeLicenseRepositoriesPanel()">
+            <i class="fas fa-times"></i> Close
+        </button>
+    </div>
+    <div id="license-repositories-content" class="panel-content">
+        <!-- Content will be loaded here -->
+    </div>
+</div>
+
+{{#if hasConflicts}}
+<div class="license-conflicts">
+    <h4>🚨 License Conflicts</h4>
+    <div class="license-conflicts-list">
+        {{#each conflicts}}
+        <div class="license-conflict-item">
+            <div class="conflict-info">
+                <div class="conflict-type">{{type|escape}}</div>
+                <div class="conflict-description">{{description|escape}}</div>
+                <div class="conflict-licenses">
+                    {{#each licenses}}
+                    <span class="badge badge-license">{{this|escape}}</span>
+                    {{/each}}
+                </div>
+                <div class="conflict-actions">
+                    <button class="btn btn-outline-danger btn-sm" onclick="viewManager.showLicenseConflictDetailsModal('{{organization|quote}}', {{@index}})">
+                        <i class="fas fa-eye me-1"></i>View Affected Repositories
+                    </button>
+                </div>
+            </div>
+        </div>
+        {{/each}}
+    </div>
+</div>
+{{/if}}
+
+{{#if hasHighRiskDependencies}}
+<div class="high-risk-licenses">
+    <h4>⚠️ High-Risk Licenses</h4>
+    <div class="high-risk-list">
+        {{#each highRiskDependencies}}
+        <div class="high-risk-item">
+            <div class="risk-info">
+                <div class="risk-name">{{name|escape}}@{{version|escape}}</div>
+                <div class="risk-license">{{license|escape}}</div>
+                <div class="risk-category">{{category|escape}}</div>
+                {{#if warnings}}
+                <div class="risk-warnings">
+                    {{#each warnings}}
+                    <span class="badge badge-warning">{{this|escape}}</span>
+                    {{/each}}
+                </div>
+                {{/if}}
+            </div>
+            <div class="risk-actions">
+                <button class="btn btn-outline-warning btn-sm" onclick="viewManager.showHighRiskLicenseDetailsModal('{{organization|quote}}', '{{name|quote}}', '{{version|quote}}')">
+                    <i class="fas fa-eye me-1"></i>View Affected Repositories
+                </button>
+            </div>
+        </div>
+        {{/each}}
+    </div>
+</div>
+{{/if}}
+
+{{#if hasRecommendations}}
+<div class="license-recommendations">
+    <h4>💡 Recommendations</h4>
+    <div class="recommendations-list">
+        {{#each recommendations}}
+        <div class="recommendation-item {{type}}">
+            <div class="rec-priority">{{priority|escape}}</div>
+            <div class="rec-message">{{message|escape}}</div>
+            <div class="rec-actions">
+                <button class="btn btn-outline-info btn-sm" onclick="viewManager.showRecommendationDetails('{{organization|quote}}', {{@index}})">
+                    <i class="fas fa-eye me-1"></i>View Details
+                </button>
+            </div>
+        </div>
+        {{/each}}
+    </div>
+</div>
+{{/if}}
+

@@ -181,7 +181,9 @@ class DependencyTreeResolver {
                 'cargo': 'cargo',
                 'maven': 'maven',
                 'go': 'go',
-                'golang': 'go'
+                'golang': 'go',
+                'rubygems': 'rubygems',
+                'gem': 'rubygems'
             };
             
             const system = systemMap[ecosystem.toLowerCase()];
@@ -408,42 +410,13 @@ class DependencyTreeResolver {
     
     /**
      * Get RubyGems package dependencies
+     * NOTE: RubyGems API doesn't support CORS, so we skip it and rely on ecosyste.ms and deps.dev
      */
     async getRubyGemsDependencies(packageName, version) {
-        const url = this.registryAPIs.rubygems.replace('{package}', encodeURIComponent(packageName));
-        
-        console.log(`      🔍 Querying RubyGems: ${packageName}@${version}`);
-        
-        const response = await fetch(url);
-        if (!response.ok) {
+        // RubyGems API doesn't support CORS, so we can't use it directly from the browser
+        // Return null to fall back to ecosyste.ms and deps.dev which do support CORS
+        console.log(`      🔍 RubyGems: Skipping direct API (no CORS), will use ecosyste.ms/deps.dev for ${packageName}@${version}`);
             return null;
-        }
-        
-        const data = await response.json();
-        
-        // RubyGems API gives us current version dependencies
-        // For specific version, we need version-specific endpoint
-        const versionUrl = `https://rubygems.org/api/v2/rubygems/${encodeURIComponent(packageName)}/versions/${encodeURIComponent(version)}.json`;
-        
-        await this.rateLimit();
-        const versionResponse = await fetch(versionUrl);
-        if (!versionResponse.ok) {
-            return [];
-        }
-        
-        const versionData = await versionResponse.json();
-        
-        const dependencies = [];
-        if (versionData.dependencies?.runtime && Array.isArray(versionData.dependencies.runtime)) {
-            for (const dep of versionData.dependencies.runtime) {
-                dependencies.push({
-                    name: dep.name,
-                    version: dep.requirements || 'unknown'
-                });
-            }
-        }
-        
-        return dependencies;
     }
     
     /**
@@ -539,7 +512,7 @@ class DependencyTreeResolver {
         if (!version) return 'unknown';
         return version.trim()
             .replace(/^[><=^~]+\s*/, '')
-            .replace(/\s*-\s*[\d.]+.*$/, '')
+            .replace(/\s+-\s+[\d.]+.*$/, '')  // Only remove ranges with spaces around dash
             .replace(/\s*\|\|.*$/, '')
             .replace(/\s+/g, '') || 'unknown';
     }

@@ -1,0 +1,25 @@
+<div class="view-header">
+    <button class="btn btn-secondary" onclick="viewManager.goBack()">
+        ← Back to Analysis
+    </button>
+    <h2>📊 {{organization|escape}} - Dependency Overview</h2>
+    <p class="text-muted">Analyzed on {{analyzedDate|escape}}</p>
+    <div class="mt-2">
+        <button class="btn btn-primary btn-sm" onclick="viewManager.runBatchVulnerabilityQuery('{{organization|quote}}')">
+            <i class="fas fa-shield-alt"></i> Vulnerability Scan (All Repos)
+        </button>
+        <button class="btn btn-success btn-sm" onclick="viewManager.runLicenseComplianceCheck('{{organization|quote}}')">
+            <i class="fas fa-gavel"></i> License Compliance Check
+        </button>
+        <button class="btn btn-info btn-sm" onclick="viewManager.showVulnerabilityCacheStats()">
+            <i class="fas fa-database"></i> Cache Stats
+        </button>
+        <button class="btn btn-warning btn-sm" onclick="viewManager.clearVulnerabilityCache()">
+            <i class="fas fa-trash"></i> Clear Cache
+        </button>
+        <button class="btn btn-secondary btn-sm" onclick="viewManager.showCentralizedVulnerabilityStats()">
+            <i class="fas fa-server"></i> Centralized Storage
+        </button>
+    </div>
+</div>
+

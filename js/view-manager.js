@@ -11,7 +11,7 @@ class ViewManager {
     /**
      * Show organization overview
      */
-    showOrganizationOverview(orgData) {
+    async showOrganizationOverview(orgData) {
         this.currentOrganization = orgData;
         this.currentView = 'overview';
         
@@ -25,7 +25,8 @@ class ViewManager {
         }
         
         if (container) {
-            container.innerHTML = this.generateOverviewHTML(orgData);
+            const html = await this.generateOverviewHTML(orgData);
+            container.innerHTML = html;
             
             // Add event listeners for navigation
             this.addOverviewEventListeners();
@@ -331,7 +332,7 @@ class ViewManager {
             return;
         }
         
-        this.showOrganizationOverview(orgData);
+        await this.showOrganizationOverview(orgData);
     }
 
     /**
@@ -365,73 +366,55 @@ class ViewManager {
     /**
      * Generate overview HTML
      */
-    generateOverviewHTML(orgData) {
+    async generateOverviewHTML(orgData) {
         console.log('🔍 View Manager - Received orgData:', orgData);
         
         // Validate orgData structure
         if (!orgData || !orgData.data) {
             console.error('❌ Invalid orgData structure:', orgData);
-            return `
-                <div class="view-header">
-                    <button class="btn btn-secondary" onclick="viewManager.goBack()">
-                        ← Back to Analysis
-                    </button>
-                    <h2>📊 Error - Invalid Data Structure</h2>
-                </div>
+            const errorData = {
+                organization: 'Error - Invalid Data Structure',
+                analyzedDate: new Date().toLocaleString(),
+                errorMessage: JSON.stringify(orgData, null, 2)
+            };
+            const headerHTML = await window.templateLoader.renderTemplate('overview-header.html', {
+                organization: errorData.organization,
+                analyzedDate: errorData.analyzedDate
+            });
+            return `${headerHTML}
                 <div class="alert alert-danger">
                     <h6>❌ Data Structure Error</h6>
                     <p>The organization data is missing or improperly formatted.</p>
-                    <pre class="bg-light p-2 rounded">${JSON.stringify(orgData, null, 2)}</pre>
-                </div>
-            `;
+                    <pre class="bg-light p-2 rounded">${errorData.errorMessage}</pre>
+                </div>`;
         }
         
-        // Use the new methods for each section
-        return `
-            <div class="view-header">
-                <button class="btn btn-secondary" onclick="viewManager.goBack()">
-                    ← Back to Analysis
-                </button>
-                <h2>📊 ${orgData.organization || orgData.name} - Dependency Overview</h2>
-                <p class="text-muted">Analyzed on ${new Date(orgData.timestamp).toLocaleString()}</p>
-                <div class="mt-2">
-                    <button class="btn btn-primary btn-sm" onclick="viewManager.runBatchVulnerabilityQuery('${orgData.organization || orgData.name}')">
-                        <i class="fas fa-shield-alt"></i> Vulnerability Scan (All Repos)
-                    </button>
-                    <button class="btn btn-success btn-sm" onclick="viewManager.runLicenseComplianceCheck('${orgData.organization || orgData.name}')">
-                        <i class="fas fa-gavel"></i> License Compliance Check
-                    </button>
-                    <button class="btn btn-info btn-sm" onclick="viewManager.showVulnerabilityCacheStats()">
-                        <i class="fas fa-database"></i> Cache Stats
-                    </button>
-                    <button class="btn btn-warning btn-sm" onclick="viewManager.clearVulnerabilityCache()">
-                        <i class="fas fa-trash"></i> Clear Cache
-                    </button>
-                    <button class="btn btn-secondary btn-sm" onclick="viewManager.showCentralizedVulnerabilityStats()">
-                        <i class="fas fa-server"></i> Centralized Storage
-                    </button>
-                </div>
-            </div>
-            ${this.generateDependencyOverviewHTML(orgData)}
-            ${this.generateVulnerabilityAnalysisHTML(orgData)}
-            <div id="license-section" class="independent-section">
-                <div class="license-breakdown">
-                    <h3>⚖️ License Compliance Analysis</h3>
-                    ${orgData.data.licenseAnalysis ? this.generateLicenseComplianceHTML(orgData) : `
-                    <div class="alert alert-info">
-                        <h6>📋 No License Analysis Yet</h6>
-                        <p>This organization hasn't been analyzed for license compliance yet. License analysis is performed automatically during the SBOM processing.</p>
-                        <p><strong>Note:</strong> License analysis includes detection of copyleft licenses, license conflicts, and compliance recommendations.</p>
-                        <div class="mt-3">
-                            <button class="btn btn-success btn-sm" onclick="viewManager.runLicenseComplianceCheck('${orgData.organization}')">
-                                <i class="fas fa-gavel"></i> Run License Compliance Check
-                            </button>
-                        </div>
-                    </div>
-                    `}
-                </div>
-            </div>
-        `;
+        const orgName = orgData.organization || orgData.name;
+        
+        // Render header
+        const headerHTML = await window.templateLoader.renderTemplate('overview-header.html', {
+            organization: orgName,
+            analyzedDate: new Date(orgData.timestamp).toLocaleString()
+        });
+        
+        // Render dependency overview
+        const dependencyHTML = await this.generateDependencyOverviewHTML(orgData);
+        
+        // Render vulnerability analysis
+        const vulnerabilityHTML = await this.generateVulnerabilityAnalysisHTML(orgData);
+        
+        // Render license section
+        const licenseComplianceHTML = orgData.data.licenseAnalysis 
+            ? await this.generateLicenseComplianceHTML(orgData) 
+            : '';
+        
+        const licenseSectionHTML = await window.templateLoader.renderTemplate('license-section.html', {
+            hasLicenseAnalysis: !!orgData.data.licenseAnalysis,
+            licenseComplianceHTML: licenseComplianceHTML,
+            organization: orgName
+        });
+        
+        return headerHTML + dependencyHTML + vulnerabilityHTML + licenseSectionHTML;
     }
 
     /**
@@ -451,219 +434,116 @@ class ViewManager {
             packageFunding = packageData?.funding || null;
         }
 
-        const fundingHTML = packageFunding ? `
-                <div class="detail-section">
-                    <h3>💝 Package Funding</h3>
-                    <div class="alert alert-info mb-2">
-                        <small>
-                            <i class="fas fa-info-circle me-1"></i>
-                            This package accepts donations/sponsorships.
-                        </small>
+        // Prepare funding data for template
+        let fundingData = null;
+        if (packageFunding) {
+            const fundingUrl = packageFunding.url || `https://github.com/sponsors/${encodeURIComponent(dependency.name)}`;
+            fundingData = {
+                packageFunding: true,
+                fundingUrl: fundingUrl,
+                fundingGitHub: packageFunding.github || fundingUrl.includes('github.com/sponsors'),
+                fundingOpenCollective: packageFunding.opencollective || fundingUrl.includes('opencollective.com'),
+                fundingPatreon: packageFunding.patreon || fundingUrl.includes('patreon.com'),
+                fundingTidelift: packageFunding.tidelift || fundingUrl.includes('tidelift.com'),
+                fundingGeneric: packageFunding.url && !packageFunding.github && !packageFunding.opencollective && !packageFunding.patreon && !packageFunding.tidelift
+            };
+        }
+
+        // Prepare repositories for template
+        const reposForTemplate = matchingRepos.map(repo => {
+            const allRepos = orgData.data.allRepositories;
+            const originalIndex = allRepos.findIndex(r => r.owner === repo.owner && r.name === repo.name);
+            return {
+                owner: repo.owner,
+                name: repo.name,
+                totalDependencies: repo.totalDependencies,
+                index: originalIndex,
+                organization: orgData.organization || orgData.name
+            };
+        });
+
+        // Generate license info HTML (complex logic stays in JS)
+        let licenseInfoHTML = '';
+        if (orgData.data.licenseAnalysis) {
+            const highRiskDep = orgData.data.licenseAnalysis.highRiskDependencies?.find(dep => 
+                dep.name === dependency.name && dep.version === dependency.version
+            );
+            
+            if (highRiskDep) {
+                const warningsHTML = highRiskDep.warnings && highRiskDep.warnings.length > 0
+                    ? `<div class="license-warnings"><strong>Warnings:</strong><ul>${highRiskDep.warnings.map(w => `<li>${w}</li>`).join('')}</ul></div>`
+                    : '';
+                licenseInfoHTML = `
+                    <div class="alert alert-warning">
+                        <h6>⚠️ High-Risk License Detected</h6>
+                        <div class="license-details">
+                            <div class="license-name"><strong>License:</strong> ${highRiskDep.license}</div>
+                            <div class="license-category"><strong>Category:</strong> ${highRiskDep.category}</div>
+                            ${warningsHTML}
+                        </div>
                     </div>
-                    <div class="d-flex flex-wrap gap-2">
-                        ${packageFunding.github || packageFunding.url?.includes('github.com/sponsors') ? `
-                            <a href="${packageFunding.url || `https://github.com/sponsors/${encodeURIComponent(dependency.name)}`}" target="_blank" class="btn btn-sm btn-outline-danger">
-                                <i class="fas fa-heart me-1"></i>GitHub Sponsors
-                            </a>
-                        ` : ''}
-                        ${packageFunding.opencollective || packageFunding.url?.includes('opencollective.com') ? `
-                            <a href="${packageFunding.url}" target="_blank" class="btn btn-sm btn-outline-primary">
-                                <i class="fas fa-hand-holding-usd me-1"></i>Open Collective
-                            </a>
-                        ` : ''}
-                        ${packageFunding.patreon || packageFunding.url?.includes('patreon.com') ? `
-                            <a href="${packageFunding.url}" target="_blank" class="btn btn-sm btn-outline-danger">
-                                <i class="fab fa-patreon me-1"></i>Patreon
-                            </a>
-                        ` : ''}
-                        ${packageFunding.tidelift || packageFunding.url?.includes('tidelift.com') ? `
-                            <a href="${packageFunding.url}" target="_blank" class="btn btn-sm btn-outline-warning">
-                                <i class="fas fa-gift me-1"></i>Tidelift
-                            </a>
-                        ` : ''}
-                        ${packageFunding.url && !packageFunding.github && !packageFunding.opencollective && !packageFunding.patreon && !packageFunding.tidelift ? `
-                            <a href="${packageFunding.url}" target="_blank" class="btn btn-sm btn-outline-info">
-                                <i class="fas fa-donate me-1"></i>Support
-                            </a>
-                        ` : ''}
-                    </div>
-                </div>
-        ` : '';
-
-        return `
-            <div class="view-header">
-                <button class="btn btn-secondary" onclick="viewManager.showOrganizationOverviewFromStorage('${orgData.organization || orgData.name}')">
-                    ← Back to Overview
-                </button>
-                <h2>📦 ${dependency.name}@${dependency.version}</h2>
-                <p class="text-muted">Used in ${dependency.count} repositories</p>
-            </div>
-
-            <div class="dependency-details">
-                <div class="detail-section">
-                    <h3>📋 Dependency Information</h3>
-                    <div class="info-grid">
-                        <div class="info-item">
-                            <label>Name:</label>
-                            <span>${dependency.name}</span>
-                        </div>
-                        <div class="info-item">
-                            <label>Version:</label>
-                            <span>${dependency.version}</span>
-                        </div>
-                        <div class="info-item">
-                            <label>Usage Count:</label>
-                            <span>${dependency.count} repositories</span>
-                        </div>
-                        ${dependency.category ? `
-                        <div class="info-item">
-                            <label>Type:</label>
-                            <span class="badge badge-${dependency.category.type}">${dependency.category.type}</span>
-                        </div>
-                        <div class="info-item">
-                            <label>Language:</label>
-                            <span>${dependency.category.language}</span>
-                        </div>
-                        <div class="info-item">
-                            <label>Ecosystem:</label>
-                            <span>${dependency.category.ecosystem}</span>
-                        </div>
-                        ` : ''}
-                    </div>
-                </div>
-
-                ${fundingHTML}
-
-                <div class="detail-section">
-                    <h3>📁 Used in Repositories</h3>
-                    <div class="repository-list">
-                        ${matchingRepos.map(repo => {
-                            const allRepos = orgData.data.allRepositories;
-                            const originalIndex = allRepos.findIndex(r => r.owner === repo.owner && r.name === repo.name);
-                            return `
-                                <div class="repository-item" onclick="viewManager.showRepositoryDetailsFromAllReposIndex(${originalIndex}, '${orgData.organization || orgData.name}')" style="cursor: pointer;">
-                                    <div class="repo-name">${repo.owner}/${repo.name}</div>
-                                    <div class="repo-deps">${repo.totalDependencies} total deps</div>
-                                </div>
-                            `;
-                        }).join('')}
-                    </div>
-                </div>
-
-                <div class="detail-section">
-                    <h3>🔍 Security Analysis</h3>
-                    <div class="mt-3">
-                        <button class="btn btn-primary btn-sm" onclick="viewManager.quickScanDependency('${dependency.name}', '${dependency.version}', '${orgData.organization || orgData.name}')">
-                            <i class="fas fa-shield-alt"></i> Quick Vulnerability Scan
-                        </button>
-                        <button class="btn btn-info btn-sm" onclick="viewManager.showVulnerabilityCacheStats()">
-                            <i class="fas fa-database"></i> Cache Stats
-                        </button>
-                        <button class="btn btn-warning btn-sm" onclick="viewManager.clearVulnerabilityCache()">
-                            <i class="fas fa-trash"></i> Clear Cache
-                        </button>
-                    </div>
-                </div>
-
-                <div class="detail-section">
-                    <h3>⚖️ License Information</h3>
-                    ${orgData.data.licenseAnalysis ? `
-                    <div class="license-info">
-                        ${(() => {
-                            // Find this dependency in the license analysis
-                            const highRiskDep = orgData.data.licenseAnalysis.highRiskDependencies?.find(dep => 
-                                dep.name === dependency.name && dep.version === dependency.version
-                            );
-                            
-                            if (highRiskDep) {
-                                return `
-                                <div class="alert alert-warning">
-                                    <h6>⚠️ High-Risk License Detected</h6>
+                `;
+            } else {
+                // Check license families
+                const licenseFamilies = orgData.data.licenseAnalysis.licenseFamilies;
+                if (licenseFamilies) {
+                    const entries = licenseFamilies instanceof Map ? licenseFamilies.entries() : Object.entries(licenseFamilies);
+                    for (const [familyName, deps] of entries) {
+                        const familyDep = deps.find(dep => 
+                            dep.name === dependency.name && dep.version === dependency.version
+                        );
+                        if (familyDep) {
+                            const descHTML = familyDep.licenseInfo?.description
+                                ? `<div class="license-description"><strong>Description:</strong> ${familyDep.licenseInfo.description}</div>`
+                                : '';
+                            licenseInfoHTML = `
+                                <div class="alert alert-info">
+                                    <h6>📋 License Information</h6>
                                     <div class="license-details">
-                                        <div class="license-name"><strong>License:</strong> ${highRiskDep.license}</div>
-                                        <div class="license-category"><strong>Category:</strong> ${highRiskDep.category}</div>
-                                        ${highRiskDep.warnings && highRiskDep.warnings.length > 0 ? `
-                                        <div class="license-warnings">
-                                            <strong>Warnings:</strong>
-                                            <ul>
-                                                ${highRiskDep.warnings.map(warning => `<li>${warning}</li>`).join('')}
-                                            </ul>
-                                        </div>
-                                        ` : ''}
+                                        <div class="license-family"><strong>Family:</strong> ${familyName}</div>
+                                        <div class="license-name"><strong>License:</strong> ${familyDep.licenseInfo?.license || 'Unknown'}</div>
+                                        <div class="license-category"><strong>Category:</strong> ${familyDep.licenseInfo?.category || 'Unknown'}</div>
+                                        <div class="license-risk"><strong>Risk Level:</strong> ${familyDep.licenseInfo?.risk || 'Unknown'}</div>
+                                        ${descHTML}
                                     </div>
                                 </div>
-                                `;
-                            } else {
-                                // Check if it's in the license families
-                                const licenseFamilies = orgData.data.licenseAnalysis.licenseFamilies;
-                                if (licenseFamilies) {
-                                    // Handle both Map and Object structures
-                                    const entries = licenseFamilies instanceof Map ? licenseFamilies.entries() : Object.entries(licenseFamilies);
-                                    for (const [familyName, deps] of entries) {
-                                        const familyDep = deps.find(dep => 
-                                            dep.name === dependency.name && dep.version === dependency.version
-                                        );
-                                        if (familyDep) {
-                                            return `
-                                            <div class="alert alert-info">
-                                                <h6>📋 License Information</h6>
-                                                <div class="license-details">
-                                                    <div class="license-family"><strong>Family:</strong> ${familyName}</div>
-                                                    <div class="license-name"><strong>License:</strong> ${familyDep.licenseInfo?.license || 'Unknown'}</div>
-                                                    <div class="license-category"><strong>Category:</strong> ${familyDep.licenseInfo?.category || 'Unknown'}</div>
-                                                    <div class="license-risk"><strong>Risk Level:</strong> ${familyDep.licenseInfo?.risk || 'Unknown'}</div>
-                                                    ${familyDep.licenseInfo?.description ? `
-                                                    <div class="license-description"><strong>Description:</strong> ${familyDep.licenseInfo.description}</div>
-                                                    ` : ''}
-                                                </div>
-                                            </div>
-                                            `;
-                                        }
-                                    }
-                                }
-                                
-                                return `
-                                <div class="alert alert-secondary">
-                                    <h6>📋 License Information</h6>
-                                    <p>No specific license information available for this dependency in the current analysis.</p>
-                                    <p><em>Note: License analysis is performed during SBOM processing. If this dependency was added after the initial analysis, license information may not be available.</em></p>
-                                </div>
-                                `;
-                            }
-                        })()}
-                    </div>
-                    ` : `
-                    <div class="alert alert-info">
-                        <h6>📋 No License Analysis Available</h6>
-                        <p>License analysis hasn't been performed for this organization yet. License information will be available after the next analysis run.</p>
-                        <div class="mt-3">
-                            <button class="btn btn-success btn-sm" onclick="viewManager.runLicenseComplianceCheck('${orgData.organization || orgData.name}')">
-                                <i class="fas fa-gavel"></i> Run License Compliance Check
-                            </button>
+                            `;
+                            break;
+                        }
+                    }
+                }
+                
+                if (!licenseInfoHTML) {
+                    licenseInfoHTML = `
+                        <div class="alert alert-secondary">
+                            <h6>📋 License Information</h6>
+                            <p>No specific license information available for this dependency in the current analysis.</p>
+                            <p><em>Note: License analysis is performed during SBOM processing. If this dependency was added after the initial analysis, license information may not be available.</em></p>
                         </div>
-                    </div>
-                    `}
-                </div>
+                    `;
+                }
+            }
+        }
 
-                <div class="detail-section">
-                    <h3>🔍 Future Enhancements</h3>
-                    <div class="enhancement-list">
-                        <div class="enhancement-item">
-                            <span class="enhancement-icon">🔗</span>
-                            <span>GitHub Package Registry info</span>
-                        </div>
-                        <div class="enhancement-item">
-                            <span class="enhancement-icon">📊</span>
-                            <span>NPM download statistics</span>
-                        </div>
-                        <div class="enhancement-item">
-                            <span class="enhancement-icon">📈</span>
-                            <span>Version popularity trends</span>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        `;
+        // Prepare template data
+        const templateData = {
+            name: dependency.name || 'Unknown',
+            version: dependency.version || 'Unknown',
+            count: dependency.count || 0,
+            category: dependency.category || null,
+            organization: orgData.organization || orgData.name,
+            packageFunding: fundingData,
+            repositories: reposForTemplate,
+            hasLicenseAnalysis: !!orgData.data.licenseAnalysis,
+            licenseInfoHTML: licenseInfoHTML
+        };
+
+        // Merge funding data into template data if available
+        if (fundingData) {
+            Object.assign(templateData, fundingData);
+        }
+
+        return await window.templateLoader.renderTemplate('dependency-details.html', templateData);
     }
 
     /**
@@ -818,14 +698,14 @@ class ViewManager {
     /**
      * Go back to previous view
      */
-    goBack() {
+    async goBack() {
         if (this.currentView === 'overview') {
             // Go back to main analysis view
             document.getElementById('resultsSection').style.display = 'block';
             document.getElementById('view-container').style.display = 'none';
         } else if (this.currentView === 'dependency' || this.currentView === 'repository') {
             // Go back to organization overview
-            this.showOrganizationOverview(this.currentOrganization);
+            await this.showOrganizationOverview(this.currentOrganization);
         }
     }
 
@@ -955,7 +835,7 @@ class ViewManager {
             await storageManager.saveAnalysisData(organization, orgData.data);
             
             // Refresh the view
-            this.showOrganizationOverview(orgData);
+            await this.showOrganizationOverview(orgData);
             
             this.showAlert(`Vulnerability analysis complete! Found ${vulnerabilityAnalysis.vulnerablePackages} vulnerable packages.`, 'success');
             
@@ -1516,7 +1396,7 @@ class ViewManager {
                 await storageManager.saveAnalysisData(organization, orgData.data);
                 
                 // Refresh the view
-                this.showOrganizationOverview(orgData);
+                await this.showOrganizationOverview(orgData);
                 
                 this.showAlert(`License compliance check complete! Found ${licenseAnalysis.summary.licensedDependencies} licensed dependencies and ${licenseAnalysis.summary.unlicensedDependencies} unlicensed dependencies.`, 'success');
             } else {
@@ -2631,7 +2511,7 @@ class ViewManager {
     /**
      * Generate License Compliance HTML (standalone section)
      */
-    generateLicenseComplianceHTML(orgData) {
+    async generateLicenseComplianceHTML(orgData) {
         if (!orgData || !orgData.data) {
             return `<div class="alert alert-danger">No organization data available.</div>`;
         }
@@ -2639,427 +2519,238 @@ class ViewManager {
             return `<div class="alert alert-info">No license analysis found for this organization.</div>`;
         }
         
+        const licenseAnalysis = orgData.data.licenseAnalysis;
+        const orgName = orgData.organization || orgData.name;
+        
         // Calculate combined copyleft (includes LGPL)
-        const copyleftCount = (orgData.data.licenseAnalysis.summary?.categoryBreakdown?.copyleft || 0) + 
-                             (orgData.data.licenseAnalysis.summary?.categoryBreakdown?.lgpl || 0);
+        const copyleftCount = (licenseAnalysis.summary?.categoryBreakdown?.copyleft || 0) + 
+                             (licenseAnalysis.summary?.categoryBreakdown?.lgpl || 0);
         
-        return `
-        <div class="license-stats">
-            <div class="license-stat-card total clickable-license-card license-card" 
-                 onclick="viewManager.toggleLicenseRepositoriesPanel('${orgData.organization || orgData.name}', 'total')">
-                <h4>📊 Total</h4>
-                <div class="license-number">${orgData.data.licenseAnalysis.summary?.licensedDependencies || 0}</div>
-                <div class="license-detail">licensed deps</div>
-                <div class="license-tooltip">
-                    <div class="license-tooltip-content">
-                        <div class="license-tooltip-header">📊 All Licensed Dependencies</div>
-                        <div class="license-tooltip-stats">
-                            <div class="license-tooltip-stat">
-                                <span class="license-tooltip-stat-value">${orgData.data.licenseAnalysis.summary?.licensedDependencies || 0}</span>
-                                <span class="license-tooltip-stat-label">Dependencies</span>
-                            </div>
-                            <div class="license-tooltip-stat">
-                                <span class="license-tooltip-stat-value">${this.getLicenseRepositoriesCount(orgData, 'total')}</span>
-                                <span class="license-tooltip-stat-label">Repositories</span>
-                            </div>
-                        </div>
-                        <div class="license-tooltip-repos">
-                            ${this.getLicenseRepositoriesList(orgData, 'total').slice(0, 5).map(repo => `
-                                <div class="license-tooltip-repo">${repo}</div>
-                            `).join('')}
-                            ${this.getLicenseRepositoriesList(orgData, 'total').length > 5 ? `
-                                <div class="license-tooltip-repo">... and ${this.getLicenseRepositoriesList(orgData, 'total').length - 5} more</div>
-                            ` : ''}
-                        </div>
-                        <div class="license-tooltip-footer">
-                            <button class="license-tooltip-click" onclick="viewManager.toggleLicenseRepositoriesPanel('${orgData.organization || orgData.name}', 'total')">Click to view all</button>
-                        </div>
-                    </div>
-                </div>
-            </div>
-            <div class="license-stat-card copyleft clickable-license-card license-card" 
-                 onclick="viewManager.toggleLicenseRepositoriesPanel('${orgData.organization || orgData.name}', 'copyleft')">
-                <h4>⚠️ Copyleft</h4>
-                <div class="license-number">${copyleftCount}</div>
-                <div class="license-detail">high risk</div>
-                <div class="license-tooltip">
-                    <div class="license-tooltip-content">
-                        <div class="license-tooltip-header">⚠️ Copyleft Licenses (GPL, LGPL, AGPL, MPL, EPL)</div>
-                        <div class="license-tooltip-stats">
-                            <div class="license-tooltip-stat">
-                                <span class="license-tooltip-stat-value">${copyleftCount}</span>
-                                <span class="license-tooltip-stat-label">Dependencies</span>
-                            </div>
-                            <div class="license-tooltip-stat">
-                                <span class="license-tooltip-stat-value">${this.getLicenseRepositoriesCount(orgData, 'copyleft') + this.getLicenseRepositoriesCount(orgData, 'lgpl')}</span>
-                                <span class="license-tooltip-stat-label">Repositories</span>
-                            </div>
-                        </div>
-                        <div class="license-tooltip-repos">
-                            ${[...this.getLicenseRepositoriesList(orgData, 'copyleft'), ...this.getLicenseRepositoriesList(orgData, 'lgpl')].slice(0, 5).map(repo => `
-                                <div class="license-tooltip-repo">${repo}</div>
-                            `).join('')}
-                            ${[...this.getLicenseRepositoriesList(orgData, 'copyleft'), ...this.getLicenseRepositoriesList(orgData, 'lgpl')].length > 5 ? `
-                                <div class="license-tooltip-repo">... and ${[...this.getLicenseRepositoriesList(orgData, 'copyleft'), ...this.getLicenseRepositoriesList(orgData, 'lgpl')].length - 5} more</div>
-                            ` : ''}
-                        </div>
-                        <div class="license-tooltip-footer">
-                            <button class="license-tooltip-click" onclick="viewManager.toggleLicenseRepositoriesPanel('${orgData.organization || orgData.name}', 'copyleft')">Click to view all</button>
-                        </div>
-                    </div>
-                </div>
-            </div>
-            <div class="license-stat-card proprietary clickable-license-card license-card" 
-                 onclick="viewManager.toggleLicenseRepositoriesPanel('${orgData.organization || orgData.name}', 'proprietary')">
-                <h4>🔒 Proprietary</h4>
-                <div class="license-number">${orgData.data.licenseAnalysis.summary?.categoryBreakdown?.proprietary || 0}</div>
-                <div class="license-detail">medium risk</div>
-                <div class="license-tooltip">
-                    <div class="license-tooltip-content">
-                        <div class="license-tooltip-header">🔒 Proprietary Licenses</div>
-                        <div class="license-tooltip-stats">
-                            <div class="license-tooltip-stat">
-                                <span class="license-tooltip-stat-value">${orgData.data.licenseAnalysis.summary?.categoryBreakdown?.proprietary || 0}</span>
-                                <span class="license-tooltip-stat-label">Dependencies</span>
-                            </div>
-                            <div class="license-tooltip-stat">
-                                <span class="license-tooltip-stat-value">${this.getLicenseRepositoriesCount(orgData, 'proprietary')}</span>
-                                <span class="license-tooltip-stat-label">Repositories</span>
-                            </div>
-                        </div>
-                        <div class="license-tooltip-repos">
-                            ${this.getLicenseRepositoriesList(orgData, 'proprietary').slice(0, 5).map(repo => `
-                                <div class="license-tooltip-repo">${repo}</div>
-                            `).join('')}
-                            ${this.getLicenseRepositoriesList(orgData, 'proprietary').length > 5 ? `
-                                <div class="license-tooltip-repo">... and ${this.getLicenseRepositoriesList(orgData, 'proprietary').length - 5} more</div>
-                            ` : ''}
-                        </div>
-                        <div class="license-tooltip-footer">
-                            <button class="license-tooltip-click" onclick="viewManager.toggleLicenseRepositoriesPanel('${orgData.organization || orgData.name}', 'proprietary')">Click to view all</button>
-                        </div>
-                    </div>
-                </div>
-            </div>
-            <div class="license-stat-card unknown clickable-license-card license-card" 
-                 onclick="viewManager.toggleLicenseRepositoriesPanel('${orgData.organization || orgData.name}', 'unknown')">
-                <h4>❓ Unknown</h4>
-                <div class="license-number">${orgData.data.licenseAnalysis.summary?.categoryBreakdown?.unknown || 0}</div>
-                <div class="license-detail">high risk</div>
-                <div class="license-tooltip">
-                    <div class="license-tooltip-content">
-                        <div class="license-tooltip-header">❓ Unknown Licenses</div>
-                        <div class="license-tooltip-stats">
-                            <div class="license-tooltip-stat">
-                                <span class="license-tooltip-stat-value">${orgData.data.licenseAnalysis.summary?.categoryBreakdown?.unknown || 0}</span>
-                                <span class="license-tooltip-stat-label">Dependencies</span>
-                            </div>
-                            <div class="license-tooltip-stat">
-                                <span class="license-tooltip-stat-value">${this.getLicenseRepositoriesCount(orgData, 'unknown')}</span>
-                                <span class="license-tooltip-stat-label">Repositories</span>
-                            </div>
-                        </div>
-                        <div class="license-tooltip-repos">
-                            ${this.getLicenseRepositoriesList(orgData, 'unknown').slice(0, 5).map(repo => `
-                                <div class="license-tooltip-repo">${repo}</div>
-                            `).join('')}
-                            ${this.getLicenseRepositoriesList(orgData, 'unknown').length > 5 ? `
-                                <div class="license-tooltip-repo">... and ${this.getLicenseRepositoriesList(orgData, 'unknown').length - 5} more</div>
-                            ` : ''}
-                        </div>
-                        <div class="license-tooltip-footer">
-                            <button class="license-tooltip-click" onclick="viewManager.toggleLicenseRepositoriesPanel('${orgData.organization || orgData.name}', 'unknown')">Click to view all</button>
-                        </div>
-                    </div>
-                </div>
-            </div>
-            <div class="license-stat-card unlicensed clickable-license-card license-card" 
-                 onclick="viewManager.toggleLicenseRepositoriesPanel('${orgData.organization || orgData.name}', 'unlicensed')">
-                <h4>🚨 Unlicensed</h4>
-                <div class="license-number">${orgData.data.licenseAnalysis.summary?.unlicensedDependencies || 0}</div>
-                <div class="license-detail">unlicensed deps</div>
-                <div class="license-tooltip">
-                    <div class="license-tooltip-content">
-                        <div class="license-tooltip-header">🚨 Unlicensed Dependencies</div>
-                        <div class="license-tooltip-stats">
-                            <div class="license-tooltip-stat">
-                                <span class="license-tooltip-stat-value">${orgData.data.licenseAnalysis.summary?.unlicensedDependencies || 0}</span>
-                                <span class="license-tooltip-stat-label">Dependencies</span>
-                            </div>
-                            <div class="license-tooltip-stat">
-                                <span class="license-tooltip-stat-value">${this.getLicenseRepositoriesCount(orgData, 'unlicensed')}</span>
-                                <span class="license-tooltip-stat-label">Repositories</span>
-                            </div>
-                        </div>
-                        <div class="license-tooltip-repos">
-                            ${this.getLicenseRepositoriesList(orgData, 'unlicensed').slice(0, 5).map(repo => `
-                                <div class="license-tooltip-repo">${repo}</div>
-                            `).join('')}
-                            ${this.getLicenseRepositoriesList(orgData, 'unlicensed').length > 5 ? `
-                                <div class="license-tooltip-repo">... and ${this.getLicenseRepositoriesList(orgData, 'unlicensed').length - 5} more</div>
-                            ` : ''}
-                        </div>
-                        <div class="license-tooltip-footer">
-                            <button class="license-tooltip-click" onclick="viewManager.toggleLicenseRepositoriesPanel('${orgData.organization || orgData.name}', 'unlicensed')">Click to view all</button>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
+        // Prepare license cards
+        const licenseCards = [];
+        const cardConfigs = [
+            {
+                type: 'total',
+                title: '📊 Total',
+                count: licenseAnalysis.summary?.licensedDependencies || 0,
+                detail: 'licensed deps',
+                tooltipHeader: '📊 All Licensed Dependencies',
+                licenseType: 'total'
+            },
+            {
+                type: 'copyleft',
+                title: '⚠️ Copyleft',
+                count: copyleftCount,
+                detail: 'high risk',
+                tooltipHeader: '⚠️ Copyleft Licenses (GPL, LGPL, AGPL, MPL, EPL)',
+                licenseType: 'copyleft'
+            },
+            {
+                type: 'proprietary',
+                title: '🔒 Proprietary',
+                count: licenseAnalysis.summary?.categoryBreakdown?.proprietary || 0,
+                detail: 'medium risk',
+                tooltipHeader: '🔒 Proprietary Licenses',
+                licenseType: 'proprietary'
+            },
+            {
+                type: 'unknown',
+                title: '❓ Unknown',
+                count: licenseAnalysis.summary?.categoryBreakdown?.unknown || 0,
+                detail: 'high risk',
+                tooltipHeader: '❓ Unknown Licenses',
+                licenseType: 'unknown'
+            },
+            {
+                type: 'unlicensed',
+                title: '🚨 Unlicensed',
+                count: licenseAnalysis.summary?.unlicensedDependencies || 0,
+                detail: 'unlicensed deps',
+                tooltipHeader: '🚨 Unlicensed Dependencies',
+                licenseType: 'unlicensed'
+            }
+        ];
         
-        <!-- License Repositories Slide-out Panel -->
-        <div id="license-repositories-panel" class="license-repositories-panel" style="display: none;">
-            <div class="panel-header">
-                <h4 id="license-panel-title">License Repositories</h4>
-                <button class="btn btn-sm btn-outline-secondary" onclick="viewManager.closeLicenseRepositoriesPanel()">
-                    <i class="fas fa-times"></i> Close
-                </button>
-            </div>
-            <div id="license-repositories-content" class="panel-content">
-                <!-- Content will be loaded here -->
-            </div>
-        </div>
+        // Generate license card HTML for each type
+        for (const config of cardConfigs) {
+            let repoCount = 0;
+            let repoList = [];
+            
+            if (config.licenseType === 'copyleft') {
+                repoCount = this.getLicenseRepositoriesCount(orgData, 'copyleft') + this.getLicenseRepositoriesCount(orgData, 'lgpl');
+                repoList = [...this.getLicenseRepositoriesList(orgData, 'copyleft'), ...this.getLicenseRepositoriesList(orgData, 'lgpl')];
+            } else {
+                repoCount = this.getLicenseRepositoriesCount(orgData, config.licenseType);
+                repoList = this.getLicenseRepositoriesList(orgData, config.licenseType);
+            }
+            
+            const sampleRepos = repoList.slice(0, 5);
+            const hasMoreRepos = repoList.length > 5;
+            
+            const cardData = {
+                type: config.type,
+                title: config.title,
+                count: config.count,
+                detail: config.detail,
+                tooltipHeader: config.tooltipHeader,
+                licenseType: config.licenseType,
+                organization: orgName,
+                repoCount: repoCount,
+                sampleRepos: sampleRepos,
+                hasMoreRepos: hasMoreRepos,
+                moreReposCount: repoList.length - 5
+            };
+            
+            const cardHTML = await window.templateLoader.renderTemplate('license-type-card.html', cardData);
+            licenseCards.push({ licenseCardHTML: cardHTML });
+        }
         
-        ${orgData.data.licenseAnalysis.conflicts && orgData.data.licenseAnalysis.conflicts.length > 0 ? `
-        <div class="license-conflicts">
-            <h4>🚨 License Conflicts</h4>
-            <div class="license-conflicts-list">
-                ${orgData.data.licenseAnalysis.conflicts.slice(0, 5).map((conflict, index) => `
-                    <div class="license-conflict-item">
-                        <div class="conflict-info">
-                            <div class="conflict-type">${conflict.type}</div>
-                            <div class="conflict-description">${conflict.description}</div>
-                            <div class="conflict-licenses">
-                                ${conflict.licenses.map(license => `<span class="badge badge-license">${license}</span>`).join('')}
-                            </div>
-                            <div class="conflict-actions">
-                                <button class="btn btn-outline-danger btn-sm" onclick="viewManager.showLicenseConflictDetailsModal('${orgData.organization || orgData.name}', ${index})">
-                                    <i class="fas fa-eye me-1"></i>View Affected Repositories
-                                </button>
-                            </div>
-                        </div>
-                    </div>
-                `).join('')}
-            </div>
-        </div>
-        ` : ''}
+        // Prepare conflicts
+        const conflicts = (licenseAnalysis.conflicts || []).slice(0, 5).map(conflict => ({
+            type: conflict.type || 'Unknown',
+            description: conflict.description || '',
+            licenses: conflict.licenses || [],
+            organization: orgName
+        }));
         
-        ${orgData.data.licenseAnalysis.highRiskDependencies && orgData.data.licenseAnalysis.highRiskDependencies.length > 0 ? `
-        <div class="high-risk-licenses">
-            <h4>⚠️ High-Risk Licenses</h4>
-            <div class="high-risk-list">
-                ${orgData.data.licenseAnalysis.highRiskDependencies.slice(0, 10).map((dep, index) => `
-                    <div class="high-risk-item">
-                        <div class="risk-info">
-                            <div class="risk-name">${dep.name}@${dep.version}</div>
-                            <div class="risk-license">${dep.license}</div>
-                            <div class="risk-category">${dep.category}</div>
-                            ${dep.warnings && dep.warnings.length > 0 ? `
-                            <div class="risk-warnings">
-                                ${dep.warnings.map(warning => `<span class="badge badge-warning">${warning}</span>`).join('')}
-                            </div>
-                            ` : ''}
-                        </div>
-                        <div class="risk-actions">
-                            <button class="btn btn-outline-warning btn-sm" onclick="viewManager.showHighRiskLicenseDetailsModal('${orgData.organization || orgData.name}', '${dep.name}', '${dep.version}')">
-                                <i class="fas fa-eye me-1"></i>View Affected Repositories
-                            </button>
-                        </div>
-                    </div>
-                `).join('')}
-            </div>
-        </div>
-        ` : ''}
+        // Prepare high-risk dependencies
+        const highRiskDependencies = (licenseAnalysis.highRiskDependencies || []).slice(0, 10).map(dep => ({
+            name: dep.name || 'Unknown',
+            version: dep.version || 'Unknown',
+            license: dep.license || 'Unknown',
+            category: dep.category || 'Unknown',
+            warnings: dep.warnings || [],
+            organization: orgName
+        }));
         
-        ${orgData.data.licenseAnalysis.recommendations && orgData.data.licenseAnalysis.recommendations.length > 0 ? `
-        <div class="license-recommendations">
-            <h4>💡 Recommendations</h4>
-            <div class="recommendations-list">
-                ${orgData.data.licenseAnalysis.recommendations.map((rec, index) => `
-                    <div class="recommendation-item ${rec.type}">
-                        <div class="rec-priority">${rec.priority}</div>
-                        <div class="rec-message">${rec.message}</div>
-                        <div class="rec-actions">
-                            <button class="btn btn-outline-info btn-sm" onclick="viewManager.showRecommendationDetails('${orgData.organization || orgData.name}', ${index})">
-                                <i class="fas fa-eye me-1"></i>View Details
-                            </button>
-                        </div>
-                    </div>
-                `).join('')}
-            </div>
-        </div>
-        ` : ''}
-        `;
+        // Prepare recommendations
+        const recommendations = (licenseAnalysis.recommendations || []).map(rec => ({
+            type: rec.type || 'info',
+            priority: rec.priority || 'Medium',
+            message: rec.message || '',
+            organization: orgName
+        }));
+        
+        // Prepare template data
+        const templateData = {
+            licenseCards: licenseCards,
+            hasConflicts: conflicts.length > 0,
+            conflicts: conflicts,
+            hasHighRiskDependencies: highRiskDependencies.length > 0,
+            highRiskDependencies: highRiskDependencies,
+            hasRecommendations: recommendations.length > 0,
+            recommendations: recommendations,
+            organization: orgName
+        };
+        
+        return await window.templateLoader.renderTemplate('license-compliance.html', templateData);
     }
 
-    generateDependencyOverviewHTML(orgData) {
+    async generateDependencyOverviewHTML(orgData) {
         // Extracted from generateOverviewHTML: stats, category breakdown, language stats, top deps, all deps
-        const stats = orgData.data.statistics;
-        const topDeps = orgData.data.topDependencies;
-        const allDeps = orgData.data.allDependencies;
+        const stats = orgData.data.statistics || {};
+        const topDeps = orgData.data.topDependencies || [];
+        const allDeps = orgData.data.allDependencies || [];
         const categoryStats = orgData.data.categoryStats;
         const languageStats = orgData.data.languageStats;
         const isCombinedView = orgData.organization === 'All Organizations Combined';
-        return `
-            <div class="stats-grid">
-                <div class="stat-card">
-                    <h3>📁 Repositories</h3>
-                    <div class="stat-number">${stats.totalRepositories || 0}</div>
-                    <div class="stat-detail">${stats.processedRepositories || 0} processed</div>
-                </div>
-                <div class="stat-card">
-                    <h3>📦 Dependencies</h3>
-                    <div class="stat-number">${stats.totalDependencies || 0}</div>
-                    <div class="stat-detail">${stats.averageDependenciesPerRepo || 0} avg per repo</div>
-                </div>
-                <div class="stat-card">
-                    <h3>✅ Success Rate</h3>
-                    <div class="stat-number">${stats.successfulRepositories || 0}</div>
-                    <div class="stat-detail">${stats.failedRepositories || 0} failed</div>
-                </div>
-            </div>
-            ${categoryStats ? `
-            <div class="category-breakdown">
-                <h3>📊 Dependency Categories</h3>
-                <div class="category-grid">
-                    <div class="category-card code">
-                        <h4>💻 Code Dependencies</h4>
-                        <div class="category-number">${isCombinedView ? 
-                            (parseInt(categoryStats.code) || 0) : 
-                            (typeof categoryStats.code === 'object' ? (categoryStats.code.count || 0) : (categoryStats.code || 0))
-                        }</div>
-                        <div class="category-detail">${isCombinedView ? 'N/A' : 
-                            (typeof categoryStats.code === 'object' ? (categoryStats.code.uniqueDependencies || 0) : 'N/A')
-                        } unique</div>
-                    </div>
-                    <div class="category-card workflow">
-                        <h4>⚙️ Workflow Dependencies</h4>
-                        <div class="category-number">${isCombinedView ? 
-                            (parseInt(categoryStats.workflow) || 0) : 
-                            (typeof categoryStats.workflow === 'object' ? (categoryStats.workflow.count || 0) : (categoryStats.workflow || 0))
-                        }</div>
-                        <div class="category-detail">${isCombinedView ? 'N/A' : 
-                            (typeof categoryStats.workflow === 'object' ? (categoryStats.workflow.uniqueDependencies || 0) : 'N/A')
-                        } unique</div>
-                    </div>
-                    <div class="category-card infrastructure">
-                        <h4>🏗️ Infrastructure Dependencies</h4>
-                        <div class="category-number">${isCombinedView ? 
-                            (parseInt(categoryStats.infrastructure) || 0) : 
-                            (typeof categoryStats.infrastructure === 'object' ? (categoryStats.infrastructure.count || 0) : (categoryStats.infrastructure || 0))
-                        }</div>
-                        <div class="category-detail">${isCombinedView ? 'N/A' : 
-                            (typeof categoryStats.infrastructure === 'object' ? (categoryStats.infrastructure.uniqueDependencies || 0) : 'N/A')
-                        } unique</div>
-                    </div>
-                    <div class="category-card unknown">
-                        <h4>❓ Unknown Dependencies</h4>
-                        <div class="category-number">${isCombinedView ? 
-                            (parseInt(categoryStats.unknown) || 0) : 
-                            (typeof categoryStats.unknown === 'object' ? (categoryStats.unknown.count || 0) : (categoryStats.unknown || 0))
-                        }</div>
-                        <div class="category-detail">${isCombinedView ? 'N/A' : 
-                            (typeof categoryStats.unknown === 'object' ? (categoryStats.unknown.uniqueDependencies || 0) : 'N/A')
-                        } unique</div>
-                    </div>
-                </div>
-            </div>
-            ` : ''}
-            ${languageStats ? `
-            <div class="language-breakdown">
-                <h3>🌐 Programming Languages</h3>
-                <div class="language-grid">
-                    ${Array.isArray(languageStats) ? 
-                        languageStats.slice(0, 6).map(lang => `
-                            <div class="language-card">
-                                <h4>${lang.language}</h4>
-                                <div class="language-number">${lang.count}</div>
-                                <div class="language-detail">${lang.uniqueDependencies} unique deps</div>
-                            </div>
-                        `).join('') :
-                        Object.entries(languageStats).slice(0, 6).map(([lang, count]) => `
-                            <div class="language-card">
-                                <h4>${lang}</h4>
-                                <div class="language-number">${count}</div>
-                                <div class="language-detail">N/A unique deps</div>
-                            </div>
-                        `).join('')
-                    }
-                </div>
-            </div>
-            ` : ''}
-            <div class="view-sections">
-                <div class="section">
-                    <h3>🏆 Top Dependencies (${topDeps ? topDeps.length : 0})</h3>
-                    <div class="filter-buttons">
-                        <button class="btn btn-sm btn-outline-primary" onclick="viewManager.filterDependenciesByCategory('all')">All</button>
-                        <button class="btn btn-sm btn-outline-primary" onclick="viewManager.filterDependenciesByCategory('code')">Code</button>
-                        <button class="btn btn-sm btn-outline-primary" onclick="viewManager.filterDependenciesByCategory('workflow')">Workflow</button>
-                        <button class="btn btn-sm btn-outline-primary" onclick="viewManager.filterDependenciesByCategory('infrastructure')">Infrastructure</button>
-                    </div>
-                    <div class="dependency-grid" id="top-dependencies">
-                        ${topDeps && topDeps.length > 0 ? topDeps.slice(0, 12).map((dep, index) => `
-                            <div class="dependency-item ${dep.category?.type || 'unknown'}">
-                                <div class="dep-content" onclick="viewManager.showDependencyDetailsFromIndex(${index}, '${orgData.organization}')">
-                                    <div class="dep-name">${dep.name || 'Unknown'}</div>
-                                    <div class="dep-version">${dep.version || 'Unknown'}</div>
-                                    <div class="dep-count">${dep.count || 0} repos</div>
-                                    <div class="dep-category">${dep.category?.type || 'unknown'}</div>
-                                </div>
-                                <div class="dep-actions">
-                                    <button class="btn btn-sm btn-outline-primary" onclick="viewManager.queryVulnerabilityForDependency('${dep.name}', '${dep.version}', '${orgData.organization}')" title="Query vulnerabilities">
-                                        <i class="fas fa-shield-alt"></i>
-                                    </button>
-                                    ${!orgData.data.vulnerabilityAnalysis ? `
-                                    <button class="btn btn-sm btn-outline-success" onclick="viewManager.quickScanDependency('${dep.name}', '${dep.version}', '${orgData.organization}')" title="Quick scan for vulnerabilities">
-                                        <i class="fas fa-bolt"></i>
-                                    </button>
-                                    ` : ''}
-                                </div>
-                            </div>
-                        `).join('') : '<p class="text-muted">No dependencies found</p>'}
-                    </div>
-                </div>
-                </div>
-            </div>
-            ${allDeps && allDeps.length > 0 ? `
-            <div class="all-dependencies">
-                <h3>📊 All Dependencies (${allDeps.length})</h3>
-                <div class="search-box">
-                    <input type="text" id="dep-search" placeholder="Search dependencies..." onkeyup="viewManager.filterDependencies()">
-                </div>
-                <div class="filter-buttons">
-                    <button class="btn btn-outline-primary btn-sm" onclick="viewManager.filterDependenciesByCategory('all')">All</button>
-                    <button class="btn btn-outline-primary btn-sm" onclick="viewManager.filterDependenciesByCategory('code')">Code</button>
-                    <button class="btn btn-outline-primary btn-sm" onclick="viewManager.filterDependenciesByCategory('workflow')">Workflow</button>
-                    <button class="btn btn-outline-primary btn-sm" onclick="viewManager.filterDependenciesByCategory('infrastructure')">Infrastructure</button>
-                    <button class="btn btn-outline-primary btn-sm" onclick="viewManager.filterDependenciesByCategory('unknown')">Unknown</button>
-                </div>
-                <div class="dependency-grid" id="all-dependencies">
-                    ${allDeps.map((dep, index) => `
-                        <div class="dependency-card ${dep.category ? dep.category.type : 'unknown'}">
-                            <div class="dep-content" onclick="viewManager.showDependencyDetailsFromAllDepsIndex(${index}, '${orgData.organization}')">
-                                <div class="dep-name">${dep.name || 'Unknown'}</div>
-                                <div class="dep-version">${dep.version || 'Unknown'}</div>
-                                <div class="dep-count">${dep.count || 0} repos</div>
-                                <div class="dep-category">${dep.category?.type || 'unknown'}</div>
-                            </div>
-                            <div class="dep-actions">
-                                <button class="btn btn-sm btn-outline-primary" onclick="viewManager.queryVulnerabilityForDependency('${dep.name}', '${dep.version}', '${orgData.organization}')" title="Query vulnerabilities">
-                                    <i class="fas fa-shield-alt"></i>
-                                </button>
-                                ${!orgData.data.vulnerabilityAnalysis ? `
-                                <button class="btn btn-sm btn-outline-success" onclick="viewManager.quickScanDependency('${dep.name}', '${dep.version}', '${orgData.organization}')" title="Quick scan for vulnerabilities">
-                                    <i class="fas fa-bolt"></i>
-                                </button>
-                                ` : ''}
-                            </div>
-                        </div>
-                    `).join('')}
-                </div>
-            </div>
-            ` : ''}
-        `;
+        const orgName = orgData.organization || orgData.name;
+        
+        // Prepare category cards
+        const categoryCards = [];
+        if (categoryStats) {
+            const categories = ['code', 'workflow', 'infrastructure', 'unknown'];
+            const titles = {
+                'code': '💻 Code Dependencies',
+                'workflow': '⚙️ Workflow Dependencies',
+                'infrastructure': '🏗️ Infrastructure Dependencies',
+                'unknown': '❓ Unknown Dependencies'
+            };
+            
+            categories.forEach(type => {
+                const cat = categoryStats[type];
+                const count = isCombinedView 
+                    ? (parseInt(cat) || 0)
+                    : (typeof cat === 'object' ? (cat.count || 0) : (cat || 0));
+                const unique = isCombinedView 
+                    ? 'N/A'
+                    : (typeof cat === 'object' ? (cat.uniqueDependencies || 0) : 'N/A');
+                
+                categoryCards.push({
+                    type: type,
+                    title: titles[type],
+                    count: count,
+                    unique: unique
+                });
+            });
+        }
+        
+        // Prepare language cards
+        const languageCards = [];
+        if (languageStats) {
+            if (Array.isArray(languageStats)) {
+                languageStats.slice(0, 6).forEach(lang => {
+                    languageCards.push({
+                        language: lang.language,
+                        count: lang.count,
+                        uniqueDeps: lang.uniqueDependencies || 'N/A'
+                    });
+                });
+            } else {
+                Object.entries(languageStats).slice(0, 6).forEach(([lang, count]) => {
+                    languageCards.push({
+                        language: lang,
+                        count: count,
+                        uniqueDeps: 'N/A'
+                    });
+                });
+            }
+        }
+        
+        // Prepare top dependencies
+        const topDepsForTemplate = topDeps.slice(0, 12).map((dep, index) => ({
+            name: dep.name || 'Unknown',
+            version: dep.version || 'Unknown',
+            count: dep.count || 0,
+            categoryType: dep.category?.type || 'unknown',
+            organization: orgName,
+            index: index,
+            showQuickScan: !orgData.data.vulnerabilityAnalysis
+        }));
+        
+        // Prepare all dependencies
+        const allDepsForTemplate = allDeps.map((dep, index) => ({
+            name: dep.name || 'Unknown',
+            version: dep.version || 'Unknown',
+            count: dep.count || 0,
+            categoryType: dep.category?.type || 'unknown',
+            organization: orgName,
+            index: index,
+            showQuickScan: !orgData.data.vulnerabilityAnalysis
+        }));
+        
+        // Prepare template data
+        const templateData = {
+            stats: {
+                totalRepositories: stats.totalRepositories || 0,
+                processedRepositories: stats.processedRepositories || 0,
+                totalDependencies: stats.totalDependencies || 0,
+                averageDependenciesPerRepo: stats.averageDependenciesPerRepo || 0,
+                successfulRepositories: stats.successfulRepositories || 0,
+                failedRepositories: stats.failedRepositories || 0
+            },
+            categoryStats: categoryStats ? true : false,
+            categoryCards: categoryCards,
+            languageStats: languageStats ? true : false,
+            languageCards: languageCards,
+            topDepsCount: topDeps.length,
+            topDeps: topDepsForTemplate,
+            organization: orgName,
+            allDeps: allDepsForTemplate,
+            allDepsCount: allDeps.length
+        };
+        
+        return await window.templateLoader.renderTemplate('dependency-overview.html', templateData);
     }
 
     /**
@@ -3071,7 +2762,7 @@ class ViewManager {
             if (!version) return '';
             return version.trim()
                 .replace(/^[><=^~]+\s*/, '')
-                .replace(/\s*-\s*[\d.]+.*$/, '')
+                .replace(/\s+-\s+[\d.]+.*$/, '')  // Only remove ranges with spaces around dash
                 .replace(/\s*\|\|.*$/, '')
                 .replace(/\s+/g, '');
         });
@@ -3196,165 +2887,93 @@ class ViewManager {
         return usage;
     }
 
-    generateVulnerabilityAnalysisHTML(orgData) {
+    async generateVulnerabilityAnalysisHTML(orgData) {
+        if (!window.templateLoader) {
+            console.error('TemplateLoader is not available. Please ensure template-loader.js is loaded.');
+            return '<div class="alert alert-danger">Template loader not available. Please ensure template-loader.js is loaded.</div>';
+        }
+        
+        const vulnAnalysis = orgData.data.vulnerabilityAnalysis;
+        const orgName = orgData.organization || orgData.name;
+        
         // Pre-process vulnerable dependencies with usage info
         let vulnerableDepsHTML = '';
-        if (orgData.data.vulnerabilityAnalysis && orgData.data.vulnerabilityAnalysis.vulnerableDependencies) {
-            const vulnerableDeps = orgData.data.vulnerabilityAnalysis.vulnerableDependencies || [];
-            const processedDeps = vulnerableDeps.slice(0, 10).map(dep => {
+        if (vulnAnalysis && vulnAnalysis.vulnerableDependencies) {
+            const vulnerableDeps = vulnAnalysis.vulnerableDependencies || [];
+            const processedDeps = [];
+            
+            for (const dep of vulnerableDeps.slice(0, 10)) {
                 const usage = this.getVulnerableDepUsage(dep, orgData);
-                return {
-                    dep: dep,
-                    usage: usage,
-                    uniqueRepos: [...new Set(usage.map(u => u.repoKey))]
-                };
-            });
+                const uniqueRepos = [...new Set(usage.map(u => u.repoKey))];
+                
+                // Prepare vulnerabilities for template
+                const vulnerabilities = (dep.vulnerabilities || []).filter(v => v && typeof v === 'object').map(vuln => {
+                    const severity = window.osvService ? window.osvService.getHighestSeverity(vuln) : 'UNKNOWN';
+                    const tooltip = `${vuln.id || 'Unknown ID'}\n${vuln.summary || 'No summary'}`;
+                    const cssSeverity = severity.toLowerCase() === 'moderate' ? 'medium' : severity.toLowerCase();
+                    return {
+                        severity: severity,
+                        cssSeverity: cssSeverity,
+                        tooltip: tooltip,
+                        vulnJson: JSON.stringify(vuln).replace(/"/g, '&quot;')
+                    };
+                });
+                
+                // Prepare usage paths
+                const usageForTemplate = usage.map(u => ({
+                    repoKey: u.repoKey,
+                    pathStr: u.isDirect ? u.path[0] : u.path.join(' → ')
+                }));
+                
+                processedDeps.push({
+                    name: dep.name || 'Unknown',
+                    version: dep.version || 'Unknown',
+                    vulnerabilityCount: dep.vulnerabilities.length,
+                    vulnerabilityPlural: dep.vulnerabilities.length !== 1 ? 'ies' : 'y',
+                    vulnerabilities: vulnerabilities,
+                    depName: dep.name,
+                    depVersion: dep.version,
+                    hasUsage: usage.length > 0,
+                    uniqueReposCount: uniqueRepos.length,
+                    reposPlural: uniqueRepos.length !== 1 ? 'ies' : 'y',
+                    usage: usageForTemplate,
+                    allVulnsJson: JSON.stringify(dep.vulnerabilities).replace(/"/g, '&quot;')
+                });
+            }
             
             if (processedDeps.length > 0) {
+                // Render each dependency item
+                const depItems = await Promise.all(
+                    processedDeps.map(depData => 
+                        window.templateLoader.renderTemplate('vulnerable-dependency-item.html', depData)
+                    )
+                );
+                
                 vulnerableDepsHTML = `
                 <div class="vulnerable-dependencies">
                     <h4>🚨 Vulnerable Dependencies</h4>
                     <div class="vulnerable-deps-list">
-                        ${processedDeps.map((item) => {
-                            const dep = item.dep;
-                            const usage = item.usage;
-                            const uniqueRepos = item.uniqueRepos;
-                            const safeDepName = dep.name.replace(/"/g, '&quot;').replace(/'/g, '&#39;');
-                            const safeDepVersion = dep.version.replace(/"/g, '&quot;').replace(/'/g, '&#39;');
-                            
-                            return `
-                            <div class="vulnerable-dep-item mb-3" style="border-left: 3px solid #dc3545; padding-left: 15px;">
-                                <div class="vuln-dep-info">
-                                    <div class="vuln-dep-name" style="font-weight: bold; font-size: 1.1em;">${dep.name}@${dep.version}</div>
-                                    <div class="vuln-dep-count mb-2">${dep.vulnerabilities.length} vulnerability${dep.vulnerabilities.length !== 1 ? 'ies' : 'y'}</div>
-                                    <div class="vuln-severity-badges mb-2">
-                                        ${dep.vulnerabilities.map(vuln => {
-                                            if (!vuln || typeof vuln !== 'object') return '';
-                                            const severity = window.osvService ? window.osvService.getHighestSeverity(vuln) : 'UNKNOWN';
-                                            const tooltip = `${vuln.id || 'Unknown ID'}\n${vuln.summary || 'No summary'}`;
-                                            const cssSeverity = severity.toLowerCase() === 'moderate' ? 'medium' : severity.toLowerCase();
-                                            return `
-                                                <span class="badge severity-${cssSeverity} clickable-severity-badge me-1" 
-                                                      title="${tooltip.replace(/"/g, '&quot;')}" 
-                                                      onclick="viewManager.showVulnerabilityDetails('${safeDepName}', '${safeDepVersion}', [${JSON.stringify(vuln).replace(/"/g, '&quot;')}])">
-                                                    ${severity}
-                                                </span>
-                                            `;
-                                        }).join('')}
-                                    </div>
-                                    ${usage.length > 0 ? `
-                                    <div class="vuln-repo-usage mt-3 p-2 bg-light rounded">
-                                        <small class="text-muted d-block mb-2">
-                                            <i class="fas fa-code-branch me-1"></i>
-                                            <strong>Used in ${uniqueRepos.length} repository${uniqueRepos.length !== 1 ? 'ies' : 'y'}:</strong>
-                                        </small>
-                                        <div class="vuln-paths" style="font-size: 0.85em;">
-                                            ${usage.map(u => {
-                                                const pathStr = u.isDirect 
-                                                    ? u.path[0]
-                                                    : u.path.join(' → ');
-                                                const escapedPath = pathStr.replace(/"/g, '&quot;').replace(/'/g, '&#39;');
-                                                return `
-                                                    <div class="mb-2" style="padding-left: 10px;">
-                                                        <code class="text-primary fw-bold">${u.repoKey}</code>: <code>${escapedPath}</code>
-                                                    </div>
-                                                `;
-                                            }).join('')}
-                                        </div>
-                                    </div>
-                                    ` : `
-                                    <div class="mt-2">
-                                        <small class="text-muted">
-                                            <i class="fas fa-info-circle me-1"></i>Repository usage information not available
-                                        </small>
-                                    </div>
-                                    `}
-                                </div>
-                                <div class="vuln-dep-actions mt-2">
-                                    <button class="btn btn-sm btn-outline-info" onclick="viewManager.showVulnerabilityDetails('${safeDepName}', '${safeDepVersion}', ${JSON.stringify(dep.vulnerabilities).replace(/"/g, '&quot;')})">
-                                        <i class="fas fa-eye me-1"></i>View Details
-                                    </button>
-                                </div>
-                            </div>
-                        `;
-                        }).join('')}
+                        ${depItems.join('')}
                     </div>
                 </div>
                 `;
             }
         }
 
-        // Extracted from generateOverviewHTML: vulnerability section only
-        return `
-        <div id="vulnerability-section" class="independent-section">
-            <div class="vulnerability-breakdown">
-                <h3>🔒 Vulnerability Analysis</h3>
-                ${orgData.data.vulnerabilityAnalysis ? `
-                <div class="vulnerability-actions mb-3">
-                    <button class="btn btn-primary btn-sm" onclick="viewManager.runBatchVulnerabilityQuery('${orgData.organization || orgData.name}')">
-                        <i class="fas fa-search"></i> Re-run Batch Vulnerability Query
-                    </button>
-                    <button class="btn btn-info btn-sm" onclick="viewManager.showVulnerabilityCacheStats()">
-                        <i class="fas fa-database"></i> Cache Stats
-                    </button>
-                    <button class="btn btn-warning btn-sm" onclick="viewManager.clearVulnerabilityCache()">
-                        <i class="fas fa-trash"></i> Clear Cache
-                    </button>
-                </div>
-                <div class="vulnerability-stats">
-                    <div class="vuln-stat-card critical">
-                        <h4>🚨 Critical</h4>
-                        <div class="vuln-number">${orgData.data.vulnerabilityAnalysis.criticalVulnerabilities || 0}</div>
-                        <div class="vuln-detail">vulnerabilities</div>
-                    </div>
-                    <div class="vuln-stat-card high">
-                        <h4>⚠️ High</h4>
-                        <div class="vuln-number">${orgData.data.vulnerabilityAnalysis.highVulnerabilities || 0}</div>
-                        <div class="vuln-detail">vulnerabilities</div>
-                    </div>
-                    <div class="vuln-stat-card medium">
-                        <h4>⚡ Medium</h4>
-                        <div class="vuln-number">${orgData.data.vulnerabilityAnalysis.mediumVulnerabilities || 0}</div>
-                        <div class="vuln-detail">vulnerabilities</div>
-                    </div>
-                    <div class="vuln-stat-card low">
-                        <h4>ℹ️ Low</h4>
-                        <div class="vuln-number">${orgData.data.vulnerabilityAnalysis.lowVulnerabilities || 0}</div>
-                        <div class="vuln-detail">vulnerabilities</div>
-                    </div>
-                    <div class="vuln-stat-card total">
-                        <h4>📊 Total</h4>
-                        <div class="vuln-number">${orgData.data.vulnerabilityAnalysis.vulnerablePackages || 0}</div>
-                        <div class="vuln-detail">vulnerable packages</div>
-                    </div>
-                    <div class="vuln-stat-card rate">
-                        <h4>📈 Rate</h4>
-                        <div class="vuln-number">${orgData.data.vulnerabilityAnalysis.vulnerabilityRate || 0}%</div>
-                        <div class="vuln-detail">vulnerability rate</div>
-                    </div>
-                </div>
-                ${vulnerableDepsHTML}
-                ` : `
-                <div class="vulnerability-actions mb-3">
-                    <button class="btn btn-primary btn-sm" onclick="viewManager.runBatchVulnerabilityQuery('${orgData.organization || orgData.name}')">
-                        <i class="fas fa-search"></i> Run Initial Vulnerability Analysis
-                    </button>
-                    <button class="btn btn-info btn-sm" onclick="viewManager.showVulnerabilityCacheStats()">
-                        <i class="fas fa-database"></i> Cache Stats
-                    </button>
-                    <button class="btn btn-warning btn-sm" onclick="viewManager.clearVulnerabilityCache()">
-                        <i class="fas fa-trash"></i> Clear Cache
-                    </button>
-                </div>
-                <div class="alert alert-info">
-                    <h6>📋 No Vulnerability Analysis Yet</h6>
-                    <p>This organization hasn't been analyzed for vulnerabilities yet. Click "Run Initial Vulnerability Analysis" to scan all dependencies for known vulnerabilities.</p>
-                    <p><strong>Note:</strong> This will query the OSV API for each dependency and may take a few minutes depending on the number of dependencies.</p>
-                </div>
-                `}
-            </div>
-        </div>
-        `;
+        // Prepare template data
+        const templateData = {
+            hasVulnerabilityAnalysis: !!vulnAnalysis,
+            organization: orgName,
+            criticalVulnerabilities: vulnAnalysis?.criticalVulnerabilities || 0,
+            highVulnerabilities: vulnAnalysis?.highVulnerabilities || 0,
+            mediumVulnerabilities: vulnAnalysis?.mediumVulnerabilities || 0,
+            lowVulnerabilities: vulnAnalysis?.lowVulnerabilities || 0,
+            vulnerablePackages: vulnAnalysis?.vulnerablePackages || 0,
+            vulnerabilityRate: vulnAnalysis?.vulnerabilityRate || 0,
+            vulnerableDepsHTML: vulnerableDepsHTML
+        };
+
+        return await window.templateLoader.renderTemplate('vulnerability-analysis.html', templateData);
     }
 }
 

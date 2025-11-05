@@ -266,7 +266,7 @@ class SBOMProcessor {
         if (!version) return version;
         return version.trim()
             .replace(/^[><=^~]+\s*/, '')
-            .replace(/\s*-\s*[\d.]+.*$/, '')
+            .replace(/\s+-\s+[\d.]+.*$/, '')  // Only remove ranges with spaces around dash
             .replace(/\s*\|\|.*$/, '')
             .trim();
     }

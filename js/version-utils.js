@@ -17,7 +17,7 @@ function normalizeVersion(version) {
     // Handles: >=, <=, >, <, ^, ~, =, etc.
     let normalized = version.trim()
         .replace(/^[><=^~]+\s*/, '')  // Remove prefix operators with optional space
-        .replace(/\s*-\s*[\d.]+.*$/, '')  // Remove range suffix (e.g., "1.0.0 - 2.0.0" -> "1.0.0")
+        .replace(/\s+-\s+[\d.]+.*$/, '')  // Remove range suffix with spaces (e.g., "1.0.0 - 2.0.0" -> "1.0.0")
         .replace(/\s*\|\|.*$/, '')  // Remove OR alternatives (e.g., "1.0.0 || 2.0.0" -> "1.0.0")
         .trim();
     
