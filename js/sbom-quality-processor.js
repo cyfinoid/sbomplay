@@ -91,11 +91,15 @@ class SBOMQualityProcessor {
         }
 
         packages.forEach((pkg, idx) => {
+            // Extract ecosystem from PURL for better package identification
+            const ecosystem = this.getPackageEcosystem(pkg);
+            const packageIdentifier = this.formatPackageIdentifier(pkg, ecosystem, idx);
+            
             // Check component name
             if (pkg.name && pkg.name.trim()) {
                 checks.componentNames++;
             } else {
-                issues.push(`Package ${idx}: Missing component name`);
+                issues.push(`Package #${idx + 1}: Missing component name`);
             }
 
             // Check version quality
@@ -110,14 +114,14 @@ class SBOMQualityProcessor {
                 }
             } else {
                 checks.missingVersions++;
-                issues.push(`Package ${pkg.name || idx}: Missing version information`);
+                issues.push(`${packageIdentifier} is missing version information`);
             }
 
             // Check unique ID (SPDXID)
             if (pkg.SPDXID && pkg.SPDXID.trim()) {
                 checks.uniqueIds++;
             } else {
-                issues.push(`Package ${pkg.name || idx}: Missing SPDXID`);
+                issues.push(`${packageIdentifier} is missing SPDXID`);
             }
 
             // Check PURL
@@ -128,10 +132,10 @@ class SBOMQualityProcessor {
                 if (purlRef && this.isValidPurl(purlRef.referenceLocator)) {
                     checks.validPurls++;
                 } else {
-                    issues.push(`Package ${pkg.name || idx}: Missing or invalid PURL`);
+                    issues.push(`${packageIdentifier} has missing or invalid PURL`);
                 }
             } else {
-                issues.push(`Package ${pkg.name || idx}: No external references`);
+                issues.push(`${packageIdentifier} has no external references`);
             }
         });
 
@@ -346,30 +350,51 @@ class SBOMQualityProcessor {
             packageRelationshipMap.get(rel.relatedSpdxElement).push(rel);
         });
 
+        // Track packages with missing information
+        const packagesWithoutLicense = [];
+        const packagesWithoutCopyright = [];
+        const packagesWithoutDownloadLocation = [];
+        const packagesWithoutRelationships = [];
+        const packagesWithoutExternalRefs = [];
+
         packages.forEach((pkg, idx) => {
+            // Use ecosystem-aware package identifier for clarity
+            const ecosystem = this.getPackageEcosystem(pkg);
+            const packageIdentifier = this.formatPackageIdentifier(pkg, ecosystem, idx);
+            
             // Check license
             if (pkg.licenseConcluded && pkg.licenseConcluded !== 'NOASSERTION') {
                 checks.packagesWithLicense++;
+            } else {
+                packagesWithoutLicense.push(packageIdentifier);
             }
 
             // Check copyright
             if (pkg.copyrightText && pkg.copyrightText !== 'NOASSERTION') {
                 checks.packagesWithCopyright++;
+            } else {
+                packagesWithoutCopyright.push(packageIdentifier);
             }
 
             // Check download location
             if (pkg.downloadLocation && pkg.downloadLocation !== 'NOASSERTION') {
                 checks.packagesWithDownloadLocation++;
+            } else {
+                packagesWithoutDownloadLocation.push(packageIdentifier);
             }
 
             // Check if package has relationships
             if (packageRelationshipMap.has(pkg.SPDXID)) {
                 checks.packagesWithRelationships++;
+            } else {
+                packagesWithoutRelationships.push(packageIdentifier);
             }
 
             // Check external references
             if (pkg.externalRefs && pkg.externalRefs.length > 0) {
                 checks.packagesWithExternalRefs++;
+            } else {
+                packagesWithoutExternalRefs.push(packageIdentifier);
             }
         });
 
@@ -390,12 +415,21 @@ class SBOMQualityProcessor {
              externalRefScore * 0.20)
         );
 
-        // Add informational issues (not critical)
-        if (checks.packagesWithLicense < totalPackages) {
-            issues.push(`${totalPackages - checks.packagesWithLicense} packages missing license information`);
+        // Add detailed informational issues with package names
+        if (packagesWithoutLicense.length > 0) {
+            if (packagesWithoutLicense.length <= 5) {
+                issues.push(`Missing license information: ${packagesWithoutLicense.join(', ')}`);
+            } else {
+                issues.push(`Missing license information for ${packagesWithoutLicense.length} packages: ${packagesWithoutLicense.slice(0, 5).join(', ')} and ${packagesWithoutLicense.length - 5} more`);
+            }
         }
-        if (checks.packagesWithCopyright < totalPackages) {
-            issues.push(`${totalPackages - checks.packagesWithCopyright} packages missing copyright information`);
+        
+        if (packagesWithoutCopyright.length > 0) {
+            if (packagesWithoutCopyright.length <= 5) {
+                issues.push(`Missing copyright information: ${packagesWithoutCopyright.join(', ')}`);
+            } else {
+                issues.push(`Missing copyright information for ${packagesWithoutCopyright.length} packages: ${packagesWithoutCopyright.slice(0, 5).join(', ')} and ${packagesWithoutCopyright.length - 5} more`);
+            }
         }
 
         return {
@@ -404,6 +438,46 @@ class SBOMQualityProcessor {
             issues,
             details: `${checks.packagesWithLicense}/${totalPackages} with licenses, ${checks.packagesWithCopyright}/${totalPackages} with copyright, ${checks.packagesWithRelationships}/${totalPackages} with relationships`
         };
+    }
+
+    /**
+     * Extract package ecosystem from PURL or package type
+     */
+    getPackageEcosystem(pkg) {
+        // Try to extract from PURL first
+        if (pkg.externalRefs && Array.isArray(pkg.externalRefs)) {
+            const purlRef = pkg.externalRefs.find(ref => 
+                ref.referenceType === 'purl' && ref.referenceLocator
+            );
+            if (purlRef && purlRef.referenceLocator) {
+                // Extract ecosystem from PURL: pkg:npm/package or pkg:pypi/package
+                const match = purlRef.referenceLocator.match(/^pkg:([^/]+)\//);
+                if (match) {
+                    return match[1]; // npm, pypi, maven, cargo, etc.
+                }
+            }
+        }
+        
+        // Fallback: try to guess from package name patterns
+        if (pkg.name) {
+            if (pkg.name.includes(':')) return 'maven';
+            if (pkg.name.startsWith('@')) return 'npm';
+        }
+        
+        return null; // Unknown ecosystem
+    }
+
+    /**
+     * Format package identifier with ecosystem for clear reporting
+     */
+    formatPackageIdentifier(pkg, ecosystem, idx) {
+        const packageName = pkg.name || `Package #${idx + 1}`;
+        
+        if (ecosystem) {
+            return `${packageName}@${ecosystem}`;
+        }
+        
+        return packageName;
     }
 
     /**

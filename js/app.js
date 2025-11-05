@@ -10,6 +10,16 @@ class SBOMPlayApp {
         this.rateLimitTimer = null;
         this.initialized = false;
         
+        // Warn user before navigating away during analysis
+        window.addEventListener('beforeunload', (e) => {
+            if (this.isAnalyzing) {
+                const message = 'Analysis is still in progress. If you leave now, you will lose unsaved progress. Are you sure you want to leave?';
+                e.preventDefault();
+                e.returnValue = message; // Standard way for most browsers
+                return message; // For older browsers
+            }
+        });
+        
         // Initialize asynchronously
         this.initializeApp().catch(error => {
             console.error('Failed to initialize app:', error);
@@ -655,12 +665,6 @@ class SBOMPlayApp {
 
             this.sbomProcessor.setTotalRepositories(repositories.length);
             this.updateProgress(20, `Found ${repositories.length} repositories. Starting SBOM analysis...`);
-            
-            // Show partial data info if we have many repositories
-            const partialDataInfo = document.getElementById('partialDataInfo');
-            if (repositories.length > 10 && partialDataInfo) {
-                partialDataInfo.style.display = 'block';
-            }
 
             // Process each repository
             let successfulRepos = 0;
@@ -1266,11 +1270,9 @@ class SBOMPlayApp {
         
         const analyzeBtn = document.getElementById('analyzeBtn');
         const progressSection = document.getElementById('progressSection');
-        const partialDataInfo = document.getElementById('partialDataInfo');
         
         if (analyzeBtn) analyzeBtn.disabled = false;
         if (progressSection) progressSection.style.display = 'none';
-        if (partialDataInfo) partialDataInfo.style.display = 'none';
     }
 
     /**

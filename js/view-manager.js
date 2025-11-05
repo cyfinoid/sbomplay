@@ -9,12 +9,243 @@ class ViewManager {
     }
 
     /**
-     * Check if templateLoader is available
+     * Render overview header HTML
      */
-    ensureTemplateLoader() {
-        if (!window.templateLoader) {
-            throw new Error('TemplateLoader is not available. Please ensure template-loader.js is loaded before view-manager.js');
+    renderOverviewHeader(organization, analyzedDate) {
+        const escapeHtml = (text) => {
+            if (!text) return '';
+            const map = {'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'};
+            return String(text).replace(/[&<>"']/g, m => map[m]);
+        };
+        
+        return `<div class="view-header">
+    <button class="btn btn-secondary" onclick="viewManager.goBack()">
+        ← Back to Analysis
+    </button>
+    <h2>📊 ${escapeHtml(organization)} - Dependency Overview</h2>
+    <p class="text-muted">Analyzed on ${escapeHtml(analyzedDate)}</p>
+    <div class="mt-2">
+        <button class="btn btn-primary btn-sm" onclick="viewManager.runBatchVulnerabilityQuery('${escapeHtml(organization).replace(/'/g, "\\'")}')">
+            <i class="fas fa-shield-alt"></i> Vulnerability Scan (All Repos)
+        </button>
+        <button class="btn btn-success btn-sm" onclick="viewManager.runLicenseComplianceCheck('${escapeHtml(organization).replace(/'/g, "\\'")}')">
+            <i class="fas fa-gavel"></i> License Compliance Check
+        </button>
+        <button class="btn btn-info btn-sm" onclick="viewManager.showVulnerabilityCacheStats()">
+            <i class="fas fa-database"></i> Cache Stats
+        </button>
+        <button class="btn btn-warning btn-sm" onclick="viewManager.clearVulnerabilityCache()">
+            <i class="fas fa-trash"></i> Clear Cache
+        </button>
+        <button class="btn btn-secondary btn-sm" onclick="viewManager.showCentralizedVulnerabilityStats()">
+            <i class="fas fa-server"></i> Centralized Storage
+        </button>
+    </div>
+</div>`;
+    }
+
+    /**
+     * Render license section HTML
+     */
+    renderLicenseSection(hasLicenseAnalysis, licenseComplianceHTML, organization) {
+        const escapeHtml = (text) => {
+            if (!text) return '';
+            const map = {'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'};
+            return String(text).replace(/[&<>"']/g, m => map[m]);
+        };
+        
+        if (hasLicenseAnalysis) {
+            return `<div id="license-section" class="independent-section">
+    <div class="license-breakdown">
+        <h3>⚖️ License Compliance Analysis</h3>
+        ${licenseComplianceHTML}
+    </div>
+</div>`;
+        } else {
+            return `<div id="license-section" class="independent-section">
+    <div class="license-breakdown">
+        <h3>⚖️ License Compliance Analysis</h3>
+        <div class="alert alert-info">
+            <h6>📋 No License Analysis Yet</h6>
+            <p>This organization hasn't been analyzed for license compliance yet. License analysis is performed automatically during the SBOM processing.</p>
+            <p><strong>Note:</strong> License analysis includes detection of copyleft licenses, license conflicts, and compliance recommendations.</p>
+            <div class="mt-3">
+                <button class="btn btn-success btn-sm" onclick="viewManager.runLicenseComplianceCheck('${escapeHtml(organization).replace(/'/g, "\\'")}')">
+                    <i class="fas fa-gavel"></i> Run License Compliance Check
+                </button>
+            </div>
+        </div>
+    </div>
+</div>`;
         }
+    }
+
+    /**
+     * Render dependency details HTML
+     */
+    renderDependencyDetails(data) {
+        const escapeHtml = (text) => {
+            if (!text) return '';
+            const map = {'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'};
+            return String(text).replace(/[&<>"']/g, m => map[m]);
+        };
+
+        let fundingHTML = '';
+        if (data.packageFunding) {
+            const fundingButtons = [];
+            if (data.fundingGitHub) {
+                fundingButtons.push(`<a href="${escapeHtml(data.fundingUrl)}" target="_blank" class="btn btn-sm btn-outline-danger">
+                <i class="fas fa-heart me-1"></i>GitHub Sponsors
+            </a>`);
+            }
+            if (data.fundingOpenCollective) {
+                fundingButtons.push(`<a href="${escapeHtml(data.fundingUrl)}" target="_blank" class="btn btn-sm btn-outline-primary">
+                <i class="fas fa-hand-holding-usd me-1"></i>Open Collective
+            </a>`);
+            }
+            if (data.fundingPatreon) {
+                fundingButtons.push(`<a href="${escapeHtml(data.fundingUrl)}" target="_blank" class="btn btn-sm btn-outline-danger">
+                <i class="fab fa-patreon me-1"></i>Patreon
+            </a>`);
+            }
+            if (data.fundingTidelift) {
+                fundingButtons.push(`<a href="${escapeHtml(data.fundingUrl)}" target="_blank" class="btn btn-sm btn-outline-warning">
+                <i class="fas fa-gift me-1"></i>Tidelift
+            </a>`);
+            }
+            if (data.fundingGeneric) {
+                fundingButtons.push(`<a href="${escapeHtml(data.fundingUrl)}" target="_blank" class="btn btn-sm btn-outline-info">
+                <i class="fas fa-donate me-1"></i>Support
+            </a>`);
+            }
+            
+            fundingHTML = `<div class="detail-section">
+        <h3>💝 Package Funding</h3>
+        <div class="alert alert-info mb-2">
+            <small>
+                <i class="fas fa-info-circle me-1"></i>
+                This package accepts donations/sponsorships.
+            </small>
+        </div>
+        <div class="d-flex flex-wrap gap-2">
+            ${fundingButtons.join('\n            ')}
+        </div>
+    </div>`;
+        }
+
+        const repositoriesHTML = data.repositories.map(repo => `
+            <div class="repository-item" onclick="viewManager.showRepositoryDetailsFromAllReposIndex(${repo.index}, '${escapeHtml(repo.organization).replace(/'/g, "\\'")}')">
+                <div class="repo-name">${escapeHtml(repo.owner)}/${escapeHtml(repo.name)}</div>
+                <div class="repo-deps">${repo.totalDependencies} total deps</div>
+            </div>`).join('');
+
+        let categoryHTML = '';
+        if (data.category) {
+            categoryHTML = `
+            <div class="info-item">
+                <label>Type:</label>
+                <span class="badge badge-${escapeHtml(data.category.type)}">${escapeHtml(data.category.type)}</span>
+            </div>
+            <div class="info-item">
+                <label>Language:</label>
+                <span>${escapeHtml(data.category.language)}</span>
+            </div>
+            <div class="info-item">
+                <label>Ecosystem:</label>
+                <span>${escapeHtml(data.category.ecosystem)}</span>
+            </div>`;
+        }
+
+        let licenseHTML = '';
+        if (data.hasLicenseAnalysis) {
+            licenseHTML = data.licenseInfoHTML;
+        } else {
+            licenseHTML = `<div class="alert alert-info">
+            <h6>📋 No License Analysis Available</h6>
+            <p>License analysis hasn't been performed for this organization yet. License information will be available after the next analysis run.</p>
+            <div class="mt-3">
+                <button class="btn btn-success btn-sm" onclick="viewManager.runLicenseComplianceCheck('${escapeHtml(data.organization).replace(/'/g, "\\'")}')">
+                    <i class="fas fa-gavel"></i> Run License Compliance Check
+                </button>
+            </div>
+        </div>`;
+        }
+
+        return `<div class="view-header">
+    <button class="btn btn-secondary" onclick="viewManager.showOrganizationOverviewFromStorage('${escapeHtml(data.organization).replace(/'/g, "\\'")}')">
+        ← Back to Overview
+    </button>
+    <h2>📦 ${escapeHtml(data.name)}@${escapeHtml(data.version)}</h2>
+    <p class="text-muted">Used in ${data.count} repositories</p>
+</div>
+
+<div class="dependency-details">
+    <div class="detail-section">
+        <h3>📋 Dependency Information</h3>
+        <div class="info-grid">
+            <div class="info-item">
+                <label>Name:</label>
+                <span>${escapeHtml(data.name)}</span>
+            </div>
+            <div class="info-item">
+                <label>Version:</label>
+                <span>${escapeHtml(data.version)}</span>
+            </div>
+            <div class="info-item">
+                <label>Usage Count:</label>
+                <span>${data.count} repositories</span>
+            </div>
+            ${categoryHTML}
+        </div>
+    </div>
+
+    ${fundingHTML}
+
+    <div class="detail-section">
+        <h3>📁 Used in Repositories</h3>
+        <div class="repository-list">
+            ${repositoriesHTML}
+        </div>
+    </div>
+
+    <div class="detail-section">
+        <h3>🔍 Security Analysis</h3>
+        <div class="mt-3">
+            <button class="btn btn-primary btn-sm" onclick="viewManager.quickScanDependency('${escapeHtml(data.name).replace(/'/g, "\\'")}', '${escapeHtml(data.version).replace(/'/g, "\\'")}', '${escapeHtml(data.organization).replace(/'/g, "\\'")}')">
+                <i class="fas fa-shield-alt"></i> Quick Vulnerability Scan
+            </button>
+            <button class="btn btn-info btn-sm" onclick="viewManager.showVulnerabilityCacheStats()">
+                <i class="fas fa-database"></i> Cache Stats
+            </button>
+            <button class="btn btn-warning btn-sm" onclick="viewManager.clearVulnerabilityCache()">
+                <i class="fas fa-trash"></i> Clear Cache
+            </button>
+        </div>
+    </div>
+
+    <div class="detail-section">
+        <h3>⚖️ License Information</h3>
+        ${licenseHTML}
+    </div>
+
+    <div class="detail-section">
+        <h3>🔍 Future Enhancements</h3>
+        <div class="enhancement-list">
+            <div class="enhancement-item">
+                <span class="enhancement-icon">🔗</span>
+                <span>GitHub Package Registry info</span>
+            </div>
+            <div class="enhancement-item">
+                <span class="enhancement-icon">📊</span>
+                <span>NPM download statistics</span>
+            </div>
+            <div class="enhancement-item">
+                <span class="enhancement-icon">📈</span>
+                <span>Version popularity trends</span>
+            </div>
+        </div>
+    </div>
+</div>`;
     }
 
     /**
@@ -376,7 +607,6 @@ class ViewManager {
      * Generate overview HTML
      */
     async generateOverviewHTML(orgData) {
-        this.ensureTemplateLoader();
         console.log('🔍 View Manager - Received orgData:', orgData);
         
         // Validate orgData structure
@@ -387,10 +617,7 @@ class ViewManager {
                 analyzedDate: new Date().toLocaleString(),
                 errorMessage: JSON.stringify(orgData, null, 2)
             };
-            const headerHTML = await window.templateLoader.renderTemplate('overview-header.html', {
-                organization: errorData.organization,
-                analyzedDate: errorData.analyzedDate
-            });
+            const headerHTML = this.renderOverviewHeader(errorData.organization, errorData.analyzedDate);
             return `${headerHTML}
                 <div class="alert alert-danger">
                     <h6>❌ Data Structure Error</h6>
@@ -402,10 +629,7 @@ class ViewManager {
         const orgName = orgData.organization || orgData.name;
         
         // Render header
-        const headerHTML = await window.templateLoader.renderTemplate('overview-header.html', {
-            organization: orgName,
-            analyzedDate: new Date(orgData.timestamp).toLocaleString()
-        });
+        const headerHTML = this.renderOverviewHeader(orgName, new Date(orgData.timestamp).toLocaleString());
         
         // Render dependency overview
         const dependencyHTML = await this.generateDependencyOverviewHTML(orgData);
@@ -418,11 +642,7 @@ class ViewManager {
             ? await this.generateLicenseComplianceHTML(orgData) 
             : '';
         
-        const licenseSectionHTML = await window.templateLoader.renderTemplate('license-section.html', {
-            hasLicenseAnalysis: !!orgData.data.licenseAnalysis,
-            licenseComplianceHTML: licenseComplianceHTML,
-            organization: orgName
-        });
+        const licenseSectionHTML = this.renderLicenseSection(!!orgData.data.licenseAnalysis, licenseComplianceHTML, orgName);
         
         return headerHTML + dependencyHTML + vulnerabilityHTML + licenseSectionHTML;
     }
@@ -553,7 +773,7 @@ class ViewManager {
             Object.assign(templateData, fundingData);
         }
 
-        return await window.templateLoader.renderTemplate('dependency-details.html', templateData);
+        return this.renderDependencyDetails(templateData);
     }
 
     /**
@@ -2522,8 +2742,6 @@ class ViewManager {
      * Generate License Compliance HTML (standalone section)
      */
     async generateLicenseComplianceHTML(orgData) {
-        this.ensureTemplateLoader();
-        
         if (!orgData || !orgData.data) {
             return `<div class="alert alert-danger">No organization data available.</div>`;
         }
@@ -2533,6 +2751,12 @@ class ViewManager {
         
         const licenseAnalysis = orgData.data.licenseAnalysis;
         const orgName = orgData.organization || orgData.name;
+        
+        const escapeHtml = (text) => {
+            if (!text) return '';
+            const map = {'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'};
+            return String(text).replace(/[&<>"']/g, m => map[m]);
+        };
         
         // Calculate combined copyleft (includes LGPL)
         const copyleftCount = (licenseAnalysis.summary?.categoryBreakdown?.copyleft || 0) + 
@@ -2599,22 +2823,40 @@ class ViewManager {
             const sampleRepos = repoList.slice(0, 5);
             const hasMoreRepos = repoList.length > 5;
             
-            const cardData = {
-                type: config.type,
-                title: config.title,
-                count: config.count,
-                detail: config.detail,
-                tooltipHeader: config.tooltipHeader,
-                licenseType: config.licenseType,
-                organization: orgName,
-                repoCount: repoCount,
-                sampleRepos: sampleRepos,
-                hasMoreRepos: hasMoreRepos,
-                moreReposCount: repoList.length - 5
-            };
+            const sampleReposHTML = sampleRepos.map(repo => 
+                `<div class="license-tooltip-repo">${escapeHtml(repo)}</div>`
+            ).join('');
             
-            const cardHTML = await window.templateLoader.renderTemplate('license-type-card.html', cardData);
-            licenseCards.push({ licenseCardHTML: cardHTML });
+            const cardHTML = `<div class="license-stat-card ${config.type} clickable-license-card license-card" 
+     onclick="viewManager.toggleLicenseRepositoriesPanel('${escapeHtml(orgName).replace(/'/g, "\\'")}', '${config.licenseType}')">
+    <h4>${escapeHtml(config.title)}</h4>
+    <div class="license-number">${config.count}</div>
+    <div class="license-detail">${escapeHtml(config.detail)}</div>
+    <div class="license-tooltip">
+        <div class="license-tooltip-content">
+            <div class="license-tooltip-header">${escapeHtml(config.tooltipHeader)}</div>
+            <div class="license-tooltip-stats">
+                <div class="license-tooltip-stat">
+                    <span class="license-tooltip-stat-value">${config.count}</span>
+                    <span class="license-tooltip-stat-label">Dependencies</span>
+                </div>
+                <div class="license-tooltip-stat">
+                    <span class="license-tooltip-stat-value">${repoCount}</span>
+                    <span class="license-tooltip-stat-label">Repositories</span>
+                </div>
+            </div>
+            <div class="license-tooltip-repos">
+                ${sampleReposHTML}
+                ${hasMoreRepos ? `<div class="license-tooltip-repo">... and ${repoList.length - 5} more</div>` : ''}
+            </div>
+            <div class="license-tooltip-footer">
+                <button class="license-tooltip-click" onclick="viewManager.toggleLicenseRepositoriesPanel('${escapeHtml(orgName).replace(/'/g, "\\'")}', '${config.licenseType}')">Click to view all</button>
+            </div>
+        </div>
+    </div>
+</div>`;
+            
+            licenseCards.push(cardHTML);
         }
         
         // Prepare conflicts
@@ -2643,24 +2885,112 @@ class ViewManager {
             organization: orgName
         }));
         
-        // Prepare template data
-        const templateData = {
-            licenseCards: licenseCards,
-            hasConflicts: conflicts.length > 0,
-            conflicts: conflicts,
-            hasHighRiskDependencies: highRiskDependencies.length > 0,
-            highRiskDependencies: highRiskDependencies,
-            hasRecommendations: recommendations.length > 0,
-            recommendations: recommendations,
-            organization: orgName
-        };
+        // Generate license cards HTML
+        const licenseCardsHTML = `<div class="license-stats">
+    ${licenseCards.join('\n    ')}
+</div>
+
+<!-- License Repositories Slide-out Panel -->
+<div id="license-repositories-panel" class="license-repositories-panel" style="display: none;">
+    <div class="panel-header">
+        <h4 id="license-panel-title">License Repositories</h4>
+        <button class="btn btn-sm btn-outline-secondary" onclick="viewManager.closeLicenseRepositoriesPanel()">
+            <i class="fas fa-times"></i> Close
+        </button>
+    </div>
+    <div id="license-repositories-content" class="panel-content">
+        <!-- Content will be loaded here -->
+    </div>
+</div>`;
+
+        // Generate conflicts HTML
+        let conflictsHTML = '';
+        if (conflicts.length > 0) {
+            const conflictItems = conflicts.map((conflict, index) => `
+        <div class="license-conflict-item">
+            <div class="conflict-info">
+                <div class="conflict-type">${escapeHtml(conflict.type)}</div>
+                <div class="conflict-description">${escapeHtml(conflict.description)}</div>
+                <div class="conflict-licenses">
+                    ${conflict.licenses.map(lic => `<span class="badge badge-license">${escapeHtml(lic)}</span>`).join('\n                    ')}
+                </div>
+                <div class="conflict-actions">
+                    <button class="btn btn-outline-danger btn-sm" onclick="viewManager.showLicenseConflictDetailsModal('${escapeHtml(orgName).replace(/'/g, "\\'")}', ${index})">
+                        <i class="fas fa-eye me-1"></i>View Affected Repositories
+                    </button>
+                </div>
+            </div>
+        </div>`).join('');
+            
+            conflictsHTML = `<div class="license-conflicts">
+    <h4>🚨 License Conflicts</h4>
+    <div class="license-conflicts-list">
+        ${conflictItems}
+    </div>
+</div>`;
+        }
+
+        // Generate high-risk dependencies HTML
+        let highRiskHTML = '';
+        if (highRiskDependencies.length > 0) {
+            const highRiskItems = highRiskDependencies.map(dep => {
+                let warningsHTML = '';
+                if (dep.warnings && dep.warnings.length > 0) {
+                    warningsHTML = `<div class="risk-warnings">
+                    ${dep.warnings.map(w => `<span class="badge badge-warning">${escapeHtml(w)}</span>`).join('\n                    ')}
+                </div>`;
+                }
+                
+                return `
+        <div class="high-risk-item">
+            <div class="risk-info">
+                <div class="risk-name">${escapeHtml(dep.name)}@${escapeHtml(dep.version)}</div>
+                <div class="risk-license">${escapeHtml(dep.license)}</div>
+                <div class="risk-category">${escapeHtml(dep.category)}</div>
+                ${warningsHTML}
+            </div>
+            <div class="risk-actions">
+                <button class="btn btn-outline-warning btn-sm" onclick="viewManager.showHighRiskLicenseDetailsModal('${escapeHtml(orgName).replace(/'/g, "\\'")}', '${escapeHtml(dep.name).replace(/'/g, "\\'")}', '${escapeHtml(dep.version).replace(/'/g, "\\'")}')">
+                    <i class="fas fa-eye me-1"></i>View Affected Repositories
+                </button>
+            </div>
+        </div>`;
+            }).join('');
+            
+            highRiskHTML = `<div class="high-risk-licenses">
+    <h4>⚠️ High-Risk Licenses</h4>
+    <div class="high-risk-list">
+        ${highRiskItems}
+    </div>
+</div>`;
+        }
+
+        // Generate recommendations HTML
+        let recommendationsHTML = '';
+        if (recommendations.length > 0) {
+            const recItems = recommendations.map((rec, index) => `
+        <div class="recommendation-item ${rec.type}">
+            <div class="rec-priority">${escapeHtml(rec.priority)}</div>
+            <div class="rec-message">${escapeHtml(rec.message)}</div>
+            <div class="rec-actions">
+                <button class="btn btn-outline-info btn-sm" onclick="viewManager.showRecommendationDetails('${escapeHtml(orgName).replace(/'/g, "\\'")}', ${index})">
+                    <i class="fas fa-eye me-1"></i>View Details
+                </button>
+            </div>
+        </div>`).join('');
+            
+            recommendationsHTML = `<div class="license-recommendations">
+    <h4>💡 Recommendations</h4>
+    <div class="recommendations-list">
+        ${recItems}
+    </div>
+</div>`;
+        }
         
-        return await window.templateLoader.renderTemplate('license-compliance.html', templateData);
+        return licenseCardsHTML + conflictsHTML + highRiskHTML + recommendationsHTML;
     }
 
     async generateDependencyOverviewHTML(orgData) {
-        this.ensureTemplateLoader();
-        
         // Extracted from generateOverviewHTML: stats, category breakdown, language stats, top deps, all deps
         const stats = orgData.data.statistics || {};
         const topDeps = orgData.data.topDependencies || [];
@@ -2669,6 +2999,12 @@ class ViewManager {
         const languageStats = orgData.data.languageStats;
         const isCombinedView = orgData.organization === 'All Organizations Combined';
         const orgName = orgData.organization || orgData.name;
+        
+        const escapeHtml = (text) => {
+            if (!text) return '';
+            const map = {'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'};
+            return String(text).replace(/[&<>"']/g, m => map[m]);
+        };
         
         // Prepare category cards
         const categoryCards = [];
@@ -2743,28 +3079,137 @@ class ViewManager {
             showQuickScan: !orgData.data.vulnerabilityAnalysis
         }));
         
-        // Prepare template data
-        const templateData = {
-            stats: {
-                totalRepositories: stats.totalRepositories || 0,
-                processedRepositories: stats.processedRepositories || 0,
-                totalDependencies: stats.totalDependencies || 0,
-                averageDependenciesPerRepo: stats.averageDependenciesPerRepo || 0,
-                successfulRepositories: stats.successfulRepositories || 0,
-                failedRepositories: stats.failedRepositories || 0
-            },
-            categoryStats: categoryStats ? true : false,
-            categoryCards: categoryCards,
-            languageStats: languageStats ? true : false,
-            languageCards: languageCards,
-            topDepsCount: topDeps.length,
-            topDeps: topDepsForTemplate,
-            organization: orgName,
-            allDeps: allDepsForTemplate,
-            allDepsCount: allDeps.length
-        };
+        // Generate stats grid HTML
+        const statsGridHTML = `<div class="stats-grid">
+    <div class="stat-card">
+        <h3>📁 Repositories</h3>
+        <div class="stat-number">${stats.totalRepositories || 0}</div>
+        <div class="stat-detail">${stats.processedRepositories || 0} processed</div>
+    </div>
+    <div class="stat-card">
+        <h3>📦 Dependencies</h3>
+        <div class="stat-number">${stats.totalDependencies || 0}</div>
+        <div class="stat-detail">${stats.averageDependenciesPerRepo || 0} avg per repo</div>
+    </div>
+    <div class="stat-card">
+        <h3>✅ Success Rate</h3>
+        <div class="stat-number">${stats.successfulRepositories || 0}</div>
+        <div class="stat-detail">${stats.failedRepositories || 0} failed</div>
+    </div>
+</div>`;
+
+        // Generate category breakdown HTML
+        let categoryHTML = '';
+        if (categoryStats) {
+            const categoryCardsHTML = categoryCards.map(card => `
+        <div class="category-card ${card.type}">
+            <h4>${escapeHtml(card.title)}</h4>
+            <div class="category-number">${card.count}</div>
+            <div class="category-detail">${escapeHtml(String(card.unique))} unique</div>
+        </div>`).join('');
+            
+            categoryHTML = `<div class="category-breakdown">
+    <h3>📊 Dependency Categories</h3>
+    <div class="category-grid">
+        ${categoryCardsHTML}
+    </div>
+</div>`;
+        }
+
+        // Generate language breakdown HTML
+        let languageHTML = '';
+        if (languageStats) {
+            const languageCardsHTML = languageCards.map(card => `
+        <div class="language-card">
+            <h4>${escapeHtml(card.language)}</h4>
+            <div class="language-number">${card.count}</div>
+            <div class="language-detail">${escapeHtml(String(card.uniqueDeps))} unique deps</div>
+        </div>`).join('');
+            
+            languageHTML = `<div class="language-breakdown">
+    <h3>🌐 Programming Languages</h3>
+    <div class="language-grid">
+        ${languageCardsHTML}
+    </div>
+</div>`;
+        }
+
+        // Generate top dependencies HTML
+        const topDepsHTML = topDepsForTemplate.length > 0 
+            ? topDepsForTemplate.map(dep => `
+            <div class="dependency-item ${dep.categoryType}">
+                <div class="dep-content" onclick="viewManager.showDependencyDetailsFromIndex(${dep.index}, '${escapeHtml(orgName).replace(/'/g, "\\'")}')">
+                    <div class="dep-name">${escapeHtml(dep.name)}</div>
+                    <div class="dep-version">${escapeHtml(dep.version)}</div>
+                    <div class="dep-count">${dep.count} repos</div>
+                    <div class="dep-category">${escapeHtml(dep.categoryType)}</div>
+                </div>
+                <div class="dep-actions">
+                    <button class="btn btn-sm btn-outline-primary" onclick="viewManager.queryVulnerabilityForDependency('${escapeHtml(dep.name).replace(/'/g, "\\'")}', '${escapeHtml(dep.version).replace(/'/g, "\\'")}', '${escapeHtml(orgName).replace(/'/g, "\\'")}'))" title="Query vulnerabilities">
+                        <i class="fas fa-shield-alt"></i>
+                    </button>
+                    ${dep.showQuickScan ? `<button class="btn btn-sm btn-outline-success" onclick="viewManager.quickScanDependency('${escapeHtml(dep.name).replace(/'/g, "\\'")}', '${escapeHtml(dep.version).replace(/'/g, "\\'")}', '${escapeHtml(orgName).replace(/'/g, "\\'")}'))" title="Quick scan for vulnerabilities">
+                        <i class="fas fa-bolt"></i>
+                    </button>` : ''}
+                </div>
+            </div>`).join('')
+            : '<p class="text-muted">No dependencies found</p>';
+
+        const topDependenciesSection = `<div class="view-sections">
+    <div class="section">
+        <h3>🏆 Top Dependencies (${topDeps.length})</h3>
+        <div class="filter-buttons">
+            <button class="btn btn-sm btn-outline-primary" onclick="viewManager.filterDependenciesByCategory('all')">All</button>
+            <button class="btn btn-sm btn-outline-primary" onclick="viewManager.filterDependenciesByCategory('code')">Code</button>
+            <button class="btn btn-sm btn-outline-primary" onclick="viewManager.filterDependenciesByCategory('workflow')">Workflow</button>
+            <button class="btn btn-sm btn-outline-primary" onclick="viewManager.filterDependenciesByCategory('infrastructure')">Infrastructure</button>
+        </div>
+        <div class="dependency-grid" id="top-dependencies">
+            ${topDepsHTML}
+        </div>
+    </div>
+</div>`;
+
+        // Generate all dependencies HTML
+        let allDependenciesSection = '';
+        if (allDepsForTemplate.length > 0) {
+            const allDepsHTML = allDepsForTemplate.map(dep => `
+        <div class="dependency-card ${dep.categoryType}">
+            <div class="dep-content" onclick="viewManager.showDependencyDetailsFromAllDepsIndex(${dep.index}, '${escapeHtml(orgName).replace(/'/g, "\\'")}')">
+                <div class="dep-name">${escapeHtml(dep.name)}</div>
+                <div class="dep-version">${escapeHtml(dep.version)}</div>
+                <div class="dep-count">${dep.count} repos</div>
+                <div class="dep-category">${escapeHtml(dep.categoryType)}</div>
+            </div>
+            <div class="dep-actions">
+                <button class="btn btn-sm btn-outline-primary" onclick="viewManager.queryVulnerabilityForDependency('${escapeHtml(dep.name).replace(/'/g, "\\'")}', '${escapeHtml(dep.version).replace(/'/g, "\\'")}', '${escapeHtml(orgName).replace(/'/g, "\\'")}'))" title="Query vulnerabilities">
+                    <i class="fas fa-shield-alt"></i>
+                </button>
+                ${dep.showQuickScan ? `<button class="btn btn-sm btn-outline-success" onclick="viewManager.quickScanDependency('${escapeHtml(dep.name).replace(/'/g, "\\'")}', '${escapeHtml(dep.version).replace(/'/g, "\\'")}', '${escapeHtml(orgName).replace(/'/g, "\\'")}'))" title="Quick scan for vulnerabilities">
+                    <i class="fas fa-bolt"></i>
+                </button>` : ''}
+            </div>
+        </div>`).join('');
+            
+            allDependenciesSection = `<div class="all-dependencies">
+    <h3>📊 All Dependencies (${allDeps.length})</h3>
+    <div class="search-box">
+        <input type="text" id="dep-search" placeholder="Search dependencies..." onkeyup="viewManager.filterDependencies()">
+    </div>
+    <div class="filter-buttons">
+        <button class="btn btn-outline-primary btn-sm" onclick="viewManager.filterDependenciesByCategory('all')">All</button>
+        <button class="btn btn-outline-primary btn-sm" onclick="viewManager.filterDependenciesByCategory('code')">Code</button>
+        <button class="btn btn-outline-primary btn-sm" onclick="viewManager.filterDependenciesByCategory('workflow')">Workflow</button>
+        <button class="btn btn-outline-primary btn-sm" onclick="viewManager.filterDependenciesByCategory('infrastructure')">Infrastructure</button>
+        <button class="btn btn-outline-primary btn-sm" onclick="viewManager.filterDependenciesByCategory('unknown')">Unknown</button>
+    </div>
+    <div class="dependency-grid" id="all-dependencies">
+        ${allDepsHTML}
+    </div>
+</div>`;
+        }
         
-        return await window.templateLoader.renderTemplate('dependency-overview.html', templateData);
+        return statsGridHTML + categoryHTML + languageHTML + topDependenciesSection + allDependenciesSection;
     }
 
     /**
@@ -2902,10 +3347,14 @@ class ViewManager {
     }
 
     async generateVulnerabilityAnalysisHTML(orgData) {
-        this.ensureTemplateLoader();
-        
         const vulnAnalysis = orgData.data.vulnerabilityAnalysis;
         const orgName = orgData.organization || orgData.name;
+        
+        const escapeHtml = (text) => {
+            if (!text) return '';
+            const map = {'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'};
+            return String(text).replace(/[&<>"']/g, m => map[m]);
+        };
         
         // Pre-process vulnerable dependencies with usage info
         let vulnerableDepsHTML = '';
@@ -2953,12 +3402,48 @@ class ViewManager {
             }
             
             if (processedDeps.length > 0) {
-                // Render each dependency item
-                const depItems = await Promise.all(
-                    processedDeps.map(depData => 
-                        window.templateLoader.renderTemplate('vulnerable-dependency-item.html', depData)
-                    )
-                );
+                // Render each dependency item inline
+                const depItems = processedDeps.map(depData => {
+                    const usageHTML = depData.hasUsage 
+                        ? `<div class="vuln-repo-usage mt-3 p-2 bg-light rounded">
+            <small class="text-muted d-block mb-2">
+                <i class="fas fa-code-branch me-1"></i>
+                <strong>Used in ${depData.uniqueReposCount} repository${depData.reposPlural}:</strong>
+            </small>
+            <div class="vuln-paths" style="font-size: 0.85em;">
+                ${depData.usage.map(u => `
+                <div class="mb-2" style="padding-left: 10px;">
+                    <code class="text-primary fw-bold">${escapeHtml(u.repoKey)}</code>: <code>${escapeHtml(u.pathStr)}</code>
+                </div>`).join('')}
+            </div>
+        </div>`
+                        : `<div class="mt-2">
+            <small class="text-muted">
+                <i class="fas fa-info-circle me-1"></i>Repository usage information not available
+            </small>
+        </div>`;
+                    
+                    return `<div class="vulnerable-dep-item mb-3" style="border-left: 3px solid #dc3545; padding-left: 15px;">
+    <div class="vuln-dep-info">
+        <div class="vuln-dep-name" style="font-weight: bold; font-size: 1.1em;">${escapeHtml(depData.name)}@${escapeHtml(depData.version)}</div>
+        <div class="vuln-dep-count mb-2">${depData.vulnerabilityCount} vulnerability${depData.vulnerabilityPlural}</div>
+        <div class="vuln-severity-badges mb-2">
+            ${depData.vulnerabilities.map(vuln => `
+            <span class="badge severity-${vuln.cssSeverity} clickable-severity-badge me-1" 
+                  title="${escapeHtml(vuln.tooltip)}" 
+                  onclick="viewManager.showVulnerabilityDetails('${escapeHtml(depData.depName).replace(/'/g, "\\'")}', '${escapeHtml(depData.depVersion).replace(/'/g, "\\'")}', [${vuln.vulnJson}])">
+                ${escapeHtml(vuln.severity)}
+            </span>`).join('')}
+        </div>
+        ${usageHTML}
+    </div>
+    <div class="vuln-dep-actions mt-2">
+        <button class="btn btn-sm btn-outline-info" onclick="viewManager.showVulnerabilityDetails('${escapeHtml(depData.name).replace(/'/g, "\\'")}', '${escapeHtml(depData.version).replace(/'/g, "\\'")}', ${depData.allVulnsJson})">
+            <i class="fas fa-eye me-1"></i>View Details
+        </button>
+    </div>
+</div>`;
+                });
                 
                 vulnerableDepsHTML = `
                 <div class="vulnerable-dependencies">
@@ -2971,20 +3456,80 @@ class ViewManager {
             }
         }
 
-        // Prepare template data
-        const templateData = {
-            hasVulnerabilityAnalysis: !!vulnAnalysis,
-            organization: orgName,
-            criticalVulnerabilities: vulnAnalysis?.criticalVulnerabilities || 0,
-            highVulnerabilities: vulnAnalysis?.highVulnerabilities || 0,
-            mediumVulnerabilities: vulnAnalysis?.mediumVulnerabilities || 0,
-            lowVulnerabilities: vulnAnalysis?.lowVulnerabilities || 0,
-            vulnerablePackages: vulnAnalysis?.vulnerablePackages || 0,
-            vulnerabilityRate: vulnAnalysis?.vulnerabilityRate || 0,
-            vulnerableDepsHTML: vulnerableDepsHTML
-        };
-
-        return await window.templateLoader.renderTemplate('vulnerability-analysis.html', templateData);
+        // Generate vulnerability section HTML
+        if (vulnAnalysis) {
+            return `<div id="vulnerability-section" class="independent-section">
+    <div class="vulnerability-breakdown">
+        <h3>🔒 Vulnerability Analysis</h3>
+        <div class="vulnerability-actions mb-3">
+            <button class="btn btn-primary btn-sm" onclick="viewManager.runBatchVulnerabilityQuery('${escapeHtml(orgName).replace(/'/g, "\\'")}')">
+                <i class="fas fa-search"></i> Re-run Batch Vulnerability Query
+            </button>
+            <button class="btn btn-info btn-sm" onclick="viewManager.showVulnerabilityCacheStats()">
+                <i class="fas fa-database"></i> Cache Stats
+            </button>
+            <button class="btn btn-warning btn-sm" onclick="viewManager.clearVulnerabilityCache()">
+                <i class="fas fa-trash"></i> Clear Cache
+            </button>
+        </div>
+        <div class="vulnerability-stats">
+            <div class="vuln-stat-card critical">
+                <h4>🚨 Critical</h4>
+                <div class="vuln-number">${vulnAnalysis.criticalVulnerabilities || 0}</div>
+                <div class="vuln-detail">vulnerabilities</div>
+            </div>
+            <div class="vuln-stat-card high">
+                <h4>⚠️ High</h4>
+                <div class="vuln-number">${vulnAnalysis.highVulnerabilities || 0}</div>
+                <div class="vuln-detail">vulnerabilities</div>
+            </div>
+            <div class="vuln-stat-card medium">
+                <h4>⚡ Medium</h4>
+                <div class="vuln-number">${vulnAnalysis.mediumVulnerabilities || 0}</div>
+                <div class="vuln-detail">vulnerabilities</div>
+            </div>
+            <div class="vuln-stat-card low">
+                <h4>ℹ️ Low</h4>
+                <div class="vuln-number">${vulnAnalysis.lowVulnerabilities || 0}</div>
+                <div class="vuln-detail">vulnerabilities</div>
+            </div>
+            <div class="vuln-stat-card total">
+                <h4>📊 Total</h4>
+                <div class="vuln-number">${vulnAnalysis.vulnerablePackages || 0}</div>
+                <div class="vuln-detail">vulnerable packages</div>
+            </div>
+            <div class="vuln-stat-card rate">
+                <h4>📈 Rate</h4>
+                <div class="vuln-number">${vulnAnalysis.vulnerabilityRate || 0}%</div>
+                <div class="vuln-detail">vulnerability rate</div>
+            </div>
+        </div>
+        ${vulnerableDepsHTML}
+    </div>
+</div>`;
+        } else {
+            return `<div id="vulnerability-section" class="independent-section">
+    <div class="vulnerability-breakdown">
+        <h3>🔒 Vulnerability Analysis</h3>
+        <div class="vulnerability-actions mb-3">
+            <button class="btn btn-primary btn-sm" onclick="viewManager.runBatchVulnerabilityQuery('${escapeHtml(orgName).replace(/'/g, "\\'")}')">
+                <i class="fas fa-search"></i> Run Initial Vulnerability Analysis
+            </button>
+            <button class="btn btn-info btn-sm" onclick="viewManager.showVulnerabilityCacheStats()">
+                <i class="fas fa-database"></i> Cache Stats
+            </button>
+            <button class="btn btn-warning btn-sm" onclick="viewManager.clearVulnerabilityCache()">
+                <i class="fas fa-trash"></i> Clear Cache
+            </button>
+        </div>
+        <div class="alert alert-info">
+            <h6>📋 No Vulnerability Analysis Yet</h6>
+            <p>This organization hasn't been analyzed for vulnerabilities yet. Click "Run Initial Vulnerability Analysis" to scan all dependencies for known vulnerabilities.</p>
+            <p><strong>Note:</strong> This will query the OSV API for each dependency and may take a few minutes depending on the number of dependencies.</p>
+        </div>
+    </div>
+</div>`;
+        }
     }
 
     /**

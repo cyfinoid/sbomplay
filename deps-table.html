@@ -135,7 +135,7 @@
                     <div class="col-md-3">
                         <label class="form-label">Analysis</label>
                         <select class="form-select" id="analysisSelector">
-                            <option value="">Select...</option>
+                            <!-- Options populated dynamically, defaults to "All Projects (Combined)" -->
                         </select>
                     </div>
                     <div class="col-md-3">
@@ -291,6 +291,14 @@
                 return;
             }
             
+            // Add "All Projects (Combined)" as the first option
+            const allOption = document.createElement('option');
+            allOption.value = '__ALL__';
+            const totalDeps = allEntries.reduce((sum, entry) => sum + (entry.dependencies || 0), 0);
+            allOption.textContent = `All Projects (Combined) (${totalDeps} deps)`;
+            selector.appendChild(allOption);
+            
+            // Add individual entries
             allEntries.forEach(entry => {
                 const option = document.createElement('option');
                 option.value = entry.name;
@@ -298,8 +306,9 @@
                 selector.appendChild(option);
             });
             
+            // Default to "All Projects (Combined)"
             if (allEntries.length > 0) {
-                selector.value = allEntries[0].name;
+                selector.value = '__ALL__';
                 await loadAnalysis();
             }
         }
@@ -343,7 +352,15 @@
             const analysisName = document.getElementById('analysisSelector').value;
             if (!analysisName) return;
             
-            const data = await storageManager.loadAnalysisDataForOrganization(analysisName);
+            let data;
+            
+            // Handle "All Projects (Combined)" option
+            if (analysisName === '__ALL__') {
+                data = await storageManager.getCombinedData();
+            } else {
+                data = await storageManager.loadAnalysisDataForOrganization(analysisName);
+            }
+            
             if (!data || !data.data) {
                 alert('No data found');
                 return;

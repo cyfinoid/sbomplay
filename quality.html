@@ -1,0 +1,696 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SBOM Play - Quality Assessment</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <link href="css/style.css?v=10" rel="stylesheet">
+    <link href="css/themes.css?v=10" rel="stylesheet">
+    <script src="js/theme-manager.js?v=10"></script>
+    <script defer data-domain="cyfinoid.github.io" src="https://plausible.io/js/script.outbound-links.js"></script>
+    <script>window.plausible = window.plausible || function() { (window.plausible.q = window.plausible.q || []).push(arguments) }</script>
+    <style>
+        .quality-table {
+            font-size: 0.9rem;
+        }
+        .quality-table th {
+            cursor: pointer;
+            user-select: none;
+        }
+        .quality-table th:hover {
+            background-color: rgba(0,0,0,0.05);
+        }
+        .quality-table th.sortable::after {
+            content: ' ⇅';
+            opacity: 0.3;
+        }
+        .quality-table th.sorted-asc::after {
+            content: ' ↑';
+            opacity: 1;
+        }
+        .quality-table th.sorted-desc::after {
+            content: ' ↓';
+            opacity: 1;
+        }
+        .progress {
+            height: 20px;
+        }
+        .filter-section {
+            background: #f8f9fa;
+            padding: 20px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+        }
+        .sbom-status-badge {
+            font-size: 0.9rem;
+        }
+    </style>
+</head>
+<body>
+    <!-- Navigation -->
+    <nav class="navbar navbar-expand-lg navbar-dark bg-primary">
+        <div class="container">
+            <a class="navbar-brand" href="index.html">
+                <i class="fas fa-cubes me-2"></i>SBOM Play
+            </a>
+            <div class="navbar-nav ms-auto">
+                <a class="nav-link" href="index.html">Analysis</a>
+                <a class="nav-link" href="stats.html">Stats</a>
+                <a class="nav-link" href="license-compliance.html">License</a>
+                <a class="nav-link" href="vuln.html">Vulnerabilities</a>
+                <a class="nav-link active" href="quality.html">Quality</a>
+                <a class="nav-link" href="deps.html">Dependencies</a>
+                <a class="nav-link" href="authors.html">Authors</a>
+                <a class="nav-link" href="settings.html">
+                    <i class="fas fa-cog"></i>
+                </a>
+                <button class="btn btn-outline-secondary btn-sm ms-2 theme-toggle" onclick="themeManager.toggleTheme()" title="Toggle theme">
+                    <i class="fas fa-sun"></i>
+                </button>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Main Content -->
+    <div class="container mt-4">
+        <!-- Header -->
+        <div class="row mb-4">
+            <div class="col-12">
+                <div class="d-flex justify-content-between align-items-center">
+                    <div>
+                        <h1><i class="fas fa-certificate me-2"></i>SBOM Quality Assessment</h1>
+                        <p class="text-muted">Review the quality and availability of SBOMs across all repositories</p>
+                    </div>
+                    <div>
+                        <a href="index.html" class="btn btn-outline-primary">
+                            <i class="fas fa-arrow-left me-2"></i>Back to Analysis
+                        </a>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Filters -->
+        <div class="filter-section">
+            <div class="row g-3">
+                <div class="col-md-2">
+                    <label for="orgFilter" class="form-label">Organization</label>
+                    <select class="form-select" id="orgFilter">
+                        <option value="all">All Organizations</option>
+                        <!-- Organizations populated dynamically -->
+                    </select>
+                </div>
+                <div class="col-md-2">
+                    <label for="gradeFilter" class="form-label">Grade</label>
+                    <select class="form-select" id="gradeFilter">
+                        <option value="all">All Grades</option>
+                        <option value="A">A</option>
+                        <option value="B">B</option>
+                        <option value="C">C</option>
+                        <option value="D">D</option>
+                        <option value="F">F</option>
+                    </select>
+                </div>
+                <div class="col-md-2">
+                    <label for="sbomFilter" class="form-label">SBOM Status</label>
+                    <select class="form-select" id="sbomFilter">
+                        <option value="all">All</option>
+                        <option value="has-sbom">Has SBOM</option>
+                        <option value="no-sbom">No SBOM</option>
+                    </select>
+                </div>
+                <div class="col-md-3">
+                    <label for="scoreMin" class="form-label">Min Score</label>
+                    <input type="number" class="form-control" id="scoreMin" min="0" max="100" value="0">
+                </div>
+                <div class="col-md-3">
+                    <label for="scoreMax" class="form-label">Max Score</label>
+                    <input type="number" class="form-control" id="scoreMax" min="0" max="100" value="100">
+                </div>
+            </div>
+            <div class="row g-3 mt-2">
+                <div class="col-md-6">
+                    <label for="searchBox" class="form-label">Search Repository</label>
+                    <input type="text" class="form-control" id="searchBox" placeholder="Filter by repository name (owner/repo)...">
+                </div>
+                <div class="col-md-6 d-flex align-items-end">
+                    <button class="btn btn-secondary" id="resetFilters">
+                        <i class="fas fa-redo me-2"></i>Reset Filters
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Summary Cards (dynamically updated based on filters) -->
+        <div id="summaryCards" class="row mb-4 mt-4">
+            <div class="col-12 mb-2">
+                <div class="d-flex align-items-center">
+                    <h5 class="mb-0 me-2"><i class="fas fa-chart-bar me-2"></i>Summary</h5>
+                    <span class="badge bg-secondary" id="summaryScope">All Repositories</span>
+                </div>
+                <hr class="mt-2">
+            </div>
+            <div class="col-md-3">
+                <div class="card text-center">
+                    <div class="card-body">
+                        <i class="fas fa-folder fa-2x text-primary mb-2"></i>
+                        <h3 id="totalRepos">0</h3>
+                        <p class="text-muted mb-0">Total Repositories</p>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="card text-center">
+                    <div class="card-body">
+                        <i class="fas fa-check-circle fa-2x text-success mb-2"></i>
+                        <h3 id="reposWithSBOM">0</h3>
+                        <p class="text-muted mb-0">With SBOM</p>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="card text-center">
+                    <div class="card-body">
+                        <i class="fas fa-chart-line fa-2x text-info mb-2"></i>
+                        <h3 id="avgQuality">0</h3>
+                        <p class="text-muted mb-0">Average Quality</p>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="card text-center">
+                    <div class="card-body">
+                        <i class="fas fa-star fa-2x text-warning mb-2"></i>
+                        <h3 id="avgGrade">-</h3>
+                        <p class="text-muted mb-0">Average Grade</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Quality Table -->
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0">
+                    <i class="fas fa-table me-2"></i>Repository Quality Overview
+                    <span class="badge bg-primary" id="visibleCount">0</span>
+                </h5>
+            </div>
+            <div class="card-body p-0">
+                <div class="table-responsive">
+                    <table class="table table-hover quality-table mb-0">
+                        <thead>
+                            <tr>
+                                <th class="sortable" data-sort="repository">Repository</th>
+                                <th class="sortable text-center" data-sort="sbom">Has SBOM</th>
+                                <th class="sortable text-center" data-sort="score">Quality Score</th>
+                                <th class="sortable text-center" data-sort="grade">Grade</th>
+                                <th class="text-center">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="qualityTableBody">
+                            <tr>
+                                <td colspan="5" class="text-center text-muted py-4">
+                                    <i class="fas fa-spinner fa-spin fa-2x mb-3"></i>
+                                    <p>Loading repository data...</p>
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Quality Details Modal -->
+    <div class="modal fade" id="qualityDetailsModal" tabindex="-1">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">Quality Details</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body" id="qualityDetailsContent">
+                    <!-- Content will be populated by JavaScript -->
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Footer -->
+    <footer class="mt-5 py-4 bg-light">
+        <div class="container">
+            <div class="row">
+                <div class="col-12 text-center">
+                    <p class="text-muted mb-2">
+                        <strong>SBOM Play</strong> - <em>Analyze Software Bill of Materials with ease</em>
+                    </p>
+                    <p class="text-muted small mb-0">
+                        Version 10.0.0 | 
+                        <a href="https://github.com/cyfinoid/sbomplay" target="_blank" class="text-decoration-none">
+                            <i class="fab fa-github me-1"></i>GitHub
+                        </a>
+                    </p>
+                </div>
+            </div>
+        </div>
+    </footer>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="js/indexeddb-manager.js?v=10"></script>
+    <script src="js/sbom-quality-processor.js?v=10"></script>
+    <script src="js/storage-manager.js?v=10"></script>
+    <script>
+        // Quality Page Application
+        class QualityApp {
+            constructor() {
+                this.allRepositories = [];
+                this.filteredRepositories = [];
+                this.currentSort = { column: 'repository', direction: 'asc' };
+                this.qualityModal = null;
+                this.storageManager = new StorageManager();
+            }
+
+            async init() {
+                try {
+                    // Initialize storage manager
+                    await this.storageManager.init();
+                    
+                    // Initialize modal
+                    this.qualityModal = new bootstrap.Modal(document.getElementById('qualityDetailsModal'));
+                    
+                    // Load data
+                    const data = await this.storageManager.getCombinedData();
+                    if (!data || !data.data || !data.data.allRepositories) {
+                        this.showError('No repository data found. Please run an analysis first.');
+                        return;
+                    }
+
+                    this.allRepositories = data.data.allRepositories;
+                    this.populateOrganizations();
+                    this.updateSummaryCards();
+                    this.applyFilters();
+
+                    // Setup event listeners
+                    this.setupEventListeners();
+                } catch (error) {
+                    console.error('Failed to load quality data:', error);
+                    this.showError('Failed to load quality data: ' + error.message);
+                }
+            }
+
+            populateOrganizations() {
+                // Extract unique organizations from repositories
+                const organizations = new Set();
+                this.allRepositories.forEach(repo => {
+                    if (repo.owner) {
+                        organizations.add(repo.owner);
+                    }
+                });
+
+                // Sort organizations alphabetically
+                const sortedOrgs = Array.from(organizations).sort();
+
+                // Populate the dropdown
+                const orgFilter = document.getElementById('orgFilter');
+                sortedOrgs.forEach(org => {
+                    const option = document.createElement('option');
+                    option.value = org;
+                    option.textContent = org;
+                    orgFilter.appendChild(option);
+                });
+            }
+
+            setupEventListeners() {
+                // Filter changes
+                document.getElementById('orgFilter').addEventListener('change', () => this.applyFilters());
+                document.getElementById('gradeFilter').addEventListener('change', () => this.applyFilters());
+                document.getElementById('sbomFilter').addEventListener('change', () => this.applyFilters());
+                document.getElementById('scoreMin').addEventListener('input', () => this.applyFilters());
+                document.getElementById('scoreMax').addEventListener('input', () => this.applyFilters());
+                document.getElementById('searchBox').addEventListener('input', () => this.applyFilters());
+
+                // Reset filters
+                document.getElementById('resetFilters').addEventListener('click', () => {
+                    document.getElementById('orgFilter').value = 'all';
+                    document.getElementById('gradeFilter').value = 'all';
+                    document.getElementById('sbomFilter').value = 'all';
+                    document.getElementById('scoreMin').value = '0';
+                    document.getElementById('scoreMax').value = '100';
+                    document.getElementById('searchBox').value = '';
+                    this.applyFilters();
+                });
+
+                // Sort headers
+                document.querySelectorAll('th.sortable').forEach(th => {
+                    th.addEventListener('click', () => {
+                        const column = th.dataset.sort;
+                        this.sortTable(column);
+                    });
+                });
+            }
+
+            updateSummaryCards(selectedOrg = 'all') {
+                // Filter repositories by organization if one is selected
+                const repositoriesToAnalyze = selectedOrg === 'all' 
+                    ? this.allRepositories 
+                    : this.allRepositories.filter(r => r.owner === selectedOrg);
+                
+                const reposWithSBOM = repositoriesToAnalyze.filter(r => r.qualityAssessment).length;
+                const avgQuality = reposWithSBOM > 0 
+                    ? Math.round(repositoriesToAnalyze
+                        .filter(r => r.qualityAssessment)
+                        .reduce((sum, r) => sum + r.qualityAssessment.overallScore, 0) / reposWithSBOM)
+                    : 0;
+                
+                // Calculate average grade
+                const grades = repositoriesToAnalyze
+                    .filter(r => r.qualityAssessment)
+                    .map(r => r.qualityAssessment.grade);
+                const avgGrade = grades.length > 0 ? this.calculateAverageGrade(grades) : '-';
+
+                // Update summary cards
+                document.getElementById('totalRepos').textContent = repositoriesToAnalyze.length;
+                document.getElementById('reposWithSBOM').textContent = reposWithSBOM;
+                document.getElementById('avgQuality').textContent = avgQuality;
+                document.getElementById('avgGrade').textContent = avgGrade;
+                
+                // Update summary scope badge
+                const summaryScope = document.getElementById('summaryScope');
+                if (selectedOrg === 'all') {
+                    summaryScope.textContent = 'All Repositories';
+                    summaryScope.className = 'badge bg-secondary';
+                } else {
+                    summaryScope.textContent = selectedOrg;
+                    summaryScope.className = 'badge bg-primary';
+                }
+            }
+
+            calculateAverageGrade(grades) {
+                const gradeValues = { 'A': 4, 'B': 3, 'C': 2, 'D': 1, 'F': 0 };
+                const gradeLabels = ['F', 'D', 'C', 'B', 'A'];
+                const avg = grades.reduce((sum, g) => sum + (gradeValues[g] || 0), 0) / grades.length;
+                return gradeLabels[Math.round(avg)];
+            }
+
+            applyFilters() {
+                const orgFilter = document.getElementById('orgFilter').value;
+                const gradeFilter = document.getElementById('gradeFilter').value;
+                const sbomFilter = document.getElementById('sbomFilter').value;
+                const scoreMin = parseInt(document.getElementById('scoreMin').value) || 0;
+                const scoreMax = parseInt(document.getElementById('scoreMax').value) || 100;
+                const searchTerm = document.getElementById('searchBox').value.toLowerCase();
+
+                // Update summary cards based on selected organization
+                this.updateSummaryCards(orgFilter);
+
+                this.filteredRepositories = this.allRepositories.filter(repo => {
+                    const repoName = `${repo.owner}/${repo.name}`.toLowerCase();
+                    const hasSBOM = !!repo.qualityAssessment;
+                    const score = hasSBOM ? repo.qualityAssessment.overallScore : 0;
+                    const grade = hasSBOM ? repo.qualityAssessment.grade : 'F';
+
+                    // Apply filters
+                    if (orgFilter !== 'all' && repo.owner !== orgFilter) return false;
+                    if (gradeFilter !== 'all' && grade !== gradeFilter) return false;
+                    if (sbomFilter === 'has-sbom' && !hasSBOM) return false;
+                    if (sbomFilter === 'no-sbom' && hasSBOM) return false;
+                    if (hasSBOM && (score < scoreMin || score > scoreMax)) return false;
+                    if (searchTerm && !repoName.includes(searchTerm)) return false;
+
+                    return true;
+                });
+
+                this.sortTable(this.currentSort.column, false);
+                this.renderTable();
+            }
+
+            sortTable(column, toggleDirection = true) {
+                if (toggleDirection && this.currentSort.column === column) {
+                    this.currentSort.direction = this.currentSort.direction === 'asc' ? 'desc' : 'asc';
+                } else {
+                    this.currentSort.column = column;
+                    if (!toggleDirection) {
+                        // Keep current direction
+                    } else {
+                        this.currentSort.direction = 'asc';
+                    }
+                }
+
+                this.filteredRepositories.sort((a, b) => {
+                    let aVal, bVal;
+
+                    switch (column) {
+                        case 'repository':
+                            aVal = `${a.owner}/${a.name}`.toLowerCase();
+                            bVal = `${b.owner}/${b.name}`.toLowerCase();
+                            break;
+                        case 'sbom':
+                            aVal = a.qualityAssessment ? 1 : 0;
+                            bVal = b.qualityAssessment ? 1 : 0;
+                            break;
+                        case 'score':
+                            aVal = a.qualityAssessment ? a.qualityAssessment.overallScore : 0;
+                            bVal = b.qualityAssessment ? b.qualityAssessment.overallScore : 0;
+                            break;
+                        case 'grade':
+                            const gradeValues = { 'A': 4, 'B': 3, 'C': 2, 'D': 1, 'F': 0 };
+                            aVal = a.qualityAssessment ? (gradeValues[a.qualityAssessment.grade] || 0) : 0;
+                            bVal = b.qualityAssessment ? (gradeValues[b.qualityAssessment.grade] || 0) : 0;
+                            break;
+                        default:
+                            return 0;
+                    }
+
+                    if (aVal < bVal) return this.currentSort.direction === 'asc' ? -1 : 1;
+                    if (aVal > bVal) return this.currentSort.direction === 'asc' ? 1 : -1;
+                    return 0;
+                });
+
+                // Update sort indicators
+                document.querySelectorAll('th.sortable').forEach(th => {
+                    th.classList.remove('sorted-asc', 'sorted-desc');
+                    if (th.dataset.sort === column) {
+                        th.classList.add(this.currentSort.direction === 'asc' ? 'sorted-asc' : 'sorted-desc');
+                    }
+                });
+
+                this.renderTable();
+            }
+
+            renderTable() {
+                const tbody = document.getElementById('qualityTableBody');
+                document.getElementById('visibleCount').textContent = this.filteredRepositories.length;
+
+                if (this.filteredRepositories.length === 0) {
+                    tbody.innerHTML = `
+                        <tr>
+                            <td colspan="5" class="text-center text-muted py-4">
+                                <i class="fas fa-search fa-2x mb-3"></i>
+                                <p>No repositories match your filters</p>
+                            </td>
+                        </tr>`;
+                    return;
+                }
+
+                tbody.innerHTML = this.filteredRepositories.map(repo => {
+                    const hasSBOM = !!repo.qualityAssessment;
+                    const repoName = `${repo.owner}/${repo.name}`;
+                    
+                    if (!hasSBOM) {
+                        return `
+                            <tr>
+                                <td><strong>${this.escapeHtml(repoName)}</strong></td>
+                                <td class="text-center">
+                                    <span class="badge bg-danger sbom-status-badge">
+                                        <i class="fas fa-times"></i> No SBOM
+                                    </span>
+                                </td>
+                                <td class="text-center">-</td>
+                                <td class="text-center">-</td>
+                                <td class="text-center">
+                                    <span class="text-muted small">No data available</span>
+                                </td>
+                            </tr>`;
+                    }
+
+                    const qa = repo.qualityAssessment;
+                    const gradeColor = this.getGradeColor(qa.grade);
+                    const scoreColor = this.getScoreColor(qa.overallScore);
+
+                    return `
+                        <tr>
+                            <td><strong>${this.escapeHtml(repoName)}</strong></td>
+                            <td class="text-center">
+                                <span class="badge bg-success sbom-status-badge">
+                                    <i class="fas fa-check"></i> Has SBOM
+                                </span>
+                            </td>
+                            <td class="text-center">
+                                <div class="progress">
+                                    <div class="progress-bar ${scoreColor}" role="progressbar" 
+                                         style="width: ${qa.overallScore}%" 
+                                         aria-valuenow="${qa.overallScore}" aria-valuemin="0" aria-valuemax="100">
+                                        ${qa.overallScore}
+                                    </div>
+                                </div>
+                            </td>
+                            <td class="text-center">
+                                <span class="badge bg-${gradeColor} fs-6">${qa.grade}</span>
+                            </td>
+                            <td class="text-center">
+                                <button class="btn btn-sm btn-outline-primary" onclick="qualityApp.showDetails('${this.escapeHtml(repoName).replace(/'/g, "\\'")}')">
+                                    <i class="fas fa-eye"></i> View Details
+                                </button>
+                            </td>
+                        </tr>`;
+                }).join('');
+            }
+
+            showDetails(repoName) {
+                const repo = this.allRepositories.find(r => `${r.owner}/${r.name}` === repoName);
+                if (!repo || !repo.qualityAssessment) {
+                    alert('Quality assessment not available for this repository');
+                    return;
+                }
+
+                const qa = repo.qualityAssessment;
+                const content = document.getElementById('qualityDetailsContent');
+
+                const identScore = qa.categories?.identification?.score ?? 0;
+                const structScore = qa.categories?.structure?.score ?? 0;
+                const metaScore = qa.categories?.metadata?.score ?? 0;
+                const compScore = qa.categories?.completeness?.score ?? 0;
+                
+                content.innerHTML = `
+                    <div class="mb-3">
+                        <h5>${this.escapeHtml(repoName)}</h5>
+                        <div class="d-flex gap-3 mb-3">
+                            <div class="flex-fill text-center p-3 bg-light rounded">
+                                <strong>Overall Score</strong><br>
+                                <span class="fs-3 text-${this.getScoreColor(qa.overallScore || 0)}">${qa.overallScore || 0}/100</span>
+                            </div>
+                            <div class="flex-fill text-center p-3 bg-light rounded">
+                                <strong>Grade</strong><br>
+                                <span class="fs-3 badge bg-${this.getGradeColor(qa.grade || 'F')}">${qa.grade || 'F'}</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <h6>Category Scores:</h6>
+                    <div class="row g-2 mb-3">
+                        <div class="col-6">
+                            <div class="p-2 border rounded">
+                                <strong>Identification:</strong> ${identScore}/100
+                                <div class="progress mt-1">
+                                    <div class="progress-bar ${this.getScoreColor(identScore)}" 
+                                         style="width: ${identScore}%"></div>
+                                </div>
+                                ${qa.categories?.identification?.details ? `<small class="text-muted">${this.escapeHtml(qa.categories.identification.details)}</small>` : ''}
+                            </div>
+                        </div>
+                        <div class="col-6">
+                            <div class="p-2 border rounded">
+                                <strong>Structure:</strong> ${structScore}/100
+                                <div class="progress mt-1">
+                                    <div class="progress-bar ${this.getScoreColor(structScore)}" 
+                                         style="width: ${structScore}%"></div>
+                                </div>
+                                ${qa.categories?.structure?.details ? `<small class="text-muted">${this.escapeHtml(qa.categories.structure.details)}</small>` : ''}
+                            </div>
+                        </div>
+                        <div class="col-6">
+                            <div class="p-2 border rounded">
+                                <strong>Metadata:</strong> ${metaScore}/100
+                                <div class="progress mt-1">
+                                    <div class="progress-bar ${this.getScoreColor(metaScore)}" 
+                                         style="width: ${metaScore}%"></div>
+                                </div>
+                                ${qa.categories?.metadata?.details ? `<small class="text-muted">${this.escapeHtml(qa.categories.metadata.details)}</small>` : ''}
+                            </div>
+                        </div>
+                        <div class="col-6">
+                            <div class="p-2 border rounded">
+                                <strong>Completeness:</strong> ${compScore}/100
+                                <div class="progress mt-1">
+                                    <div class="progress-bar ${this.getScoreColor(compScore)}" 
+                                         style="width: ${compScore}%"></div>
+                                </div>
+                                ${qa.categories?.completeness?.details ? `<small class="text-muted">${this.escapeHtml(qa.categories.completeness.details)}</small>` : ''}
+                            </div>
+                        </div>
+                    </div>
+
+                    ${qa.issues && qa.issues.length > 0 ? `
+                        <h6>Issues Found:</h6>
+                        <div class="issues-container">
+                            ${qa.issues.map(categoryIssues => `
+                                <div class="mb-3">
+                                    <h6 class="text-muted small mb-2">
+                                        <i class="fas fa-exclamation-circle me-1"></i>${this.escapeHtml(categoryIssues.category)}
+                                    </h6>
+                                    <ul class="list-group">
+                                        ${categoryIssues.issues.map(issueMsg => `
+                                            <li class="list-group-item">
+                                                <i class="fas fa-info-circle text-info me-2"></i>
+                                                ${this.escapeHtml(issueMsg)}
+                                            </li>
+                                        `).join('')}
+                                    </ul>
+                                </div>
+                            `).join('')}
+                        </div>
+                    ` : '<p class="text-success"><i class="fas fa-check-circle me-2"></i>No issues found</p>'}
+                    
+                    ${qa.summary ? `
+                        <div class="mt-3 p-3 bg-light rounded">
+                            <h6>Summary:</h6>
+                            <p class="mb-0">${this.escapeHtml(qa.summary)}</p>
+                        </div>
+                    ` : ''}
+                `;
+
+                this.qualityModal.show();
+            }
+
+            getGradeColor(grade) {
+                const colors = { 'A': 'success', 'B': 'primary', 'C': 'warning', 'D': 'danger', 'F': 'dark' };
+                return colors[grade] || 'secondary';
+            }
+
+            getScoreColor(score) {
+                if (score >= 90) return 'bg-success';
+                if (score >= 75) return 'bg-primary';
+                if (score >= 60) return 'bg-warning';
+                return 'bg-danger';
+            }
+
+            escapeHtml(text) {
+                if (!text) return '';
+                const map = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
+                return String(text).replace(/[&<>"']/g, m => map[m]);
+            }
+
+            showError(message) {
+                document.getElementById('qualityTableBody').innerHTML = `
+                    <tr>
+                        <td colspan="5" class="text-center text-danger py-4">
+                            <i class="fas fa-exclamation-triangle fa-2x mb-3"></i>
+                            <p>${this.escapeHtml(message)}</p>
+                        </td>
+                    </tr>`;
+            }
+        }
+
+        // Initialize app
+        const qualityApp = new QualityApp();
+        document.addEventListener('DOMContentLoaded', () => qualityApp.init());
+    </script>
+</body>
+</html>
+
