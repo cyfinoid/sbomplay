@@ -300,8 +300,8 @@
                 return;
             }
             
-            // Render full vulnerability analysis dashboard
-            container.innerHTML = viewManager.generateVulnerabilityAnalysisHTML(data);
+            // Render full vulnerability analysis dashboard (await the async method)
+            container.innerHTML = await viewManager.generateVulnerabilityAnalysisHTML(data);
             if (typeof viewManager.addOverviewEventListeners === 'function') {
                 viewManager.addOverviewEventListeners();
             }

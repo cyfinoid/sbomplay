@@ -169,6 +169,7 @@
     <script src="js/version-utils.js?v=10"></script>
     <script src="js/ecosystem-utils.js?v=10"></script>
     <script src="js/cache-manager.js?v=10"></script>
+    <script src="js/template-loader.js?v=10"></script>
     <script src="js/view-manager.js?v=10"></script>
     <script src="js/license-processor.js?v=10"></script>
     <script src="js/osv-service.js?v=10"></script>
@@ -281,9 +282,9 @@
                 return;
             }
             
-            // Render license compliance dashboard
+            // Render license compliance dashboard (await the async method)
             if (typeof viewManager.generateLicenseComplianceHTML === 'function' && data.data.licenseAnalysis) {
-                container.innerHTML = viewManager.generateLicenseComplianceHTML(data);
+                container.innerHTML = await viewManager.generateLicenseComplianceHTML(data);
                 if (typeof viewManager.addOverviewEventListeners === 'function') {
                     viewManager.addOverviewEventListeners();
                 }

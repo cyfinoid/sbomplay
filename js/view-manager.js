@@ -9,6 +9,15 @@ class ViewManager {
     }
 
     /**
+     * Check if templateLoader is available
+     */
+    ensureTemplateLoader() {
+        if (!window.templateLoader) {
+            throw new Error('TemplateLoader is not available. Please ensure template-loader.js is loaded before view-manager.js');
+        }
+    }
+
+    /**
      * Show organization overview
      */
     async showOrganizationOverview(orgData) {
@@ -367,6 +376,7 @@ class ViewManager {
      * Generate overview HTML
      */
     async generateOverviewHTML(orgData) {
+        this.ensureTemplateLoader();
         console.log('🔍 View Manager - Received orgData:', orgData);
         
         // Validate orgData structure
@@ -2512,6 +2522,8 @@ class ViewManager {
      * Generate License Compliance HTML (standalone section)
      */
     async generateLicenseComplianceHTML(orgData) {
+        this.ensureTemplateLoader();
+        
         if (!orgData || !orgData.data) {
             return `<div class="alert alert-danger">No organization data available.</div>`;
         }
@@ -2647,6 +2659,8 @@ class ViewManager {
     }
 
     async generateDependencyOverviewHTML(orgData) {
+        this.ensureTemplateLoader();
+        
         // Extracted from generateOverviewHTML: stats, category breakdown, language stats, top deps, all deps
         const stats = orgData.data.statistics || {};
         const topDeps = orgData.data.topDependencies || [];
@@ -2888,10 +2902,7 @@ class ViewManager {
     }
 
     async generateVulnerabilityAnalysisHTML(orgData) {
-        if (!window.templateLoader) {
-            console.error('TemplateLoader is not available. Please ensure template-loader.js is loaded.');
-            return '<div class="alert alert-danger">Template loader not available. Please ensure template-loader.js is loaded.</div>';
-        }
+        this.ensureTemplateLoader();
         
         const vulnAnalysis = orgData.data.vulnerabilityAnalysis;
         const orgName = orgData.organization || orgData.name;
