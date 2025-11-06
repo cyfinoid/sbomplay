@@ -433,58 +433,114 @@
                     return 'danger';
                 };
                 
+                // Convert to 0-10 display scale
+                const displayScore = qa.averageDisplayScore || (qa.averageOverallScore / 10).toFixed(1);
+                
                 // Build HTML
                 let html = `
+                    <div class="alert alert-info mb-3">
+                        <i class="fas fa-info-circle me-2"></i>
+                        <strong>Industry-Aligned Assessment:</strong> Based on sbomqs methodology, adapted for GitHub SPDX SBOMs.
+                        7 categories with GitHub-optimized weights. Scores: 0-10 scale.
+                    </div>
+                    
                     <div class="row mb-4">
-                        <div class="col-md-3 text-center">
-                            <h2 class="text-${getScoreColor(qa.averageOverallScore)}">${qa.averageOverallScore}/100</h2>
-                            <p class="text-muted">Average Quality Score</p>
+                        <div class="col-md-12 text-center mb-3">
+                            <h2 class="text-${getScoreColor(qa.averageOverallScore)}">${displayScore}/10.0</h2>
+                            <p class="text-muted">Average Quality Score Across All Repositories</p>
                         </div>
-                        <div class="col-md-9">
-                            <div class="row">
-                                <div class="col-md-3">
-                                    <p class="mb-1 small"><strong>Identification</strong></p>
-                                    <div class="progress" style="height: 20px;">
-                                        <div class="progress-bar bg-${getScoreColor(qa.averageIdentification)}" 
+                    </div>
+                    
+                    <h6 class="mb-3">Average Category Scores (7 categories):</h6>
+                    <div class="row g-3 mb-4">
+                        <div class="col-lg-3 col-md-6">
+                            <div class="card">
+                                <div class="card-body p-2">
+                                    <p class="mb-1 small"><strong>Identification (25%)</strong></p>
+                                    <div class="progress" style="height: 25px;">
+                                        <div class="progress-bar bg-${getScoreColor(qa.averageIdentification || 0)}" 
                                              role="progressbar" 
-                                             style="width: ${qa.averageIdentification}%"
-                                             aria-valuenow="${qa.averageIdentification}" 
-                                             aria-valuemin="0" 
-                                             aria-valuemax="100">${qa.averageIdentification}</div>
+                                             style="width: ${qa.averageIdentification || 0}%">${qa.averageIdentification || 0}/100</div>
                                     </div>
+                                    <small class="text-muted">Names, versions, PURLs</small>
                                 </div>
-                                <div class="col-md-3">
-                                    <p class="mb-1 small"><strong>Structure</strong></p>
-                                    <div class="progress" style="height: 20px;">
-                                        <div class="progress-bar bg-${getScoreColor(qa.averageStructure)}" 
+                            </div>
+                        </div>
+                        <div class="col-lg-3 col-md-6">
+                            <div class="card">
+                                <div class="card-body p-2">
+                                    <p class="mb-1 small"><strong>Provenance (20%)</strong></p>
+                                    <div class="progress" style="height: 25px;">
+                                        <div class="progress-bar bg-${getScoreColor(qa.averageProvenance || 0)}" 
                                              role="progressbar" 
-                                             style="width: ${qa.averageStructure}%"
-                                             aria-valuenow="${qa.averageStructure}" 
-                                             aria-valuemin="0" 
-                                             aria-valuemax="100">${qa.averageStructure}</div>
+                                             style="width: ${qa.averageProvenance || 0}%">${qa.averageProvenance || 0}/100</div>
                                     </div>
+                                    <small class="text-muted">Creator, timestamp, tool</small>
                                 </div>
-                                <div class="col-md-3">
-                                    <p class="mb-1 small"><strong>Metadata</strong></p>
-                                    <div class="progress" style="height: 20px;">
-                                        <div class="progress-bar bg-${getScoreColor(qa.averageMetadata)}" 
+                            </div>
+                        </div>
+                        <div class="col-lg-3 col-md-6">
+                            <div class="card">
+                                <div class="card-body p-2">
+                                    <p class="mb-1 small"><strong>Integrity (10%)</strong></p>
+                                    <div class="progress" style="height: 25px;">
+                                        <div class="progress-bar bg-${getScoreColor(qa.averageIntegrity || 0)}" 
                                              role="progressbar" 
-                                             style="width: ${qa.averageMetadata}%"
-                                             aria-valuenow="${qa.averageMetadata}" 
-                                             aria-valuemin="0" 
-                                             aria-valuemax="100">${qa.averageMetadata}</div>
+                                             style="width: ${qa.averageIntegrity || 0}%">${qa.averageIntegrity || 0}/100</div>
                                     </div>
+                                    <small class="text-muted">Checksums, SHA-256+</small>
                                 </div>
-                                <div class="col-md-3">
-                                    <p class="mb-1 small"><strong>Completeness</strong></p>
-                                    <div class="progress" style="height: 20px;">
-                                        <div class="progress-bar bg-${getScoreColor(qa.averageCompleteness)}" 
+                            </div>
+                        </div>
+                        <div class="col-lg-3 col-md-6">
+                            <div class="card">
+                                <div class="card-body p-2">
+                                    <p class="mb-1 small"><strong>Completeness (20%)</strong></p>
+                                    <div class="progress" style="height: 25px;">
+                                        <div class="progress-bar bg-${getScoreColor(qa.averageCompleteness || 0)}" 
                                              role="progressbar" 
-                                             style="width: ${qa.averageCompleteness}%"
-                                             aria-valuenow="${qa.averageCompleteness}" 
-                                             aria-valuemin="0" 
-                                             aria-valuemax="100">${qa.averageCompleteness}</div>
+                                             style="width: ${qa.averageCompleteness || 0}%">${qa.averageCompleteness || 0}/100</div>
                                     </div>
+                                    <small class="text-muted">Relationships, metadata</small>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-lg-3 col-md-6">
+                            <div class="card">
+                                <div class="card-body p-2">
+                                    <p class="mb-1 small"><strong>Licensing (10%)</strong></p>
+                                    <div class="progress" style="height: 25px;">
+                                        <div class="progress-bar bg-${getScoreColor(qa.averageLicensing || 0)}" 
+                                             role="progressbar" 
+                                             style="width: ${qa.averageLicensing || 0}%">${qa.averageLicensing || 0}/100</div>
+                                    </div>
+                                    <small class="text-muted">License presence, validity</small>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-lg-3 col-md-6">
+                            <div class="card">
+                                <div class="card-body p-2">
+                                    <p class="mb-1 small"><strong>Vulnerability (10%)</strong></p>
+                                    <div class="progress" style="height: 25px;">
+                                        <div class="progress-bar bg-${getScoreColor(qa.averageVulnerability || 0)}" 
+                                             role="progressbar" 
+                                             style="width: ${qa.averageVulnerability || 0}%">${qa.averageVulnerability || 0}/100</div>
+                                    </div>
+                                    <small class="text-muted">PURL, CPE identifiers</small>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-lg-3 col-md-6">
+                            <div class="card">
+                                <div class="card-body p-2">
+                                    <p class="mb-1 small"><strong>Structural (5%)</strong></p>
+                                    <div class="progress" style="height: 25px;">
+                                        <div class="progress-bar bg-${getScoreColor(qa.averageStructural || 0)}" 
+                                             role="progressbar" 
+                                             style="width: ${qa.averageStructural || 0}%">${qa.averageStructural || 0}/100</div>
+                                    </div>
+                                    <small class="text-muted">SPDX compliance</small>
                                 </div>
                             </div>
                         </div>
@@ -526,10 +582,11 @@
                     
                     qa.repositoriesNeedingAttention.slice(0, 10).forEach(repo => {
                         const issueCategories = repo.topIssues.map(issue => issue.category).join(', ');
+                        const repoDisplayScore = repo.displayScore || (repo.score / 10).toFixed(1);
                         html += `
                             <tr>
                                 <td><code>${repo.repository}</code></td>
-                                <td><span class="badge bg-${getScoreColor(repo.score)}">${repo.score}</span></td>
+                                <td><span class="badge bg-${getScoreColor(repo.score)}">${repoDisplayScore}/10</span></td>
                                 <td><span class="badge bg-secondary">${repo.grade}</span></td>
                                 <td><small>${issueCategories}</small></td>
                             </tr>

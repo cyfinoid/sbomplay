@@ -236,12 +236,26 @@
         </div>
     </div>
 
+    <!-- Modal for "Used In" repositories -->
+    <div class="modal fade" id="repositoriesModal" tabindex="-1">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="repositoriesModalTitle">Used In Repositories</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body" id="repositoriesModalBody">
+                </div>
+            </div>
+        </div>
+    </div>
+
     <!-- Modal for "Brought In By" details -->
     <div class="modal fade" id="parentsModal" tabindex="-1">
         <div class="modal-dialog modal-lg">
             <div class="modal-content">
                 <div class="modal-header">
-                    <h5 class="modal-title" id="parentsModalTitle">Dependency Parents</h5>
+                    <h5 class="modal-title" id="parentsModalTitle">Dependency Chain</h5>
                     <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
                 </div>
                 <div class="modal-body" id="parentsModalBody">
@@ -407,8 +421,10 @@
                 const isDirect = dep.directIn && dep.directIn.length > 0;
                 const isTransitive = dep.transitiveIn && dep.transitiveIn.length > 0;
                 
-                // Get parent dependencies
+                // Get parent dependencies with repository context
                 const parents = new Set();
+                const parentsByRepo = {}; // Track which repo has which parent
+                
                 repos.forEach(repo => {
                     if (repo.relationships) {
                         const spdxToPackage = new Map();
@@ -421,13 +437,23 @@
                         }
                         
                         const targetKey = `${dep.name}@${dep.version}`;
+                        const repoName = `${repo.owner}/${repo.name}`;
+                        const repoParents = [];
+                        
                         repo.relationships.forEach(rel => {
                             const targetPkg = spdxToPackage.get(rel.to);
                             if (targetPkg === targetKey && !rel.isDirectFromMain) {
                                 const sourcePkg = spdxToPackage.get(rel.from);
-                                if (sourcePkg) parents.add(sourcePkg);
+                                if (sourcePkg) {
+                                    parents.add(sourcePkg);
+                                    repoParents.push(sourcePkg);
+                                }
                             }
                         });
+                        
+                        if (repoParents.length > 0) {
+                            parentsByRepo[repoName] = repoParents;
+                        }
                     }
                 });
                 
@@ -461,6 +487,7 @@
                     repositories: dep.repositories || [],
                     repoCount: (dep.repositories || []).length,
                     parents: Array.from(parents),
+                    parentsByRepo: parentsByRepo,  // Store parent-to-repo mapping
                     packageKey: packageKey,  // Store for funding lookup
                     raw: dep
                 });
@@ -545,12 +572,16 @@
                     <td>${escapeHtml(dep.version)}</td>
                     <td><span class="badge badge-${dep.type}">${dep.type}</span></td>
                     <td>${escapeHtml(dep.ecosystem)}</td>
-                    <td>${dep.repoCount} ${dep.repoCount === 1 ? 'repo' : 'repos'}</td>
+                    <td>
+                        <span class="clickable-cell" data-repos='${JSON.stringify(dep.repositories)}' data-package='${escapeHtml(dep.name)}'>
+                            ${dep.repoCount} ${dep.repoCount === 1 ? 'repo' : 'repos'}
+                        </span>
+                    </td>
                     <td>
                         ${dep.type === 'direct' 
                             ? '<span class="text-muted">Direct dependency</span>' 
                             : dep.parents.length > 0 
-                                ? `<span class="clickable-cell" data-parents='${JSON.stringify(dep.parents)}'>${dep.parents.length} ${dep.parents.length === 1 ? 'parent' : 'parents'}</span>`
+                                ? `<span class="clickable-cell" data-parents='${JSON.stringify(dep.parents)}' data-parents-by-repo='${JSON.stringify(dep.parentsByRepo).replace(/'/g, '&apos;')}' data-package='${escapeHtml(dep.name)}'>${dep.parents.length} ${dep.parents.length === 1 ? 'parent' : 'parents'}</span>`
                                 : '<span class="text-muted">Unknown</span>'
                         }
                     </td>
@@ -558,23 +589,100 @@
                 tbody.appendChild(tr);
             });
             
-            // Add click handlers for parents
+            // Add click handlers for both repositories and parents
             document.querySelectorAll('.clickable-cell').forEach(cell => {
                 cell.addEventListener('click', () => {
-                    const parents = JSON.parse(cell.getAttribute('data-parents'));
-                    showParentsModal(parents);
+                    if (cell.hasAttribute('data-repos')) {
+                        const repos = JSON.parse(cell.getAttribute('data-repos'));
+                        const packageName = cell.getAttribute('data-package');
+                        showRepositoriesModal(repos, packageName);
+                    } else if (cell.hasAttribute('data-parents')) {
+                        const parents = JSON.parse(cell.getAttribute('data-parents'));
+                        const parentsByRepo = JSON.parse(cell.getAttribute('data-parents-by-repo'));
+                        const packageName = cell.getAttribute('data-package');
+                        showParentsModal(parents, parentsByRepo, packageName);
+                    }
                 });
             });
         }
         
-        function showParentsModal(parents) {
-            const modalBody = document.getElementById('parentsModalBody');
+        function showRepositoriesModal(repos, packageName) {
+            const modalTitle = document.getElementById('repositoriesModalTitle');
+            const modalBody = document.getElementById('repositoriesModalBody');
+            
+            modalTitle.textContent = `Repositories Using ${packageName}`;
+            
             modalBody.innerHTML = `
-                <p>This transitive dependency is brought in by the following direct dependencies:</p>
-                <ul class="list-group">
-                    ${parents.map(p => `<li class="list-group-item">${escapeHtml(p)}</li>`).join('')}
-                </ul>
+                <p class="mb-3">This dependency is used in <strong>${repos.length}</strong> ${repos.length === 1 ? 'repository' : 'repositories'}:</p>
+                <div class="list-group">
+                    ${repos.map(repo => `
+                        <div class="list-group-item">
+                            <i class="fas fa-code-branch me-2 text-primary"></i>
+                            <strong>${escapeHtml(repo)}</strong>
+                        </div>
+                    `).join('')}
+                </div>
             `;
+            new bootstrap.Modal(document.getElementById('repositoriesModal')).show();
+        }
+        
+        function showParentsModal(parents, parentsByRepo, packageName) {
+            const modalTitle = document.getElementById('parentsModalTitle');
+            const modalBody = document.getElementById('parentsModalBody');
+            
+            modalTitle.textContent = `Dependency Chain for ${packageName}`;
+            
+            // Build HTML showing parents grouped by repository
+            let html = `
+                <p class="mb-3">This transitive dependency is brought in by <strong>${parents.length}</strong> parent ${parents.length === 1 ? 'dependency' : 'dependencies'} across your repositories:</p>
+            `;
+            
+            // Group by repository
+            if (Object.keys(parentsByRepo).length > 0) {
+                html += '<div class="accordion" id="parentsAccordion">';
+                
+                Object.keys(parentsByRepo).sort().forEach((repoName, index) => {
+                    const repoParents = parentsByRepo[repoName];
+                    html += `
+                        <div class="accordion-item">
+                            <h2 class="accordion-header" id="heading${index}">
+                                <button class="accordion-button ${index !== 0 ? 'collapsed' : ''}" type="button" 
+                                        data-bs-toggle="collapse" data-bs-target="#collapse${index}" 
+                                        aria-expanded="${index === 0 ? 'true' : 'false'}" aria-controls="collapse${index}">
+                                    <i class="fas fa-code-branch me-2 text-primary"></i>
+                                    <strong>${escapeHtml(repoName)}</strong>
+                                    <span class="badge bg-secondary ms-2">${repoParents.length} ${repoParents.length === 1 ? 'parent' : 'parents'}</span>
+                                </button>
+                            </h2>
+                            <div id="collapse${index}" class="accordion-collapse collapse ${index === 0 ? 'show' : ''}" 
+                                 aria-labelledby="heading${index}" data-bs-parent="#parentsAccordion">
+                                <div class="accordion-body">
+                                    <p class="text-muted small mb-2">Brought in by these direct dependencies:</p>
+                                    <ul class="list-group">
+                                        ${repoParents.map(parent => `
+                                            <li class="list-group-item">
+                                                <i class="fas fa-arrow-right me-2 text-success"></i>
+                                                <code>${escapeHtml(parent)}</code>
+                                            </li>
+                                        `).join('')}
+                                    </ul>
+                                </div>
+                            </div>
+                        </div>
+                    `;
+                });
+                
+                html += '</div>';
+            } else {
+                // Fallback if no repo mapping
+                html += `
+                    <ul class="list-group">
+                        ${parents.map(p => `<li class="list-group-item">${escapeHtml(p)}</li>`).join('')}
+                    </ul>
+                `;
+            }
+            
+            modalBody.innerHTML = html;
             new bootstrap.Modal(document.getElementById('parentsModal')).show();
         }
         
