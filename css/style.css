@@ -1372,6 +1372,12 @@ body {
     border-color: var(--bs-primary);
 }
 
+.license-stat-card.active-filter {
+    border-width: 3px;
+    box-shadow: 0 4px 12px rgba(0, 123, 255, 0.4);
+    transform: translateY(-2px);
+}
+
 /* Remove the old ugly text overlay */
 .clickable-license-card::after {
     display: none;
@@ -1578,6 +1584,13 @@ body {
 .license-stat-card.unlicensed {
     background: var(--bg-danger);
     border-color: var(--color-red);
+}
+
+.license-stat-card.transitions {
+    background: var(--bg-info);
+    border-color: var(--color-blue);
+    border-width: 3px;
+    box-shadow: 0 2px 8px rgba(0, 123, 255, 0.3);
 }
 
 .license-stat-card h4 {
