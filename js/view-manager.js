@@ -3822,10 +3822,10 @@ class ViewManager {
         </div>`;
             }).join('');
             
-            licenseChangesHTML = `<div class="license-changes-section">
+            licenseChangesHTML = `<div class="license-changes-section" id="license-changes-section">
     <h4>🔄 License Changes Detected</h4>
     <p class="text-muted mb-3">All license changes across all dependencies (not just high-risk)</p>
-    <div class="license-changes-list">
+    <div class="license-changes-list" id="license-changes-list">
         ${transitionItems}
     </div>
 </div>`;
@@ -3947,7 +3947,7 @@ class ViewManager {
 </div>`;
         }
 
-        return licenseCardsHTML + conflictsHTML + licenseChangesHTML + highRiskHTML;
+        return licenseCardsHTML + conflictsHTML + highRiskHTML + licenseChangesHTML;
     }
 
     /**
@@ -4081,13 +4081,9 @@ class ViewManager {
                     });
                     break;
                 case 'unlicensed':
-                    filteredIssues = allIssues.filter(issue => {
-                        if (issue.type === 'license-transition') {
-                            return issue.fromLicense === 'Unlicensed' || issue.toLicense === 'Unlicensed' ||
-                                   issue.category === 'unlicensed';
-                        }
-                        return issue.category === 'unlicensed' || issue.license === 'Unlicensed' || !issue.license;
-                    });
+                    // For unlicensed, we need to get all unlicensed dependencies from orgData, not just high-risk
+                    // This will be handled specially below
+                    filteredIssues = [];
                     break;
                 case 'transitions':
                     filteredIssues = allIssues.filter(issue => issue.type === 'license-transition');
@@ -4110,6 +4106,100 @@ class ViewManager {
                 }
                 
                 if (orgData && orgData.data) {
+                    // Special handling for unlicensed dependencies
+                    if (filterType === 'unlicensed') {
+                        const licenseProcessor = new LicenseProcessor();
+                        const allDeps = orgData.data.allDependencies || [];
+                        
+                        // Find all unlicensed dependencies
+                        const unlicensedDeps = allDeps.filter(dep => {
+                            if (!dep.originalPackage) return true;
+                            const licenseInfo = licenseProcessor.parseLicense(dep.originalPackage);
+                            return !licenseInfo.license || licenseInfo.license === 'NOASSERTION';
+                        });
+                        
+                        // Group by package name and count repository usage
+                        const packageMap = new Map();
+                        unlicensedDeps.forEach(dep => {
+                            const packageName = dep.name || 'Unknown';
+                            if (!packageMap.has(packageName)) {
+                                packageMap.set(packageName, {
+                                    name: packageName,
+                                    versions: new Set(),
+                                    repositories: new Set(),
+                                    totalUsage: 0
+                                });
+                            }
+                            const pkg = packageMap.get(packageName);
+                            if (dep.version) pkg.versions.add(dep.version);
+                            if (dep.repositories) {
+                                dep.repositories.forEach(repo => {
+                                    pkg.repositories.add(repo);
+                                    pkg.totalUsage++;
+                                });
+                            }
+                        });
+                        
+                        // Convert to array and sort by usage (most used first)
+                        const unlicensedPackages = Array.from(packageMap.values())
+                            .map(pkg => ({
+                                name: pkg.name,
+                                versions: Array.from(pkg.versions),
+                                repositories: Array.from(pkg.repositories),
+                                totalUsage: pkg.totalUsage
+                            }))
+                            .sort((a, b) => b.totalUsage - a.totalUsage);
+                        
+                        // Render unlicensed packages
+                        const escapeHtml = (text) => {
+                            if (!text) return '';
+                            const map = {'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'};
+                            return String(text).replace(/[&<>"']/g, m => map[m]);
+                        };
+                        
+                        const createDepsUrl = (packageName) => {
+                            return `deps.html?org=${encodeURIComponent(orgParam)}&search=${encodeURIComponent(packageName)}`;
+                        };
+                        
+                        const unlicensedHTML = unlicensedPackages.map(pkg => {
+                            return `
+                                <div class="package-entry">
+                                    <a href="${createDepsUrl(pkg.name)}" class="package-link text-primary text-decoration-none" target="_blank">
+                                        <code>${escapeHtml(pkg.name)}</code>
+                                    </a>
+                                    <span class="text-muted ms-2">
+                                        (${pkg.repositories.length} ${pkg.repositories.length === 1 ? 'repo' : 'repos'}, 
+                                        ${pkg.totalUsage} ${pkg.totalUsage === 1 ? 'usage' : 'usages'}, 
+                                        ${pkg.versions.length} ${pkg.versions.length === 1 ? 'version' : 'versions'})
+                                    </span>
+                                </div>`;
+                        }).join('');
+                        
+                        const highRiskList = document.getElementById('high-risk-list');
+                        const highRiskCount = document.getElementById('high-risk-count');
+                        const highRiskContainer = document.getElementById('high-risk-list-container');
+                        
+                        if (highRiskContainer) {
+                            highRiskContainer.style.display = 'block';
+                        }
+                        
+                        if (highRiskList && highRiskCount) {
+                            if (unlicensedPackages.length === 0) {
+                                highRiskList.innerHTML = '<div class="alert alert-info">No unlicensed dependencies found.</div>';
+                                highRiskCount.textContent = 'Showing 0 unlicensed packages';
+                            } else {
+                                highRiskList.innerHTML = `
+                                    <div class="packages-list" style="display: flex; flex-direction: column; gap: 10px;">
+                                        ${unlicensedHTML}
+                                    </div>`;
+                                highRiskCount.textContent = `Showing ${unlicensedPackages.length} unlicensed ${unlicensedPackages.length === 1 ? 'package' : 'packages'} (sorted by usage)`;
+                            }
+                        }
+                        
+                        // Skip the rest of the filtering logic for unlicensed
+                        return;
+                    }
+                    
                     // Regenerate grouped structure with filtered issues
                     const licenseGroups = this.groupIssuesByLicense(filteredIssues, orgData);
                     
@@ -4203,15 +4293,28 @@ class ViewManager {
                     
                     const highRiskList = document.getElementById('high-risk-list');
                     const highRiskCount = document.getElementById('high-risk-count');
+                    const highRiskContainer = document.getElementById('high-risk-list-container');
                     
-                    if (highRiskList && highRiskCount) {
-                        if (filteredIssues.length === 0) {
-                            highRiskList.innerHTML = '<div class="alert alert-info">No issues found for this category.</div>';
-                            highRiskCount.textContent = 'Showing 0 of 0 issues';
-                        } else {
-                            highRiskList.innerHTML = licenseGroupItems;
-                            const filterText = isFiltering ? ' (filtered)' : '';
-                            highRiskCount.textContent = `Showing ${licenseGroups.size} license ${licenseGroups.size === 1 ? 'issue' : 'issues'} across ${filteredIssues.length} total ${filteredIssues.length === 1 ? 'issue' : 'issues'}${filterText}`;
+                    // When filtering by transitions, hide high-risk section and show only license changes
+                    if (filterType === 'transitions') {
+                        if (highRiskContainer) {
+                            highRiskContainer.style.display = 'none';
+                        }
+                    } else {
+                        // Show high-risk section for other filters
+                        if (highRiskContainer) {
+                            highRiskContainer.style.display = 'block';
+                        }
+                        
+                        if (highRiskList && highRiskCount) {
+                            if (filteredIssues.length === 0) {
+                                highRiskList.innerHTML = '<div class="alert alert-info">No issues found for this category.</div>';
+                                highRiskCount.textContent = 'Showing 0 of 0 issues';
+                            } else {
+                                highRiskList.innerHTML = licenseGroupItems;
+                                const filterText = isFiltering ? ' (filtered)' : '';
+                                highRiskCount.textContent = `Showing ${licenseGroups.size} license ${licenseGroups.size === 1 ? 'issue' : 'issues'} across ${filteredIssues.length} total ${filteredIssues.length === 1 ? 'issue' : 'issues'}${filterText}`;
+                            }
                         }
                     }
                 }
@@ -4226,6 +4329,31 @@ class ViewManager {
                 const cardToActivate = document.getElementById(`license-card-${filterType}`);
                 if (cardToActivate) {
                     cardToActivate.classList.add('active-filter');
+                }
+            }
+            
+            // Show/hide license changes section based on filter
+            const licenseChangesSection = document.getElementById('license-changes-section');
+            if (licenseChangesSection) {
+                // Show license changes section when "transitions" filter is active or when showing all (total)
+                if (filterType === 'transitions' || filterType === 'total' || isActive) {
+                    licenseChangesSection.style.display = 'block';
+                } else {
+                    licenseChangesSection.style.display = 'none';
+                }
+            }
+            
+            // When filtering by transitions, ensure high-risk section is hidden even if it wasn't updated above
+            if (filterType === 'transitions') {
+                const highRiskContainer = document.getElementById('high-risk-list-container');
+                if (highRiskContainer) {
+                    highRiskContainer.style.display = 'none';
+                }
+            } else if (filterType === 'total' || isActive) {
+                // Show high-risk section when showing all or resetting
+                const highRiskContainer = document.getElementById('high-risk-list-container');
+                if (highRiskContainer) {
+                    highRiskContainer.style.display = 'block';
                 }
             }
 
