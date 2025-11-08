@@ -11,6 +11,10 @@ class DependencyTreeResolver {
         this.maxDepth = 10; // Prevent infinite recursion
         this.requestDelay = 100; // ms between requests to avoid rate limiting
         this.lastRequestTime = 0;
+        this.requestTimeout = 10000; // 10 seconds timeout for API requests
+        this.onProgress = null; // Progress callback
+        this.totalPackages = 0;
+        this.processedPackages = 0;
         
         // Registry URL templates
         this.registryAPIs = {
@@ -55,30 +59,95 @@ class DependencyTreeResolver {
     }
     
     /**
+     * Fetch with timeout
+     */
+    async fetchWithTimeout(url, options = {}, timeout = this.requestTimeout) {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), timeout);
+        
+        try {
+            const response = await fetch(url, {
+                ...options,
+                signal: controller.signal
+            });
+            clearTimeout(timeoutId);
+            return response;
+        } catch (error) {
+            clearTimeout(timeoutId);
+            if (error.name === 'AbortError') {
+                throw new Error(`Request timeout after ${timeout}ms`);
+            }
+            throw error;
+        }
+    }
+    
+    /**
+     * Update progress if callback is available
+     */
+    updateProgress(message) {
+        this.processedPackages++;
+        if (this.onProgress && this.totalPackages > 0) {
+            const percent = (this.processedPackages / this.totalPackages) * 100;
+            this.onProgress({
+                phase: 'resolving-package',
+                message: message,
+                processed: this.processedPackages,
+                total: this.totalPackages,
+                percent: percent
+            });
+        }
+    }
+    
+    /**
      * Main entry point: Resolve full dependency tree for all direct dependencies
      */
-    async resolveDependencyTree(directDependencies, allPackages, ecosystem) {
+    async resolveDependencyTree(directDependencies, allPackages, ecosystem, onProgress = null) {
         console.log(`🌲 Starting dependency tree resolution for ${directDependencies.size} direct dependencies`);
+        
+        this.onProgress = onProgress;
+        this.processedPackages = 0;
+        // Estimate total packages (direct + transitive, capped at reasonable limit)
+        this.totalPackages = Math.min(directDependencies.size * 50, 5000); // Rough estimate
         
         const tree = new Map(); // packageKey -> { dependencies: Map, depth: number, parent: string }
         const resolved = new Set(); // Track what we've already resolved
+        
+        let processedDirect = 0;
+        const totalDirect = directDependencies.size;
         
         // Process each direct dependency
         for (const depKey of directDependencies) {
             const pkg = allPackages.get(depKey);
             if (!pkg) continue;
             
-            console.log(`  📦 Resolving tree for direct dependency: ${depKey}`);
+            processedDirect++;
+            const progressMsg = `Resolving ${ecosystem} dependencies (${processedDirect}/${totalDirect} direct packages)...`;
+            console.log(`  📦 [${processedDirect}/${totalDirect}] Resolving tree for direct dependency: ${depKey}`);
             
-            await this.resolvePackageDependencies(
-                pkg.name,
-                pkg.version,
-                ecosystem,
-                1, // depth starts at 1 for direct deps
-                depKey, // parent is the direct dep itself
-                tree,
-                resolved
-            );
+            if (this.onProgress) {
+                this.onProgress({
+                    phase: 'resolving-package',
+                    message: progressMsg,
+                    package: depKey,
+                    processed: processedDirect,
+                    total: totalDirect
+                });
+            }
+            
+            try {
+                await this.resolvePackageDependencies(
+                    pkg.name,
+                    pkg.version,
+                    ecosystem,
+                    1, // depth starts at 1 for direct deps
+                    depKey, // parent is the direct dep itself
+                    tree,
+                    resolved
+                );
+            } catch (error) {
+                console.error(`    ❌ Error resolving ${depKey}:`, error.message);
+                // Continue with next package instead of failing completely
+            }
         }
         
         console.log(`✅ Resolved ${tree.size} dependency relationships`);
@@ -103,21 +172,58 @@ class DependencyTreeResolver {
         }
         
         resolved.add(packageKey);
+        this.updateProgress(`Processing ${packageKey} (depth ${depth})...`);
         
-        // Try to get dependencies from various sources
+        // Try to get dependencies from various sources with timeout handling
         let dependencies = null;
         
-        // 1. Try deps.dev first (most comprehensive)
-        dependencies = await this.getDependenciesFromDepsDev(packageName, version, ecosystem);
-        
-        // 2. Try native registry
-        if (!dependencies || dependencies.length === 0) {
-            dependencies = await this.getDependenciesFromRegistry(packageName, version, ecosystem);
-        }
-        
-        // 3. Try ecosyste.ms as fallback
-        if (!dependencies || dependencies.length === 0) {
-            dependencies = await this.getDependenciesFromEcosystems(packageName, version, ecosystem);
+        try {
+            // 1. Try deps.dev first (most comprehensive)
+            try {
+                dependencies = await Promise.race([
+                    this.getDependenciesFromDepsDev(packageName, version, ecosystem),
+                    new Promise((_, reject) => 
+                        setTimeout(() => reject(new Error('deps.dev timeout')), this.requestTimeout)
+                    )
+                ]);
+            } catch (error) {
+                // Timeout or error - try next source
+                dependencies = null;
+            }
+            
+            // 2. Try native registry
+            if (!dependencies || dependencies.length === 0) {
+                try {
+                    dependencies = await Promise.race([
+                        this.getDependenciesFromRegistry(packageName, version, ecosystem),
+                        new Promise((_, reject) => 
+                            setTimeout(() => reject(new Error('registry timeout')), this.requestTimeout)
+                        )
+                    ]);
+                } catch (error) {
+                    // Timeout or error - try next source
+                    dependencies = null;
+                }
+            }
+            
+            // 3. Try ecosyste.ms as fallback
+            if (!dependencies || dependencies.length === 0) {
+                try {
+                    dependencies = await Promise.race([
+                        this.getDependenciesFromEcosystems(packageName, version, ecosystem),
+                        new Promise((_, reject) => 
+                            setTimeout(() => reject(new Error('ecosyste.ms timeout')), this.requestTimeout)
+                        )
+                    ]);
+                } catch (error) {
+                    // Timeout or error - no dependencies found
+                    dependencies = null;
+                }
+            }
+        } catch (error) {
+            console.log(`    ⚠️  Error resolving dependencies for ${packageKey}: ${error.message}`);
+            // Continue without dependencies rather than failing completely
+            dependencies = null;
         }
         
         if (!dependencies || dependencies.length === 0) {
@@ -150,15 +256,20 @@ class DependencyTreeResolver {
             }
             
             // Recursively resolve this dependency's dependencies
-            await this.resolvePackageDependencies(
-                dep.name,
-                dep.version,
-                ecosystem,
-                depth + 1,
-                depKey,
-                tree,
-                resolved
-            );
+            try {
+                await this.resolvePackageDependencies(
+                    dep.name,
+                    dep.version,
+                    ecosystem,
+                    depth + 1,
+                    depKey,
+                    tree,
+                    resolved
+                );
+            } catch (error) {
+                console.log(`    ⚠️  Error resolving child ${depKey}: ${error.message}`);
+                // Continue with next dependency
+            }
         }
     }
     
@@ -201,7 +312,7 @@ class DependencyTreeResolver {
             
             console.log(`      🔍 Querying deps.dev: ${packageName}@${normalizedVersion}`);
             
-            const response = await fetch(url);
+            const response = await this.fetchWithTimeout(url, {}, this.requestTimeout);
             if (!response.ok) {
                 if (response.status !== 404) {
                     console.log(`      ⚠️  deps.dev returned ${response.status} for ${packageName}@${normalizedVersion}`);
@@ -288,7 +399,7 @@ class DependencyTreeResolver {
         
         console.log(`      🔍 Querying npm: ${packageName}@${version}`);
         
-        const response = await fetch(url);
+        const response = await this.fetchWithTimeout(url, {}, this.requestTimeout);
         if (!response.ok) {
             return null;
         }
@@ -327,7 +438,7 @@ class DependencyTreeResolver {
         
         console.log(`      🔍 Querying PyPI: ${packageName}@${version}`);
         
-        const response = await fetch(url);
+        const response = await this.fetchWithTimeout(url, {}, this.requestTimeout);
         if (!response.ok) {
             return null;
         }
@@ -368,7 +479,7 @@ class DependencyTreeResolver {
         
         console.log(`      🔍 Querying crates.io: ${packageName}@${version}`);
         
-        const response = await fetch(url);
+        const response = await this.fetchWithTimeout(url, {}, this.requestTimeout);
         if (!response.ok) {
             return null;
         }
@@ -386,7 +497,7 @@ class DependencyTreeResolver {
         const depsUrl = `https://crates.io/api/v1/crates/${encodeURIComponent(packageName)}/${encodeURIComponent(versionData.num)}/dependencies`;
         
         await this.rateLimit();
-        const depsResponse = await fetch(depsUrl);
+        const depsResponse = await this.fetchWithTimeout(depsUrl, {}, this.requestTimeout);
         if (!depsResponse.ok) {
             return [];
         }
@@ -459,7 +570,7 @@ class DependencyTreeResolver {
             
             console.log(`      🔍 Querying ecosyste.ms: ${packageName}@${version} (registry: ${registry})`);
             
-            const response = await fetch(url);
+            const response = await this.fetchWithTimeout(url, {}, this.requestTimeout);
             if (!response.ok) {
                 this.ecosystemsApiCache.set(cacheKey, null);
                 return null;

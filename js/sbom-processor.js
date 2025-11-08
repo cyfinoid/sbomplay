@@ -502,10 +502,27 @@ class SBOMProcessor {
                 }
                 
                 try {
+                    // Create progress callback for this ecosystem
+                    const ecosystemProgressCallback = (progress) => {
+                        if (onProgress && progress.phase === 'resolving-package') {
+                            // Map package-level progress to ecosystem-level progress
+                            const ecosystemProgress = processedEcosystems + (progress.processed / progress.total);
+                            onProgress({
+                                phase: 'resolving-tree',
+                                ecosystem: ecosystem,
+                                processed: processedEcosystems,
+                                total: directDepsByEcosystem.size,
+                                packageProgress: progress,
+                                ecosystemProgress: ecosystemProgress
+                            });
+                        }
+                    };
+                    
                     const tree = await resolver.resolveDependencyTree(
                         directDeps,
                         this.dependencies,
-                        ecosystem
+                        ecosystem,
+                        ecosystemProgressCallback
                     );
                     
                     resolvedTrees.set(ecosystem, tree);

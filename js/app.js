@@ -743,8 +743,18 @@ class SBOMPlayApp {
                 console.log('🌲 Resolving full dependency trees with registry APIs...');
                 await this.sbomProcessor.resolveFullDependencyTrees((progress) => {
                     if (progress.phase === 'resolving-tree') {
-                        this.updateProgress(85 + (progress.processed / progress.total) * 5, 
-                            `Resolving ${progress.ecosystem} dependencies...`);
+                        // Calculate progress percentage
+                        const ecosystemProgress = 85 + (progress.processed / progress.total) * 5;
+                        
+                        // If we have package-level progress, show more detail
+                        if (progress.packageProgress) {
+                            const packageMsg = progress.packageProgress.message || 
+                                `Resolving ${progress.ecosystem} dependencies...`;
+                            this.updateProgress(ecosystemProgress, packageMsg);
+                        } else {
+                            this.updateProgress(ecosystemProgress, 
+                                `Resolving ${progress.ecosystem} dependencies (${progress.processed}/${progress.total} ecosystems)...`);
+                        }
                     }
                 });
                 console.log('✅ Dependency tree resolution complete');
