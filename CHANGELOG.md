@@ -204,6 +204,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - All HTML files now reference assets with version string for cache invalidation
   - Ensures users always get latest files after deployment
 
+- **License Filtering in Dependency View**: Added license filtering capability to `deps.html`
+  - New `license` URL parameter support for filtering dependencies by specific license
+  - License filtering logic integrated into `filterTable()` function
+  - `getLicenseInfo()` helper function moved to global scope for accessibility
+  - View button in License Types table now includes license parameter in URL to filter results
+
 ### Changed
 
 - **Statistics Page**: Integrated statistics dashboard into main page
@@ -238,6 +244,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **License**: Migrated from MIT License to GNU General Public License v3 (GPLv3)
   - Changed to GPL-3.0 to align with project goals and community standards
   - See LICENSE file for full license text
+
+- **License Types Table**: Enhanced View button functionality
+  - View button now filters `deps.html` to show only packages with the specific license
+  - URL includes `&license={licenseName}` parameter for precise filtering
+  - Improved user experience when exploring packages by license type
 
 ### Fixed
 
