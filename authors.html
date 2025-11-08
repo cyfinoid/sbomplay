@@ -233,6 +233,9 @@
             // Store authors globally for event handlers (must be at top of scope)
             let currentAuthors = [];
             
+            // Create AuthorService instance for secure URL validation
+            const authorService = new AuthorService();
+            
             const storageManager = new StorageManager();
             await storageManager.init();
             console.log('✅ Authors Page - Storage initialized');
@@ -862,8 +865,8 @@
                             <div class="d-flex flex-wrap gap-2">
                     `;
                     
-                    // Show platform-specific links if available
-                    if (author.funding.github || author.funding.url?.includes('github.com/sponsors')) {
+                    // Show platform-specific links if available (using secure URL validation)
+                    if (author.funding.github || (author.funding.url && authorService.isUrlFromHostname(author.funding.url, 'github.com', '/sponsors'))) {
                         html += `
                             <a href="https://github.com/sponsors/${encodeURIComponent(author.author)}" target="_blank" class="btn btn-sm btn-outline-danger">
                                 <i class="fas fa-heart me-1"></i>GitHub Sponsors
@@ -871,16 +874,29 @@
                         `;
                     }
                     
-                    if (author.funding.opencollective || author.funding.url?.includes('opencollective.com')) {
-                        const ocUsername = author.funding.url ? author.funding.url.split('opencollective.com/')[1]?.split(/[/?]/)[0] : author.author;
+                    if (author.funding.opencollective || (author.funding.url && authorService.isUrlFromHostname(author.funding.url, 'opencollective.com'))) {
+                        // Securely extract Open Collective username from URL
+                        let ocUsername = author.author;
+                        if (author.funding.url && authorService.isUrlFromHostname(author.funding.url, 'opencollective.com')) {
+                            try {
+                                const url = new URL(author.funding.url.startsWith('http') ? author.funding.url : 'https://' + author.funding.url);
+                                const pathParts = url.pathname.split('/').filter(p => p);
+                                if (pathParts.length > 0) {
+                                    ocUsername = pathParts[0];
+                                }
+                            } catch (e) {
+                                // If URL parsing fails, use author name as fallback
+                                ocUsername = author.author;
+                            }
+                        }
                         html += `
-                            <a href="https://opencollective.com/${encodeURIComponent(ocUsername || author.author)}" target="_blank" class="btn btn-sm btn-outline-primary">
+                            <a href="https://opencollective.com/${encodeURIComponent(ocUsername)}" target="_blank" class="btn btn-sm btn-outline-primary">
                                 <i class="fas fa-hand-holding-usd me-1"></i>Open Collective
                             </a>
                         `;
                     }
                     
-                    if (author.funding.patreon || author.funding.url?.includes('patreon.com')) {
+                    if (author.funding.patreon || (author.funding.url && authorService.isUrlFromHostname(author.funding.url, 'patreon.com'))) {
                         html += `
                             <a href="${author.funding.url || `https://patreon.com/${encodeURIComponent(author.author)}`}" target="_blank" class="btn btn-sm btn-outline-danger">
                                 <i class="fab fa-patreon me-1"></i>Patreon
@@ -1118,8 +1134,21 @@
                         const platforms = [];
                         if (author.funding.github) platforms.push('<a href="' + (author.funding.url || `https://github.com/sponsors/${encodeURIComponent(author.author)}`) + '" target="_blank" title="GitHub Sponsors"><i class="fab fa-github text-dark"></i></a>');
                         if (author.funding.opencollective) {
-                            const ocUsername = author.funding.url ? author.funding.url.split('opencollective.com/')[1]?.split(/[/?]/)[0] : author.author;
-                            platforms.push('<a href="https://opencollective.com/' + encodeURIComponent(ocUsername || author.author) + '" target="_blank" title="Open Collective"><i class="fas fa-hand-holding-usd text-primary"></i></a>');
+                            // Securely extract Open Collective username from URL
+                            let ocUsername = author.author;
+                            if (author.funding.url && authorService.isUrlFromHostname(author.funding.url, 'opencollective.com')) {
+                                try {
+                                    const url = new URL(author.funding.url.startsWith('http') ? author.funding.url : 'https://' + author.funding.url);
+                                    const pathParts = url.pathname.split('/').filter(p => p);
+                                    if (pathParts.length > 0) {
+                                        ocUsername = pathParts[0];
+                                    }
+                                } catch (e) {
+                                    // If URL parsing fails, use author name as fallback
+                                    ocUsername = author.author;
+                                }
+                            }
+                            platforms.push('<a href="https://opencollective.com/' + encodeURIComponent(ocUsername) + '" target="_blank" title="Open Collective"><i class="fas fa-hand-holding-usd text-primary"></i></a>');
                         }
                         if (author.funding.patreon) platforms.push('<a href="' + (author.funding.url || `https://patreon.com/${encodeURIComponent(author.author)}`) + '" target="_blank" title="Patreon"><i class="fab fa-patreon text-danger"></i></a>');
                         if (author.funding.tidelift) platforms.push('<a href="' + author.funding.url + '" target="_blank" title="Tidelift"><i class="fas fa-gift text-warning"></i></a>');
