@@ -9,71 +9,6 @@
     <link rel="stylesheet" href="css/style.css?v=0.0.2">
     <link rel="stylesheet" href="css/themes.css?v=0.0.2">
     <script src="js/theme-manager.js?v=0.0.2"></script>
-    <style>
-        /* Dark mode fixes for modals */
-        [data-theme="dark"] .modal-content {
-            background-color: var(--bg-color, #1e1e1e);
-            color: var(--text-color, #e0e0e0);
-        }
-        
-        [data-theme="dark"] .modal-header {
-            border-bottom-color: rgba(255, 255, 255, 0.1);
-        }
-        
-        [data-theme="dark"] .modal-footer {
-            border-top-color: rgba(255, 255, 255, 0.1);
-        }
-        
-        [data-theme="dark"] .list-group-item {
-            background-color: rgba(255, 255, 255, 0.05);
-            border-color: rgba(255, 255, 255, 0.1);
-            color: var(--text-color, #e0e0e0);
-        }
-        
-        [data-theme="dark"] .table {
-            color: var(--text-color, #e0e0e0);
-        }
-        
-        [data-theme="dark"] .table td,
-        [data-theme="dark"] .table th {
-            border-color: rgba(255, 255, 255, 0.1);
-        }
-        
-        [data-theme="dark"] .alert-info {
-            background-color: rgba(13, 110, 253, 0.2);
-            border-color: rgba(13, 110, 253, 0.4);
-            color: #9db4ff;
-        }
-        
-        [data-theme="dark"] .alert-warning {
-            background-color: rgba(255, 193, 7, 0.2);
-            border-color: rgba(255, 193, 7, 0.4);
-            color: #ffecb3;
-        }
-        
-        [data-theme="dark"] .btn-outline-primary,
-        [data-theme="dark"] .btn-outline-secondary,
-        [data-theme="dark"] .btn-outline-info,
-        [data-theme="dark"] .btn-outline-danger {
-            border-color: currentColor;
-        }
-        
-        [data-theme="dark"] .btn-outline-primary:hover {
-            background-color: rgba(13, 110, 253, 0.2);
-        }
-        
-        [data-theme="dark"] .btn-outline-secondary:hover {
-            background-color: rgba(108, 117, 125, 0.2);
-        }
-        
-        [data-theme="dark"] .btn-outline-info:hover {
-            background-color: rgba(13, 202, 240, 0.2);
-        }
-        
-        [data-theme="dark"] .btn-outline-danger:hover {
-            background-color: rgba(220, 53, 69, 0.2);
-        }
-    </style>
 </head>
 <body>
     <!-- Navigation -->
@@ -220,6 +155,7 @@
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
     <script src="js/indexeddb-manager.js?v=0.0.2"></script>
+    <script src="js/utils.js?v=0.0.2"></script>
     <script src="js/registry-utils.js?v=0.0.2"></script>
     <script src="js/version-utils.js?v=0.0.2"></script>
     <script src="js/ecosystem-utils.js?v=0.0.2"></script>
@@ -236,12 +172,7 @@
             // Create AuthorService instance for secure URL validation
             const authorService = new AuthorService();
             
-            // HTML escaping helper function
-            const escapeHtml = (text) => {
-                if (!text) return '';
-                const map = {'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'};
-                return String(text).replace(/[&<>"']/g, m => map[m]);
-            };
+            // escapeHtml is now provided by utils.js
             
             const storageManager = new StorageManager();
             await storageManager.init();
@@ -566,7 +497,7 @@
                         <strong>Total Packages:</strong> <span class="badge bg-primary">${uniquePackages.length}</span><br>
                         <strong>Repository Usage:</strong> <span class="badge bg-secondary">${repositoryCount} repo${repositoryCount !== 1 ? 's' : ''}</span>
                     </div>
-                    <div class="list-group" style="max-height: 400px; overflow-y: auto;">
+                    <div class="list-group max-h-400 overflow-y-auto">
                 `;
                 
                 uniquePackages.forEach(pkg => {
@@ -735,7 +666,7 @@
                         <h6><i class="fas fa-user me-2"></i>Basic Information</h6>
                         <table class="table table-sm table-borderless">
                             <tr>
-                                <td style="width: 140px;"><strong>Name:</strong></td>
+                                <td class="w-140"><strong>Name:</strong></td>
                                 <td>${author.author}</td>
                             </tr>
                             <tr>
@@ -828,7 +759,7 @@
                     if (author.metadata.email) {
                         html += `
                             <tr>
-                                <td style="width: 140px;"><strong>Email:</strong></td>
+                                <td class="w-140"><strong>Email:</strong></td>
                                 <td><a href="mailto:${author.metadata.email}">${author.metadata.email}</a></td>
                             </tr>
                         `;
@@ -930,7 +861,7 @@
                 html += `
                     <div class="mb-3">
                         <h6><i class="fas fa-box me-2"></i>Packages & Repository Usage (${uniquePackageCount})</h6>
-                        <div class="list-group" style="max-height: 400px; overflow-y: auto;">
+                        <div class="list-group max-h-400 overflow-y-auto">
                 `;
                 
                 allPackages.forEach(pkg => {
@@ -1122,7 +1053,7 @@
                                     <th>Ecosystem</th>
                                     <th>Packages</th>
                                     <th>Repository Usage</th>
-                                    <th style="text-align: center;">Sponsorship</th>
+                                    <th class="text-center">Sponsorship</th>
                                     <th>Package List</th>
                                 </tr>
                             </thead>
@@ -1136,7 +1067,7 @@
                     const samplePackages = uniquePackages.slice(0, 3).join(', ');
                     
                     // Build sponsorship cell
-                    let sponsorshipCell = '<td style="text-align: center;">—</td>';
+                    let sponsorshipCell = '<td class="text-center">—</td>';
                     if (author.funding) {
                         const platforms = [];
                         if (author.funding.github) platforms.push('<a href="' + (author.funding.url || `https://github.com/sponsors/${encodeURIComponent(author.author)}`) + '" target="_blank" title="GitHub Sponsors"><i class="fab fa-github text-dark"></i></a>');
@@ -1161,9 +1092,9 @@
                         if (author.funding.tidelift) platforms.push('<a href="' + author.funding.url + '" target="_blank" title="Tidelift"><i class="fas fa-gift text-warning"></i></a>');
                         
                         if (platforms.length > 0) {
-                            sponsorshipCell = '<td style="text-align: center;"><span class="d-flex justify-content-center gap-2">' + platforms.join(' ') + '</span></td>';
+                            sponsorshipCell = '<td class="text-center"><span class="d-flex justify-content-center gap-2">' + platforms.join(' ') + '</span></td>';
                         } else if (author.funding.url) {
-                            sponsorshipCell = '<td style="text-align: center;"><a href="' + author.funding.url + '" target="_blank" title="Funding available"><i class="fas fa-donate text-success"></i></a></td>';
+                            sponsorshipCell = '<td class="text-center"><a href="' + author.funding.url + '" target="_blank" title="Funding available"><i class="fas fa-donate text-success"></i></a></td>';
                         }
                     }
                     
@@ -1209,7 +1140,7 @@
                 // Add single-package-single-repo authors summary with toggle (low-risk, hidden by default)
                 if (singlePackageSingleRepo.length > 0) {
                     html += `
-                        <div class="alert alert-secondary mt-3" style="cursor: pointer;" id="singlePackageAuthorsToggle">
+                        <div class="alert alert-secondary mt-3 cursor-pointer" id="singlePackageAuthorsToggle">
                             <i class="fas fa-info-circle me-2"></i>
                             <strong>${singlePackageSingleRepo.length}</strong> additional author${singlePackageSingleRepo.length !== 1 ? 's' : ''} 
                             with one package used in one repository ${ecosystemFilter !== 'all' ? 'in this ecosystem ' : ''}
@@ -1218,7 +1149,7 @@
                                 <span id="singlePackageAuthorsToggleText">Click to show</span>
                             </span>
                         </div>
-                        <div id="singlePackageAuthorsList" style="display: none;" class="mt-3">
+                        <div id="singlePackageAuthorsList" class="mt-3 d-none">
                             <div class="alert alert-info">
                                 <i class="fas fa-info-circle me-2"></i>
                                 These authors maintain only one package used in a single repository (lower risk - isolated impact).

@@ -25,44 +25,14 @@ class AuthorService {
 
     /**
      * Securely check if a URL belongs to a specific hostname
-     * This prevents security issues with substring matching (e.g., "evil.com/tidelift.com")
+     * Delegates to the shared utility function from utils.js
      * @param {string} url - The URL to check
      * @param {string} hostname - The expected hostname (e.g., "github.com", "tidelift.com")
      * @param {string} pathPrefix - Optional path prefix to check (e.g., "/sponsors")
      * @returns {boolean} - True if URL belongs to the hostname
      */
     isUrlFromHostname(url, hostname, pathPrefix = '') {
-        if (!url || typeof url !== 'string') return false;
-        
-        try {
-            // Ensure URL has a protocol
-            let urlToParse = url.trim();
-            if (!urlToParse.match(/^https?:\/\//i)) {
-                urlToParse = 'https://' + urlToParse;
-            }
-            
-            const parsedUrl = new URL(urlToParse);
-            const urlHostname = parsedUrl.hostname.toLowerCase();
-            const expectedHostname = hostname.toLowerCase();
-            
-            // Check exact hostname match or subdomain
-            // Allow subdomains (e.g., "www.github.com" matches "github.com")
-            const hostnameMatches = urlHostname === expectedHostname || 
-                                   urlHostname.endsWith('.' + expectedHostname);
-            
-            if (!hostnameMatches) return false;
-            
-            // If path prefix is specified, check it
-            if (pathPrefix) {
-                const urlPath = parsedUrl.pathname.toLowerCase();
-                return urlPath.startsWith(pathPrefix.toLowerCase());
-            }
-            
-            return true;
-        } catch (e) {
-            // Invalid URL
-            return false;
-        }
+        return isUrlFromHostname(url, hostname, pathPrefix);
     }
 
     /**

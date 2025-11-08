@@ -11,36 +11,6 @@
     <script src="js/theme-manager.js?v=0.0.2"></script>
     <script defer data-domain="cyfinoid.github.io" src="https://plausible.io/js/script.outbound-links.js"></script>
     <script>window.plausible = window.plausible || function() { (window.plausible.q = window.plausible.q || []).push(arguments) }</script>
-    <style>
-        .quality-table {
-            font-size: 0.9rem;
-        }
-        .quality-table th {
-            cursor: pointer;
-            user-select: none;
-        }
-        .quality-table th:hover {
-            background-color: rgba(0,0,0,0.05);
-        }
-        .quality-table th.sortable::after {
-            content: ' ⇅';
-            opacity: 0.3;
-        }
-        .quality-table th.sorted-asc::after {
-            content: ' ↑';
-            opacity: 1;
-        }
-        .quality-table th.sorted-desc::after {
-            content: ' ↓';
-            opacity: 1;
-        }
-        .progress {
-            height: 20px;
-        }
-        .sbom-status-badge {
-            font-size: 0.9rem;
-        }
-    </style>
 </head>
 <body>
     <!-- Navigation -->
@@ -304,6 +274,7 @@
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
     <script src="js/indexeddb-manager.js?v=0.0.2"></script>
+    <script src="js/utils.js?v=0.0.2"></script>
     <script src="js/sbom-quality-processor.js?v=0.0.2"></script>
     <script src="js/storage-manager.js?v=0.0.2"></script>
     <script>
@@ -549,7 +520,7 @@
                     if (!hasSBOM) {
                         return `
                             <tr>
-                                <td><strong>${this.escapeHtml(repoName)}</strong></td>
+                                <td><strong>${escapeHtml(repoName)}</strong></td>
                                 <td class="text-center">
                                     <span class="badge bg-danger sbom-status-badge">
                                         <i class="fas fa-times"></i> No SBOM
@@ -589,7 +560,7 @@
                                 <span class="badge bg-${gradeColor} fs-6" title="${qa.gradeLabel || ''}">${qa.grade}</span>
                             </td>
                             <td class="text-center">
-                                <button class="btn btn-sm btn-outline-primary" onclick="qualityApp.showDetails('${this.escapeJsString(repoName)}')">
+                                <button class="btn btn-sm btn-outline-primary" onclick="qualityApp.showDetails('${escapeJsString(repoName)}')">
                                     <i class="fas fa-eye"></i> View Details
                                 </button>
                             </td>
@@ -619,7 +590,7 @@
                 
                 content.innerHTML = `
                     <div class="mb-3">
-                        <h5>${this.escapeHtml(repoName)}</h5>
+                        <h5>${escapeHtml(repoName)}</h5>
                         <div class="d-flex gap-3 mb-3">
                             <div class="flex-fill text-center p-3 bg-light rounded">
                                 <strong>Overall Score</strong><br>
@@ -630,7 +601,7 @@
                                 <span class="fs-3 badge bg-${this.getGradeColor(qa.grade || 'F')}">${qa.grade || 'F'}</span>
                             </div>
                         </div>
-                        ${qa.gradeLabel ? `<p class="text-center text-muted"><em>${this.escapeHtml(qa.gradeLabel)}</em></p>` : ''}
+                        ${qa.gradeLabel ? `<p class="text-center text-muted"><em>${escapeHtml(qa.gradeLabel)}</em></p>` : ''}
                     </div>
 
                     <h6>Category Scores (6 categories, GitHub-optimized weights):</h6>
@@ -638,61 +609,61 @@
                         <div class="col-md-6">
                             <div class="p-2 border rounded">
                                 <strong>Identification (25%):</strong> ${identScore}/100
-                                <div class="progress mt-1" style="height: 8px;">
+                                <div class="progress mt-1 h-8px">
                                     <div class="progress-bar ${this.getScoreColor(identScore)}" 
                                          style="width: ${identScore}%"></div>
                                 </div>
-                                ${qa.categories?.identification?.details ? `<small class="text-muted d-block mt-1">${this.escapeHtml(qa.categories.identification.details)}</small>` : ''}
+                                ${qa.categories?.identification?.details ? `<small class="text-muted d-block mt-1">${escapeHtml(qa.categories.identification.details)}</small>` : ''}
                             </div>
                         </div>
                         <div class="col-md-6">
                             <div class="p-2 border rounded">
                                 <strong>Provenance (20%):</strong> ${provenanceScore}/100
-                                <div class="progress mt-1" style="height: 8px;">
+                                <div class="progress mt-1 h-8px">
                                     <div class="progress-bar ${this.getScoreColor(provenanceScore)}" 
                                          style="width: ${provenanceScore}%"></div>
                                 </div>
-                                ${qa.categories?.provenance?.details ? `<small class="text-muted d-block mt-1">${this.escapeHtml(qa.categories.provenance.details)}</small>` : ''}
+                                ${qa.categories?.provenance?.details ? `<small class="text-muted d-block mt-1">${escapeHtml(qa.categories.provenance.details)}</small>` : ''}
                             </div>
                         </div>
                         <div class="col-md-6">
                             <div class="p-2 border rounded">
                                 <strong>Dependencies (10%):</strong> ${dependenciesScore}/100
-                                <div class="progress mt-1" style="height: 8px;">
+                                <div class="progress mt-1 h-8px">
                                     <div class="progress-bar ${this.getScoreColor(dependenciesScore)}" 
                                          style="width: ${dependenciesScore}%"></div>
                                 </div>
-                                ${qa.categories?.dependencies?.details ? `<small class="text-muted d-block mt-1">${this.escapeHtml(qa.categories.dependencies.details)}</small>` : ''}
+                                ${qa.categories?.dependencies?.details ? `<small class="text-muted d-block mt-1">${escapeHtml(qa.categories.dependencies.details)}</small>` : ''}
                             </div>
                         </div>
                         <div class="col-md-6">
                             <div class="p-2 border rounded">
                                 <strong>Metadata (10%):</strong> ${metadataScore}/100
-                                <div class="progress mt-1" style="height: 8px;">
+                                <div class="progress mt-1 h-8px">
                                     <div class="progress-bar ${this.getScoreColor(metadataScore)}" 
                                          style="width: ${metadataScore}%"></div>
                                 </div>
-                                ${qa.categories?.metadata?.details ? `<small class="text-muted d-block mt-1">${this.escapeHtml(qa.categories.metadata.details)}</small>` : ''}
+                                ${qa.categories?.metadata?.details ? `<small class="text-muted d-block mt-1">${escapeHtml(qa.categories.metadata.details)}</small>` : ''}
                             </div>
                         </div>
                         <div class="col-md-6">
                             <div class="p-2 border rounded">
                                 <strong>Licensing (10%):</strong> ${licensingScore}/100
-                                <div class="progress mt-1" style="height: 8px;">
+                                <div class="progress mt-1 h-8px">
                                     <div class="progress-bar ${this.getScoreColor(licensingScore)}" 
                                          style="width: ${licensingScore}%"></div>
                                 </div>
-                                ${qa.categories?.licensing?.details ? `<small class="text-muted d-block mt-1">${this.escapeHtml(qa.categories.licensing.details)}</small>` : ''}
+                                ${qa.categories?.licensing?.details ? `<small class="text-muted d-block mt-1">${escapeHtml(qa.categories.licensing.details)}</small>` : ''}
                             </div>
                         </div>
                         <div class="col-md-6">
                             <div class="p-2 border rounded">
                                 <strong>Vulnerability (15%):</strong> ${vulnerabilityScore}/100
-                                <div class="progress mt-1" style="height: 8px;">
+                                <div class="progress mt-1 h-8px">
                                     <div class="progress-bar ${this.getScoreColor(vulnerabilityScore)}" 
                                          style="width: ${vulnerabilityScore}%"></div>
                                 </div>
-                                ${qa.categories?.vulnerability?.details ? `<small class="text-muted d-block mt-1">${this.escapeHtml(qa.categories.vulnerability.details)}</small>` : ''}
+                                ${qa.categories?.vulnerability?.details ? `<small class="text-muted d-block mt-1">${escapeHtml(qa.categories.vulnerability.details)}</small>` : ''}
                             </div>
                         </div>
                     </div>
@@ -703,13 +674,13 @@
                             ${qa.issues.map(categoryIssues => `
                                 <div class="mb-3">
                                     <h6 class="text-muted small mb-2">
-                                        <i class="fas fa-exclamation-circle me-1"></i>${this.escapeHtml(categoryIssues.category)}
+                                        <i class="fas fa-exclamation-circle me-1"></i>${escapeHtml(categoryIssues.category)}
                                     </h6>
                                     <ul class="list-group">
                                         ${categoryIssues.issues.map(issueMsg => `
                                             <li class="list-group-item">
                                                 <i class="fas fa-info-circle text-info me-2"></i>
-                                                ${this.escapeHtml(issueMsg)}
+                                                ${escapeHtml(issueMsg)}
                                             </li>
                                         `).join('')}
                                     </ul>
@@ -721,7 +692,7 @@
                     ${qa.summary ? `
                         <div class="mt-3 p-3 bg-light rounded">
                             <h6>Summary:</h6>
-                            <p class="mb-0">${this.escapeHtml(qa.summary)}</p>
+                            <p class="mb-0">${escapeHtml(qa.summary)}</p>
                         </div>
                     ` : ''}
                 `;
@@ -741,11 +712,7 @@
                 return 'bg-danger';
             }
 
-            escapeHtml(text) {
-                if (!text) return '';
-                const map = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
-                return String(text).replace(/[&<>"']/g, m => map[m]);
-            }
+            // escapeHtml is now provided by utils.js (use escapeHtml from global scope)
 
             /**
              * Properly escape a string for use in JavaScript string literals
@@ -753,26 +720,14 @@
              * @param {string} text - The string to escape
              * @returns {string} - The escaped string safe for use in JavaScript string literals
              */
-            escapeJsString(text) {
-                if (!text || typeof text !== 'string') return '';
-                // Must escape backslashes FIRST, then quotes
-                return String(text)
-                    .replace(/\\/g, '\\\\')  // Escape backslashes first
-                    .replace(/'/g, "\\'")    // Then escape single quotes
-                    .replace(/"/g, '\\"')   // Escape double quotes
-                    .replace(/\n/g, '\\n')   // Escape newlines
-                    .replace(/\r/g, '\\r')   // Escape carriage returns
-                    .replace(/\t/g, '\\t')   // Escape tabs
-                    .replace(/\f/g, '\\f')   // Escape form feeds
-                    .replace(/\v/g, '\\v');  // Escape vertical tabs
-            }
+            // escapeJsString is now provided by utils.js (use escapeJsString from global scope)
 
             showError(message) {
                 document.getElementById('qualityTableBody').innerHTML = `
                     <tr>
                         <td colspan="5" class="text-center text-danger py-4">
                             <i class="fas fa-exclamation-triangle fa-2x mb-3"></i>
-                            <p>${this.escapeHtml(message)}</p>
+                            <p>${escapeHtml(message)}</p>
                         </td>
                     </tr>`;
             }

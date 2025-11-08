@@ -7,6 +7,48 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+#### Code Organization & Optimization
+- **JavaScript Refactoring**: Comprehensive JavaScript code optimization and organization
+  - Extracted all inline JavaScript from HTML files to separate JS files
+  - Created shared utilities file (`js/utils.js`) for common functions (escapeHtml, escapeJsString, isUrlFromHostname)
+  - Removed redundant code: eliminated duplicate utility functions across multiple files
+  - Simplified overly complicated code patterns
+  - Extracted repeated patterns into reusable utility functions
+  - Updated all HTML files to load `utils.js` before other scripts
+  - Optimized JavaScript code for better maintainability and performance
+
+- **CSS Consolidation**: Comprehensive CSS optimization and organization
+  - Extracted all inline styles from HTML files to CSS classes
+  - Extracted all `<style>` blocks from HTML files to `style.css`
+  - Consolidated redundant CSS rules between `style.css` and `themes.css`
+  - Created utility classes for common inline styles:
+    - Display utilities (`.d-none`, `.d-block`, `.d-flex`)
+    - Cursor utilities (`.cursor-pointer`)
+    - Text alignment utilities (`.text-center`, `.text-left`, `.text-right`)
+    - Dimension utilities (`.w-140`, `.h-2rem`, `.h-8px`, `.h-20px`)
+    - Max height utilities (`.max-h-200`, `.max-h-400`)
+    - Overflow utilities (`.overflow-y-auto`)
+    - Background/text color utilities (`.bg-secondary`, `.bg-tertiary`, `.text-primary`)
+    - Position utilities (`.position-relative`, `.position-absolute`)
+  - Removed duplicate progress bar definitions
+  - Removed old dark mode support from `style.css` (now handled by `themes.css`)
+  - Consolidated button styles
+  - Optimized `themes.css` to remove redundancies
+  - Updated JavaScript-generated HTML to use CSS classes instead of inline styles
+
+#### File Structure Improvements
+- **JavaScript Files**: Better organization of JavaScript code
+  - Created `js/index-page.js` for index.html-specific functionality
+  - Created `js/utils.js` for shared utility functions
+  - All page-specific JavaScript now properly separated from HTML files
+
+- **CSS Files**: Better organization of styles
+  - All styles consolidated in `style.css` and `themes.css`
+  - Clear separation between base styles and theme-specific styles
+  - Removed all inline styles and style blocks from HTML files
+
 ## [0.0.2] - 2025-11-08
 
 ### Added

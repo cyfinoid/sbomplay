@@ -11,78 +11,6 @@
     <script src="js/theme-manager.js?v=0.0.2"></script>
     <script defer data-domain="cyfinoid.github.io" src="https://plausible.io/js/script.outbound-links.js"></script>
 <script>window.plausible = window.plausible || function() { (window.plausible.q = window.plausible.q || []).push(arguments) }</script>
-    <style>
-        /* Styling for rendered markdown in vulnerability details */
-        .vulnerability-summary,
-        .vulnerability-details {
-            line-height: 1.6;
-        }
-        .vulnerability-summary p,
-        .vulnerability-details p {
-            margin-bottom: 0.75rem;
-        }
-        .vulnerability-summary code,
-        .vulnerability-details code {
-            background-color: rgba(0, 0, 0, 0.05);
-            padding: 0.2em 0.4em;
-            border-radius: 3px;
-            font-size: 0.9em;
-            font-family: 'Courier New', monospace;
-        }
-        .vulnerability-summary pre,
-        .vulnerability-details pre {
-            background-color: rgba(0, 0, 0, 0.05);
-            padding: 1rem;
-            border-radius: 4px;
-            overflow-x: auto;
-            margin: 0.75rem 0;
-        }
-        .vulnerability-summary pre code,
-        .vulnerability-details pre code {
-            background-color: transparent;
-            padding: 0;
-        }
-        .vulnerability-summary ul,
-        .vulnerability-details ul,
-        .vulnerability-summary ol,
-        .vulnerability-details ol {
-            margin: 0.75rem 0;
-            padding-left: 1.5rem;
-        }
-        .vulnerability-summary li,
-        .vulnerability-details li {
-            margin: 0.25rem 0;
-        }
-        .vulnerability-summary a,
-        .vulnerability-details a {
-            color: #0d6efd;
-            text-decoration: underline;
-        }
-        .vulnerability-summary a:hover,
-        .vulnerability-details a:hover {
-            color: #0a58ca;
-        }
-        .vulnerability-summary blockquote,
-        .vulnerability-details blockquote {
-            border-left: 3px solid #dee2e6;
-            padding-left: 1rem;
-            margin: 0.75rem 0;
-            color: #6c757d;
-        }
-        [data-theme="dark"] .vulnerability-summary code,
-        [data-theme="dark"] .vulnerability-details code {
-            background-color: rgba(255, 255, 255, 0.1);
-        }
-        [data-theme="dark"] .vulnerability-summary pre,
-        [data-theme="dark"] .vulnerability-details pre {
-            background-color: rgba(255, 255, 255, 0.1);
-        }
-        [data-theme="dark"] .vulnerability-summary blockquote,
-        [data-theme="dark"] .vulnerability-details blockquote {
-            border-left-color: rgba(255, 255, 255, 0.2);
-            color: #adb5bd;
-        }
-    </style>
 </head>
 <body>
     <!-- Navigation -->
@@ -165,7 +93,7 @@
         </div>
 
         <!-- No Data Section -->
-        <div id="noDataSection" class="card mb-4" style="display: none;">
+        <div id="noDataSection" class="card mb-4 d-none">
             <div class="card-header">
                 <h5 class="mb-0">
                     <i class="fas fa-info-circle me-2"></i>No Data Available
@@ -248,6 +176,7 @@
     <script src="https://cdn.jsdelivr.net/npm/dompurify@3.0.6/dist/purify.min.js"></script>
     
     <script src="js/indexeddb-manager.js?v=0.0.2"></script>
+    <script src="js/utils.js?v=0.0.2"></script>
     <script src="js/registry-utils.js?v=0.0.2"></script>
     <script src="js/version-utils.js?v=0.0.2"></script>
     <script src="js/ecosystem-utils.js?v=0.0.2"></script>

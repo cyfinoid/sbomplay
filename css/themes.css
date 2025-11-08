@@ -68,11 +68,11 @@ h4 { font-size: var(--font-size-subheading); }
 h5 { font-size: var(--font-size-section); }
 h6 { font-size: var(--font-size-body); }
 
+/* Card styles - consolidated with style.css base styles */
 .card {
   background-color: var(--bg-secondary) !important;
   color: var(--text-primary) !important;
   border-color: var(--border-color) !important;
-  transition: background-color 0.3s ease, color 0.3s ease;
 }
 
 .card-header {
@@ -218,11 +218,7 @@ footer {
   color: var(--text-primary) !important;
 }
 
-/* Progress bar theming */
-.progress {
-  background-color: var(--bg-primary) !important;
-}
-
+/* Progress bar theming - base styles in style.css */
 .progress-bar {
   background-color: var(--color-green) !important;
 }

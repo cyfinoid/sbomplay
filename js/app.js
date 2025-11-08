@@ -951,13 +951,7 @@ class SBOMPlayApp {
                                     ${allEntries.map(entry => {
                                         const date = new Date(entry.timestamp).toLocaleDateString();
                                         const time = new Date(entry.timestamp).toLocaleTimeString();
-                                        // Escape HTML for display
-                                        const escapeHtml = (text) => {
-                                            if (!text) return '';
-                                            const div = document.createElement('div');
-                                            div.textContent = text;
-                                            return div.innerHTML;
-                                        };
+                                        // escapeHtml is provided by utils.js
                                         const orgNameEscaped = escapeHtml(entry.name);
                                         return `
                                             <tr>
@@ -1428,12 +1422,7 @@ class SBOMPlayApp {
             unlicensed: '#17a2b8'      // Cyan/Info
         };
         
-        // Helper function to escape HTML
-        const escapeHtml = (text) => {
-            const div = document.createElement('div');
-            div.textContent = text;
-            return div.innerHTML;
-        };
+        // escapeHtml is provided by utils.js
         
         return `
             <div class="col-md-6">
@@ -2197,13 +2186,10 @@ class SBOMPlayApp {
     }
     
     /**
-     * Escape HTML helper
+     * Escape HTML helper - delegates to shared utility from utils.js
      */
     escapeHtml(text) {
-        if (!text) return '';
-        const div = document.createElement('div');
-        div.textContent = text;
-        return div.innerHTML;
+        return escapeHtml(text);
     }
     
     /**

@@ -74,7 +74,7 @@ body {
     box-shadow: 0 0 0 0.2rem rgba(102, 126, 234, 0.25);
 }
 
-/* Progress Bar */
+/* Progress Bar - Consolidated */
 .progress {
     height: 1.5rem;
     border-radius: 0.75rem;
@@ -246,31 +246,7 @@ body {
     }
 }
 
-/* Dark mode support */
-@media (prefers-color-scheme: dark) {
-    body {
-        background: linear-gradient(135deg, #2c3e50 0%, #34495e 100%);
-        color: #ecf0f1;
-    }
-    
-    .card {
-        background-color: #34495e;
-        color: #ecf0f1;
-    }
-    
-    .form-control {
-        background-color: #2c3e50;
-        border-color: #7f8c8d;
-        color: #ecf0f1;
-    }
-    
-    .form-control:focus {
-        background-color: #2c3e50;
-        color: #ecf0f1;
-    }
-}
-
-/* SBOM Play Styles */
+/* SBOM Play Styles - Theme variables are handled by themes.css */
 
 /* General Styles */
 body {
@@ -285,17 +261,6 @@ body {
 .alert-sm {
     padding: 0.5rem 1rem;
     font-size: 0.875rem;
-}
-
-/* Progress Bar */
-.progress {
-    background-color: #e9ecef;
-    border-radius: 0.375rem;
-}
-
-.progress-bar {
-    background-color: var(--primary-color);
-    transition: width 0.3s ease;
 }
 
 /* Dependency Chart */
@@ -724,11 +689,7 @@ body {
     }
 }
 
-/* Button Styles */
-.btn {
-    border-radius: 0.375rem;
-    font-weight: 500;
-}
+/* Button Styles - Consolidated (base styles already defined above) */
 
 .btn-secondary {
     background-color: #6c757d;
@@ -2855,4 +2816,395 @@ body {
 .panel-overlay.active {
     opacity: 1;
     visibility: visible;
+}
+
+/* ============================================
+   EXTRACTED STYLES FROM HTML FILES
+   ============================================ */
+
+/* Dependencies Page Styles */
+.table-container {
+    background: var(--bg-secondary);
+    border-radius: 8px;
+    overflow: hidden;
+}
+
+.sortable {
+    cursor: pointer;
+    user-select: none;
+}
+
+.sortable:hover {
+    background-color: rgba(0,0,0,0.05);
+}
+
+[data-theme="dark"] .sortable:hover {
+    background-color: rgba(255, 255, 255, 0.1);
+}
+
+.sort-icon {
+    opacity: 0.3;
+    font-size: 0.8em;
+    margin-left: 5px;
+}
+
+.sort-icon.active {
+    opacity: 1;
+}
+
+.badge-direct {
+    background: #0d6efd;
+}
+
+.badge-transitive {
+    background: #6c757d;
+}
+
+.clickable-cell {
+    cursor: pointer;
+    color: #0d6efd;
+    text-decoration: underline;
+}
+
+.clickable-cell:hover {
+    color: #0a58ca;
+}
+
+.package-link {
+    cursor: pointer;
+}
+
+.package-link:hover {
+    text-decoration: underline !important;
+}
+
+.stats-row {
+    background: var(--bg-secondary);
+    padding: 15px;
+    border-radius: 8px;
+    margin-bottom: 20px;
+}
+
+.stat-box {
+    text-align: center;
+}
+
+.stat-box h3 {
+    margin: 0;
+    color: #0d6efd;
+}
+
+.stat-box p {
+    margin: 5px 0 0 0;
+    color: #6c757d;
+    font-size: 0.9em;
+}
+
+.loading-overlay {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(255, 255, 255, 0.9);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1000;
+}
+
+[data-theme="dark"] .loading-overlay {
+    background: rgba(0, 0, 0, 0.9);
+}
+
+.loading-spinner {
+    text-align: center;
+}
+
+.load-more-container {
+    text-align: center;
+    padding: 20px;
+    border-top: 1px solid #dee2e6;
+}
+
+[data-theme="dark"] .load-more-container {
+    border-top-color: rgba(255, 255, 255, 0.1);
+}
+
+/* Quality Page Styles */
+.quality-table {
+    font-size: 0.9rem;
+}
+
+.quality-table th {
+    cursor: pointer;
+    user-select: none;
+}
+
+.quality-table th:hover {
+    background-color: rgba(0,0,0,0.05);
+}
+
+.quality-table th.sortable::after {
+    content: ' ⇅';
+    opacity: 0.3;
+}
+
+.quality-table th.sorted-asc::after {
+    content: ' ↑';
+    opacity: 1;
+}
+
+.quality-table th.sorted-desc::after {
+    content: ' ↓';
+    opacity: 1;
+}
+
+.progress.quality-progress {
+    height: 20px;
+}
+
+.sbom-status-badge {
+    font-size: 0.9rem;
+}
+
+/* Vulnerability Page Styles */
+.vulnerability-summary,
+.vulnerability-details {
+    line-height: 1.6;
+}
+
+.vulnerability-summary p,
+.vulnerability-details p {
+    margin-bottom: 0.75rem;
+}
+
+.vulnerability-summary code,
+.vulnerability-details code {
+    background-color: rgba(0, 0, 0, 0.05);
+    padding: 0.2em 0.4em;
+    border-radius: 3px;
+    font-size: 0.9em;
+    font-family: 'Courier New', monospace;
+}
+
+[data-theme="dark"] .vulnerability-summary code,
+[data-theme="dark"] .vulnerability-details code {
+    background-color: rgba(255, 255, 255, 0.1);
+}
+
+.vulnerability-summary pre,
+.vulnerability-details pre {
+    background-color: rgba(0, 0, 0, 0.05);
+    padding: 1rem;
+    border-radius: 4px;
+    overflow-x: auto;
+    margin: 0.75rem 0;
+}
+
+[data-theme="dark"] .vulnerability-summary pre,
+[data-theme="dark"] .vulnerability-details pre {
+    background-color: rgba(255, 255, 255, 0.1);
+}
+
+.vulnerability-summary pre code,
+.vulnerability-details pre code {
+    background-color: transparent;
+    padding: 0;
+}
+
+.vulnerability-summary ul,
+.vulnerability-details ul,
+.vulnerability-summary ol,
+.vulnerability-details ol {
+    margin: 0.75rem 0;
+    padding-left: 1.5rem;
+}
+
+.vulnerability-summary li,
+.vulnerability-details li {
+    margin: 0.25rem 0;
+}
+
+.vulnerability-summary a,
+.vulnerability-details a {
+    color: #0d6efd;
+    text-decoration: underline;
+}
+
+.vulnerability-summary a:hover,
+.vulnerability-details a:hover {
+    color: #0a58ca;
+}
+
+.vulnerability-summary blockquote,
+.vulnerability-details blockquote {
+    border-left: 3px solid #dee2e6;
+    padding-left: 1rem;
+    margin: 0.75rem 0;
+    color: #6c757d;
+}
+
+[data-theme="dark"] .vulnerability-summary blockquote,
+[data-theme="dark"] .vulnerability-details blockquote {
+    border-left-color: rgba(255, 255, 255, 0.2);
+    color: #adb5bd;
+}
+
+/* Authors Page Dark Mode Styles */
+[data-theme="dark"] .modal-content {
+    background-color: var(--bg-secondary);
+    color: var(--text-primary);
+}
+
+[data-theme="dark"] .modal-header {
+    border-bottom-color: rgba(255, 255, 255, 0.1);
+}
+
+[data-theme="dark"] .modal-footer {
+    border-top-color: rgba(255, 255, 255, 0.1);
+}
+
+[data-theme="dark"] .list-group-item {
+    background-color: rgba(255, 255, 255, 0.05);
+    border-color: rgba(255, 255, 255, 0.1);
+    color: var(--text-primary);
+}
+
+[data-theme="dark"] .table {
+    color: var(--text-primary);
+}
+
+[data-theme="dark"] .table td,
+[data-theme="dark"] .table th {
+    border-color: rgba(255, 255, 255, 0.1);
+}
+
+[data-theme="dark"] .table-striped tbody tr:nth-of-type(odd) {
+    background-color: rgba(255, 255, 255, 0.05);
+}
+
+[data-theme="dark"] .alert-info {
+    background-color: rgba(13, 110, 253, 0.2);
+    border-color: rgba(13, 110, 253, 0.4);
+    color: #9db4ff;
+}
+
+[data-theme="dark"] .alert-warning {
+    background-color: rgba(255, 193, 7, 0.2);
+    border-color: rgba(255, 193, 7, 0.4);
+    color: #ffecb3;
+}
+
+[data-theme="dark"] .btn-outline-primary,
+[data-theme="dark"] .btn-outline-secondary,
+[data-theme="dark"] .btn-outline-info,
+[data-theme="dark"] .btn-outline-danger {
+    border-color: currentColor;
+}
+
+[data-theme="dark"] .btn-outline-primary:hover {
+    background-color: rgba(13, 110, 253, 0.2);
+}
+
+[data-theme="dark"] .btn-outline-secondary:hover {
+    background-color: rgba(108, 117, 125, 0.2);
+}
+
+[data-theme="dark"] .btn-outline-info:hover {
+    background-color: rgba(13, 202, 240, 0.2);
+}
+
+[data-theme="dark"] .btn-outline-danger:hover {
+    background-color: rgba(220, 53, 69, 0.2);
+}
+
+/* ============================================
+   UTILITY CLASSES FOR INLINE STYLES
+   ============================================ */
+
+/* Display utilities */
+.d-none {
+    display: none !important;
+}
+
+.d-block {
+    display: block !important;
+}
+
+.d-flex {
+    display: flex !important;
+}
+
+/* Cursor utilities */
+.cursor-pointer {
+    cursor: pointer !important;
+}
+
+/* Text alignment utilities */
+.text-center {
+    text-align: center !important;
+}
+
+.text-left {
+    text-align: left !important;
+}
+
+.text-right {
+    text-align: right !important;
+}
+
+/* Width utilities */
+.w-140 {
+    width: 140px !important;
+}
+
+/* Height utilities */
+.h-2rem {
+    height: 2rem !important;
+}
+
+.h-8px {
+    height: 8px !important;
+}
+
+.h-20px {
+    height: 20px !important;
+}
+
+/* Max height utilities */
+.max-h-200 {
+    max-height: 200px !important;
+}
+
+.max-h-400 {
+    max-height: 400px !important;
+}
+
+/* Overflow utilities */
+.overflow-y-auto {
+    overflow-y: auto !important;
+}
+
+/* Background color utilities */
+.bg-secondary {
+    background-color: var(--bg-secondary) !important;
+}
+
+.bg-tertiary {
+    background-color: var(--bg-tertiary) !important;
+}
+
+/* Text color utilities */
+.text-primary {
+    color: var(--text-primary) !important;
+}
+
+/* Position utilities */
+.position-relative {
+    position: relative !important;
+}
+
+.position-absolute {
+    position: absolute !important;
 } 

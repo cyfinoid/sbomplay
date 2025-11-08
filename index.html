@@ -58,7 +58,7 @@
 
 
         <!-- Resume Analysis Section -->
-        <div id="resumeSection" class="card mb-4" style="display: none;">
+        <div id="resumeSection" class="card mb-4 d-none">
             <div class="card-header bg-warning text-dark">
                 <h5 class="mb-0">
                     <i class="fas fa-clock me-2"></i>Resume Analysis
@@ -106,7 +106,7 @@
 
         <!-- GitHub Token Input -->
         <div class="card mb-4">
-            <div class="card-header" style="cursor: pointer;" onclick="toggleTokenSection()">
+            <div class="card-header cursor-pointer" onclick="toggleTokenSection()">
                 <h5 class="mb-0 d-flex justify-content-between align-items-center">
                     <span>
                         <i class="fab fa-github me-2"></i>Remove Rate Limit by GitHub Authentication (Optional)
@@ -114,7 +114,7 @@
                     <i class="fas fa-chevron-down" id="tokenToggleIcon"></i>
                 </h5>
             </div>
-            <div class="card-body" id="tokenSectionBody" style="display: none;">
+            <div class="card-body d-none" id="tokenSectionBody">
                 <div class="alert alert-warning alert-sm mb-3">
                     <i class="fas fa-exclamation-triangle me-2"></i>
                     <strong>Note:</strong> GitHub tokens are not saved or persisted. You will need to provide your token each time you use the application.
@@ -139,14 +139,14 @@
         </div>
 
         <!-- Analysis Progress -->
-        <div id="progressSection" class="card mb-4" style="display: none;">
+        <div id="progressSection" class="card mb-4 d-none">
             <div class="card-header">
                 <h5 class="mb-0">
                     <i class="fas fa-spinner fa-spin me-2"></i>Analysis Progress
                 </h5>
             </div>
             <div class="card-body">
-                <div class="progress mb-3" style="height: 2rem;">
+                <div class="progress mb-3 h-2rem">
                     <div class="progress-bar progress-bar-striped progress-bar-animated" 
                          id="progressBar" role="progressbar" style="width: 0%">
                         0%
@@ -160,8 +160,8 @@
         </div>
 
         <!-- Results Section -->
-        <div id="resultsSection" class="card mb-4" style="display: none;">
-            <div class="card-header" style="cursor: pointer;" data-bs-toggle="collapse" data-bs-target="#resultsCollapse" aria-expanded="true" aria-controls="resultsCollapse">
+        <div id="resultsSection" class="card mb-4 d-none">
+            <div class="card-header cursor-pointer" data-bs-toggle="collapse" data-bs-target="#resultsCollapse" aria-expanded="true" aria-controls="resultsCollapse">
                 <h5 class="mb-0 d-flex justify-content-between align-items-center">
                     <span>
                         <i class="fas fa-chart-bar me-2"></i>Analysis Results
@@ -177,8 +177,8 @@
         </div>
 
         <!-- Stats Dashboard Overview -->
-        <div id="statsDashboardOverview" class="card mb-4" style="display: none;">
-            <div class="card-header" style="cursor: pointer;" data-bs-toggle="collapse" data-bs-target="#statsOverviewCollapse" aria-expanded="true" aria-controls="statsOverviewCollapse">
+        <div id="statsDashboardOverview" class="card mb-4 d-none">
+            <div class="card-header cursor-pointer" data-bs-toggle="collapse" data-bs-target="#statsOverviewCollapse" aria-expanded="true" aria-controls="statsOverviewCollapse">
                 <h5 class="mb-0 d-flex justify-content-between align-items-center">
                     <span>
                         <i class="fas fa-chart-line me-2"></i>Statistics Dashboard
@@ -199,8 +199,8 @@
         </div>
 
         <!-- SBOM Quality Dashboard -->
-        <div id="statsQualityDashboard" class="card mb-4" style="display: none;">
-            <div class="card-header" style="cursor: pointer;" data-bs-toggle="collapse" data-bs-target="#qualityCollapse" aria-expanded="true" aria-controls="qualityCollapse">
+        <div id="statsQualityDashboard" class="card mb-4 d-none">
+            <div class="card-header cursor-pointer" data-bs-toggle="collapse" data-bs-target="#qualityCollapse" aria-expanded="true" aria-controls="qualityCollapse">
                 <h5 class="mb-0 d-flex justify-content-between align-items-center">
                     <span>
                         <i class="fas fa-certificate me-2"></i>SBOM Quality Assessment
@@ -218,8 +218,8 @@
         </div>
 
         <!-- Top Common Dependencies -->
-        <div id="topCommonDependencies" class="card mb-4" style="display: none;">
-            <div class="card-header" style="cursor: pointer;" data-bs-toggle="collapse" data-bs-target="#topCommonDependenciesCollapse" aria-expanded="true" aria-controls="topCommonDependenciesCollapse">
+        <div id="topCommonDependencies" class="card mb-4 d-none">
+            <div class="card-header cursor-pointer" data-bs-toggle="collapse" data-bs-target="#topCommonDependenciesCollapse" aria-expanded="true" aria-controls="topCommonDependenciesCollapse">
                 <h5 class="mb-0 d-flex justify-content-between align-items-center">
                     <span>
                         <i class="fas fa-star me-2"></i>Top 5 Most Commonly Used Dependencies
@@ -237,8 +237,8 @@
         </div>
 
         <!-- Version Sprawl -->
-        <div id="versionSprawl" class="card mb-4" style="display: none;">
-            <div class="card-header" style="cursor: pointer;" data-bs-toggle="collapse" data-bs-target="#versionSprawlCollapse" aria-expanded="true" aria-controls="versionSprawlCollapse">
+        <div id="versionSprawl" class="card mb-4 d-none">
+            <div class="card-header cursor-pointer" data-bs-toggle="collapse" data-bs-target="#versionSprawlCollapse" aria-expanded="true" aria-controls="versionSprawlCollapse">
                 <h5 class="mb-0 d-flex justify-content-between align-items-center">
                     <span>
                         <i class="fas fa-code-branch me-2"></i>Top 5 Dependencies with Version Sprawl
@@ -256,8 +256,8 @@
         </div>
 
         <!-- License Distribution -->
-        <div id="licenseDistribution" class="card mb-4" style="display: none;">
-            <div class="card-header" style="cursor: pointer;" data-bs-toggle="collapse" data-bs-target="#licenseDistributionCollapse" aria-expanded="true" aria-controls="licenseDistributionCollapse">
+        <div id="licenseDistribution" class="card mb-4 d-none">
+            <div class="card-header cursor-pointer" data-bs-toggle="collapse" data-bs-target="#licenseDistributionCollapse" aria-expanded="true" aria-controls="licenseDistributionCollapse">
                 <h5 class="mb-0 d-flex justify-content-between align-items-center">
                     <span>
                         <i class="fas fa-file-contract me-2"></i>License Distribution
@@ -394,94 +394,8 @@
         <script src="js/author-service.js?v=0.0.2"></script>
         <script src="js/storage-manager.js?v=0.0.2"></script>
         <script src="js/view-manager.js?v=0.0.2"></script>
-        <script src="js/app.js?v=0.0.2"></script>
-        <script>
-            // Handle collapse icon rotation
-            document.addEventListener('DOMContentLoaded', function() {
-                // Results collapse
-                const resultsCollapse = document.getElementById('resultsCollapse');
-                const resultsIcon = document.getElementById('resultsCollapseIcon');
-                if (resultsCollapse && resultsIcon) {
-                    resultsCollapse.addEventListener('show.bs.collapse', () => {
-                        resultsIcon.classList.remove('fa-chevron-up');
-                        resultsIcon.classList.add('fa-chevron-down');
-                    });
-                    resultsCollapse.addEventListener('hide.bs.collapse', () => {
-                        resultsIcon.classList.remove('fa-chevron-down');
-                        resultsIcon.classList.add('fa-chevron-up');
-                    });
-                }
-                
-                // Stats overview collapse
-                const statsOverviewCollapse = document.getElementById('statsOverviewCollapse');
-                const statsOverviewIcon = document.getElementById('statsOverviewCollapseIcon');
-                if (statsOverviewCollapse && statsOverviewIcon) {
-                    statsOverviewCollapse.addEventListener('show.bs.collapse', () => {
-                        statsOverviewIcon.classList.remove('fa-chevron-up');
-                        statsOverviewIcon.classList.add('fa-chevron-down');
-                    });
-                    statsOverviewCollapse.addEventListener('hide.bs.collapse', () => {
-                        statsOverviewIcon.classList.remove('fa-chevron-down');
-                        statsOverviewIcon.classList.add('fa-chevron-up');
-                    });
-                }
-                
-                // Quality collapse
-                const qualityCollapse = document.getElementById('qualityCollapse');
-                const qualityCollapseIcon = document.getElementById('qualityCollapseIcon');
-                if (qualityCollapse && qualityCollapseIcon) {
-                    qualityCollapse.addEventListener('show.bs.collapse', () => {
-                        qualityCollapseIcon.classList.remove('fa-chevron-up');
-                        qualityCollapseIcon.classList.add('fa-chevron-down');
-                    });
-                    qualityCollapse.addEventListener('hide.bs.collapse', () => {
-                        qualityCollapseIcon.classList.remove('fa-chevron-down');
-                        qualityCollapseIcon.classList.add('fa-chevron-up');
-                    });
-                }
-                
-                // License distribution collapse
-                const licenseDistributionCollapse = document.getElementById('licenseDistributionCollapse');
-                const licenseDistributionCollapseIcon = document.getElementById('licenseDistributionCollapseIcon');
-                if (licenseDistributionCollapse && licenseDistributionCollapseIcon) {
-                    licenseDistributionCollapse.addEventListener('show.bs.collapse', () => {
-                        licenseDistributionCollapseIcon.classList.remove('fa-chevron-up');
-                        licenseDistributionCollapseIcon.classList.add('fa-chevron-down');
-                    });
-                    licenseDistributionCollapse.addEventListener('hide.bs.collapse', () => {
-                        licenseDistributionCollapseIcon.classList.remove('fa-chevron-down');
-                        licenseDistributionCollapseIcon.classList.add('fa-chevron-up');
-                    });
-                }
-                
-                // Top common dependencies collapse
-                const topCommonDependenciesCollapse = document.getElementById('topCommonDependenciesCollapse');
-                const topCommonDependenciesCollapseIcon = document.getElementById('topCommonDependenciesCollapseIcon');
-                if (topCommonDependenciesCollapse && topCommonDependenciesCollapseIcon) {
-                    topCommonDependenciesCollapse.addEventListener('show.bs.collapse', () => {
-                        topCommonDependenciesCollapseIcon.classList.remove('fa-chevron-up');
-                        topCommonDependenciesCollapseIcon.classList.add('fa-chevron-down');
-                    });
-                    topCommonDependenciesCollapse.addEventListener('hide.bs.collapse', () => {
-                        topCommonDependenciesCollapseIcon.classList.remove('fa-chevron-down');
-                        topCommonDependenciesCollapseIcon.classList.add('fa-chevron-up');
-                    });
-                }
-                
-                // Version sprawl collapse
-                const versionSprawlCollapse = document.getElementById('versionSprawlCollapse');
-                const versionSprawlCollapseIcon = document.getElementById('versionSprawlCollapseIcon');
-                if (versionSprawlCollapse && versionSprawlCollapseIcon) {
-                    versionSprawlCollapse.addEventListener('show.bs.collapse', () => {
-                        versionSprawlCollapseIcon.classList.remove('fa-chevron-up');
-                        versionSprawlCollapseIcon.classList.add('fa-chevron-down');
-                    });
-                    versionSprawlCollapse.addEventListener('hide.bs.collapse', () => {
-                        versionSprawlCollapseIcon.classList.remove('fa-chevron-down');
-                        versionSprawlCollapseIcon.classList.add('fa-chevron-up');
-                    });
-                }
-            });
-        </script>
+        <script src="js/utils.js?v=0.0.2"></script>
+    <script src="js/app.js?v=0.0.2"></script>
+    <script src="js/index-page.js?v=0.0.2"></script>
 </body>
 </html> 

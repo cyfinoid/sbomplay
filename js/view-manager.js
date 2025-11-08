@@ -66,76 +66,31 @@ class ViewManager {
 
     /**
      * Securely check if a URL belongs to a specific hostname
-     * This prevents security issues with substring matching (e.g., "evil.com/tidelift.com")
+     * Delegates to the shared utility function from utils.js
      * @param {string} url - The URL to check
      * @param {string} hostname - The expected hostname (e.g., "github.com", "tidelift.com")
      * @param {string} pathPrefix - Optional path prefix to check (e.g., "/sponsors")
      * @returns {boolean} - True if URL belongs to the hostname
      */
     isUrlFromHostname(url, hostname, pathPrefix = '') {
-        if (!url || typeof url !== 'string') return false;
-        
-        try {
-            // Ensure URL has a protocol
-            let urlToParse = url.trim();
-            if (!urlToParse.match(/^https?:\/\//i)) {
-                urlToParse = 'https://' + urlToParse;
-            }
-            
-            const parsedUrl = new URL(urlToParse);
-            const urlHostname = parsedUrl.hostname.toLowerCase();
-            const expectedHostname = hostname.toLowerCase();
-            
-            // Check exact hostname match or subdomain
-            // Allow subdomains (e.g., "www.github.com" matches "github.com")
-            const hostnameMatches = urlHostname === expectedHostname || 
-                                   urlHostname.endsWith('.' + expectedHostname);
-            
-            if (!hostnameMatches) return false;
-            
-            // If path prefix is specified, check it
-            if (pathPrefix) {
-                const urlPath = parsedUrl.pathname.toLowerCase();
-                return urlPath.startsWith(pathPrefix.toLowerCase());
-            }
-            
-            return true;
-        } catch (e) {
-            // Invalid URL
-            return false;
-        }
+        return isUrlFromHostname(url, hostname, pathPrefix);
     }
 
     /**
      * Properly escape a string for use in JavaScript string literals
-     * Escapes backslashes first, then quotes and other control characters
+     * Delegates to the shared utility function from utils.js
      * @param {string} text - The string to escape
      * @returns {string} - The escaped string safe for use in JavaScript string literals
      */
     escapeJsString(text) {
-        if (!text || typeof text !== 'string') return '';
-        // Must escape backslashes FIRST, then quotes
-        return String(text)
-            .replace(/\\/g, '\\\\')  // Escape backslashes first
-            .replace(/'/g, "\\'")    // Then escape single quotes
-            .replace(/"/g, '\\"')    // Escape double quotes
-            .replace(/\n/g, '\\n')   // Escape newlines
-            .replace(/\r/g, '\\r')   // Escape carriage returns
-            .replace(/\t/g, '\\t')   // Escape tabs
-            .replace(/\f/g, '\\f')   // Escape form feeds
-            .replace(/\v/g, '\\v');  // Escape vertical tabs
+        return escapeJsString(text);
     }
 
     /**
      * Render overview header HTML
      */
     renderOverviewHeader(organization, analyzedDate) {
-        const escapeHtml = (text) => {
-            if (!text) return '';
-            const map = {'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'};
-            return String(text).replace(/[&<>"']/g, m => map[m]);
-        };
-        
+        // escapeHtml is provided by utils.js
         return `<div class="view-header">
     <button class="btn btn-secondary" onclick="viewManager.goBack()">
         ← Back to Analysis
@@ -166,12 +121,7 @@ class ViewManager {
      * Render license section HTML
      */
     renderLicenseSection(hasLicenseAnalysis, licenseComplianceHTML, organization) {
-        const escapeHtml = (text) => {
-            if (!text) return '';
-            const map = {'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'};
-            return String(text).replace(/[&<>"']/g, m => map[m]);
-        };
-        
+        // escapeHtml is provided by utils.js
         if (hasLicenseAnalysis) {
             return `<div id="license-section" class="independent-section">
     <div class="license-breakdown">
@@ -202,12 +152,7 @@ class ViewManager {
      * Render dependency details HTML
      */
     renderDependencyDetails(data) {
-        const escapeHtml = (text) => {
-            if (!text) return '';
-            const map = {'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'};
-            return String(text).replace(/[&<>"']/g, m => map[m]);
-        };
-
+        // escapeHtml is provided by utils.js
         let fundingHTML = '';
         if (data.packageFunding) {
             const fundingButtons = [];
@@ -3730,11 +3675,7 @@ class ViewManager {
             </div>
         ` : '';
         
-        const escapeHtml = (text) => {
-            if (!text) return '';
-            const map = {'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'};
-            return String(text).replace(/[&<>"']/g, m => map[m]);
-        };
+        // escapeHtml is provided by utils.js
         
         // Calculate counts based on filter
         const counts = this.calculateLicenseCounts(orgData, categoryFilter);
@@ -4194,11 +4135,7 @@ class ViewManager {
         }
 
         // Regenerate tables with new filter
-        const escapeHtml = (text) => {
-            if (!text) return '';
-            const map = {'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'};
-            return String(text).replace(/[&<>"']/g, m => map[m]);
-        };
+        // escapeHtml is provided by utils.js
 
         const createDepsUrl = (packageName, version) => {
             const searchTerm = version ? `${packageName}@${version}` : packageName;
@@ -4415,11 +4352,7 @@ class ViewManager {
         const isCombinedView = orgData.organization === 'All Organizations Combined';
         const orgName = orgData.organization || orgData.name;
         
-        const escapeHtml = (text) => {
-            if (!text) return '';
-            const map = {'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'};
-            return String(text).replace(/[&<>"']/g, m => map[m]);
-        };
+        // escapeHtml is provided by utils.js
         
         // Prepare category cards
         const categoryCards = [];
@@ -4771,11 +4704,7 @@ class ViewManager {
             severityFilter = urlParams.get('severity')?.toUpperCase();
         }
         
-        const escapeHtml = (text) => {
-            if (!text) return '';
-            const map = {'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'};
-            return String(text).replace(/[&<>"']/g, m => map[m]);
-        };
+        // escapeHtml is provided by utils.js
         
         // Pre-process vulnerable dependencies with usage info
         let vulnerableDepsHTML = '';
