@@ -932,6 +932,36 @@
             }
         }
         
+        /**
+         * Check if a version string is a hash (long alphanumeric string)
+         * Typically hashes are 32+ characters and contain only hex characters or alphanumeric
+         */
+        function isHashVersion(version) {
+            if (!version || typeof version !== 'string') return false;
+            // Check if it's a long alphanumeric string (32+ chars) that looks like a hash
+            // Common hash lengths: 32 (MD5), 40 (SHA1), 64 (SHA256), etc.
+            if (version.length >= 32) {
+                // Check if it's mostly alphanumeric (allowing for some special chars like -)
+                const alphanumericRatio = (version.match(/[a-zA-Z0-9]/g) || []).length / version.length;
+                // If 90%+ alphanumeric and long, it's likely a hash
+                return alphanumericRatio >= 0.9;
+            }
+            return false;
+        }
+        
+        /**
+         * Format version for display - truncate hash to 5 chars with tooltip
+         */
+        function formatVersionForDisplay(version) {
+            if (!version) return '';
+            const escaped = escapeHtml(version);
+            if (isHashVersion(version)) {
+                const truncated = escaped.substring(0, 5);
+                return `<span title="${escaped}">${truncated}...</span>`;
+            }
+            return escaped;
+        }
+        
         async function renderTable(deps, reset = false) {
             const tbody = document.getElementById('tableBody');
             
@@ -1082,7 +1112,9 @@
                 
                 const tr = document.createElement('tr');
                 tr.setAttribute('data-dep-index', startIndex + idx); // Store dependency index for easy lookup
-                const packageLink = `${escapeHtml(dep.name)}@${escapeHtml(dep.version)}`;
+                const versionDisplay = formatVersionForDisplay(dep.version);
+                const packageNameEscaped = escapeHtml(dep.name);
+                const packageLink = `${packageNameEscaped}@${versionDisplay}`;
                 tr.innerHTML = `
                     <td>
                         <a href="#" class="package-link text-primary text-decoration-none" 
