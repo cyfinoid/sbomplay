@@ -53,6 +53,14 @@
             color: #0a58ca;
         }
         
+        .package-link {
+            cursor: pointer;
+        }
+        
+        .package-link:hover {
+            text-decoration: underline !important;
+        }
+        
         .stats-row {
             background: var(--bg-secondary, #f8f9fa);
             padding: 15px;
@@ -206,6 +214,12 @@
                 <div class="row g-3 mt-2">
                     <div class="col-12">
                         <div class="form-check">
+                            <input class="form-check-input" type="checkbox" id="vulnerableFilter" value="vulnerable">
+                            <label class="form-check-label" for="vulnerableFilter">
+                                <i class="fas fa-shield-alt me-1 text-warning"></i>Show only vulnerable dependencies
+                            </label>
+                        </div>
+                        <div class="form-check">
                             <input class="form-check-input" type="checkbox" id="sponsorshipFilter" value="sponsorship">
                             <label class="form-check-label" for="sponsorshipFilter">
                                 <i class="fas fa-heart me-1 text-danger"></i>Show only dependencies with sponsorship opportunities
@@ -259,11 +273,7 @@
                     <thead>
                         <tr>
                             <th class="sortable" data-sort="name">
-                                Package Name
-                                <i class="fas fa-sort sort-icon"></i>
-                            </th>
-                            <th class="sortable" data-sort="version">
-                                Version
+                                Package
                                 <i class="fas fa-sort sort-icon"></i>
                             </th>
                             <th class="sortable" data-sort="type">
@@ -278,6 +288,9 @@
                                 Used In
                                 <i class="fas fa-sort sort-icon"></i>
                             </th>
+                            <th style="text-align: center;">Vulnerabilities</th>
+                            <th>License</th>
+                            <th style="text-align: center;">SBOM Quality</th>
                             <th style="text-align: center;">Sponsorship</th>
                             <th>Brought In By</th>
                         </tr>
@@ -329,10 +342,32 @@
         </div>
     </div>
 
+    <!-- Modal for Package Details -->
+    <div class="modal fade" id="packageDetailsModal" tabindex="-1">
+        <div class="modal-dialog modal-xl">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="packageDetailsModalTitle">Package Details</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body" id="packageDetailsModalBody">
+                    <div class="text-center">
+                        <div class="spinner-border text-primary" role="status">
+                            <span class="visually-hidden">Loading...</span>
+                        </div>
+                        <p class="mt-2">Loading package details...</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
     <script src="js/indexeddb-manager.js?v=10"></script>
     <script src="js/cache-manager.js?v=10"></script>
     <script src="js/storage-manager.js?v=10"></script>
+    <script src="js/license-processor.js?v=10"></script>
+    <script src="js/osv-service.js?v=10"></script>
     <script type="module">
         const storageManager = new StorageManager();
         await storageManager.init();
@@ -404,6 +439,7 @@
         document.getElementById('typeFilter').addEventListener('change', () => filterTable());
         document.getElementById('ecosystemFilter').addEventListener('change', () => filterTable());
         document.getElementById('repoFilter').addEventListener('change', () => filterTable());
+        document.getElementById('vulnerableFilter').addEventListener('change', () => filterTable());
         document.getElementById('sponsorshipFilter').addEventListener('change', () => filterTable());
         document.getElementById('exportBtn').addEventListener('click', exportCSV);
         document.getElementById('loadMoreBtn').addEventListener('click', loadMoreEntries);
@@ -503,6 +539,27 @@
             const deps = [];
             const repos = data.allRepositories || [];
             const allDeps = data.allDependencies || [];
+            const vulnAnalysis = data.vulnerabilityAnalysis || {};
+            const vulnerableDeps = vulnAnalysis.vulnerableDependencies || [];
+            
+            // Create a map for quick vulnerability lookup
+            const vulnMap = new Map();
+            vulnerableDeps.forEach(vulnDep => {
+                const key = `${vulnDep.name}@${vulnDep.version}`;
+                vulnMap.set(key, vulnDep);
+            });
+            
+            // Create a map for repository quality scores (for lazy calculation)
+            const repoQualityMap = new Map();
+            repos.forEach(repo => {
+                const repoKey = `${repo.owner}/${repo.name}`;
+                if (repo.qualityAssessment) {
+                    repoQualityMap.set(repoKey, repo.qualityAssessment);
+                }
+            });
+            
+            // Store license processor and quality map for lazy evaluation
+            const licenseProcessor = window.LicenseProcessor ? new LicenseProcessor() : null;
             
             allDeps.forEach(dep => {
                 const isDirect = dep.directIn && dep.directIn.length > 0;
@@ -565,6 +622,24 @@
                     }
                 }
                 
+                // Extract vulnerability counts (fast - just map lookup)
+                const depKey = `${dep.name}@${dep.version}`;
+                const vulnDep = vulnMap.get(depKey);
+                let vulnHigh = 0, vulnMedium = 0, vulnLow = 0;
+                if (vulnDep && vulnDep.vulnerabilities) {
+                    vulnDep.vulnerabilities.forEach(vuln => {
+                        const severity = vuln.severity || (window.osvService ? window.osvService.getHighestSeverity(vuln) : 'UNKNOWN');
+                        if (severity === 'CRITICAL' || severity === 'HIGH') {
+                            vulnHigh++;
+                        } else if (severity === 'MEDIUM' || severity === 'MODERATE') {
+                            vulnMedium++;
+                        } else if (severity === 'LOW') {
+                            vulnLow++;
+                        }
+                    });
+                }
+                
+                // Store references for lazy evaluation (license and quality calculated on-demand)
                 deps.push({
                     name: dep.name,
                     version: dep.version,
@@ -577,6 +652,14 @@
                     parentsByRepo: parentsByRepo,  // Store parent-to-repo mapping
                     packageKey: packageKey,  // Store for funding lookup
                     funding: null,  // Will be populated later
+                    vulnHigh: vulnHigh,
+                    vulnMedium: vulnMedium,
+                    vulnLow: vulnLow,
+                    // Lazy-evaluated fields (calculated only when rendering)
+                    _licenseProcessor: licenseProcessor,
+                    _repoQualityMap: repoQualityMap,
+                    _licenseCached: false,
+                    _qualityCached: false,
                     raw: dep
                 });
             });
@@ -590,6 +673,50 @@
         }
         
         async function filterTable() {
+            const vulnerableFilter = document.getElementById('vulnerableFilter').checked;
+            const analysisSelector = document.getElementById('analysisSelector');
+            
+            // If vulnerable filter is checked but no data is loaded, automatically load all projects
+            if (vulnerableFilter && (!allDependencies || allDependencies.length === 0)) {
+                // First, ensure the selector is populated
+                if (analysisSelector.options.length === 0) {
+                    await loadAnalysesList();
+                }
+                
+                // Check if we have options now
+                if (analysisSelector.options.length > 0) {
+                    // Set selector to "All Projects (Combined)" if not already set or if current value is empty
+                    const currentValue = analysisSelector.value;
+                    if (!currentValue || currentValue === '' || !Array.from(analysisSelector.options).some(opt => opt.value === currentValue)) {
+                        // Find or set __ALL__ option
+                        const allOption = Array.from(analysisSelector.options).find(opt => opt.value === '__ALL__');
+                        if (allOption) {
+                            analysisSelector.value = '__ALL__';
+                        } else if (analysisSelector.options.length > 0) {
+                            // Use first option if __ALL__ doesn't exist
+                            analysisSelector.value = analysisSelector.options[0].value;
+                        }
+                    }
+                    // Load the analysis data
+                    await loadAnalysis();
+                    // Continue with filtering after data is loaded
+                } else {
+                    // No data available at all
+                    document.getElementById('tableCard').style.display = 'none';
+                    document.getElementById('statsRow').style.display = 'none';
+                    document.getElementById('noDataMessage').style.display = 'block';
+                    return;
+                }
+            }
+            
+            // Early return if no data is loaded (and vulnerable filter is not checked)
+            if (!allDependencies || allDependencies.length === 0) {
+                document.getElementById('tableCard').style.display = 'none';
+                document.getElementById('statsRow').style.display = 'none';
+                document.getElementById('noDataMessage').style.display = 'block';
+                return;
+            }
+            
             const search = document.getElementById('searchInput').value.toLowerCase();
             const typeFilter = document.getElementById('typeFilter').value;
             const ecosystemFilter = document.getElementById('ecosystemFilter').value;
@@ -597,6 +724,13 @@
             const sponsorshipFilter = document.getElementById('sponsorshipFilter').checked;
             
             let filtered = allDependencies;
+            
+            // Apply vulnerable filter first (fast check)
+            if (vulnerableFilter) {
+                filtered = filtered.filter(dep => {
+                    return dep.vulnHigh > 0 || dep.vulnMedium > 0 || dep.vulnLow > 0;
+                });
+            }
             
             // Apply funding filter if active (from URL or checkbox)
             if ((fundingFilterActive || sponsorshipFilter) && window.cacheManager) {
@@ -710,10 +844,10 @@
         // Update sponsorship cell for a specific row
         function updateSponsorshipCell(row, dep) {
             const cells = row.querySelectorAll('td');
-            if (cells.length < 6) return; // Not enough cells
+            if (cells.length < 9) return; // Not enough cells (we now have 9 columns: name, version, type, ecosystem, used in, vulnerabilities, license, quality, sponsorship, brought in by)
             
-            // Sponsorship is the 6th column (index 5)
-            const sponsorshipCell = cells[5];
+            // Sponsorship is now the 8th column (index 7) after adding vulnerabilities, license, and quality
+            const sponsorshipCell = cells[7];
             if (!sponsorshipCell) return;
             
             const platforms = [];
@@ -759,6 +893,61 @@
             const endIndex = Math.min(startIndex + batchSize, deps.length);
             const toDisplay = deps.slice(startIndex, endIndex);
             
+            // Helper function to get license info (lazy evaluation)
+            function getLicenseInfo(dep) {
+                if (dep._licenseCached) {
+                    return { license: dep.license, licenseFull: dep.licenseFull };
+                }
+                
+                let licenseText = 'Unknown';
+                let licenseFull = 'Unknown';
+                if (dep.raw.originalPackage && dep._licenseProcessor) {
+                    const licenseInfo = dep._licenseProcessor.parseLicense(dep.raw.originalPackage);
+                    if (licenseInfo.license && licenseInfo.license !== 'NOASSERTION') {
+                        licenseFull = licenseInfo.license;
+                        licenseText = licenseFull.length > 5 ? licenseFull.substring(0, 5) : licenseFull;
+                    }
+                }
+                
+                // Cache the result
+                dep.license = licenseText;
+                dep.licenseFull = licenseFull;
+                dep._licenseCached = true;
+                return { license: licenseText, licenseFull: licenseFull };
+            }
+            
+            // Helper function to get quality info (lazy evaluation)
+            function getQualityInfo(dep) {
+                if (dep._qualityCached) {
+                    return { qualityScore: dep.qualityScore, qualityGrade: dep.qualityGrade };
+                }
+                
+                let avgQuality = null;
+                let qualityGrade = null;
+                if (dep.repositories && dep.repositories.length > 0 && dep._repoQualityMap) {
+                    const qualityScores = [];
+                    dep.repositories.forEach(repoKey => {
+                        const quality = dep._repoQualityMap.get(repoKey);
+                        if (quality && quality.overallScore !== undefined) {
+                            qualityScores.push(quality.overallScore);
+                        }
+                    });
+                    if (qualityScores.length > 0) {
+                        avgQuality = Math.round(qualityScores.reduce((a, b) => a + b, 0) / qualityScores.length);
+                        const firstQuality = dep._repoQualityMap.get(dep.repositories[0]);
+                        if (firstQuality) {
+                            qualityGrade = firstQuality.grade;
+                        }
+                    }
+                }
+                
+                // Cache the result
+                dep.qualityScore = avgQuality;
+                dep.qualityGrade = qualityGrade;
+                dep._qualityCached = true;
+                return { qualityScore: avgQuality, qualityGrade: qualityGrade };
+            }
+            
             // Render the batch
             toDisplay.forEach((dep, idx) => {
                 // Build sponsorship cell (load funding data lazily if not already loaded)
@@ -802,11 +991,57 @@
                     // This is a quick check without async to avoid blocking
                 }
                 
+                // Build vulnerability cell
+                let vulnCell = '<td style="text-align: center;">—</td>';
+                if (dep.vulnHigh > 0 || dep.vulnMedium > 0 || dep.vulnLow > 0) {
+                    const vulnParts = [];
+                    if (dep.vulnHigh > 0) {
+                        vulnParts.push(`<span class="badge bg-danger" title="High: ${dep.vulnHigh}">H:${dep.vulnHigh}</span>`);
+                    }
+                    if (dep.vulnMedium > 0) {
+                        vulnParts.push(`<span class="badge bg-warning text-dark" title="Medium: ${dep.vulnMedium}">M:${dep.vulnMedium}</span>`);
+                    }
+                    if (dep.vulnLow > 0) {
+                        vulnParts.push(`<span class="badge bg-info" title="Low: ${dep.vulnLow}">L:${dep.vulnLow}</span>`);
+                    }
+                    vulnCell = `<td style="text-align: center;"><span class="d-flex justify-content-center gap-1 flex-wrap">${vulnParts.join(' ')}</span></td>`;
+                }
+                
+                // Build license cell (lazy evaluation)
+                const licenseInfo = getLicenseInfo(dep);
+                const licenseCell = `<td><span title="${escapeHtml(licenseInfo.licenseFull)}">${escapeHtml(licenseInfo.license)}</span></td>`;
+                
+                // Build SBOM quality cell (lazy evaluation)
+                const qualityInfo = getQualityInfo(dep);
+                let qualityCell = '<td style="text-align: center;">—</td>';
+                if (qualityInfo.qualityScore !== null && qualityInfo.qualityGrade) {
+                    const gradeColors = {
+                        'A': 'success',
+                        'B': 'primary',
+                        'C': 'warning',
+                        'D': 'danger',
+                        'F': 'dark'
+                    };
+                    const gradeColor = gradeColors[qualityInfo.qualityGrade] || 'secondary';
+                    const displayScore = (qualityInfo.qualityScore / 10).toFixed(1);
+                    qualityCell = `<td style="text-align: center;"><span class="badge bg-${gradeColor}" title="SBOM Quality Score: ${displayScore}/10.0 (Grade ${qualityInfo.qualityGrade})">${qualityInfo.qualityGrade}</span></td>`;
+                }
+                
                 const tr = document.createElement('tr');
                 tr.setAttribute('data-dep-index', startIndex + idx); // Store dependency index for easy lookup
+                const packageLink = `${escapeHtml(dep.name)}@${escapeHtml(dep.version)}`;
                 tr.innerHTML = `
-                    <td><strong>${escapeHtml(dep.name)}</strong></td>
-                    <td>${escapeHtml(dep.version)}</td>
+                    <td>
+                        <a href="#" class="package-link text-primary text-decoration-none" 
+                           data-package-key="${escapeHtml(dep.packageKey || '')}" 
+                           data-package-name="${escapeHtml(dep.name)}" 
+                           data-package-version="${escapeHtml(dep.version)}"
+                           data-package-ecosystem="${escapeHtml(dep.ecosystem)}"
+                           data-package-repos='${JSON.stringify(dep.repositories)}'
+                           data-package-raw='${JSON.stringify(dep.raw).replace(/'/g, '&apos;')}'>
+                            <strong>${packageLink}</strong>
+                        </a>
+                    </td>
                     <td><span class="badge badge-${dep.type}">${dep.type}</span></td>
                     <td>${escapeHtml(dep.ecosystem)}</td>
                     <td>
@@ -814,6 +1049,9 @@
                             ${dep.repoCount} ${dep.repoCount === 1 ? 'repo' : 'repos'}
                         </span>
                     </td>
+                    ${vulnCell}
+                    ${licenseCell}
+                    ${qualityCell}
                     ${sponsorshipCell}
                     <td>
                         ${dep.type === 'direct' 
@@ -871,6 +1109,23 @@
                 document.getElementById('loadMoreContainer').style.display = 'none';
             }
             
+            // Add click handlers for package links
+            document.querySelectorAll('.package-link').forEach(link => {
+                if (!link.hasAttribute('data-handler-attached')) {
+                    link.setAttribute('data-handler-attached', 'true');
+                    link.addEventListener('click', (e) => {
+                        e.preventDefault();
+                        const packageKey = link.getAttribute('data-package-key');
+                        const packageName = link.getAttribute('data-package-name');
+                        const packageVersion = link.getAttribute('data-package-version');
+                        const packageEcosystem = link.getAttribute('data-package-ecosystem');
+                        const packageRepos = JSON.parse(link.getAttribute('data-package-repos'));
+                        const packageRaw = JSON.parse(link.getAttribute('data-package-raw'));
+                        showPackageDetailsModal(packageKey, packageName, packageVersion, packageEcosystem, packageRepos, packageRaw);
+                    });
+                }
+            });
+            
             // Add click handlers for both repositories and parents
             document.querySelectorAll('.clickable-cell').forEach(cell => {
                 if (!cell.hasAttribute('data-handler-attached')) {
@@ -912,6 +1167,216 @@
             btn.disabled = false;
             btn.innerHTML = originalText;
             isLoadingMore = false;
+        }
+        
+        async function showPackageDetailsModal(packageKey, packageName, packageVersion, packageEcosystem, packageRepos, packageRaw) {
+            const modalTitle = document.getElementById('packageDetailsModalTitle');
+            const modalBody = document.getElementById('packageDetailsModalBody');
+            
+            modalTitle.textContent = `${packageName}@${packageVersion}`;
+            modalBody.innerHTML = `
+                <div class="text-center">
+                    <div class="spinner-border text-primary" role="status">
+                        <span class="visually-hidden">Loading...</span>
+                    </div>
+                    <p class="mt-2">Loading package details...</p>
+                </div>
+            `;
+            
+            new bootstrap.Modal(document.getElementById('packageDetailsModal')).show();
+            
+            // Fetch package details
+            let packageData = null;
+            let authors = [];
+            let funding = null;
+            
+            if (packageKey && window.cacheManager) {
+                try {
+                    packageData = await window.cacheManager.getPackage(packageKey);
+                    if (packageData) {
+                        funding = packageData.funding || null;
+                    }
+                    
+                    // Fetch authors
+                    authors = await window.cacheManager.getPackageAuthors(packageKey);
+                } catch (e) {
+                    console.warn('Failed to fetch package details:', e);
+                }
+            }
+            
+            // Get license info
+            const licenseProcessor = window.LicenseProcessor ? new LicenseProcessor() : null;
+            let licenseInfo = { license: 'Unknown', category: 'unknown' };
+            if (packageRaw.originalPackage && licenseProcessor) {
+                licenseInfo = licenseProcessor.parseLicense(packageRaw.originalPackage);
+            }
+            
+            // Get quality info for repositories
+            const repoQualityMap = new Map();
+            if (currentData && currentData.allRepositories) {
+                currentData.allRepositories.forEach(repo => {
+                    const repoKey = `${repo.owner}/${repo.name}`;
+                    if (packageRepos.includes(repoKey) && repo.qualityAssessment) {
+                        repoQualityMap.set(repoKey, repo.qualityAssessment);
+                    }
+                });
+            }
+            
+            // Build HTML
+            let html = `
+                <div class="row">
+                    <div class="col-md-6">
+                        <h6><i class="fas fa-info-circle me-2"></i>Basic Information</h6>
+                        <table class="table table-sm">
+                            <tr>
+                                <th width="40%">Package:</th>
+                                <td><code>${escapeHtml(packageName)}@${escapeHtml(packageVersion)}</code></td>
+                            </tr>
+                            <tr>
+                                <th>Ecosystem:</th>
+                                <td><span class="badge bg-secondary">${escapeHtml(packageEcosystem)}</span></td>
+                            </tr>
+                            <tr>
+                                <th>License:</th>
+                                <td>
+                                    <span title="${escapeHtml(licenseInfo.license || 'Unknown')}">
+                                        ${escapeHtml(licenseInfo.license || 'Unknown')}
+                                    </span>
+                                    ${licenseInfo.category !== 'unknown' ? `<span class="badge bg-info ms-2">${licenseInfo.category}</span>` : ''}
+                                </td>
+                            </tr>
+                        </table>
+                    </div>
+                    <div class="col-md-6">
+                        <h6><i class="fas fa-code-branch me-2"></i>Usage</h6>
+                        <p class="mb-2">Used in <strong>${packageRepos.length}</strong> ${packageRepos.length === 1 ? 'repository' : 'repositories'}:</p>
+                        <div class="list-group" style="max-height: 200px; overflow-y: auto;">
+                            ${packageRepos.map(repo => {
+                                const quality = repoQualityMap.get(repo);
+                                return `
+                                    <div class="list-group-item">
+                                        <i class="fas fa-code-branch me-2 text-primary"></i>
+                                        <strong>${escapeHtml(repo)}</strong>
+                                        ${quality ? `<span class="badge bg-${quality.grade === 'A' ? 'success' : quality.grade === 'B' ? 'primary' : quality.grade === 'C' ? 'warning' : quality.grade === 'D' ? 'danger' : 'dark'} ms-2" title="SBOM Quality: ${(quality.overallScore / 10).toFixed(1)}/10.0">${quality.grade}</span>` : ''}
+                                    </div>
+                                `;
+                            }).join('')}
+                        </div>
+                    </div>
+                </div>
+            `;
+            
+            // Sponsorship section
+            if (funding) {
+                const platforms = [];
+                if (funding.github) {
+                    const githubUrl = funding.githubUrl || funding.url || `https://github.com/sponsors/${encodeURIComponent(packageName)}`;
+                    platforms.push(`<a href="${githubUrl}" target="_blank" class="btn btn-outline-dark btn-sm me-2"><i class="fab fa-github me-1"></i>GitHub Sponsors</a>`);
+                }
+                if (funding.opencollective) {
+                    const ocUrl = funding.opencollectiveUrl || funding.url;
+                    if (ocUrl) {
+                        platforms.push(`<a href="${ocUrl}" target="_blank" class="btn btn-outline-primary btn-sm me-2"><i class="fas fa-hand-holding-usd me-1"></i>Open Collective</a>`);
+                    }
+                }
+                if (funding.patreon) {
+                    const patreonUrl = funding.patreonUrl || funding.url || `https://patreon.com/${encodeURIComponent(packageName)}`;
+                    platforms.push(`<a href="${patreonUrl}" target="_blank" class="btn btn-outline-danger btn-sm me-2"><i class="fab fa-patreon me-1"></i>Patreon</a>`);
+                }
+                if (funding.tidelift) {
+                    const tideliftUrl = funding.tideliftUrl || funding.url;
+                    if (tideliftUrl) {
+                        platforms.push(`<a href="${tideliftUrl}" target="_blank" class="btn btn-outline-warning btn-sm me-2"><i class="fas fa-gift me-1"></i>Tidelift</a>`);
+                    }
+                }
+                if (platforms.length > 0) {
+                    html += `
+                        <div class="mt-3">
+                            <h6><i class="fas fa-heart text-danger me-2"></i>Sponsorship Opportunities</h6>
+                            <p class="mb-2">This package accepts donations/sponsorships:</p>
+                            <div>${platforms.join('')}</div>
+                        </div>
+                    `;
+                } else if (funding.url) {
+                    html += `
+                        <div class="mt-3">
+                            <h6><i class="fas fa-heart text-danger me-2"></i>Sponsorship Opportunities</h6>
+                            <p class="mb-2">This package accepts donations/sponsorships:</p>
+                            <a href="${funding.url}" target="_blank" class="btn btn-outline-success btn-sm"><i class="fas fa-donate me-1"></i>Support</a>
+                        </div>
+                    `;
+                }
+            } else {
+                html += `
+                    <div class="mt-3">
+                        <h6><i class="fas fa-heart me-2"></i>Sponsorship</h6>
+                        <p class="text-muted mb-0">No sponsorship information available for this package.</p>
+                    </div>
+                `;
+            }
+            
+            // Authors section
+            if (authors && authors.length > 0) {
+                html += `
+                    <div class="mt-3">
+                        <h6><i class="fas fa-users me-2"></i>Authors & Maintainers</h6>
+                        <div class="list-group">
+                            ${authors.map(author => {
+                                const authorName = author.name || author.author || 'Unknown';
+                                const authorEmail = author.email || '';
+                                const isMaintainer = author.isMaintainer || false;
+                                return `
+                                    <div class="list-group-item">
+                                        <div class="d-flex justify-content-between align-items-center">
+                                            <div>
+                                                <strong>${escapeHtml(authorName)}</strong>
+                                                ${isMaintainer ? '<span class="badge bg-primary ms-2">Maintainer</span>' : ''}
+                                                ${authorEmail ? `<br><small class="text-muted">${escapeHtml(authorEmail)}</small>` : ''}
+                                            </div>
+                                        </div>
+                                    </div>
+                                `;
+                            }).join('')}
+                        </div>
+                    </div>
+                `;
+            } else {
+                html += `
+                    <div class="mt-3">
+                        <h6><i class="fas fa-users me-2"></i>Authors</h6>
+                        <p class="text-muted mb-0">No author information available for this package.</p>
+                    </div>
+                `;
+            }
+            
+            // SBOM Quality section
+            if (repoQualityMap.size > 0) {
+                const qualityScores = Array.from(repoQualityMap.values()).map(q => q.overallScore);
+                const avgQuality = Math.round(qualityScores.reduce((a, b) => a + b, 0) / qualityScores.length);
+                const firstQuality = Array.from(repoQualityMap.values())[0];
+                const grade = firstQuality.grade;
+                const gradeColors = {
+                    'A': 'success',
+                    'B': 'primary',
+                    'C': 'warning',
+                    'D': 'danger',
+                    'F': 'dark'
+                };
+                const gradeColor = gradeColors[grade] || 'secondary';
+                
+                html += `
+                    <div class="mt-3">
+                        <h6><i class="fas fa-chart-line me-2"></i>SBOM Quality</h6>
+                        <p class="mb-2">Average SBOM quality across repositories using this package:</p>
+                        <div class="d-flex align-items-center gap-3">
+                            <span class="badge bg-${gradeColor} fs-6">${grade}</span>
+                            <span class="text-muted">${(avgQuality / 10).toFixed(1)}/10.0</span>
+                        </div>
+                    </div>
+                `;
+            }
+            
+            modalBody.innerHTML = html;
         }
         
         function showRepositoriesModal(repos, packageName) {
@@ -1008,14 +1473,52 @@
                 return true;
             });
             
+            // Helper functions for CSV export (same as in renderTable)
+            function getLicenseInfoForCSV(dep) {
+                if (dep._licenseCached) {
+                    return dep.licenseFull;
+                }
+                if (dep.raw.originalPackage && dep._licenseProcessor) {
+                    const licenseInfo = dep._licenseProcessor.parseLicense(dep.raw.originalPackage);
+                    if (licenseInfo.license && licenseInfo.license !== 'NOASSERTION') {
+                        return licenseInfo.license;
+                    }
+                }
+                return 'Unknown';
+            }
+            
+            function getQualityInfoForCSV(dep) {
+                if (dep._qualityCached) {
+                    return dep.qualityScore !== null ? `${(dep.qualityScore / 10).toFixed(1)} (${dep.qualityGrade})` : 'N/A';
+                }
+                if (dep.repositories && dep.repositories.length > 0 && dep._repoQualityMap) {
+                    const qualityScores = [];
+                    dep.repositories.forEach(repoKey => {
+                        const quality = dep._repoQualityMap.get(repoKey);
+                        if (quality && quality.overallScore !== undefined) {
+                            qualityScores.push(quality.overallScore);
+                        }
+                    });
+                    if (qualityScores.length > 0) {
+                        const avgQuality = Math.round(qualityScores.reduce((a, b) => a + b, 0) / qualityScores.length);
+                        const firstQuality = dep._repoQualityMap.get(dep.repositories[0]);
+                        const grade = firstQuality ? firstQuality.grade : null;
+                        return `${(avgQuality / 10).toFixed(1)} (${grade})`;
+                    }
+                }
+                return 'N/A';
+            }
+            
             const csv = [
-                ['Package Name', 'Version', 'Type', 'Ecosystem', 'Repositories', 'Brought In By'].join(','),
+                ['Package', 'Type', 'Ecosystem', 'Repositories', 'Vulnerabilities (H/M/L)', 'License', 'SBOM Quality', 'Brought In By'].join(','),
                 ...filtered.map(dep => [
-                    `"${dep.name}"`,
-                    `"${dep.version}"`,
+                    `"${dep.name}@${dep.version}"`,
                     dep.type,
                     dep.ecosystem,
                     `"${dep.repositories.join(', ')}"`,
+                    `"H:${dep.vulnHigh} M:${dep.vulnMedium} L:${dep.vulnLow}"`,
+                    `"${getLicenseInfoForCSV(dep)}"`,
+                    getQualityInfoForCSV(dep),
                     dep.type === 'direct' ? 'N/A' : `"${dep.parents.join(', ')}"`
                 ].join(','))
             ].join('\n');

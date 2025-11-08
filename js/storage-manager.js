@@ -566,6 +566,63 @@ class StorageManager {
             }
         }
 
+        // Combine vulnerability analysis from all organizations
+        const vulnerabilityMap = new Map(); // key: name@version
+        let totalCriticalVulnerabilities = 0;
+        let totalHighVulnerabilities = 0;
+        let totalMediumVulnerabilities = 0;
+        let totalLowVulnerabilities = 0;
+
+        for (const entry of entriesData) {
+            if (entry.data.vulnerabilityAnalysis) {
+                const vulnAnalysis = entry.data.vulnerabilityAnalysis;
+                
+                // Aggregate vulnerability counts (these are counts of vulnerabilities, not packages)
+                totalCriticalVulnerabilities += vulnAnalysis.criticalVulnerabilities || 0;
+                totalHighVulnerabilities += vulnAnalysis.highVulnerabilities || 0;
+                totalMediumVulnerabilities += vulnAnalysis.mediumVulnerabilities || 0;
+                totalLowVulnerabilities += vulnAnalysis.lowVulnerabilities || 0;
+
+                // Combine vulnerable dependencies (deduplicate by name@version)
+                if (vulnAnalysis.vulnerableDependencies) {
+                    for (const vulnDep of vulnAnalysis.vulnerableDependencies) {
+                        const key = `${vulnDep.name}@${vulnDep.version}`;
+                        if (vulnerabilityMap.has(key)) {
+                            // Merge vulnerabilities if same package exists in multiple orgs
+                            const existing = vulnerabilityMap.get(key);
+                            // Combine vulnerabilities, deduplicate by ID
+                            const vulnIdMap = new Map();
+                            existing.vulnerabilities.forEach(v => vulnIdMap.set(v.id, v));
+                            vulnDep.vulnerabilities.forEach(v => {
+                                if (!vulnIdMap.has(v.id)) {
+                                    vulnIdMap.set(v.id, v);
+                                }
+                            });
+                            existing.vulnerabilities = Array.from(vulnIdMap.values());
+                        } else {
+                            vulnerabilityMap.set(key, {
+                                name: vulnDep.name,
+                                version: vulnDep.version,
+                                vulnerabilities: [...(vulnDep.vulnerabilities || [])]
+                            });
+                        }
+                    }
+                }
+            }
+        }
+
+        // Create combined vulnerability analysis
+        if (vulnerabilityMap.size > 0) {
+            combined.vulnerabilityAnalysis = {
+                vulnerablePackages: vulnerabilityMap.size,
+                vulnerableDependencies: Array.from(vulnerabilityMap.values()),
+                criticalVulnerabilities: totalCriticalVulnerabilities,
+                highVulnerabilities: totalHighVulnerabilities,
+                mediumVulnerabilities: totalMediumVulnerabilities,
+                lowVulnerabilities: totalLowVulnerabilities
+            };
+        }
+
         return combined;
     }
 
