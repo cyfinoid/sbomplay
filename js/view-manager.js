@@ -3176,7 +3176,8 @@ class ViewManager {
             }
         });
 
-        // Convert to array and sort by package count (descending)
+        // Convert to array and sort by risk level (high first), then by package count (descending)
+        const riskOrder = { 'high': 0, 'medium': 1, 'low': 2 };
         return Array.from(licenseMap.values())
             .map(licenseData => ({
                 license: licenseData.license,
@@ -3185,7 +3186,13 @@ class ViewManager {
                 packageCount: licenseData.packages.size,
                 repositoryCount: licenseData.repositories.size
             }))
-            .sort((a, b) => b.packageCount - a.packageCount);
+            .sort((a, b) => {
+                // First sort by risk level (high first)
+                const riskDiff = (riskOrder[a.risk] || 99) - (riskOrder[b.risk] || 99);
+                if (riskDiff !== 0) return riskDiff;
+                // Then sort by package count (descending)
+                return b.packageCount - a.packageCount;
+            });
     }
 
     /**
@@ -3714,14 +3721,15 @@ class ViewManager {
         }
         
         // Prepare license cards
+        // Order: High risk first (unlicensed, copyleft, unknown), then medium risk (proprietary), then summary/info (total, transitions)
         const licenseCards = [];
         const cardConfigs = [
             {
-                type: 'total',
-                title: '📊 Total',
-                count: counts.total,
-                detail: 'licensed deps',
-                licenseType: 'total'
+                type: 'unlicensed',
+                title: '🚨 Unlicensed',
+                count: counts.unlicensed,
+                detail: 'unlicensed deps',
+                licenseType: 'unlicensed'
             },
             {
                 type: 'copyleft',
@@ -3731,13 +3739,6 @@ class ViewManager {
                 licenseType: 'copyleft'
             },
             {
-                type: 'proprietary',
-                title: '🔒 Proprietary',
-                count: counts.proprietary,
-                detail: 'medium risk',
-                licenseType: 'proprietary'
-            },
-            {
                 type: 'unknown',
                 title: '❓ Unknown',
                 count: counts.unknown,
@@ -3745,11 +3746,18 @@ class ViewManager {
                 licenseType: 'unknown'
             },
             {
-                type: 'unlicensed',
-                title: '🚨 Unlicensed',
-                count: counts.unlicensed,
-                detail: 'unlicensed deps',
-                licenseType: 'unlicensed'
+                type: 'proprietary',
+                title: '🔒 Proprietary',
+                count: counts.proprietary,
+                detail: 'medium risk',
+                licenseType: 'proprietary'
+            },
+            {
+                type: 'total',
+                title: '📊 Total',
+                count: counts.total,
+                detail: 'licensed deps',
+                licenseType: 'total'
             },
             {
                 type: 'transitions',

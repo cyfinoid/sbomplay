@@ -3136,6 +3136,14 @@ body {
     display: flex !important;
 }
 
+.d-inline {
+    display: inline !important;
+}
+
+.d-inline-block {
+    display: inline-block !important;
+}
+
 /* Cursor utilities */
 .cursor-pointer {
     cursor: pointer !important;

@@ -60,14 +60,18 @@ class SBOMPlayApp {
             // Show results section if there are stored entries
             const storageInfo = await this.storageManager.getStorageInfo();
             if (storageInfo.totalEntries > 0 && document.getElementById('resultsSection')) {
-                document.getElementById('resultsSection').style.display = 'block';
+                const resultsSection = document.getElementById('resultsSection');
+                resultsSection.classList.remove('d-none');
+                resultsSection.classList.add('d-block');
                 // Also display stats dashboard on page load
                 await this.displayStatsDashboard();
             }
             
             // Show Quick Analysis Access section if there are stored entries
             if (storageInfo.totalEntries > 0 && document.getElementById('quickAnalysisSection')) {
-                document.getElementById('quickAnalysisSection').style.display = 'block';
+                const quickSection = document.getElementById('quickAnalysisSection');
+                quickSection.classList.remove('d-none');
+                quickSection.classList.add('d-block');
             }
         } catch (error) {
             console.error('Failed to initialize app:', error);
@@ -152,7 +156,8 @@ class SBOMPlayApp {
             </div>
         `;
         
-        resumeSection.style.display = 'block';
+        resumeSection.classList.remove('d-none');
+        resumeSection.classList.add('d-block');
         
         // Start countdown for resume section
         this.startResumeCountdown(remainingWait);
@@ -173,7 +178,9 @@ class SBOMPlayApp {
             if (seconds <= 0) {
                 clearInterval(countdownInterval);
                 // Hide resume section and clear state
-                document.getElementById('resumeSection').style.display = 'none';
+                const resumeSection = document.getElementById('resumeSection');
+                resumeSection.classList.add('d-none');
+                resumeSection.classList.remove('d-block');
                 this.githubClient.clearRateLimitState();
             }
         }, 1000);
@@ -192,7 +199,9 @@ class SBOMPlayApp {
             this.githubClient.clearRateLimitState();
             
             // Hide resume section
-            document.getElementById('resumeSection').style.display = 'none';
+            const resumeSection = document.getElementById('resumeSection');
+            resumeSection.classList.add('d-none');
+            resumeSection.classList.remove('d-block');
             
             // Start analysis
             this.startAnalysis();
@@ -204,7 +213,11 @@ class SBOMPlayApp {
      */
     clearRateLimitState() {
         this.githubClient.clearRateLimitState();
-        document.getElementById('resumeSection').style.display = 'none';
+        const resumeSection = document.getElementById('resumeSection');
+        if (resumeSection) {
+            resumeSection.classList.add('d-none');
+            resumeSection.classList.remove('d-block');
+        }
         this.showAlert('Rate limit state cleared', 'info');
     }
 
@@ -252,7 +265,8 @@ class SBOMPlayApp {
         const progressSection = document.getElementById('progressSection');
         const progressText = document.getElementById('progressText');
         
-        progressSection.style.display = 'block';
+        progressSection.classList.remove('d-none');
+        progressSection.classList.add('d-block');
         progressText.innerHTML = `
             <div class="alert alert-warning">
                 <h6><i class="fas fa-clock me-2"></i>Rate Limit Exceeded</h6>
@@ -483,8 +497,14 @@ class SBOMPlayApp {
         const resultsSection = document.getElementById('resultsSection');
         
         if (analyzeBtn) analyzeBtn.disabled = true;
-        if (progressSection) progressSection.style.display = 'block';
-        if (resultsSection) resultsSection.style.display = 'none';
+        if (progressSection) {
+            progressSection.classList.remove('d-none');
+            progressSection.classList.add('d-block');
+        }
+        if (resultsSection) {
+            resultsSection.classList.add('d-none');
+            resultsSection.classList.remove('d-block');
+        }
         
         this.updateProgress(0, 'Initializing repository analysis...');
 
@@ -645,8 +665,14 @@ class SBOMPlayApp {
         const resultsSection = document.getElementById('resultsSection');
         
         if (analyzeBtn) analyzeBtn.disabled = true;
-        if (progressSection) progressSection.style.display = 'block';
-        if (resultsSection) resultsSection.style.display = 'none';
+        if (progressSection) {
+            progressSection.classList.remove('d-none');
+            progressSection.classList.add('d-block');
+        }
+        if (resultsSection) {
+            resultsSection.classList.add('d-none');
+            resultsSection.classList.remove('d-block');
+        }
         
         this.updateProgress(0, 'Initializing analysis...');
 
@@ -987,15 +1013,18 @@ class SBOMPlayApp {
         }
         
         resultsContent.innerHTML = html;
-        resultsSection.style.display = 'block';
+        resultsSection.classList.remove('d-none');
+        resultsSection.classList.add('d-block');
         
         // Show/hide Quick Analysis Access section based on stored entries
         const quickAnalysisSection = document.getElementById('quickAnalysisSection');
         if (quickAnalysisSection) {
             if (allEntries.length > 0) {
-                quickAnalysisSection.style.display = 'block';
+                quickAnalysisSection.classList.remove('d-none');
+                quickAnalysisSection.classList.add('d-block');
             } else {
-                quickAnalysisSection.style.display = 'none';
+                quickAnalysisSection.classList.add('d-none');
+                quickAnalysisSection.classList.remove('d-block');
             }
         }
         
@@ -1021,13 +1050,16 @@ class SBOMPlayApp {
         const combinedData = await this.storageManager.getCombinedData();
         
         if (!combinedData) {
-            statsOverview.style.display = 'none';
-            statsQuality.style.display = 'none';
+            statsOverview.classList.add('d-none');
+            statsOverview.classList.remove('d-block');
+            statsQuality.classList.add('d-none');
+            statsQuality.classList.remove('d-block');
             return;
         }
         
         // Show stats sections
-        statsOverview.style.display = 'block';
+        statsOverview.classList.remove('d-none');
+        statsOverview.classList.add('d-block');
         
         // Display overview
         await this.displayStatsOverview(combinedData);
@@ -1560,11 +1592,13 @@ class SBOMPlayApp {
         if (!qualityDashboard || !qualityContent) return;
         
         if (!data.data.qualityAnalysis) {
-            qualityDashboard.style.display = 'none';
+            qualityDashboard.classList.add('d-none');
+            qualityDashboard.classList.remove('d-block');
             return;
         }
         
-        qualityDashboard.style.display = 'block';
+        qualityDashboard.classList.remove('d-none');
+        qualityDashboard.classList.add('d-block');
         const qa = data.data.qualityAnalysis;
         
         // Get color class for score
@@ -1743,11 +1777,13 @@ class SBOMPlayApp {
         const topDeps = this.getTopCommonDependencies(data);
         
         if (topDeps.length === 0) {
-            section.style.display = 'none';
+            section.classList.add('d-none');
+            section.classList.remove('d-block');
             return;
         }
         
-        section.style.display = 'block';
+        section.classList.remove('d-none');
+        section.classList.add('d-block');
         content.innerHTML = this.renderTopCommonDependencies(topDeps);
     }
     
@@ -1763,11 +1799,13 @@ class SBOMPlayApp {
         const sprawlDeps = this.getVersionSprawlDependencies(data);
         
         if (sprawlDeps.length === 0) {
-            section.style.display = 'none';
+            section.classList.add('d-none');
+            section.classList.remove('d-block');
             return;
         }
         
-        section.style.display = 'block';
+        section.classList.remove('d-none');
+        section.classList.add('d-block');
         content.innerHTML = this.renderVersionSprawl(sprawlDeps);
     }
     
@@ -2047,11 +2085,13 @@ class SBOMPlayApp {
         if (!licenseSection || !licenseContent) return;
         
         if (!data.data.licenseAnalysis || !data.data.licenseAnalysis.summary) {
-            licenseSection.style.display = 'none';
+            licenseSection.classList.add('d-none');
+            licenseSection.classList.remove('d-block');
             return;
         }
         
-        licenseSection.style.display = 'block';
+        licenseSection.classList.remove('d-none');
+        licenseSection.classList.add('d-block');
         const summary = data.data.licenseAnalysis.summary;
         const breakdown = summary.categoryBreakdown || {};
         
@@ -2066,7 +2106,8 @@ class SBOMPlayApp {
         // Calculate percentages for pie chart
         const total = totalLicensed + unlicensed;
         if (total === 0) {
-            licenseSection.style.display = 'none';
+            licenseSection.classList.add('d-none');
+            licenseSection.classList.remove('d-block');
             return;
         }
         
@@ -2381,12 +2422,14 @@ class SBOMPlayApp {
         `;
         
         resultsContent.innerHTML = html;
-        resultsSection.style.display = 'block';
+        resultsSection.classList.remove('d-none');
+        resultsSection.classList.add('d-block');
         
         // Show Quick Analysis Access section
         const quickAnalysisSection = document.getElementById('quickAnalysisSection');
         if (quickAnalysisSection) {
-            quickAnalysisSection.style.display = 'block';
+            quickAnalysisSection.classList.remove('d-none');
+            quickAnalysisSection.classList.add('d-block');
         }
     }
 
@@ -2508,9 +2551,11 @@ class SBOMPlayApp {
                 </span>
             `;
             
-            indicatorDiv.style.display = 'block';
+            indicatorDiv.classList.remove('d-none');
+            indicatorDiv.classList.add('d-block');
         } else {
-            indicatorDiv.style.display = 'none';
+            indicatorDiv.classList.add('d-none');
+            indicatorDiv.classList.remove('d-block');
         }
     }
 
@@ -2590,7 +2635,10 @@ class SBOMPlayApp {
         const progressSection = document.getElementById('progressSection');
         
         if (analyzeBtn) analyzeBtn.disabled = false;
-        if (progressSection) progressSection.style.display = 'none';
+        if (progressSection) {
+            progressSection.classList.add('d-none');
+            progressSection.classList.remove('d-block');
+        }
     }
 
     /**
@@ -2789,11 +2837,13 @@ function toggleTokenSection() {
     const body = document.getElementById('tokenSectionBody');
     const icon = document.getElementById('tokenToggleIcon');
     
-    if (body.style.display === 'none') {
-        body.style.display = 'block';
+    if (body.classList.contains('d-none')) {
+        body.classList.remove('d-none');
+        body.classList.add('d-block');
         icon.className = 'fas fa-chevron-up';
     } else {
-        body.style.display = 'none';
+        body.classList.add('d-none');
+        body.classList.remove('d-block');
         icon.className = 'fas fa-chevron-down';
     }
 }
