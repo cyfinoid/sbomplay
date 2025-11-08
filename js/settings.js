@@ -438,8 +438,8 @@ class SettingsApp {
         const data = await this.storageManager.loadAnalysisDataForOrganization(name);
         if (data) {
             console.log('Loading detailed view for:', name, data);
-            // Redirect to stats.html with parameter
-            window.location.href = `stats.html?org=${encodeURIComponent(name)}`;
+            // Redirect to index.html (stats are now integrated)
+            window.location.href = `index.html`;
         } else {
             this.showAlert(`No detailed data found for ${name}`, 'warning');
         }
@@ -452,8 +452,8 @@ class SettingsApp {
         const combinedData = await this.storageManager.getCombinedData();
         if (combinedData) {
             console.log('Loading combined view:', combinedData);
-            // Redirect to stats.html with combined parameter
-            window.location.href = 'stats.html?combined=true';
+            // Redirect to index.html (stats are now integrated)
+            window.location.href = 'index.html';
         } else {
             this.showAlert('No data available for combined view', 'warning');
         }

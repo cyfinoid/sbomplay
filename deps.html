@@ -135,7 +135,6 @@
             </a>
             <div class="navbar-nav ms-auto">
                 <a class="nav-link" href="index.html">Analysis</a>
-                <a class="nav-link" href="stats.html">Stats</a>
                 <a class="nav-link" href="license-compliance.html">License</a>
                 <a class="nav-link" href="vuln.html">Vulnerabilities</a>
                 <a class="nav-link" href="quality.html">Quality</a>
@@ -383,19 +382,63 @@
         let fundingFilterActive = false;
         let isLoadingMore = false;
         
-        // Check for funding filter in URL
+        // Check for URL parameters
         const urlParams = new URLSearchParams(window.location.search);
-        if (urlParams.get('funding') === 'true') {
+        const orgParam = urlParams.get('org');
+        const fundingParam = urlParams.get('funding');
+        const directParam = urlParams.get('direct');
+        
+        // Function to show funding filter notice
+        function showFundingFilterNotice() {
+            if (fundingParam === 'true') {
+                // Find the header section (the row with the h1)
+                const headerRow = document.querySelector('.row.mb-4');
+                if (headerRow) {
+                    const notice = document.createElement('div');
+                    notice.className = 'alert alert-info alert-dismissible fade show mb-4';
+                    const isDirectOnly = directParam === 'true';
+                    notice.innerHTML = `
+                        <i class="fas fa-heart me-2"></i>
+                        <strong>Funding Filter Active:</strong> Showing only ${isDirectOnly ? 'direct ' : ''}dependencies that accept donations/sponsorships.
+                        <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+                    `;
+                    // Insert after the header row, before the experimental note
+                    headerRow.insertAdjacentElement('afterend', notice);
+                }
+            }
+        }
+        
+        // Check for funding filter in URL
+        if (fundingParam === 'true') {
             fundingFilterActive = true;
-            // Show notice about funding filter
-            const notice = document.createElement('div');
-            notice.className = 'alert alert-info alert-dismissible fade show mt-3';
-            notice.innerHTML = `
-                <i class="fas fa-heart me-2"></i>
-                <strong>Funding Filter Active:</strong> Showing only dependencies that accept donations/sponsorships.
-                <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
-            `;
-            document.querySelector('.container').insertBefore(notice, document.querySelector('.container').firstChild);
+        }
+        
+        // Set type filter if direct parameter is present
+        if (directParam === 'true') {
+            // Wait for DOM to be ready
+            if (document.readyState === 'loading') {
+                document.addEventListener('DOMContentLoaded', () => {
+                    const typeFilter = document.getElementById('typeFilter');
+                    if (typeFilter) {
+                        typeFilter.value = 'direct';
+                    }
+                    showFundingFilterNotice();
+                });
+            } else {
+                // DOM already loaded
+                const typeFilter = document.getElementById('typeFilter');
+                if (typeFilter) {
+                    typeFilter.value = 'direct';
+                }
+                showFundingFilterNotice();
+            }
+        } else if (fundingParam === 'true') {
+            // Show notice even if direct is not set
+            if (document.readyState === 'loading') {
+                document.addEventListener('DOMContentLoaded', showFundingFilterNotice);
+            } else {
+                showFundingFilterNotice();
+            }
         }
         
         await loadAnalysesList();
@@ -425,9 +468,19 @@
                 selector.appendChild(option);
             });
             
-            // Default to "All Projects (Combined)"
+            // Set default based on URL parameter or default to "All Projects (Combined)"
             if (allEntries.length > 0) {
-                selector.value = '__ALL__';
+                if (orgParam) {
+                    // Check if the org from URL parameter exists in the entries
+                    const orgExists = allEntries.some(entry => entry.name === orgParam);
+                    if (orgExists) {
+                        selector.value = orgParam;
+                    } else {
+                        selector.value = '__ALL__';
+                    }
+                } else {
+                    selector.value = '__ALL__';
+                }
                 await loadAnalysis();
             }
         }

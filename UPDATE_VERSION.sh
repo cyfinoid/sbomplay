@@ -20,7 +20,7 @@ echo "New version: v=$NEW_VERSION"
 echo ""
 
 # Update all main HTML files
-for file in index.html stats.html settings.html license-compliance.html vuln.html deps.html authors.html; do
+for file in index.html settings.html license-compliance.html vuln.html deps.html authors.html; do
     if [ -f "$file" ]; then
         echo "Updating $file..."
         # Update JavaScript files
@@ -36,7 +36,6 @@ echo "✅ Cache busting version updated to v=$NEW_VERSION"
 echo ""
 echo "Updated files:"
 echo "  - index.html (JS + CSS)"
-echo "  - stats.html (JS + CSS)"
 echo "  - settings.html (JS + CSS)"
 echo "  - license-compliance.html (JS + CSS)"
 echo "  - vuln.html (JS + CSS)"

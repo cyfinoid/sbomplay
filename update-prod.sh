@@ -9,7 +9,6 @@ rm -rf docs/*
 
 # Copy all HTML files
 cp index.html docs/
-cp stats.html docs/
 cp license-compliance.html docs/
 cp vuln.html docs/
 cp deps.html docs/

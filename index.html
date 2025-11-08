@@ -22,7 +22,6 @@
             </a>
             <div class="navbar-nav ms-auto">
                 <a class="nav-link active" href="index.html">Analysis</a>
-                <a class="nav-link" href="stats.html">Stats</a>
                 <a class="nav-link" href="license-compliance.html">License</a>
                 <a class="nav-link" href="vuln.html">Vulnerabilities</a>
                 <a class="nav-link" href="quality.html">Quality</a>
@@ -98,9 +97,6 @@
                             <button class="btn btn-primary" onclick="startAnalysis()" id="analyzeBtn">
                                 <i class="fas fa-play me-2"></i>Start Analysis
                             </button>
-                            <a href="stats.html" class="btn btn-outline-info">
-                                <i class="fas fa-search me-2"></i>View Results
-                            </a>
                         </div>
                     </div>
                 </div>
@@ -165,14 +161,65 @@
 
         <!-- Results Section -->
         <div id="resultsSection" class="card mb-4" style="display: none;">
-            <div class="card-header">
-                <h5 class="mb-0">
-                    <i class="fas fa-chart-bar me-2"></i>Analysis Results
+            <div class="card-header" style="cursor: pointer;" data-bs-toggle="collapse" data-bs-target="#resultsCollapse" aria-expanded="true" aria-controls="resultsCollapse">
+                <h5 class="mb-0 d-flex justify-content-between align-items-center">
+                    <span>
+                        <i class="fas fa-chart-bar me-2"></i>Analysis Results
+                    </span>
+                    <i class="fas fa-chevron-down" id="resultsCollapseIcon"></i>
                 </h5>
             </div>
-            <div class="card-body">
-                <div id="resultsContent"></div>
+            <div class="collapse show" id="resultsCollapse">
+                <div class="card-body">
+                    <div id="resultsContent"></div>
+                </div>
             </div>
+        </div>
+
+        <!-- Stats Dashboard Overview -->
+        <div id="statsDashboardOverview" class="card mb-4" style="display: none;">
+            <div class="card-header" style="cursor: pointer;" data-bs-toggle="collapse" data-bs-target="#statsOverviewCollapse" aria-expanded="true" aria-controls="statsOverviewCollapse">
+                <h5 class="mb-0 d-flex justify-content-between align-items-center">
+                    <span>
+                        <i class="fas fa-chart-line me-2"></i>Statistics Dashboard
+                    </span>
+                    <i class="fas fa-chevron-down" id="statsOverviewCollapseIcon"></i>
+                </h5>
+            </div>
+            <div class="collapse show" id="statsOverviewCollapse">
+                <div class="card-body">
+                    <div id="statsOverviewContent">
+                        <div class="text-center text-muted">
+                            <i class="fas fa-spinner fa-spin fa-2x mb-3"></i>
+                            <p>Loading statistics...</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- SBOM Quality Dashboard -->
+        <div id="statsQualityDashboard" class="card mb-4" style="display: none;">
+            <div class="card-header" style="cursor: pointer;" data-bs-toggle="collapse" data-bs-target="#qualityCollapse" aria-expanded="true" aria-controls="qualityCollapse">
+                <h5 class="mb-0 d-flex justify-content-between align-items-center">
+                    <span>
+                        <i class="fas fa-certificate me-2"></i>SBOM Quality Assessment
+                    </span>
+                    <i class="fas fa-chevron-down" id="qualityCollapseIcon"></i>
+                </h5>
+            </div>
+            <div class="collapse show" id="qualityCollapse">
+                <div class="card-body">
+                    <div id="statsQualityContent">
+                        <!-- Quality data will be populated by JavaScript -->
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Stats Cards -->
+        <div id="statsCards" class="row mb-4" style="display: none;">
+            <!-- Stats will be populated by JavaScript -->
         </div>
 
         <!-- Quick Analysis Access -->
@@ -348,5 +395,51 @@
         <script src="js/storage-manager.js?v=10"></script>
         <script src="js/view-manager.js?v=10"></script>
         <script src="js/app.js?v=10"></script>
+        <script>
+            // Handle collapse icon rotation
+            document.addEventListener('DOMContentLoaded', function() {
+                // Results collapse
+                const resultsCollapse = document.getElementById('resultsCollapse');
+                const resultsIcon = document.getElementById('resultsCollapseIcon');
+                if (resultsCollapse && resultsIcon) {
+                    resultsCollapse.addEventListener('show.bs.collapse', () => {
+                        resultsIcon.classList.remove('fa-chevron-up');
+                        resultsIcon.classList.add('fa-chevron-down');
+                    });
+                    resultsCollapse.addEventListener('hide.bs.collapse', () => {
+                        resultsIcon.classList.remove('fa-chevron-down');
+                        resultsIcon.classList.add('fa-chevron-up');
+                    });
+                }
+                
+                // Stats overview collapse
+                const statsOverviewCollapse = document.getElementById('statsOverviewCollapse');
+                const statsOverviewIcon = document.getElementById('statsOverviewCollapseIcon');
+                if (statsOverviewCollapse && statsOverviewIcon) {
+                    statsOverviewCollapse.addEventListener('show.bs.collapse', () => {
+                        statsOverviewIcon.classList.remove('fa-chevron-up');
+                        statsOverviewIcon.classList.add('fa-chevron-down');
+                    });
+                    statsOverviewCollapse.addEventListener('hide.bs.collapse', () => {
+                        statsOverviewIcon.classList.remove('fa-chevron-down');
+                        statsOverviewIcon.classList.add('fa-chevron-up');
+                    });
+                }
+                
+                // Quality collapse
+                const qualityCollapse = document.getElementById('qualityCollapse');
+                const qualityCollapseIcon = document.getElementById('qualityCollapseIcon');
+                if (qualityCollapse && qualityCollapseIcon) {
+                    qualityCollapse.addEventListener('show.bs.collapse', () => {
+                        qualityCollapseIcon.classList.remove('fa-chevron-up');
+                        qualityCollapseIcon.classList.add('fa-chevron-down');
+                    });
+                    qualityCollapse.addEventListener('hide.bs.collapse', () => {
+                        qualityCollapseIcon.classList.remove('fa-chevron-down');
+                        qualityCollapseIcon.classList.add('fa-chevron-up');
+                    });
+                }
+            });
+        </script>
 </body>
 </html> 

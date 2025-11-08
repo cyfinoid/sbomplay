@@ -61,6 +61,8 @@ class SBOMPlayApp {
             const storageInfo = await this.storageManager.getStorageInfo();
             if (storageInfo.totalEntries > 0 && document.getElementById('resultsSection')) {
                 document.getElementById('resultsSection').style.display = 'block';
+                // Also display stats dashboard on page load
+                await this.displayStatsDashboard();
             }
             
             // Show Quick Analysis Access section if there are stored entries
@@ -939,9 +941,23 @@ class SBOMPlayApp {
                                     ${allEntries.map(entry => {
                                         const date = new Date(entry.timestamp).toLocaleDateString();
                                         const time = new Date(entry.timestamp).toLocaleTimeString();
+                                        // Escape HTML for display
+                                        const escapeHtml = (text) => {
+                                            if (!text) return '';
+                                            const div = document.createElement('div');
+                                            div.textContent = text;
+                                            return div.innerHTML;
+                                        };
+                                        const orgNameEscaped = escapeHtml(entry.name);
                                         return `
                                             <tr>
-                                                <td><strong>${entry.name}</strong></td>
+                                                <td>
+                                                    <strong>
+                                                        <a href="deps.html?org=${encodeURIComponent(entry.name)}" class="text-decoration-none">
+                                                            ${orgNameEscaped}
+                                                        </a>
+                                                    </strong>
+                                                </td>
                                                 <td><span class="badge bg-primary">${entry.repositories}</span></td>
                                                 <td><span class="badge bg-success">${entry.dependencies}</span></td>
                                                 <td><small>${date} ${time}</small></td>
@@ -978,6 +994,674 @@ class SBOMPlayApp {
                 quickAnalysisSection.style.display = 'none';
             }
         }
+        
+        // Show stats dashboard if we have data
+        if (allEntries.length > 0) {
+            await this.displayStatsDashboard();
+        }
+    }
+    
+    /**
+     * Display stats dashboard (similar to stats.html)
+     */
+    async displayStatsDashboard() {
+        const statsOverview = document.getElementById('statsDashboardOverview');
+        const statsQuality = document.getElementById('statsQualityDashboard');
+        const statsCards = document.getElementById('statsCards');
+        
+        // Check if stats elements exist on this page
+        if (!statsOverview || !statsCards) {
+            return; // Stats sections don't exist on this page
+        }
+        
+        // Load combined data
+        const combinedData = await this.storageManager.getCombinedData();
+        
+        if (!combinedData) {
+            statsOverview.style.display = 'none';
+            statsQuality.style.display = 'none';
+            statsCards.style.display = 'none';
+            return;
+        }
+        
+        // Show stats sections
+        statsOverview.style.display = 'block';
+        statsCards.style.display = 'block';
+        
+        // Display overview
+        await this.displayStatsOverview(combinedData);
+        
+        // Display quality dashboard
+        this.displayStatsQuality(combinedData);
+        
+        // Display stats cards
+        this.displayStatsCards(combinedData);
+    }
+    
+    /**
+     * Display stats overview
+     */
+    async displayStatsOverview(data) {
+        const content = document.getElementById('statsOverviewContent');
+        if (!content) return;
+        
+        // Calculate high-level stats
+        const totalRepos = data.data.allRepositories?.length || 0;
+        const totalDeps = data.data.allDependencies?.length || 0;
+        
+        // Extract vulnerabilities from vulnerabilityAnalysis
+        let totalVulns = 0;
+        if (data.data.vulnerabilityAnalysis && data.data.vulnerabilityAnalysis.vulnerableDependencies) {
+            totalVulns = data.data.vulnerabilityAnalysis.vulnerableDependencies.reduce((total, dep) => {
+                return total + (dep.vulnerabilities?.length || 0);
+            }, 0);
+        }
+        
+        // Extract licenses from licenseAnalysis
+        let totalLicenses = 0;
+        if (data.data.licenseAnalysis && data.data.licenseAnalysis.summary) {
+            totalLicenses = data.data.licenseAnalysis.summary.totalDependencies || 0;
+        }
+        
+        // Count packages and authors seeking sponsorship/donations
+        const fundingStats = await this.getFundingStats(data);
+        
+        const html = `
+            <div class="row">
+                <div class="col-md-6">
+                    <h6>📊 Combined Analysis Summary</h6>
+                    <p class="text-muted small mb-3">
+                        Aggregated data from all analyzed organizations
+                    </p>
+                </div>
+                <div class="col-md-6 text-end">
+                    <a href="license-compliance.html" class="btn btn-outline-primary btn-sm me-2">
+                        <i class="fas fa-file-contract me-1"></i>License Details
+                    </a>
+                    <a href="vuln.html" class="btn btn-outline-warning btn-sm me-2">
+                        <i class="fas fa-shield-alt me-1"></i>Vulnerability Details
+                    </a>
+                    <a href="deps.html" class="btn btn-outline-info btn-sm">
+                        <i class="fas fa-cubes me-1"></i>Dependency Details
+                    </a>
+                </div>
+            </div>
+            <div class="row mt-3">
+                <div class="col-md-3">
+                    <div class="text-center">
+                        <h4 class="text-primary">${totalRepos}</h4>
+                        <small class="text-muted">Repositories</small>
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <div class="text-center">
+                        <h4 class="text-success">${totalDeps}</h4>
+                        <small class="text-muted">Dependencies</small>
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <div class="text-center">
+                        <h4 class="text-warning">${totalVulns}</h4>
+                        <small class="text-muted">Vulnerabilities</small>
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <div class="text-center">
+                        <h4 class="text-info">${totalLicenses}</h4>
+                        <small class="text-muted">Licenses</small>
+                    </div>
+                </div>
+            </div>
+            ${fundingStats.packagesWithFunding > 0 || fundingStats.authorsWithFunding > 0 ? `
+            <div class="row mt-3 pt-3 border-top">
+                <div class="col-12 mb-2">
+                    <h6><i class="fas fa-heart me-2"></i>Funding & Sponsorship Opportunities</h6>
+                </div>
+                <div class="col-md-4">
+                    <div class="text-center">
+                        ${fundingStats.directPackagesWithFunding > 0 ? `
+                        <a href="deps.html?funding=true&direct=true" class="text-decoration-none text-success">
+                            <h4 class="text-success">
+                                <i class="fas fa-layer-group me-2"></i>${fundingStats.directPackagesWithFunding}
+                            </h4>
+                            <small class="text-muted">Direct Dependencies</small>
+                            <p class="text-muted small mb-0 mt-1">
+                                <i class="fas fa-info-circle me-1"></i>
+                                Packages directly used by your repositories
+                            </p>
+                        </a>
+                        ` : `
+                        <h4 class="text-success">
+                            <i class="fas fa-layer-group me-2"></i>0
+                        </h4>
+                        <small class="text-muted">Direct Dependencies</small>
+                        <p class="text-muted small mb-0 mt-1">No direct dependencies with funding</p>
+                        `}
+                    </div>
+                </div>
+                <div class="col-md-4">
+                    <div class="text-center">
+                        ${fundingStats.packagesWithFunding > 0 ? `
+                        <a href="deps.html?funding=true" class="text-decoration-none text-info">
+                            <h4 class="text-info">
+                                <i class="fas fa-sitemap me-2"></i>${fundingStats.packagesWithFunding}
+                            </h4>
+                            <small class="text-muted">All Dependencies</small>
+                            <p class="text-muted small mb-0 mt-1">
+                                <i class="fas fa-info-circle me-1"></i>
+                                Includes transitive dependencies in supply chain
+                            </p>
+                        </a>
+                        ` : `
+                        <h4 class="text-info">
+                            <i class="fas fa-sitemap me-2"></i>0
+                        </h4>
+                        <small class="text-muted">All Dependencies</small>
+                        <p class="text-muted small mb-0 mt-1">No dependencies with funding found</p>
+                        `}
+                    </div>
+                </div>
+                <div class="col-md-4">
+                    <div class="text-center">
+                        ${fundingStats.authorsWithFunding > 0 ? `
+                        <a href="authors.html?funding=true" class="text-decoration-none text-primary">
+                            <h4 class="text-primary">
+                                <i class="fas fa-users me-2"></i>${fundingStats.authorsWithFunding}
+                            </h4>
+                            <small class="text-muted">Package Authors</small>
+                            <p class="text-muted small mb-0 mt-1">
+                                <i class="fas fa-info-circle me-1"></i>
+                                Maintainers accepting personal sponsorships
+                            </p>
+                        </a>
+                        ` : `
+                        <h4 class="text-primary">
+                            <i class="fas fa-users me-2"></i>0
+                        </h4>
+                        <small class="text-muted">Package Authors</small>
+                        <p class="text-muted small mb-0 mt-1">No authors with funding found</p>
+                        `}
+                    </div>
+                </div>
+            </div>
+            ` : ''}
+        `;
+        
+        content.innerHTML = html;
+    }
+    
+    /**
+     * Display SBOM Quality Dashboard
+     */
+    displayStatsQuality(data) {
+        const qualityDashboard = document.getElementById('statsQualityDashboard');
+        const qualityContent = document.getElementById('statsQualityContent');
+        
+        if (!qualityDashboard || !qualityContent) return;
+        
+        if (!data.data.qualityAnalysis) {
+            qualityDashboard.style.display = 'none';
+            return;
+        }
+        
+        qualityDashboard.style.display = 'block';
+        const qa = data.data.qualityAnalysis;
+        
+        // Get color class for score
+        const getScoreColor = (score) => {
+            if (score >= 80) return 'success';
+            if (score >= 60) return 'warning';
+            return 'danger';
+        };
+        
+        // Convert to 0-10 display scale
+        const displayScore = qa.averageDisplayScore || (qa.averageOverallScore / 10).toFixed(1);
+        
+        // Build HTML
+        let html = `
+            <div class="alert alert-info mb-3">
+                <i class="fas fa-info-circle me-2"></i>
+                <strong>Industry-Aligned Assessment:</strong> Based on sbomqs methodology, adapted for GitHub SPDX SBOMs.
+                7 categories with GitHub-optimized weights. Scores: 0-10 scale.
+            </div>
+            
+            <div class="row mb-4">
+                <div class="col-md-12 text-center mb-3">
+                    <h2 class="text-${getScoreColor(qa.averageOverallScore)}">${displayScore}/10.0</h2>
+                    <p class="text-muted">Average Quality Score Across All Repositories</p>
+                </div>
+            </div>
+            
+            <h6 class="mb-3">Average Category Scores (7 categories):</h6>
+            <div class="row g-3 mb-4">
+                <div class="col-lg-3 col-md-6">
+                    <div class="card">
+                        <div class="card-body p-2">
+                            <p class="mb-1 small"><strong>Identification (25%)</strong></p>
+                            <div class="progress" style="height: 25px;">
+                                <div class="progress-bar bg-${getScoreColor(qa.averageIdentification || 0)}" 
+                                     role="progressbar" 
+                                     style="width: ${qa.averageIdentification || 0}%">${qa.averageIdentification || 0}/100</div>
+                            </div>
+                            <small class="text-muted">Names, versions, PURLs</small>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-lg-3 col-md-6">
+                    <div class="card">
+                        <div class="card-body p-2">
+                            <p class="mb-1 small"><strong>Provenance (20%)</strong></p>
+                            <div class="progress" style="height: 25px;">
+                                <div class="progress-bar bg-${getScoreColor(qa.averageProvenance || 0)}" 
+                                     role="progressbar" 
+                                     style="width: ${qa.averageProvenance || 0}%">${qa.averageProvenance || 0}/100</div>
+                            </div>
+                            <small class="text-muted">Creator, timestamp, tool</small>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-lg-3 col-md-6">
+                    <div class="card">
+                        <div class="card-body p-2">
+                            <p class="mb-1 small"><strong>Integrity (10%)</strong></p>
+                            <div class="progress" style="height: 25px;">
+                                <div class="progress-bar bg-${getScoreColor(qa.averageIntegrity || 0)}" 
+                                     role="progressbar" 
+                                     style="width: ${qa.averageIntegrity || 0}%">${qa.averageIntegrity || 0}/100</div>
+                            </div>
+                            <small class="text-muted">Checksums, SHA-256+</small>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-lg-3 col-md-6">
+                    <div class="card">
+                        <div class="card-body p-2">
+                            <p class="mb-1 small"><strong>Completeness (20%)</strong></p>
+                            <div class="progress" style="height: 25px;">
+                                <div class="progress-bar bg-${getScoreColor(qa.averageCompleteness || 0)}" 
+                                     role="progressbar" 
+                                     style="width: ${qa.averageCompleteness || 0}%">${qa.averageCompleteness || 0}/100</div>
+                            </div>
+                            <small class="text-muted">Relationships, metadata</small>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-lg-3 col-md-6">
+                    <div class="card">
+                        <div class="card-body p-2">
+                            <p class="mb-1 small"><strong>Licensing (10%)</strong></p>
+                            <div class="progress" style="height: 25px;">
+                                <div class="progress-bar bg-${getScoreColor(qa.averageLicensing || 0)}" 
+                                     role="progressbar" 
+                                     style="width: ${qa.averageLicensing || 0}%">${qa.averageLicensing || 0}/100</div>
+                            </div>
+                            <small class="text-muted">License presence, validity</small>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-lg-3 col-md-6">
+                    <div class="card">
+                        <div class="card-body p-2">
+                            <p class="mb-1 small"><strong>Vulnerability (10%)</strong></p>
+                            <div class="progress" style="height: 25px;">
+                                <div class="progress-bar bg-${getScoreColor(qa.averageVulnerability || 0)}" 
+                                     role="progressbar" 
+                                     style="width: ${qa.averageVulnerability || 0}%">${qa.averageVulnerability || 0}/100</div>
+                            </div>
+                            <small class="text-muted">PURL, CPE identifiers</small>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-lg-3 col-md-6">
+                    <div class="card">
+                        <div class="card-body p-2">
+                            <p class="mb-1 small"><strong>Structural (5%)</strong></p>
+                            <div class="progress" style="height: 25px;">
+                                <div class="progress-bar bg-${getScoreColor(qa.averageStructural || 0)}" 
+                                     role="progressbar" 
+                                     style="width: ${qa.averageStructural || 0}%">${qa.averageStructural || 0}/100</div>
+                            </div>
+                            <small class="text-muted">SPDX compliance</small>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="row mb-3">
+                <div class="col-md-12">
+                    <h6>Grade Distribution</h6>
+                    <div class="d-flex gap-3">
+                        <span class="badge bg-success">A: ${qa.gradeDistribution.A || 0}</span>
+                        <span class="badge bg-info">B: ${qa.gradeDistribution.B || 0}</span>
+                        <span class="badge bg-primary">C: ${qa.gradeDistribution.C || 0}</span>
+                        <span class="badge bg-warning">D: ${qa.gradeDistribution.D || 0}</span>
+                        <span class="badge bg-danger">F: ${qa.gradeDistribution.F || 0}</span>
+                        ${qa.gradeDistribution['N/A'] > 0 ? `<span class="badge bg-secondary">N/A: ${qa.gradeDistribution['N/A']}</span>` : ''}
+                    </div>
+                </div>
+            </div>
+        `;
+        
+        // Add repositories needing attention
+        if (qa.repositoriesNeedingAttention && qa.repositoriesNeedingAttention.length > 0) {
+            html += `
+                <div class="alert alert-warning">
+                    <h6><i class="fas fa-exclamation-triangle me-2"></i>Repositories Needing Attention (${qa.repositoriesNeedingAttention.length})</h6>
+                    <p class="small mb-2">These repositories have SBOM quality scores below 70%:</p>
+                    <div class="table-responsive">
+                        <table class="table table-sm table-hover mb-0">
+                            <thead>
+                                <tr>
+                                    <th>Repository</th>
+                                    <th>Score</th>
+                                    <th>Grade</th>
+                                    <th>Top Issues</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+            `;
+            
+            qa.repositoriesNeedingAttention.slice(0, 10).forEach(repo => {
+                const issueCategories = repo.topIssues.map(issue => issue.category).join(', ');
+                const repoDisplayScore = repo.displayScore || (repo.score / 10).toFixed(1);
+                html += `
+                    <tr>
+                        <td><code>${repo.repository}</code></td>
+                        <td><span class="badge bg-${getScoreColor(repo.score)}">${repoDisplayScore}/10</span></td>
+                        <td><span class="badge bg-secondary">${repo.grade}</span></td>
+                        <td><small>${issueCategories}</small></td>
+                    </tr>
+                `;
+            });
+            
+            html += `
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            `;
+        }
+        
+        qualityContent.innerHTML = html;
+    }
+    
+    /**
+     * Display stats cards
+     */
+    displayStatsCards(data) {
+        const statsContainer = document.getElementById('statsCards');
+        if (!statsContainer) return;
+        
+        // Calculate additional stats
+        const topLanguages = this.getTopLanguages(data);
+        const topVulnerabilities = this.getTopVulnerabilities(data);
+        const licenseCompliance = this.getLicenseCompliance(data);
+
+        const html = `
+            <div class="row gy-3">
+                <div class="col-md-4">
+                    <div class="card h-100">
+                        <div class="card-header">
+                            <h6 class="mb-0"><i class="fas fa-code me-2"></i>Top Languages</h6>
+                        </div>
+                        <div class="card-body">
+                            ${this.renderTopLanguages(topLanguages)}
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-4">
+                    <div class="card h-100">
+                        <div class="card-header">
+                            <h6 class="mb-0"><i class="fas fa-exclamation-triangle me-2"></i>Critical Issues</h6>
+                        </div>
+                        <div class="card-body">
+                            ${this.renderTopVulnerabilities(topVulnerabilities)}
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-4">
+                    <div class="card h-100">
+                        <div class="card-header">
+                            <h6 class="mb-0"><i class="fas fa-file-contract me-2"></i>License Status</h6>
+                        </div>
+                        <div class="card-body">
+                            ${this.renderLicenseCompliance(licenseCompliance)}
+                        </div>
+                    </div>
+                </div>
+            </div>
+        `;
+        
+        statsContainer.innerHTML = html;
+    }
+    
+    /**
+     * Get top languages from data
+     */
+    getTopLanguages(data) {
+        if (!data.data.languageStats) {
+            return [];
+        }
+        
+        return Object.entries(data.data.languageStats)
+            .sort(([,a], [,b]) => b - a)
+            .slice(0, 5)
+            .map(([lang, count]) => ({ language: lang, count }));
+    }
+    
+    /**
+     * Get top vulnerabilities from data
+     */
+    getTopVulnerabilities(data) {
+        if (!data.data.vulnerabilityAnalysis || !data.data.vulnerabilityAnalysis.vulnerableDependencies) {
+            return [];
+        }
+        
+        const vulnCounts = {};
+        data.data.vulnerabilityAnalysis.vulnerableDependencies.forEach(dep => {
+            if (dep.vulnerabilities) {
+                dep.vulnerabilities.forEach(vuln => {
+                    const severity = vuln.severity || 'unknown';
+                    vulnCounts[severity] = (vulnCounts[severity] || 0) + 1;
+                });
+            }
+        });
+        
+        return Object.entries(vulnCounts)
+            .sort(([,a], [,b]) => b - a)
+            .map(([severity, count]) => ({ severity, count }));
+    }
+    
+    /**
+     * Get license compliance stats
+     */
+    getLicenseCompliance(data) {
+        if (!data.data.licenseAnalysis || !data.data.licenseAnalysis.summary) {
+            return { total: 0, compliant: 0, nonCompliant: 0 };
+        }
+        
+        const summary = data.data.licenseAnalysis.summary;
+        const total = summary.totalDependencies || 0;
+        const compliant = summary.licensedDependencies || 0;
+        
+        return {
+            total,
+            compliant,
+            nonCompliant: total - compliant
+        };
+    }
+    
+    /**
+     * Render top languages
+     */
+    renderTopLanguages(languages) {
+        if (languages.length === 0) {
+            return '<p class="text-muted small">No language data available</p>';
+        }
+        
+        return languages.map(lang => 
+            `<div class="d-flex justify-content-between align-items-center mb-2">
+                <span class="small">${lang.language}</span>
+                <span class="badge bg-primary">${lang.count}</span>
+            </div>`
+        ).join('');
+    }
+    
+    /**
+     * Render top vulnerabilities
+     */
+    renderTopVulnerabilities(vulnerabilities) {
+        if (vulnerabilities.length === 0) {
+            return '<p class="text-muted small">No vulnerability data available</p>';
+        }
+        
+        const severityColors = {
+            'critical': 'danger',
+            'high': 'warning',
+            'medium': 'info',
+            'low': 'secondary',
+            'unknown': 'light',
+            'CRITICAL': 'danger',
+            'HIGH': 'warning',
+            'MEDIUM': 'info',
+            'LOW': 'secondary',
+            'UNKNOWN': 'light'
+        };
+        
+        return vulnerabilities.map(vuln => {
+            const severity = vuln.severity || 'unknown';
+            const color = severityColors[severity] || 'light';
+            return `<div class="d-flex justify-content-between align-items-center mb-2">
+                <span class="small text-capitalize">${severity.toLowerCase()}</span>
+                <span class="badge bg-${color}">${vuln.count}</span>
+            </div>`;
+        }).join('');
+    }
+    
+    /**
+     * Render license compliance
+     */
+    renderLicenseCompliance(compliance) {
+        if (compliance.total === 0) {
+            return '<p class="text-muted small">No license data available</p>';
+        }
+        
+        const compliantPercent = compliance.total > 0 ? 
+            ((compliance.compliant / compliance.total) * 100).toFixed(1) : 0;
+        
+        return `
+            <div class="text-center mb-3">
+                <h4 class="text-${compliantPercent >= 80 ? 'success' : compliantPercent >= 60 ? 'warning' : 'danger'}">${compliantPercent}%</h4>
+                <small class="text-muted">Compliant</small>
+            </div>
+            <div class="row text-center">
+                <div class="col-6">
+                    <small class="text-success">${compliance.compliant} Compliant</small>
+                </div>
+                <div class="col-6">
+                    <small class="text-danger">${compliance.nonCompliant} Issues</small>
+                </div>
+            </div>
+        `;
+    }
+    
+    /**
+     * Get funding statistics (packages and authors seeking sponsorship)
+     */
+    async getFundingStats(data) {
+        let packagesWithFunding = 0;
+        let directPackagesWithFunding = 0;
+        let authorsWithFunding = 0;
+
+        if (!window.cacheManager || !window.indexedDBManager) {
+            return { packagesWithFunding: 0, directPackagesWithFunding: 0, authorsWithFunding: 0 };
+        }
+
+        try {
+            // Count packages with funding
+            if (data.data.allDependencies && Array.isArray(data.data.allDependencies)) {
+                const uniquePackages = new Set();
+                data.data.allDependencies.forEach(dep => {
+                    let packageKey = null;
+                    
+                    if (dep.packageKey) {
+                        packageKey = dep.packageKey;
+                    } else if (dep.purl) {
+                        const purlMatch = dep.purl.match(/pkg:([^\/]+)\/([^@\/]+)/);
+                        if (purlMatch) {
+                            packageKey = `${purlMatch[1]}:${purlMatch[2]}`;
+                        }
+                    } else if (dep.name && dep.ecosystem) {
+                        packageKey = `${dep.ecosystem}:${dep.name}`;
+                    } else if (dep.name && dep.category?.ecosystem) {
+                        packageKey = `${dep.category.ecosystem}:${dep.name}`;
+                    }
+
+                    if (packageKey) {
+                        uniquePackages.add(packageKey);
+                    }
+                });
+
+                // Track which packages are direct vs transitive
+                const directPackages = new Set();
+                data.data.allDependencies.forEach(dep => {
+                    if (dep.directIn && Array.isArray(dep.directIn) && dep.directIn.length > 0) {
+                        let packageKey = null;
+                        if (dep.packageKey) {
+                            packageKey = dep.packageKey;
+                        } else if (dep.purl) {
+                            const purlMatch = dep.purl.match(/pkg:([^\/]+)\/([^@\/]+)/);
+                            if (purlMatch) {
+                                packageKey = `${purlMatch[1]}:${purlMatch[2]}`;
+                            }
+                        } else if (dep.name && dep.category?.ecosystem) {
+                            packageKey = `${dep.category.ecosystem}:${dep.name}`;
+                        }
+                        if (packageKey) {
+                            directPackages.add(packageKey);
+                        }
+                    }
+                });
+
+                // Check each package for funding
+                const packageArray = Array.from(uniquePackages);
+                const packageChecks = packageArray.map(async (packageKey) => {
+                    const packageData = await window.cacheManager.getPackage(packageKey);
+                    const hasFunding = packageData && packageData.funding ? 1 : 0;
+                    const isDirect = directPackages.has(packageKey) ? 1 : 0;
+                    return { hasFunding, isDirect };
+                });
+
+                const results = await Promise.all(packageChecks);
+                packagesWithFunding = results.reduce((sum, pkg) => sum + pkg.hasFunding, 0);
+                directPackagesWithFunding = results.reduce((sum, pkg) => sum + (pkg.hasFunding && pkg.isDirect ? 1 : 0), 0);
+            }
+
+            // Count authors with funding
+            if (data.data.authorAnalysis && data.data.authorAnalysis.authors) {
+                const authorRefs = data.data.authorAnalysis.authors;
+                const uniqueAuthorKeys = new Set();
+
+                authorRefs.forEach(ref => {
+                    if (ref.authorKey) {
+                        uniqueAuthorKeys.add(ref.authorKey);
+                    }
+                });
+
+                const authorChecks = Array.from(uniqueAuthorKeys).map(async (authorKey) => {
+                    const authorEntity = await window.cacheManager.getAuthorEntity(authorKey);
+                    return authorEntity && authorEntity.funding ? 1 : 0;
+                });
+
+                const authorResults = await Promise.all(authorChecks);
+                authorsWithFunding = authorResults.reduce((sum, count) => sum + count, 0);
+            }
+
+        } catch (error) {
+            console.error('❌ Failed to calculate funding stats:', error);
+        }
+
+        return { packagesWithFunding, directPackagesWithFunding, authorsWithFunding };
     }
 
     /**
@@ -1046,7 +1730,7 @@ class SBOMPlayApp {
                 <h6><i class="fas fa-info-circle me-2"></i>Explore Results</h6>
                 <p class="mb-2">View detailed analysis in the specialized pages:</p>
                 <div class="d-flex gap-2">
-                    <a href="stats.html" class="btn btn-sm btn-outline-primary">
+                    <a href="index.html" class="btn btn-sm btn-outline-primary">
                         <i class="fas fa-chart-bar me-1"></i>Statistics
                     </a>
                     <a href="license-compliance.html" class="btn btn-sm btn-outline-primary">
