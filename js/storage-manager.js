@@ -726,28 +726,70 @@ class StorageManager {
             medium: 0,
             high: 0
         };
+        const allConflicts = [];
+        const allRecommendations = [];
+        const allHighRiskDependencies = [];
+        const licenseFamiliesMap = new Map();
 
         for (const entry of entriesData) {
-            if (entry.data.licenseAnalysis && entry.data.licenseAnalysis.summary) {
-                const summary = entry.data.licenseAnalysis.summary;
-                totalDeps += summary.totalDependencies || 0;
-                totalLicensedDeps += summary.licensedDependencies || 0;
-                totalUnlicensedDeps += summary.unlicensedDependencies || 0;
+            if (entry.data.licenseAnalysis) {
+                const licenseAnalysis = entry.data.licenseAnalysis;
                 
-                // Combine category breakdown
-                if (summary.categoryBreakdown) {
-                    categoryBreakdown.permissive += summary.categoryBreakdown.permissive || 0;
-                    categoryBreakdown.copyleft += summary.categoryBreakdown.copyleft || 0;
-                    categoryBreakdown.lgpl += summary.categoryBreakdown.lgpl || 0;
-                    categoryBreakdown.proprietary += summary.categoryBreakdown.proprietary || 0;
-                    categoryBreakdown.unknown += summary.categoryBreakdown.unknown || 0;
+                // Combine summary
+                if (licenseAnalysis.summary) {
+                    const summary = licenseAnalysis.summary;
+                    totalDeps += summary.totalDependencies || 0;
+                    totalLicensedDeps += summary.licensedDependencies || 0;
+                    totalUnlicensedDeps += summary.unlicensedDependencies || 0;
+                    
+                    // Combine category breakdown
+                    if (summary.categoryBreakdown) {
+                        categoryBreakdown.permissive += summary.categoryBreakdown.permissive || 0;
+                        categoryBreakdown.copyleft += summary.categoryBreakdown.copyleft || 0;
+                        categoryBreakdown.lgpl += summary.categoryBreakdown.lgpl || 0;
+                        categoryBreakdown.proprietary += summary.categoryBreakdown.proprietary || 0;
+                        categoryBreakdown.unknown += summary.categoryBreakdown.unknown || 0;
+                    }
+                    
+                    // Combine risk breakdown
+                    if (summary.riskBreakdown) {
+                        riskBreakdown.low += summary.riskBreakdown.low || 0;
+                        riskBreakdown.medium += summary.riskBreakdown.medium || 0;
+                        riskBreakdown.high += summary.riskBreakdown.high || 0;
+                    }
                 }
                 
-                // Combine risk breakdown
-                if (summary.riskBreakdown) {
-                    riskBreakdown.low += summary.riskBreakdown.low || 0;
-                    riskBreakdown.medium += summary.riskBreakdown.medium || 0;
-                    riskBreakdown.high += summary.riskBreakdown.high || 0;
+                // Combine conflicts
+                if (licenseAnalysis.conflicts && Array.isArray(licenseAnalysis.conflicts)) {
+                    allConflicts.push(...licenseAnalysis.conflicts);
+                }
+                
+                // Combine recommendations
+                if (licenseAnalysis.recommendations && Array.isArray(licenseAnalysis.recommendations)) {
+                    allRecommendations.push(...licenseAnalysis.recommendations);
+                }
+                
+                // Combine high-risk dependencies (deduplicate by name@version)
+                if (licenseAnalysis.highRiskDependencies && Array.isArray(licenseAnalysis.highRiskDependencies)) {
+                    for (const dep of licenseAnalysis.highRiskDependencies) {
+                        const key = `${dep.name}@${dep.version}`;
+                        if (!allHighRiskDependencies.find(d => `${d.name}@${d.version}` === key)) {
+                            allHighRiskDependencies.push(dep);
+                        }
+                    }
+                }
+                
+                // Combine license families
+                if (licenseAnalysis.licenseFamilies && licenseAnalysis.licenseFamilies instanceof Map) {
+                    for (const [family, deps] of licenseAnalysis.licenseFamilies.entries()) {
+                        if (!licenseFamiliesMap.has(family)) {
+                            licenseFamiliesMap.set(family, []);
+                        }
+                        const existingDeps = licenseFamiliesMap.get(family);
+                        if (Array.isArray(deps)) {
+                            existingDeps.push(...deps);
+                        }
+                    }
                 }
             }
         }
@@ -762,10 +804,10 @@ class StorageManager {
                     categoryBreakdown: categoryBreakdown,
                     riskBreakdown: riskBreakdown
                 },
-                conflicts: [], // Conflicts would need to be deduplicated if needed
-                recommendations: [],
-                licenseFamilies: new Map(),
-                highRiskDependencies: [] // Would need to be deduplicated if needed
+                conflicts: allConflicts,
+                recommendations: allRecommendations,
+                licenseFamilies: licenseFamiliesMap,
+                highRiskDependencies: allHighRiskDependencies
             };
         }
 

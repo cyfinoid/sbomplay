@@ -1238,12 +1238,21 @@ class ViewManager {
                                 }
                                 
                                 const severity = window.osvService ? window.osvService.getHighestSeverity(vuln) : 'UNKNOWN';
+                                
+                                // Safely render markdown in details
+                                const detailsText = vuln.details || 'No details available';
+                                const safeDetailsHTML = this.renderSafeMarkdown(detailsText);
+                                const summaryText = vuln.summary || 'No summary available';
+                                const safeSummaryHTML = this.renderSafeMarkdown(summaryText);
+                                
                                 return `
                                     <div class="alert alert-${this.getSeverityClass(severity)}">
                                         <h6>${vuln.id || 'Unknown'} - ${severity}</h6>
-                                        <p><strong>Summary:</strong> ${vuln.summary || 'No summary available'}</p>
-                                        <p><strong>Details:</strong> ${vuln.details || 'No details available'}</p>
-                                        <p><strong>Published:</strong> ${vuln.published ? new Date(vuln.published).toLocaleDateString() : 'Unknown'}</p>
+                                        <p><strong>Summary:</strong></p>
+                                        <div class="vulnerability-summary">${safeSummaryHTML}</div>
+                                        <p class="mt-2"><strong>Details:</strong></p>
+                                        <div class="vulnerability-details">${safeDetailsHTML}</div>
+                                        <p class="mt-2"><strong>Published:</strong> ${vuln.published ? new Date(vuln.published).toLocaleDateString() : 'Unknown'}</p>
                                         ${vuln.references && Array.isArray(vuln.references) && vuln.references.length > 0 ? `
                                         <div class="mt-2">
                                             <strong>External Links:</strong>
@@ -3420,13 +3429,15 @@ class ViewManager {
         return usage;
     }
 
-    async generateVulnerabilityAnalysisHTML(orgData) {
+    async generateVulnerabilityAnalysisHTML(orgData, severityFilter = null, limit = 25, offset = 0) {
         const vulnAnalysis = orgData.data.vulnerabilityAnalysis;
         const orgName = orgData.organization || orgData.name;
         
-        // Check for severity filter from URL parameter
-        const urlParams = new URLSearchParams(window.location.search);
-        const severityFilter = urlParams.get('severity')?.toUpperCase();
+        // Check for severity filter from URL parameter if not provided
+        if (!severityFilter) {
+            const urlParams = new URLSearchParams(window.location.search);
+            severityFilter = urlParams.get('severity')?.toUpperCase();
+        }
         
         const escapeHtml = (text) => {
             if (!text) return '';
@@ -3453,7 +3464,14 @@ class ViewManager {
             
             const processedDeps = [];
             
-            for (const dep of vulnerableDeps.slice(0, 10)) {
+            // Store total count before slicing
+            const totalCount = vulnerableDeps.length;
+            
+            // Apply pagination: slice based on offset and limit
+            const paginatedDeps = vulnerableDeps.slice(offset, offset + limit);
+            const hasMore = offset + limit < totalCount;
+            
+            for (const dep of paginatedDeps) {
                 const usage = this.getVulnerableDepUsage(dep, orgData);
                 const uniqueRepos = [...new Set(usage.map(u => u.repoKey))];
                 
@@ -3550,12 +3568,24 @@ class ViewManager {
 </div>`;
                 });
                 
+                // Add load more button if there are more items
+                // Use a consistent identifier: '__ALL__' for combined data, otherwise use orgName
+                const loadMoreIdentifier = (orgName === 'All Entries Combined' || orgName === 'All Projects (Combined)' || orgName === 'All Organizations Combined') ? '__ALL__' : orgName;
+                const loadMoreHTML = hasMore ? `
+                    <div class="text-center mt-3">
+                        <button class="btn btn-primary" onclick="viewManager.loadMoreVulnerabilities('${this.escapeJsString(escapeHtml(loadMoreIdentifier))}', '${severityFilter || ''}', ${offset + limit})">
+                            <i class="fas fa-chevron-down me-2"></i>Load More (${totalCount - (offset + limit)} remaining)
+                        </button>
+                    </div>
+                ` : '';
+                
                 vulnerableDepsHTML = `
                 <div class="vulnerable-dependencies">
-                    <h4>🚨 Vulnerable Dependencies</h4>
-                    <div class="vulnerable-deps-list">
+                    <h4>🚨 Vulnerable Dependencies <small class="text-muted">(${Math.min(offset + limit, totalCount)} of ${totalCount})</small></h4>
+                    <div class="vulnerable-deps-list" id="vulnerable-deps-list">
                         ${depItems.join('')}
                     </div>
+                    ${loadMoreHTML}
                 </div>
                 `;
             }
@@ -3647,6 +3677,181 @@ class ViewManager {
         </div>
     </div>
 </div>`;
+        }
+    }
+
+    /**
+     * Load more vulnerabilities (pagination)
+     */
+    async loadMoreVulnerabilities(orgName, severityFilter, offset) {
+        // Get the current org data
+        if (!window.storageManager) {
+            console.error('StorageManager not available. Cannot load more vulnerabilities.');
+            return;
+        }
+        
+        const storageManager = window.storageManager;
+        
+        // Try to get the current analysis selector value from the page
+        // This is more reliable than relying on the orgName parameter
+        let analysisName = null;
+        try {
+            const analysisSelector = document.getElementById('analysisSelector');
+            if (analysisSelector) {
+                analysisName = analysisSelector.value;
+            }
+        } catch (e) {
+            console.warn('Could not get analysis selector value:', e);
+        }
+        
+        // Use analysis selector value if available, otherwise fall back to orgName
+        const identifier = analysisName || orgName;
+        
+        // Determine which data to load based on identifier
+        // Handle various possible names for combined data
+        const isCombined = !identifier || 
+                          identifier === '__ALL__' || 
+                          identifier === 'All Projects (Combined)' ||
+                          identifier === 'All Entries Combined' ||
+                          identifier === 'All Organizations Combined';
+        
+        let orgData;
+        try {
+            if (isCombined) {
+                orgData = await storageManager.getCombinedData();
+                // Ensure consistent naming
+                if (orgData) {
+                    orgData.organization = 'All Entries Combined';
+                    orgData.name = 'All Entries Combined';
+                }
+            } else {
+                orgData = await storageManager.loadAnalysisDataForOrganization(identifier);
+            }
+        } catch (error) {
+            console.error('Error loading organization data:', error);
+            console.error('Identifier used:', identifier);
+            return;
+        }
+        
+        if (!orgData || !orgData.data) {
+            console.error('Failed to load organization data');
+            console.error('Identifier used:', identifier);
+            console.error('isCombined:', isCombined);
+            console.error('orgData:', orgData);
+            return;
+        }
+        
+        // Generate HTML for the next batch
+        const nextBatchHTML = await this.generateVulnerabilityAnalysisHTML(
+            orgData, 
+            severityFilter || null, 
+            25, // limit
+            offset // offset
+        );
+        
+        // Extract just the vulnerable dependencies section
+        const tempDiv = document.createElement('div');
+        tempDiv.innerHTML = nextBatchHTML;
+        const vulnerableSection = tempDiv.querySelector('.vulnerable-dependencies');
+        
+        if (vulnerableSection) {
+            const depsList = vulnerableSection.querySelector('.vulnerable-deps-list');
+            const loadMoreBtn = vulnerableSection.querySelector('.btn-primary');
+            
+            // Append new items to existing list
+            const existingList = document.getElementById('vulnerable-deps-list');
+            if (existingList && depsList) {
+                existingList.innerHTML += depsList.innerHTML;
+                
+                // Update the header count
+                const header = existingList.closest('.vulnerable-dependencies').querySelector('h4');
+                if (header) {
+                    const totalMatch = vulnerableSection.querySelector('h4')?.textContent.match(/\((\d+) of (\d+)\)/);
+                    if (totalMatch) {
+                        header.innerHTML = `🚨 Vulnerable Dependencies <small class="text-muted">(${totalMatch[1]} of ${totalMatch[2]})</small>`;
+                    }
+                }
+                
+                // Replace load more button
+                const existingLoadMore = existingList.closest('.vulnerable-dependencies').querySelector('.btn-primary');
+                if (loadMoreBtn && existingLoadMore) {
+                    existingLoadMore.outerHTML = loadMoreBtn.outerHTML;
+                } else if (loadMoreBtn && !existingLoadMore) {
+                    existingList.insertAdjacentElement('afterend', loadMoreBtn);
+                } else if (!loadMoreBtn && existingLoadMore) {
+                    existingLoadMore.remove();
+                }
+            }
+        }
+    }
+
+    /**
+     * Escape HTML to prevent XSS
+     * @param {string} text - Text to escape
+     * @returns {string} - Escaped HTML string
+     */
+    escapeHtml(text) {
+        if (!text) return '';
+        const map = {'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'};
+        return String(text).replace(/[&<>"']/g, m => map[m]);
+    }
+
+    /**
+     * Safely render markdown text to HTML
+     * Uses marked.js for markdown parsing and DOMPurify for XSS protection
+     * @param {string} markdownText - The markdown text to render
+     * @returns {string} - Safe HTML string
+     */
+    renderSafeMarkdown(markdownText) {
+        if (!markdownText || typeof markdownText !== 'string') {
+            return '';
+        }
+        
+        // Check if marked and DOMPurify are available
+        if (typeof marked === 'undefined' || typeof DOMPurify === 'undefined') {
+            // Fallback: escape HTML and convert basic markdown manually
+            return this.escapeHtml(markdownText)
+                .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+                .replace(/\*(.+?)\*/g, '<em>$1</em>')
+                .replace(/`(.+?)`/g, '<code>$1</code>')
+                .replace(/\n/g, '<br>');
+        }
+        
+        try {
+            // Configure marked to be safe (disable HTML in markdown, only allow safe features)
+            marked.setOptions({
+                breaks: true, // Convert \n to <br>
+                gfm: true, // GitHub Flavored Markdown
+                sanitize: false // We'll use DOMPurify instead
+            });
+            
+            // Parse markdown to HTML
+            const rawHTML = marked.parse(markdownText);
+            
+            // Sanitize HTML to prevent XSS attacks
+            // Allow safe markdown elements: p, strong, em, code, pre, ul, ol, li, a, br, h1-h6, blockquote
+            const cleanHTML = DOMPurify.sanitize(rawHTML, {
+                ALLOWED_TAGS: ['p', 'strong', 'em', 'b', 'i', 'code', 'pre', 'ul', 'ol', 'li', 'a', 'br', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'blockquote', 'hr', 'table', 'thead', 'tbody', 'tr', 'th', 'td'],
+                ALLOWED_ATTR: ['href', 'title', 'target', 'rel'],
+                ALLOWED_URI_REGEXP: /^(?:(?:(?:f|ht)tps?|mailto|tel|callto|sms|cid|xmpp|data):|[^a-z]|[a-z+.\-]+(?:[^a-z+.\-:]|$))/i,
+                // Add hooks to ensure all links open in new tab with security attributes
+                ADD_ATTR: ['target', 'rel']
+            });
+            
+            // Post-process to ensure all links have target="_blank" and rel="noreferrer noopener"
+            const tempDiv = document.createElement('div');
+            tempDiv.innerHTML = cleanHTML;
+            const links = tempDiv.querySelectorAll('a[href]');
+            links.forEach(link => {
+                link.setAttribute('target', '_blank');
+                link.setAttribute('rel', 'noreferrer noopener');
+            });
+            
+            return tempDiv.innerHTML;
+        } catch (error) {
+            console.warn('Error rendering markdown:', error);
+            // Fallback to escaped HTML
+            return this.escapeHtml(markdownText).replace(/\n/g, '<br>');
         }
     }
 
