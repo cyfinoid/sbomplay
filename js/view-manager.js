@@ -465,13 +465,14 @@ class ViewManager {
         if (container) {
             // generateDependencyHTML is now async (to fetch package funding)
             this.generateDependencyHTML(dependency, orgData).then(html => {
-                container.innerHTML = html;
+                this.safeSetHTML(container, html);
                 // Add event listeners
                 this.addDependencyEventListeners();
                 console.log('📦 Showing dependency details:', dependency.name);
             }).catch(err => {
                 console.error('Error generating dependency HTML:', err);
-                container.innerHTML = `<div class="alert alert-danger">Error loading dependency details: ${err.message}</div>`;
+                const errorHtml = `<div class="alert alert-danger">Error loading dependency details: ${this.escapeHtml(err.message)}</div>`;
+                this.safeSetHTML(container, errorHtml);
             });
         } else {
             console.error('No suitable container found for dependency details');
@@ -709,7 +710,8 @@ class ViewManager {
         }
         
         if (container) {
-            container.innerHTML = this.generateRepositoryHTML(repo, orgData);
+            const html = this.generateRepositoryHTML(repo, orgData);
+            this.safeSetHTML(container, html);
             
             // Add event listeners
             this.addRepositoryEventListeners();
@@ -1071,7 +1073,7 @@ class ViewManager {
         }
         
         if (container) {
-            container.innerHTML = `
+            const errorHtml = `
                 <div class="view-header">
                     <button class="btn btn-secondary" onclick="viewManager.goBack()">
                         ← Back to Overview
@@ -1080,9 +1082,10 @@ class ViewManager {
                 </div>
                 <div class="alert alert-danger">
                     <h6>❌ Error</h6>
-                    <p>${message}</p>
+                    <p>${this.escapeHtml(message)}</p>
                 </div>
             `;
+            this.safeSetHTML(container, errorHtml);
         } else {
             console.error('No suitable container found for error display');
             this.showAlert(`Error: ${message}`, 'danger');
@@ -1103,7 +1106,7 @@ class ViewManager {
         }
         
         if (container) {
-            container.innerHTML = `
+            const rawDataHtml = `
                 <div class="view-header">
                     <button class="btn btn-secondary" onclick="viewManager.goBack()">
                         ← Back to Analysis
@@ -1112,9 +1115,10 @@ class ViewManager {
                 </div>
                 <div class="alert alert-info">
                     <h6>📋 Raw Organization Data</h6>
-                    <pre class="bg-light p-3 rounded" style="max-height: 400px; overflow-y: auto;">${JSON.stringify(orgData, null, 2)}</pre>
+                    <pre class="bg-light p-3 rounded" style="max-height: 400px; overflow-y: auto;">${this.escapeHtml(JSON.stringify(orgData, null, 2))}</pre>
                 </div>
             `;
+            this.safeSetHTML(container, rawDataHtml);
         } else {
             console.error('No suitable container found for raw data display');
             this.showAlert('Unable to display raw data - no container found', 'warning');
@@ -1535,10 +1539,11 @@ class ViewManager {
         // Create alert element
         const alertDiv = document.createElement('div');
         alertDiv.className = `alert alert-${type} alert-dismissible fade show`;
-        alertDiv.innerHTML = `
-            ${message}
+        const alertHtml = `
+            ${this.escapeHtml(message)}
             <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
         `;
+        this.safeSetHTML(alertDiv, alertHtml);
         
         // Try different container IDs based on the current page
         let container = document.getElementById('view-container');
@@ -2084,11 +2089,14 @@ class ViewManager {
         // Show the view in the license section
         const licenseSection = document.getElementById('license-section');
         if (licenseSection) {
-            licenseSection.innerHTML = html;
+            this.safeSetHTML(licenseSection, html);
         } else {
             // Fallback to full container if section doesn't exist
-            document.getElementById('view-container').innerHTML = html;
-            document.getElementById('view-container').style.display = 'block';
+            const viewContainer = document.getElementById('view-container');
+            if (viewContainer) {
+                this.safeSetHTML(viewContainer, html);
+                viewContainer.style.display = 'block';
+            }
         }
     }
 
@@ -2208,7 +2216,7 @@ class ViewManager {
         // Show in license section
         const licenseSection = document.getElementById('license-section');
         if (licenseSection) {
-            licenseSection.innerHTML = html;
+            this.safeSetHTML(licenseSection, html);
         }
     }
 
@@ -2309,7 +2317,7 @@ class ViewManager {
         // Show in license section
         const licenseSection = document.getElementById('license-section');
         if (licenseSection) {
-            licenseSection.innerHTML = html;
+            this.safeSetHTML(licenseSection, html);
         }
     }
 
@@ -2462,7 +2470,7 @@ class ViewManager {
         // Show in license section
         const licenseSection = document.getElementById('license-section');
         if (licenseSection) {
-            licenseSection.innerHTML = html;
+            this.safeSetHTML(licenseSection, html);
         }
     }
 
@@ -2498,7 +2506,7 @@ class ViewManager {
             const repositories = this.getLicenseRepositoriesList(orgData, licenseType);
             const dependencies = this.getLicenseDependenciesList(orgData, licenseType);
             
-            content.innerHTML = `
+            const contentHtml = `
                 <div class="license-panel-stats">
                     <div class="stat-item">
                         <span class="stat-value">${repositories.length}</span>
@@ -2516,9 +2524,11 @@ class ViewManager {
                         ${repositories.map(repo => {
                             const [owner, name] = repo.split('/');
                             const repoIndex = orgData.data.allRepositories.findIndex(r => r.owner === owner && r.name === name);
+                            const escapedOrg = this.escapeJsString(this.escapeHtml(organization));
+                            const escapedRepo = this.escapeHtml(repo);
                             return `
-                                <div class="repository-item" onclick="viewManager.showRepositoryDetailsFromAllReposIndex(${repoIndex}, '${organization}')" style="cursor: pointer;">
-                                    <div class="repo-name">${repo}</div>
+                                <div class="repository-item" onclick="viewManager.showRepositoryDetailsFromAllReposIndex(${repoIndex}, '${escapedOrg}')" style="cursor: pointer;">
+                                    <div class="repo-name">${escapedRepo}</div>
                                     <div class="repo-deps">${orgData.data.allRepositories[repoIndex]?.totalDependencies || 0} total deps</div>
                                 </div>
                             `;
@@ -2531,14 +2541,15 @@ class ViewManager {
                     <div class="dependency-list">
                         ${dependencies.map(dep => `
                             <div class="dependency-item">
-                                <div class="dep-name">${dep.name}@${dep.version}</div>
-                                <div class="dep-license">${dep.license}</div>
-                                <div class="dep-category">${dep.category}</div>
+                                <div class="dep-name">${this.escapeHtml(dep.name)}@${this.escapeHtml(dep.version)}</div>
+                                <div class="dep-license">${this.escapeHtml(dep.license)}</div>
+                                <div class="dep-category">${this.escapeHtml(dep.category)}</div>
                             </div>
                         `).join('')}
                     </div>
                 </div>
             `;
+            this.safeSetHTML(content, contentHtml);
             
             panel.style.display = 'block';
             setTimeout(() => {
@@ -2735,8 +2746,13 @@ class ViewManager {
             existingModal.remove();
         }
 
-        // Add modal to body
-        document.body.insertAdjacentHTML('beforeend', modalHtml);
+        // Add modal to body using safe method
+        const tempDiv = document.createElement('div');
+        this.safeSetHTML(tempDiv, modalHtml);
+        const modalElement = tempDiv.firstElementChild;
+        if (modalElement) {
+            document.body.appendChild(modalElement);
+        }
 
         // Show modal
         const modal = new bootstrap.Modal(document.getElementById('licenseConflictModal'));
@@ -2852,8 +2868,13 @@ class ViewManager {
             existingModal.remove();
         }
 
-        // Add modal to body
-        document.body.insertAdjacentHTML('beforeend', modalHtml);
+        // Add modal to body using safe method
+        const tempDiv = document.createElement('div');
+        this.safeSetHTML(tempDiv, modalHtml);
+        const modalElement = tempDiv.firstElementChild;
+        if (modalElement) {
+            document.body.appendChild(modalElement);
+        }
 
         // Show modal
         const modal = new bootstrap.Modal(document.getElementById('highRiskLicenseModal'));
@@ -3817,29 +3838,31 @@ class ViewManager {
             // Append new items to existing list
             const existingList = document.getElementById('vulnerable-deps-list');
             if (existingList && depsList) {
-                existingList.innerHTML += depsList.innerHTML;
+                // Use safer method to append nodes instead of innerHTML +=
+                const tempContainer = document.createElement('div');
+                this.safeSetHTML(tempContainer, depsList.innerHTML);
+                while (tempContainer.firstChild) {
+                    existingList.appendChild(tempContainer.firstChild);
+                }
                 
                 // Update the header count
-                const header = existingList.closest('.vulnerable-dependencies').querySelector('h4');
+                const header = existingList.closest('.vulnerable-dependencies')?.querySelector('h4');
                 if (header) {
                     const totalMatch = vulnerableSection.querySelector('h4')?.textContent.match(/\((\d+) of (\d+)\)/);
                     if (totalMatch) {
                         // Escape the numbers even though they come from regex (defense in depth)
-                        const escapeHtml = (text) => {
-                            if (!text) return '';
-                            const map = {'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'};
-                            return String(text).replace(/[&<>"']/g, m => map[m]);
-                        };
-                        header.innerHTML = `🚨 Vulnerable Dependencies <small class="text-muted">(${escapeHtml(totalMatch[1])} of ${escapeHtml(totalMatch[2])})</small>`;
+                        const headerHtml = `🚨 Vulnerable Dependencies <small class="text-muted">(${this.escapeHtml(totalMatch[1])} of ${this.escapeHtml(totalMatch[2])})</small>`;
+                        this.safeSetHTML(header, headerHtml);
                     }
                 }
                 
                 // Replace load more button
-                const existingLoadMore = existingList.closest('.vulnerable-dependencies').querySelector('.btn-primary');
+                const existingLoadMore = existingList.closest('.vulnerable-dependencies')?.querySelector('.btn-primary');
                 if (loadMoreBtn && existingLoadMore) {
-                    existingLoadMore.outerHTML = loadMoreBtn.outerHTML;
+                    // Use replaceWith instead of outerHTML for safer DOM manipulation
+                    existingLoadMore.replaceWith(loadMoreBtn.cloneNode(true));
                 } else if (loadMoreBtn && !existingLoadMore) {
-                    existingList.insertAdjacentElement('afterend', loadMoreBtn);
+                    existingList.insertAdjacentElement('afterend', loadMoreBtn.cloneNode(true));
                 } else if (!loadMoreBtn && existingLoadMore) {
                     existingLoadMore.remove();
                 }

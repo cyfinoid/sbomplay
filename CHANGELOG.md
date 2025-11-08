@@ -87,6 +87,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Import all data from JSON file
   - Individual organization data export
   - Bulk operations for data management
+  - **Granular Export/Import Options** (new):
+    - Export/Import all data (analysis + cached databases)
+    - Export/Import cached databases only (authors, packages, vulnerabilities)
+    - Export/Import analysis data only (organization/repository analysis)
+    - Export/Import individual caches (authors, packages, vulnerabilities separately)
+    - **Checksum Validation**: All exports include SHA-256 checksums for integrity verification
+    - Imports verify checksums before importing to prevent tampering
+    - Checksum calculation excludes the checksum field itself for consistency
 
 - **Combined Data View**: Ability to view aggregated data across all organizations
   - Combined vulnerability analysis
@@ -245,6 +253,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Quality is now only shown at repository level (as intended)
   - Removed quality column from dependency table and package modal
 
+- **XSS Vulnerabilities**: Fixed multiple XSS vulnerabilities identified by CodeQL
+  - Replaced unsafe `innerHTML` assignments with `safeSetHTML` method in `view-manager.js`
+  - Fixed unsafe HTML insertion in dependency details, repository details, error messages, and alerts
+  - Fixed unsafe modal creation using `insertAdjacentHTML` (now uses safer DOM manipulation)
+  - Fixed unsafe pagination HTML concatenation (now uses proper node appending)
+  - All user-controlled data now properly escaped before DOM insertion
+
+- **URL Substring Sanitization**: Fixed incomplete URL substring sanitization vulnerabilities
+  - Replaced insecure `.includes()` checks for hostname matching with secure `isUrlFromHostname()` method
+  - Fixed Patreon, GitHub Sponsors, and Open Collective URL validation in `authors.html`
+  - Fixed Go package name parsing in `author-service.js` to use regex matching instead of substring checks
+  - Prevents malicious URL bypasses (e.g., `evil.com/patreon.com`)
+
+- **Search Parameter Behavior**: Fixed search parameter behavior in dependency view
+  - URL `search` parameter now performs exact match (as intended for hyperlinks)
+  - In-page search input retains fuzzy matching behavior
+  - Search behavior automatically switches based on input source
+
 ### Removed
 
 - **Dependency Visualization Views**: Removed multiple dependency visualization options
@@ -278,11 +304,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Proper HTML escaping throughout application
   - JavaScript string escaping for event handlers
   - Secure URL validation
+  - **Comprehensive XSS Fixes**: Fixed all unsafe HTML insertion patterns
+    - Replaced all direct `innerHTML` assignments with `safeSetHTML` method
+    - Fixed unsafe `insertAdjacentHTML` usage (now uses safer DOM methods)
+    - Fixed unsafe HTML concatenation patterns (`innerHTML +=`)
+    - Fixed unsafe `outerHTML` assignments (now uses `replaceWith` and `cloneNode`)
+    - All error messages and user-controlled data properly escaped
+    - Enhanced `safeSetHTML` method to prefer DOMPurify when available, with DOMParser fallback
 
 - **Link Security**: All external links now open securely
   - `target="_blank"` for new tabs
   - `rel="noreferrer noopener"` to prevent tabnabbing
   - Secure URL validation using URL constructor
+
+- **Data Integrity**: Enhanced data export/import security
+  - SHA-256 checksum validation for all exported data
+  - Checksum verification on import prevents tampering
+  - Consistent checksum calculation (sorted keys, excludes checksum field)
+  - Import operations validate checksums before proceeding
 
 ### Documentation
 
