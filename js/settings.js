@@ -192,6 +192,79 @@ class SettingsApp {
     }
 
     /**
+     * Import all data - trigger file input
+     */
+    importAllData() {
+        const fileInput = document.getElementById('importFileInput');
+        if (fileInput) {
+            fileInput.click();
+        }
+    }
+
+    /**
+     * Handle file import
+     */
+    async handleFileImport(event) {
+        const file = event.target.files[0];
+        if (!file) {
+            return;
+        }
+
+        // Validate file type
+        if (!file.name.endsWith('.json')) {
+            this.showAlert('Please select a JSON file', 'warning');
+            event.target.value = ''; // Reset file input
+            return;
+        }
+
+        // Confirm import
+        if (!confirm('This will import data from the selected file. Existing entries with the same name will be overwritten. Continue?')) {
+            event.target.value = ''; // Reset file input
+            return;
+        }
+
+        try {
+            // Read file
+            const text = await file.text();
+            const jsonData = JSON.parse(text);
+
+            // Show loading message
+            this.showAlert('Importing data...', 'info');
+
+            // Import data
+            const result = await this.storageManager.importAllData(jsonData);
+
+            if (result.success) {
+                let message = `Import completed! `;
+                message += `Imported ${result.importedEntries} entries and ${result.importedVulnerabilities} vulnerabilities.`;
+                
+                if (result.skippedEntries > 0) {
+                    message += ` Skipped ${result.skippedEntries} invalid entries.`;
+                }
+
+                if (result.errors && result.errors.length > 0) {
+                    message += ` ${result.errors.length} errors occurred. Check console for details.`;
+                    console.error('Import errors:', result.errors);
+                }
+
+                this.showAlert(message, result.errors ? 'warning' : 'success');
+                
+                // Refresh displays
+                await this.showStorageStatus();
+                await this.displayOrganizationsOverview();
+            } else {
+                this.showAlert(`Import failed: ${result.error}`, 'danger');
+            }
+        } catch (error) {
+            console.error('Import error:', error);
+            this.showAlert(`Import failed: ${error.message}`, 'danger');
+        } finally {
+            // Reset file input
+            event.target.value = '';
+        }
+    }
+
+    /**
      * Test storage quota
      */
     testStorageQuota() {

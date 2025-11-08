@@ -1007,10 +1007,9 @@ class SBOMPlayApp {
     async displayStatsDashboard() {
         const statsOverview = document.getElementById('statsDashboardOverview');
         const statsQuality = document.getElementById('statsQualityDashboard');
-        const statsCards = document.getElementById('statsCards');
         
         // Check if stats elements exist on this page
-        if (!statsOverview || !statsCards) {
+        if (!statsOverview) {
             return; // Stats sections don't exist on this page
         }
         
@@ -1020,22 +1019,17 @@ class SBOMPlayApp {
         if (!combinedData) {
             statsOverview.style.display = 'none';
             statsQuality.style.display = 'none';
-            statsCards.style.display = 'none';
             return;
         }
         
         // Show stats sections
         statsOverview.style.display = 'block';
-        statsCards.style.display = 'block';
         
         // Display overview
         await this.displayStatsOverview(combinedData);
         
         // Display quality dashboard
         this.displayStatsQuality(combinedData);
-        
-        // Display stats cards
-        this.displayStatsCards(combinedData);
         
         // Display top common dependencies
         this.displayTopCommonDependencies(combinedData);
@@ -1194,9 +1188,275 @@ class SBOMPlayApp {
                 </div>
             </div>
             ` : ''}
+            
+            <!-- Top Ecosystems Section -->
+            <div class="mt-4 pt-3 border-top">
+                <div class="mb-3">
+                    <h6><i class="fas fa-layer-group me-2"></i>Top 5 Ecosystems</h6>
+                </div>
+                <div class="d-flex justify-content-between align-items-start">
+                    ${this.renderTopEcosystemsWithDeps(data)}
+                </div>
+            </div>
+            
+            <!-- Issues Section -->
+            <div class="row mt-4 pt-3 border-top">
+                <div class="col-12 mb-3">
+                    <h6><i class="fas fa-exclamation-triangle me-2"></i>Issues by Severity</h6>
+                </div>
+                ${this.renderVulnerabilityCounts(data)}
+            </div>
+            
+            <!-- License Status Section -->
+            <div class="row mt-4 pt-3 border-top">
+                <div class="col-12 mb-3">
+                    <h6><i class="fas fa-file-contract me-2"></i>License Status</h6>
+                </div>
+                ${this.renderLicenseStatus(data)}
+            </div>
         `;
         
         content.innerHTML = html;
+    }
+    
+    /**
+     * Get dependency count per ecosystem (including both direct and transitive dependencies)
+     */
+    getEcosystemDependencyCounts(data) {
+        if (!data.data.allDependencies) {
+            return {};
+        }
+        
+        const ecosystemDeps = {};
+        
+        // Iterate through all dependencies (includes both direct and transitive)
+        // Count each dependency occurrence weighted by how many repositories use it
+        data.data.allDependencies.forEach(dep => {
+            // Get ecosystem from category.ecosystem or extract from PURL
+            let ecosystem = dep.category?.ecosystem;
+            
+            if (!ecosystem && dep.purl) {
+                // Extract from PURL: pkg:ecosystem/name@version
+                const purlMatch = dep.purl.match(/pkg:([^\/]+)\//);
+                if (purlMatch) {
+                    ecosystem = purlMatch[1];
+                }
+            }
+            
+            if (!ecosystem) {
+                ecosystem = 'unknown';
+            }
+            
+            // Normalize ecosystem name (capitalize first letter)
+            ecosystem = ecosystem.charAt(0).toUpperCase() + ecosystem.slice(1).toLowerCase();
+            
+            if (!ecosystemDeps[ecosystem]) {
+                ecosystemDeps[ecosystem] = 0;
+            }
+            // Count occurrences: dep.count represents the number of repositories 
+            // using this dependency (whether direct or transitive)
+            // This ensures transitive dependencies are included in the count
+            ecosystemDeps[ecosystem] += dep.count || 1;
+        });
+        
+        return ecosystemDeps;
+    }
+    
+    /**
+     * Get ecosystem icon
+     */
+    getEcosystemIcon(ecosystem) {
+        const iconMap = {
+            'Npm': 'fab fa-npm',
+            'Pypi': 'fab fa-python',
+            'Maven': 'fab fa-java',
+            'Go': 'fab fa-golang',
+            'Cargo': 'fas fa-code',
+            'Nuget': 'fab fa-microsoft',
+            'Packagist': 'fab fa-php',
+            'Rubygems': 'fas fa-gem',
+            'Docker': 'fab fa-docker',
+            'Githubactions': 'fab fa-github',
+            'Terraform': 'fas fa-cloud',
+            'Helm': 'fas fa-ship',
+            'Unknown': 'fas fa-cube'
+        };
+        
+        return iconMap[ecosystem] || 'fas fa-cube';
+    }
+    
+    /**
+     * Render top ecosystems with dependency counts
+     */
+    renderTopEcosystemsWithDeps(data) {
+        const ecosystemDeps = this.getEcosystemDependencyCounts(data);
+        
+        if (Object.keys(ecosystemDeps).length === 0) {
+            return '<div class="col-12"><p class="text-muted small">No ecosystem data available</p></div>';
+        }
+        
+        const topEcosystems = Object.entries(ecosystemDeps)
+            .sort(([,a], [,b]) => b - a)
+            .slice(0, 5)
+            .map(([eco, count]) => ({ ecosystem: eco, depCount: count }));
+        
+        return topEcosystems.map(eco => {
+            // Create link to deps.html with ecosystem filter
+            const ecosystemLower = eco.ecosystem.toLowerCase();
+            const depsLink = `deps.html?ecosystem=${encodeURIComponent(ecosystemLower)}`;
+            
+            return `
+                <div style="flex: 1 1 0; min-width: 0; max-width: 20%;" class="me-2">
+                    <a href="${depsLink}" class="text-decoration-none text-reset">
+                        <div class="text-center p-3 border rounded h-100 hover-shadow" style="transition: all 0.2s; cursor: pointer;">
+                            <i class="${this.getEcosystemIcon(eco.ecosystem)} fa-3x mb-2 text-primary"></i>
+                            <div class="fw-bold small">${this.escapeHtml(eco.ecosystem)}</div>
+                            <div class="text-muted small">${eco.depCount} dependencies</div>
+                        </div>
+                    </a>
+                </div>
+            `;
+        }).join('');
+    }
+    
+    /**
+     * Render vulnerability counts by severity
+     */
+    renderVulnerabilityCounts(data) {
+        const vulnAnalysis = data.data.vulnerabilityAnalysis || {};
+        
+        const counts = {
+            critical: vulnAnalysis.criticalVulnerabilities || 0,
+            high: vulnAnalysis.highVulnerabilities || 0,
+            medium: vulnAnalysis.mediumVulnerabilities || 0,
+            low: vulnAnalysis.lowVulnerabilities || 0
+        };
+        
+        const total = counts.critical + counts.high + counts.medium + counts.low;
+        
+        if (total === 0) {
+            return '<div class="col-12"><p class="text-muted small">No vulnerability data available</p></div>';
+        }
+        
+        return `
+            <div class="col-md-3">
+                <a href="vuln.html?severity=critical" class="text-decoration-none text-reset">
+                    <div class="text-center p-3 border rounded hover-shadow" style="background-color: rgba(220, 53, 69, 0.1); transition: all 0.2s; cursor: pointer;">
+                        <h4 class="mb-1" style="color: #dc3545;">${counts.critical}</h4>
+                        <small style="color: var(--text-secondary, #6c757d);">Critical</small>
+                    </div>
+                </a>
+            </div>
+            <div class="col-md-3">
+                <a href="vuln.html?severity=high" class="text-decoration-none text-reset">
+                    <div class="text-center p-3 border rounded hover-shadow" style="background-color: rgba(255, 193, 7, 0.1); transition: all 0.2s; cursor: pointer;">
+                        <h4 class="mb-1" style="color: #ffc107;">${counts.high}</h4>
+                        <small style="color: var(--text-secondary, #6c757d);">High</small>
+                    </div>
+                </a>
+            </div>
+            <div class="col-md-3">
+                <a href="vuln.html?severity=medium" class="text-decoration-none text-reset">
+                    <div class="text-center p-3 border rounded hover-shadow" style="background-color: rgba(13, 202, 240, 0.1); transition: all 0.2s; cursor: pointer;">
+                        <h4 class="mb-1" style="color: #0dcaf0;">${counts.medium}</h4>
+                        <small style="color: var(--text-secondary, #6c757d);">Medium</small>
+                    </div>
+                </a>
+            </div>
+            <div class="col-md-3">
+                <a href="vuln.html?severity=low" class="text-decoration-none text-reset">
+                    <div class="text-center p-3 border rounded hover-shadow" style="background-color: rgba(108, 117, 125, 0.1); transition: all 0.2s; cursor: pointer;">
+                        <h4 class="mb-1" style="color: #6c757d;">${counts.low}</h4>
+                        <small style="color: var(--text-secondary, #6c757d);">Low</small>
+                    </div>
+                </a>
+            </div>
+        `;
+    }
+    
+    /**
+     * Render license status with graph
+     */
+    renderLicenseStatus(data) {
+        const compliance = this.getLicenseCompliance(data);
+        
+        if (compliance.total === 0) {
+            return '<div class="col-12"><p class="text-muted small">No license data available</p></div>';
+        }
+        
+        const licensed = compliance.compliant;
+        const unlicensed = compliance.nonCompliant;
+        const total = compliance.total;
+        
+        const licensedPercent = total > 0 ? Math.round((licensed / total) * 100) : 0;
+        const unlicensedPercent = total > 0 ? Math.round((unlicensed / total) * 100) : 0;
+        
+        // Calculate angles for pie chart
+        const licensedAngle = (licensed / total) * 360;
+        const unlicensedAngle = (unlicensed / total) * 360;
+        
+        return `
+            <div class="col-md-6">
+                <div class="text-center">
+                    <div style="width: 200px; height: 200px; margin: 0 auto; position: relative;">
+                        <svg width="200" height="200" style="transform: rotate(-90deg);">
+                            <circle cx="100" cy="100" r="80" fill="none" stroke="#e9ecef" stroke-width="40"/>
+                            ${licensed > 0 ? `
+                            <circle cx="100" cy="100" r="80" fill="none" 
+                                    stroke="#28a745" stroke-width="40"
+                                    stroke-dasharray="${(licensedAngle / 360) * 502.4} 502.4"
+                                    stroke-linecap="round"/>
+                            ` : ''}
+                            ${unlicensed > 0 ? `
+                            <circle cx="100" cy="100" r="80" fill="none" 
+                                    stroke="#dc3545" stroke-width="40"
+                                    stroke-dasharray="${(unlicensedAngle / 360) * 502.4} 502.4"
+                                    stroke-dashoffset="${-(licensedAngle / 360) * 502.4}"
+                                    stroke-linecap="round"/>
+                            ` : ''}
+                        </svg>
+                        <div style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);">
+                            <div class="h4 mb-0">${total}</div>
+                            <small class="text-muted">Total</small>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-6">
+                <div class="d-flex flex-column justify-content-center h-100">
+                    <div class="mb-3">
+                        <div class="d-flex justify-content-between align-items-center mb-2">
+                            <div>
+                                <span class="badge bg-success me-2" style="width: 20px; height: 20px; display: inline-block;"></span>
+                                <strong>Licensed</strong>
+                            </div>
+                            <div>
+                                <span class="h5 mb-0">${licensed}</span>
+                                <small class="text-muted"> (${licensedPercent}%)</small>
+                            </div>
+                        </div>
+                        <div class="progress" style="height: 8px;">
+                            <div class="progress-bar bg-success" role="progressbar" style="width: ${licensedPercent}%"></div>
+                        </div>
+                    </div>
+                    <div>
+                        <div class="d-flex justify-content-between align-items-center mb-2">
+                            <div>
+                                <span class="badge bg-danger me-2" style="width: 20px; height: 20px; display: inline-block;"></span>
+                                <strong>Unlicensed</strong>
+                            </div>
+                            <div>
+                                <span class="h5 mb-0">${unlicensed}</span>
+                                <small class="text-muted"> (${unlicensedPercent}%)</small>
+                            </div>
+                        </div>
+                        <div class="progress" style="height: 8px;">
+                            <div class="progress-bar bg-danger" role="progressbar" style="width: ${unlicensedPercent}%"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        `;
     }
     
     /**
@@ -1378,56 +1638,6 @@ class SBOMPlayApp {
         }
         
         qualityContent.innerHTML = html;
-    }
-    
-    /**
-     * Display stats cards
-     */
-    displayStatsCards(data) {
-        const statsContainer = document.getElementById('statsCards');
-        if (!statsContainer) return;
-        
-        // Calculate additional stats
-        const topLanguages = this.getTopLanguages(data);
-        const topVulnerabilities = this.getTopVulnerabilities(data);
-        const licenseCompliance = this.getLicenseCompliance(data);
-
-        const html = `
-            <div class="row gy-3">
-                <div class="col-md-4">
-                    <div class="card h-100">
-                        <div class="card-header">
-                            <h6 class="mb-0"><i class="fas fa-code me-2"></i>Top Languages</h6>
-                        </div>
-                        <div class="card-body">
-                            ${this.renderTopLanguages(topLanguages)}
-                        </div>
-                    </div>
-                </div>
-                <div class="col-md-4">
-                    <div class="card h-100">
-                        <div class="card-header">
-                            <h6 class="mb-0"><i class="fas fa-exclamation-triangle me-2"></i>Critical Issues</h6>
-                        </div>
-                        <div class="card-body">
-                            ${this.renderTopVulnerabilities(topVulnerabilities)}
-                        </div>
-                    </div>
-                </div>
-                <div class="col-md-4">
-                    <div class="card h-100">
-                        <div class="card-header">
-                            <h6 class="mb-0"><i class="fas fa-file-contract me-2"></i>License Status</h6>
-                        </div>
-                        <div class="card-body">
-                            ${this.renderLicenseCompliance(licenseCompliance)}
-                        </div>
-                    </div>
-                </div>
-            </div>
-        `;
-        
-        statsContainer.innerHTML = html;
     }
     
     /**

@@ -75,6 +75,10 @@
                         <button class="btn btn-outline-success btn-sm" onclick="settingsApp.exportAllData()">
                             <i class="fas fa-download me-2"></i>Export All Data
                         </button>
+                        <button class="btn btn-outline-primary btn-sm" onclick="settingsApp.importAllData()">
+                            <i class="fas fa-upload me-2"></i>Import All Data
+                        </button>
+                        <input type="file" id="importFileInput" accept=".json" style="display: none;" onchange="settingsApp.handleFileImport(event)">
                         <button class="btn btn-outline-info btn-sm" onclick="settingsApp.testStorageQuota()">
                             <i class="fas fa-vial me-2"></i>Test Storage
                         </button>

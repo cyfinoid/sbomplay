@@ -234,6 +234,93 @@ class StorageManager {
     }
 
     /**
+     * Import all data from JSON file
+     */
+    async importAllData(jsonData) {
+        try {
+            // Validate data structure
+            if (!jsonData || typeof jsonData !== 'object') {
+                throw new Error('Invalid data format: Expected JSON object');
+            }
+
+            if (!Array.isArray(jsonData.entries)) {
+                throw new Error('Invalid data format: Missing or invalid entries array');
+            }
+
+            if (!Array.isArray(jsonData.vulnerabilities)) {
+                throw new Error('Invalid data format: Missing or invalid vulnerabilities array');
+            }
+
+            let importedEntries = 0;
+            let importedVulnerabilities = 0;
+            let skippedEntries = 0;
+            let errors = [];
+
+            // Import entries (organizations and repositories)
+            for (const entry of jsonData.entries) {
+                try {
+                    if (!entry.name && !entry.fullName) {
+                        skippedEntries++;
+                        continue;
+                    }
+
+                    if (entry.type === 'organization' || entry.organization) {
+                        // Import as organization
+                        const success = await this.indexedDB.saveOrganization(entry.name || entry.organization, entry);
+                        if (success) {
+                            importedEntries++;
+                        } else {
+                            errors.push(`Failed to import organization: ${entry.name || entry.organization}`);
+                        }
+                    } else if (entry.type === 'repository' || entry.fullName) {
+                        // Import as repository
+                        const success = await this.indexedDB.saveRepository(entry.fullName, entry);
+                        if (success) {
+                            importedEntries++;
+                        } else {
+                            errors.push(`Failed to import repository: ${entry.fullName}`);
+                        }
+                    } else {
+                        skippedEntries++;
+                    }
+                } catch (error) {
+                    errors.push(`Error importing entry ${entry.name || entry.fullName}: ${error.message}`);
+                }
+            }
+
+            // Import vulnerabilities
+            for (const vuln of jsonData.vulnerabilities) {
+                try {
+                    if (!vuln.packageKey) {
+                        continue;
+                    }
+
+                    const success = await this.indexedDB.saveVulnerability(vuln.packageKey, vuln.data || vuln);
+                    if (success) {
+                        importedVulnerabilities++;
+                    }
+                } catch (error) {
+                    errors.push(`Error importing vulnerability ${vuln.packageKey}: ${error.message}`);
+                }
+            }
+
+            return {
+                success: true,
+                importedEntries,
+                importedVulnerabilities,
+                skippedEntries,
+                errors: errors.length > 0 ? errors : null
+            };
+        } catch (error) {
+            console.error('❌ Failed to import data:', error);
+            return {
+                success: false,
+                error: error.message
+            };
+        }
+    }
+
+    /**
      * Get storage usage information
      */
     async getStorageInfo() {

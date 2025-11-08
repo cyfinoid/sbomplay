@@ -3412,6 +3412,10 @@ class ViewManager {
         const vulnAnalysis = orgData.data.vulnerabilityAnalysis;
         const orgName = orgData.organization || orgData.name;
         
+        // Check for severity filter from URL parameter
+        const urlParams = new URLSearchParams(window.location.search);
+        const severityFilter = urlParams.get('severity')?.toUpperCase();
+        
         const escapeHtml = (text) => {
             if (!text) return '';
             const map = {'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'};
@@ -3421,7 +3425,20 @@ class ViewManager {
         // Pre-process vulnerable dependencies with usage info
         let vulnerableDepsHTML = '';
         if (vulnAnalysis && vulnAnalysis.vulnerableDependencies) {
-            const vulnerableDeps = vulnAnalysis.vulnerableDependencies || [];
+            let vulnerableDeps = vulnAnalysis.vulnerableDependencies || [];
+            
+            // Filter by severity if parameter is present
+            if (severityFilter) {
+                vulnerableDeps = vulnerableDeps.filter(dep => {
+                    if (!dep.vulnerabilities || !Array.isArray(dep.vulnerabilities)) return false;
+                    return dep.vulnerabilities.some(vuln => {
+                        if (!vuln || typeof vuln !== 'object') return false;
+                        const severity = window.osvService ? window.osvService.getHighestSeverity(vuln) : 'UNKNOWN';
+                        return severity === severityFilter;
+                    });
+                });
+            }
+            
             const processedDeps = [];
             
             for (const dep of vulnerableDeps.slice(0, 10)) {
@@ -3429,7 +3446,16 @@ class ViewManager {
                 const uniqueRepos = [...new Set(usage.map(u => u.repoKey))];
                 
                 // Prepare vulnerabilities for template
-                const vulnerabilities = (dep.vulnerabilities || []).filter(v => v && typeof v === 'object').map(vuln => {
+                // Filter by severity if filter is active
+                let depVulnerabilities = (dep.vulnerabilities || []).filter(v => v && typeof v === 'object');
+                if (severityFilter) {
+                    depVulnerabilities = depVulnerabilities.filter(vuln => {
+                        const severity = window.osvService ? window.osvService.getHighestSeverity(vuln) : 'UNKNOWN';
+                        return severity === severityFilter;
+                    });
+                }
+                
+                const vulnerabilities = depVulnerabilities.map(vuln => {
                     const severity = window.osvService ? window.osvService.getHighestSeverity(vuln) : 'UNKNOWN';
                     const tooltip = `${vuln.id || 'Unknown ID'}\n${vuln.summary || 'No summary'}`;
                     const cssSeverity = severity.toLowerCase() === 'moderate' ? 'medium' : severity.toLowerCase();
@@ -3441,6 +3467,11 @@ class ViewManager {
                     };
                 });
                 
+                // Skip this dependency if no vulnerabilities match the filter
+                if (severityFilter && vulnerabilities.length === 0) {
+                    continue;
+                }
+                
                 // Prepare usage paths
                 const usageForTemplate = usage.map(u => ({
                     repoKey: u.repoKey,
@@ -3450,8 +3481,8 @@ class ViewManager {
                 processedDeps.push({
                     name: dep.name || 'Unknown',
                     version: dep.version || 'Unknown',
-                    vulnerabilityCount: dep.vulnerabilities.length,
-                    vulnerabilityPlural: dep.vulnerabilities.length !== 1 ? 'ies' : 'y',
+                    vulnerabilityCount: vulnerabilities.length, // Use filtered count
+                    vulnerabilityPlural: vulnerabilities.length !== 1 ? 'ies' : 'y',
                     vulnerabilities: vulnerabilities,
                     depName: dep.name,
                     depVersion: dep.version,
@@ -3459,7 +3490,7 @@ class ViewManager {
                     uniqueReposCount: uniqueRepos.length,
                     reposPlural: uniqueRepos.length !== 1 ? 'ies' : 'y',
                     usage: usageForTemplate,
-                    allVulnsJson: JSON.stringify(dep.vulnerabilities).replace(/"/g, '&quot;')
+                    allVulnsJson: JSON.stringify(depVulnerabilities).replace(/"/g, '&quot;') // Use filtered vulnerabilities
                 });
             }
             
@@ -3520,9 +3551,22 @@ class ViewManager {
 
         // Generate vulnerability section HTML
         if (vulnAnalysis) {
+            // Show filter notice if severity filter is active
+            const filterNotice = severityFilter ? `
+        <div class="alert alert-info alert-dismissible fade show mb-3">
+            <i class="fas fa-filter me-2"></i>
+            <strong>Severity Filter Active:</strong> Showing only ${severityFilter} severity vulnerabilities.
+            <a href="vuln.html" class="btn btn-sm btn-outline-primary ms-2">
+                <i class="fas fa-times me-1"></i>Clear Filter
+            </a>
+            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+        </div>
+            ` : '';
+            
             return `<div id="vulnerability-section" class="independent-section">
     <div class="vulnerability-breakdown">
         <h3>🔒 Vulnerability Analysis</h3>
+        ${filterNotice}
         <div class="vulnerability-actions mb-3">
             <button class="btn btn-primary btn-sm" onclick="viewManager.runBatchVulnerabilityQuery('${this.escapeJsString(escapeHtml(orgName))}')">
                 <i class="fas fa-search"></i> Re-run Batch Vulnerability Query

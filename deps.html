@@ -387,6 +387,7 @@
         const fundingParam = urlParams.get('funding');
         const directParam = urlParams.get('direct');
         const searchParam = urlParams.get('search');
+        const ecosystemParam = urlParams.get('ecosystem');
         
         // Function to set search input from URL parameter
         function setSearchFromURL() {
@@ -582,6 +583,10 @@
                 const option = document.createElement('option');
                 option.value = eco;
                 option.textContent = eco.charAt(0).toUpperCase() + eco.slice(1);
+                // Pre-select ecosystem from URL parameter
+                if (ecosystemParam && eco.toLowerCase() === ecosystemParam.toLowerCase()) {
+                    option.selected = true;
+                }
                 ecosystemFilter.appendChild(option);
             });
             
@@ -605,6 +610,11 @@
                 if (searchInput && !searchInput.value) {
                     searchInput.value = decodeURIComponent(searchParam);
                 }
+            }
+            
+            // Apply ecosystem filter from URL parameter
+            if (ecosystemParam && ecosystemFilter.value === 'all') {
+                // Filter was already set above, trigger filterTable to apply it
             }
             
             await filterTable();
