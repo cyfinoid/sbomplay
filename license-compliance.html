@@ -302,8 +302,8 @@
         // Setup event listeners
         document.getElementById('analysisSelector').addEventListener('change', loadLicenseData);
         document.getElementById('categoryFilter').addEventListener('change', async function() {
-            // Update counts dynamically without reloading the entire page
-            await updateCountsOnly();
+            // Reload data to update both counts and high-risk list with new filter
+            await loadLicenseData();
         });
         
         // Load initial data

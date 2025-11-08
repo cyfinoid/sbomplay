@@ -3303,7 +3303,13 @@ class ViewManager {
             category: dep.category || 'Unknown',
             warnings: dep.warnings || []
         }));
-        const processedIssues = this.processHighRiskDependencies(rawHighRiskDeps);
+        let processedIssues = this.processHighRiskDependencies(rawHighRiskDeps);
+        
+        // Filter processedIssues by categoryFilter if active
+        if (categoryFilter && categoryFilter !== 'all') {
+            processedIssues = this.filterIssuesByCategory(processedIssues, categoryFilter);
+        }
+        
         const transitionCount = processedIssues.filter(issue => issue.type === 'license-transition').length;
         
         // Prepare license cards
@@ -3478,9 +3484,11 @@ class ViewManager {
         </div>`;
             }).join('');
             
+            // Store categoryFilter for use in filterHighRiskList
+            const categoryFilterValue = categoryFilter || 'all';
             highRiskHTML = `<div class="high-risk-licenses">
     <h4>⚠️ High-Risk Licenses</h4>
-    <div id="${highRiskListContainerId}" data-all-issues='${allIssuesJson}' data-org-name='${escapeHtml(orgName)}'>
+    <div id="${highRiskListContainerId}" data-all-issues='${allIssuesJson}' data-org-name='${escapeHtml(orgName)}' data-category-filter='${escapeHtml(categoryFilterValue)}'>
         <div class="high-risk-list" id="high-risk-list">
             ${highRiskItems}
         </div>
@@ -3490,6 +3498,60 @@ class ViewManager {
         }
 
         return licenseCardsHTML + conflictsHTML + highRiskHTML;
+    }
+
+    /**
+     * Filter issues by category filter
+     */
+    filterIssuesByCategory(issues, categoryFilter) {
+        if (!categoryFilter || categoryFilter === 'all') {
+            return issues;
+        }
+
+        const licenseProcessor = new LicenseProcessor();
+
+        return issues.filter(issue => {
+            // For license transitions, check if either from or to license matches the category
+            if (issue.type === 'license-transition') {
+                // Parse both licenses to get their categories
+                const fromPkg = { licenseDeclared: issue.fromLicense };
+                const toPkg = { licenseDeclared: issue.toLicense };
+                const fromInfo = licenseProcessor.parseLicense(fromPkg);
+                const toInfo = licenseProcessor.parseLicense(toPkg);
+                
+                switch (categoryFilter) {
+                    case 'copyleft':
+                        return fromInfo.category === 'copyleft' || fromInfo.category === 'lgpl' ||
+                               toInfo.category === 'copyleft' || toInfo.category === 'lgpl';
+                    case 'proprietary':
+                        return fromInfo.category === 'proprietary' || toInfo.category === 'proprietary';
+                    case 'unknown':
+                        return fromInfo.category === 'unknown' || toInfo.category === 'unknown' ||
+                               !fromInfo.license || !toInfo.license;
+                    case 'unlicensed':
+                        return fromInfo.category === 'unknown' && (!fromInfo.license || fromInfo.license === 'NOASSERTION') ||
+                               toInfo.category === 'unknown' && (!toInfo.license || toInfo.license === 'NOASSERTION');
+                    default:
+                        return true;
+                }
+            }
+            
+            // For same-license issues, check category
+            switch (categoryFilter) {
+                case 'copyleft':
+                    return issue.category === 'copyleft' || issue.category === 'lgpl' ||
+                           (issue.license && (issue.license.toLowerCase().includes('gpl') || issue.license.toLowerCase().includes('copyleft')));
+                case 'proprietary':
+                    return issue.category === 'proprietary' ||
+                           (issue.license && issue.license.toLowerCase().includes('proprietary'));
+                case 'unknown':
+                    return issue.category === 'unknown' || issue.license === 'Unknown' || !issue.license;
+                case 'unlicensed':
+                    return issue.category === 'unlicensed' || issue.license === 'Unlicensed' || !issue.license;
+                default:
+                    return true;
+            }
+        });
     }
 
     /**
@@ -3503,9 +3565,17 @@ class ViewManager {
         if (!allIssuesJson) return;
 
         try {
-            const allIssues = JSON.parse(allIssuesJson.replace(/&quot;/g, '"'));
+            let allIssues = JSON.parse(allIssuesJson.replace(/&quot;/g, '"'));
             const orgName = container.getAttribute('data-org-name') || 
                           document.querySelector('#analysisSelector')?.value || '__ALL__';
+            
+            // Get current category filter from dropdown (may have changed since page load)
+            const categoryFilterDropdown = document.getElementById('categoryFilter');
+            const currentCategoryFilter = categoryFilterDropdown?.value === 'all' ? null : categoryFilterDropdown?.value;
+            
+            // If category filter changed, we need to reload the page to get correct data
+            // For now, work with stored issues (which are filtered by the category filter at page load)
+            // The category filter dropdown change triggers a page reload anyway
             
             // Handle combined data names for deps.html URL
             const orgParam = (orgName === 'All Entries Combined' || orgName === 'All Projects (Combined)' || orgName === 'All Organizations Combined') 
@@ -3520,8 +3590,9 @@ class ViewManager {
             let filteredIssues = [];
             let isFiltering = true;
             
-            // Total card always shows all issues, or if clicking the same active card, reset to show all
+            // Total card shows all issues (respecting category filter), or if clicking the same active card, reset to show all
             if (filterType === 'total' || isActive) {
+                // Show all issues (already filtered by category filter if active)
                 filteredIssues = allIssues;
                 isFiltering = false;
             } else {
