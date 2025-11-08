@@ -291,9 +291,20 @@
             await loadOrganizationData(analysisName, categoryFilter === 'all' ? null : categoryFilter);
         }
         
+        async function updateCountsOnly() {
+            const categoryFilter = document.getElementById('categoryFilter').value;
+            const filterValue = categoryFilter === 'all' ? null : categoryFilter;
+            if (window.viewManager && typeof window.viewManager.updateLicenseCardCounts === 'function') {
+                await window.viewManager.updateLicenseCardCounts(filterValue);
+            }
+        }
+        
         // Setup event listeners
         document.getElementById('analysisSelector').addEventListener('change', loadLicenseData);
-        document.getElementById('categoryFilter').addEventListener('change', loadLicenseData);
+        document.getElementById('categoryFilter').addEventListener('change', async function() {
+            // Update counts dynamically without reloading the entire page
+            await updateCountsOnly();
+        });
         
         // Load initial data
         await loadLicenseData();

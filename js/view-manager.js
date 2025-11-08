@@ -2478,86 +2478,210 @@ class ViewManager {
      * Toggle license repositories panel (slide-out)
      */
     async toggleLicenseRepositoriesPanel(organization, licenseType) {
-        const panel = document.getElementById('license-repositories-panel');
-        const title = document.getElementById('license-panel-title');
-        const content = document.getElementById('license-repositories-content');
-        
-        if (panel.style.display === 'none') {
-            // Show panel
-            const orgData = await storageManager.loadAnalysisDataForOrganization(organization);
-            if (!orgData) {
-                this.showAlert('Organization data not found', 'error');
+        try {
+            console.log('[License Panel] Toggle called', { organization, licenseType });
+            
+            const panel = document.getElementById('license-repositories-panel');
+            const title = document.getElementById('license-panel-title');
+            const content = document.getElementById('license-repositories-content');
+            
+            // Debug: Check if panel elements exist
+            if (!panel) {
+                console.error('[License Panel] Panel element not found: license-repositories-panel');
+                console.log('[License Panel] Available elements:', {
+                    hasPanel: !!panel,
+                    hasTitle: !!title,
+                    hasContent: !!content
+                });
                 return;
             }
             
-            // Set title based on license type
-            const titles = {
-                'permissive': '✅ Permissive License Repositories',
-                'copyleft': '⚠️ Copyleft License Repositories',
-                'proprietary': '🔒 Proprietary License Repositories',
-                'unknown': '❓ Unknown License Repositories',
-                'total': '📊 All Licensed Dependencies',
-                'unlicensed': '🚨 Unlicensed Dependencies'
-            };
+            if (!title) {
+                console.error('[License Panel] Title element not found: license-panel-title');
+                return;
+            }
             
-            title.textContent = titles[licenseType] || 'License Repositories';
+            if (!content) {
+                console.error('[License Panel] Content element not found: license-repositories-content');
+                return;
+            }
             
-            // Load content
-            const repositories = this.getLicenseRepositoriesList(orgData, licenseType);
-            const dependencies = this.getLicenseDependenciesList(orgData, licenseType);
+            const isPanelHidden = panel.style.display === 'none' || 
+                                   panel.style.display === '' || 
+                                   !panel.classList.contains('panel-open');
             
-            const contentHtml = `
-                <div class="license-panel-stats">
-                    <div class="stat-item">
-                        <span class="stat-value">${repositories.length}</span>
-                        <span class="stat-label">Repositories</span>
-                    </div>
-                    <div class="stat-item">
-                        <span class="stat-value">${dependencies.length}</span>
-                        <span class="stat-label">Dependencies</span>
-                    </div>
-                </div>
+            if (isPanelHidden) {
+                // Show panel
+                console.log('[License Panel] Showing panel for:', { organization, licenseType });
                 
-                <div class="license-panel-repositories">
-                    <h5>📁 Repositories</h5>
-                    <div class="repository-list">
-                        ${repositories.map(repo => {
-                            const [owner, name] = repo.split('/');
-                            const repoIndex = orgData.data.allRepositories.findIndex(r => r.owner === owner && r.name === name);
-                            const escapedOrg = this.escapeJsString(this.escapeHtml(organization));
-                            const escapedRepo = this.escapeHtml(repo);
-                            return `
-                                <div class="repository-item" onclick="viewManager.showRepositoryDetailsFromAllReposIndex(${repoIndex}, '${escapedOrg}')" style="cursor: pointer;">
-                                    <div class="repo-name">${escapedRepo}</div>
-                                    <div class="repo-deps">${orgData.data.allRepositories[repoIndex]?.totalDependencies || 0} total deps</div>
+                // Check if storageManager is available
+                if (!window.storageManager) {
+                    console.error('[License Panel] storageManager not available');
+                    return;
+                }
+                
+                // Check if this is combined data
+                const isCombinedData = organization === '__ALL__' || 
+                                      organization === 'All Projects (Combined)' ||
+                                      organization === 'All Entries Combined' ||
+                                      organization === 'All Organizations Combined';
+                
+                console.log('[License Panel] Data type:', { 
+                    organization, 
+                    isCombinedData 
+                });
+                
+                let orgData;
+                try {
+                    if (isCombinedData) {
+                        console.log('[License Panel] Loading combined data');
+                        orgData = await storageManager.getCombinedData();
+                    } else {
+                        console.log('[License Panel] Loading organization data:', organization);
+                        orgData = await storageManager.loadAnalysisDataForOrganization(organization);
+                    }
+                    console.log('[License Panel] Loaded org data:', {
+                        found: !!orgData,
+                        hasData: !!(orgData && orgData.data),
+                        hasLicenseAnalysis: !!(orgData && orgData.data && orgData.data.licenseAnalysis),
+                        orgName: orgData?.name || orgData?.organization
+                    });
+                } catch (error) {
+                    console.error('[License Panel] Error loading organization data:', error);
+                    console.log('[License Panel] Error details:', {
+                        organization,
+                        isCombinedData,
+                        errorMessage: error.message,
+                        errorStack: error.stack
+                    });
+                    return;
+                }
+                
+                if (!orgData) {
+                    console.error('[License Panel] Organization data not found:', organization);
+                    try {
+                        const storageInfo = await storageManager.getStorageInfo();
+                        console.log('[License Panel] Available organizations:', {
+                            organizations: storageInfo.organizations.map(o => o.name),
+                            repositories: storageInfo.repositories.map(r => r.name)
+                        });
+                    } catch (err) {
+                        console.error('[License Panel] Error getting storage info:', err);
+                    }
+                    return;
+                }
+                
+                if (!orgData.data) {
+                    console.error('[License Panel] Organization data missing .data property:', organization);
+                    console.log('[License Panel] Org data structure:', Object.keys(orgData));
+                    return;
+                }
+                
+                // Set title based on license type
+                const titles = {
+                    'permissive': '✅ Permissive License Repositories',
+                    'copyleft': '⚠️ Copyleft License Repositories',
+                    'proprietary': '🔒 Proprietary License Repositories',
+                    'unknown': '❓ Unknown License Repositories',
+                    'total': '📊 All Licensed Dependencies',
+                    'unlicensed': '🚨 Unlicensed Dependencies'
+                };
+                
+                title.textContent = titles[licenseType] || 'License Repositories';
+                console.log('[License Panel] Set title:', title.textContent);
+                
+                // Load content
+                let repositories, dependencies;
+                try {
+                    repositories = this.getLicenseRepositoriesList(orgData, licenseType);
+                    dependencies = this.getLicenseDependenciesList(orgData, licenseType);
+                    console.log('[License Panel] Retrieved data:', {
+                        repositoriesCount: repositories.length,
+                        dependenciesCount: dependencies.length,
+                        licenseType
+                    });
+                } catch (error) {
+                    console.error('[License Panel] Error getting license lists:', error);
+                    console.log('[License Panel] Error details:', {
+                        errorMessage: error.message,
+                        errorStack: error.stack,
+                        licenseType,
+                        hasAllRepositories: !!(orgData.data.allRepositories),
+                        hasAllDependencies: !!(orgData.data.allDependencies)
+                    });
+                    return;
+                }
+                
+                const contentHtml = `
+                    <div class="license-panel-stats">
+                        <div class="stat-item">
+                            <span class="stat-value">${repositories.length}</span>
+                            <span class="stat-label">Repositories</span>
+                        </div>
+                        <div class="stat-item">
+                            <span class="stat-value">${dependencies.length}</span>
+                            <span class="stat-label">Dependencies</span>
+                        </div>
+                    </div>
+                    
+                    <div class="license-panel-repositories">
+                        <h5>📁 Repositories</h5>
+                        <div class="repository-list">
+                            ${repositories.map(repo => {
+                                const [owner, name] = repo.split('/');
+                                const repoIndex = orgData.data.allRepositories ? orgData.data.allRepositories.findIndex(r => r.owner === owner && r.name === name) : -1;
+                                const escapedOrg = this.escapeJsString(this.escapeHtml(organization));
+                                const escapedRepo = this.escapeHtml(repo);
+                                return `
+                                    <div class="repository-item" onclick="viewManager.showRepositoryDetailsFromAllReposIndex(${repoIndex}, '${escapedOrg}')" style="cursor: pointer;">
+                                        <div class="repo-name">${escapedRepo}</div>
+                                        <div class="repo-deps">${orgData.data.allRepositories && orgData.data.allRepositories[repoIndex] ? (orgData.data.allRepositories[repoIndex].totalDependencies || 0) : 0} total deps</div>
+                                    </div>
+                                `;
+                            }).join('')}
+                        </div>
+                    </div>
+                    
+                    <div class="license-panel-dependencies">
+                        <h5>📦 Dependencies</h5>
+                        <div class="dependency-list">
+                            ${dependencies.map(dep => `
+                                <div class="dependency-item">
+                                    <div class="dep-name">${this.escapeHtml(dep.name)}@${this.escapeHtml(dep.version)}</div>
+                                    <div class="dep-license">${this.escapeHtml(dep.license)}</div>
+                                    <div class="dep-category">${this.escapeHtml(dep.category)}</div>
                                 </div>
-                            `;
-                        }).join('')}
+                            `).join('')}
+                        </div>
                     </div>
-                </div>
+                `;
                 
-                <div class="license-panel-dependencies">
-                    <h5>📦 Dependencies</h5>
-                    <div class="dependency-list">
-                        ${dependencies.map(dep => `
-                            <div class="dependency-item">
-                                <div class="dep-name">${this.escapeHtml(dep.name)}@${this.escapeHtml(dep.version)}</div>
-                                <div class="dep-license">${this.escapeHtml(dep.license)}</div>
-                                <div class="dep-category">${this.escapeHtml(dep.category)}</div>
-                            </div>
-                        `).join('')}
-                    </div>
-                </div>
-            `;
-            this.safeSetHTML(content, contentHtml);
-            
-            panel.style.display = 'block';
-            setTimeout(() => {
-                panel.classList.add('panel-open');
-            }, 10);
-        } else {
-            // Hide panel
-            this.closeLicenseRepositoriesPanel();
+                try {
+                    this.safeSetHTML(content, contentHtml);
+                    console.log('[License Panel] Content HTML set successfully');
+                } catch (error) {
+                    console.error('[License Panel] Error setting content HTML:', error);
+                    return;
+                }
+                
+                panel.style.display = 'block';
+                setTimeout(() => {
+                    panel.classList.add('panel-open');
+                    console.log('[License Panel] Panel opened successfully');
+                }, 10);
+            } else {
+                // Hide panel
+                console.log('[License Panel] Hiding panel');
+                this.closeLicenseRepositoriesPanel();
+            }
+        } catch (error) {
+            console.error('[License Panel] Unexpected error:', error);
+            console.log('[License Panel] Full error details:', {
+                errorMessage: error.message,
+                errorStack: error.stack,
+                organization,
+                licenseType
+            });
         }
     }
 
@@ -2887,6 +3011,155 @@ class ViewManager {
     }
 
     /**
+     * Calculate license counts based on category filter
+     */
+    calculateLicenseCounts(orgData, categoryFilter = null) {
+        if (!orgData || !orgData.data || !orgData.data.allDependencies) {
+            return {
+                total: 0,
+                copyleft: 0,
+                proprietary: 0,
+                unknown: 0,
+                unlicensed: 0
+            };
+        }
+
+        const licenseProcessor = new LicenseProcessor();
+        const dependencies = orgData.data.allDependencies;
+        
+        const counts = {
+            total: 0,
+            copyleft: 0,
+            proprietary: 0,
+            unknown: 0,
+            unlicensed: 0
+        };
+
+        // If filter is active, only count dependencies matching that category
+        if (categoryFilter && categoryFilter !== 'all') {
+            // When filtering, only show count for the filtered category
+            let filteredCount = 0;
+            dependencies.forEach(dep => {
+                if (!dep.originalPackage) {
+                    if (categoryFilter === 'unlicensed') {
+                        counts.unlicensed++;
+                        filteredCount++;
+                    }
+                    return;
+                }
+
+                const licenseInfo = licenseProcessor.parseLicense(dep.originalPackage);
+                let matches = false;
+                
+                switch (categoryFilter) {
+                    case 'proprietary':
+                        matches = licenseInfo.category === 'proprietary';
+                        if (matches) {
+                            counts.proprietary++;
+                            filteredCount++;
+                        }
+                        break;
+                    case 'copyleft':
+                        matches = licenseInfo.category === 'copyleft' || licenseInfo.category === 'lgpl';
+                        if (matches) {
+                            counts.copyleft++;
+                            filteredCount++;
+                        }
+                        break;
+                    case 'lgpl':
+                        matches = licenseInfo.category === 'lgpl';
+                        if (matches) {
+                            counts.copyleft++; // LGPL is part of copyleft
+                            filteredCount++;
+                        }
+                        break;
+                    case 'unknown':
+                        matches = !licenseInfo.license || licenseInfo.license === 'NOASSERTION' || licenseInfo.category === 'unknown';
+                        if (matches) {
+                            counts.unknown++;
+                            filteredCount++;
+                        }
+                        break;
+                    case 'unlicensed':
+                        matches = !licenseInfo.license || licenseInfo.license === 'NOASSERTION';
+                        if (matches) {
+                            counts.unlicensed++;
+                            filteredCount++;
+                        }
+                        break;
+                }
+            });
+            // Set total to the filtered count
+            counts.total = filteredCount;
+        } else {
+            // No filter: count all dependencies normally
+            dependencies.forEach(dep => {
+                if (!dep.originalPackage) {
+                    counts.unlicensed++;
+                    return;
+                }
+
+                const licenseInfo = licenseProcessor.parseLicense(dep.originalPackage);
+                
+                if (licenseInfo.license && licenseInfo.license !== 'NOASSERTION') {
+                    counts.total++;
+                    
+                    if (licenseInfo.category === 'copyleft' || licenseInfo.category === 'lgpl') {
+                        counts.copyleft++;
+                    } else if (licenseInfo.category === 'proprietary') {
+                        counts.proprietary++;
+                    } else if (licenseInfo.category === 'unknown') {
+                        counts.unknown++;
+                    }
+                } else {
+                    counts.unlicensed++;
+                }
+            });
+        }
+
+        return counts;
+    }
+
+    /**
+     * Update license card counts based on category filter
+     */
+    async updateLicenseCardCounts(categoryFilter = null) {
+        const analysisSelector = document.getElementById('analysisSelector');
+        if (!analysisSelector) return;
+
+        const analysisName = analysisSelector.value;
+        if (!analysisName) return;
+
+        // Determine if this is combined data
+        const isCombinedData = analysisName === '__ALL__' || 
+                               analysisName === 'All Projects (Combined)' ||
+                               analysisName === 'All Entries Combined' ||
+                               analysisName === 'All Organizations Combined';
+
+        let orgData;
+        if (isCombinedData) {
+            if (!window.storageManager) return;
+            orgData = await storageManager.getCombinedData();
+        } else {
+            if (!window.storageManager) return;
+            orgData = await storageManager.loadAnalysisDataForOrganization(analysisName);
+        }
+
+        if (!orgData || !orgData.data) return;
+
+        const counts = this.calculateLicenseCounts(orgData, categoryFilter);
+
+        // Update each card's count
+        const cardTypes = ['total', 'copyleft', 'proprietary', 'unknown', 'unlicensed'];
+        cardTypes.forEach(type => {
+            const countElement = document.getElementById(`license-count-${type}`);
+            if (countElement) {
+                countElement.textContent = counts[type] || 0;
+            }
+        });
+    }
+
+    /**
      * Generate License Compliance HTML (standalone section)
      */
     async generateLicenseComplianceHTML(orgData, categoryFilter = null) {
@@ -2918,9 +3191,8 @@ class ViewManager {
             return String(text).replace(/[&<>"']/g, m => map[m]);
         };
         
-        // Calculate combined copyleft (includes LGPL)
-        const copyleftCount = (licenseAnalysis.summary?.categoryBreakdown?.copyleft || 0) + 
-                             (licenseAnalysis.summary?.categoryBreakdown?.lgpl || 0);
+        // Calculate counts based on filter
+        const counts = this.calculateLicenseCounts(orgData, categoryFilter);
         
         // Prepare license cards
         const licenseCards = [];
@@ -2928,51 +3200,45 @@ class ViewManager {
             {
                 type: 'total',
                 title: '📊 Total',
-                count: licenseAnalysis.summary?.licensedDependencies || 0,
+                count: counts.total,
                 detail: 'licensed deps',
-                tooltipHeader: '📊 All Licensed Dependencies',
                 licenseType: 'total'
             },
             {
                 type: 'copyleft',
                 title: '⚠️ Copyleft',
-                count: copyleftCount,
+                count: counts.copyleft,
                 detail: 'high risk',
-                tooltipHeader: '⚠️ Copyleft Licenses (GPL, LGPL, AGPL, MPL, EPL)',
                 licenseType: 'copyleft'
             },
             {
                 type: 'proprietary',
                 title: '🔒 Proprietary',
-                count: licenseAnalysis.summary?.categoryBreakdown?.proprietary || 0,
+                count: counts.proprietary,
                 detail: 'medium risk',
-                tooltipHeader: '🔒 Proprietary Licenses',
                 licenseType: 'proprietary'
             },
             {
                 type: 'unknown',
                 title: '❓ Unknown',
-                count: licenseAnalysis.summary?.categoryBreakdown?.unknown || 0,
+                count: counts.unknown,
                 detail: 'high risk',
-                tooltipHeader: '❓ Unknown Licenses',
                 licenseType: 'unknown'
             },
             {
                 type: 'unlicensed',
                 title: '🚨 Unlicensed',
-                count: licenseAnalysis.summary?.unlicensedDependencies || 0,
+                count: counts.unlicensed,
                 detail: 'unlicensed deps',
-                tooltipHeader: '🚨 Unlicensed Dependencies',
                 licenseType: 'unlicensed'
             }
         ];
         
-        // Generate license card HTML for each type
+        // Generate license card HTML for each type (no click handlers)
         for (const config of cardConfigs) {
-            const cardHTML = `<div class="license-stat-card ${config.type} ${config.type === 'total' ? '' : 'clickable-license-card'} license-card" 
-     ${config.type === 'total' ? '' : `onclick="viewManager.toggleLicenseRepositoriesPanel('${this.escapeJsString(escapeHtml(orgName))}', '${this.escapeJsString(config.licenseType)}')"`}>
+            const cardHTML = `<div class="license-stat-card ${config.type} license-card" id="license-card-${config.type}">
     <h4>${escapeHtml(config.title)}</h4>
-    <div class="license-number">${config.count}</div>
+    <div class="license-number" id="license-count-${config.type}">${config.count}</div>
     <div class="license-detail">${escapeHtml(config.detail)}</div>
 </div>`;
             
