@@ -380,6 +380,7 @@
         let sortDirection = 'asc';
         let fundingFilterActive = false;
         let isLoadingMore = false;
+        let searchFromURL = false; // Track if search came from URL parameter (exact match) vs user typing (fuzzy match)
         
         // Check for URL parameters
         const urlParams = new URLSearchParams(window.location.search);
@@ -388,6 +389,11 @@
         const directParam = urlParams.get('direct');
         const searchParam = urlParams.get('search');
         const ecosystemParam = urlParams.get('ecosystem');
+        
+        // Set flag if search came from URL parameter
+        if (searchParam) {
+            searchFromURL = true;
+        }
         
         // Function to set search input from URL parameter
         function setSearchFromURL() {
@@ -512,7 +518,15 @@
         document.getElementById('analysisSelector').addEventListener('change', () => {
             loadAnalysis().then(() => filterTable());
         });
-        document.getElementById('searchInput').addEventListener('input', () => filterTable());
+        document.getElementById('searchInput').addEventListener('input', (e) => {
+            // Once user modifies the search (different from URL param), switch to fuzzy match mode
+            const currentValue = e.target.value;
+            const urlSearchValue = searchParam ? decodeURIComponent(searchParam) : '';
+            if (searchFromURL && currentValue !== urlSearchValue) {
+                searchFromURL = false;
+            }
+            filterTable();
+        });
         document.getElementById('typeFilter').addEventListener('change', () => filterTable());
         document.getElementById('ecosystemFilter').addEventListener('change', () => filterTable());
         document.getElementById('repoFilter').addEventListener('change', () => filterTable());
@@ -854,7 +868,16 @@
             
             // Apply other filters
             filtered = filtered.filter(dep => {
-                if (search && !dep.name.toLowerCase().includes(search)) return false;
+                if (search) {
+                    // Use exact match if search came from URL parameter, fuzzy match if user is typing
+                    if (searchFromURL) {
+                        // Exact match: package name must exactly equal the search term (case-insensitive)
+                        if (dep.name.toLowerCase() !== search) return false;
+                    } else {
+                        // Fuzzy match: package name contains the search term
+                        if (!dep.name.toLowerCase().includes(search)) return false;
+                    }
+                }
                 if (typeFilter !== 'all' && dep.type !== typeFilter) return false;
                 if (ecosystemFilter !== 'all' && dep.ecosystem !== ecosystemFilter) return false;
                 if (repoFilter !== 'all' && !dep.repositories.includes(repoFilter)) return false;
@@ -1518,7 +1541,16 @@
             const repoFilter = document.getElementById('repoFilter').value;
             
             let filtered = allDependencies.filter(dep => {
-                if (search && !dep.name.toLowerCase().includes(search)) return false;
+                if (search) {
+                    // Use exact match if search came from URL parameter, fuzzy match if user is typing
+                    if (searchFromURL) {
+                        // Exact match: package name must exactly equal the search term (case-insensitive)
+                        if (dep.name.toLowerCase() !== search) return false;
+                    } else {
+                        // Fuzzy match: package name contains the search term
+                        if (!dep.name.toLowerCase().includes(search)) return false;
+                    }
+                }
                 if (typeFilter !== 'all' && dep.type !== typeFilter) return false;
                 if (ecosystemFilter !== 'all' && dep.ecosystem !== ecosystemFilter) return false;
                 if (repoFilter !== 'all' && !dep.repositories.includes(repoFilter)) return false;
