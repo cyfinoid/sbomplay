@@ -24,6 +24,48 @@ class AuthorService {
     }
 
     /**
+     * Securely check if a URL belongs to a specific hostname
+     * This prevents security issues with substring matching (e.g., "evil.com/tidelift.com")
+     * @param {string} url - The URL to check
+     * @param {string} hostname - The expected hostname (e.g., "github.com", "tidelift.com")
+     * @param {string} pathPrefix - Optional path prefix to check (e.g., "/sponsors")
+     * @returns {boolean} - True if URL belongs to the hostname
+     */
+    isUrlFromHostname(url, hostname, pathPrefix = '') {
+        if (!url || typeof url !== 'string') return false;
+        
+        try {
+            // Ensure URL has a protocol
+            let urlToParse = url.trim();
+            if (!urlToParse.match(/^https?:\/\//i)) {
+                urlToParse = 'https://' + urlToParse;
+            }
+            
+            const parsedUrl = new URL(urlToParse);
+            const urlHostname = parsedUrl.hostname.toLowerCase();
+            const expectedHostname = hostname.toLowerCase();
+            
+            // Check exact hostname match or subdomain
+            // Allow subdomains (e.g., "www.github.com" matches "github.com")
+            const hostnameMatches = urlHostname === expectedHostname || 
+                                   urlHostname.endsWith('.' + expectedHostname);
+            
+            if (!hostnameMatches) return false;
+            
+            // If path prefix is specified, check it
+            if (pathPrefix) {
+                const urlPath = parsedUrl.pathname.toLowerCase();
+                return urlPath.startsWith(pathPrefix.toLowerCase());
+            }
+            
+            return true;
+        } catch (e) {
+            // Invalid URL
+            return false;
+        }
+    }
+
+    /**
      * Fetch registry mappings from ecosyste.ms (uses cached data)
      * This provides the authoritative list of registry names and their purl types
      */
@@ -379,20 +421,20 @@ class AuthorService {
                 
                 if (!url) return;
                 
-                // Check by type first, then by URL pattern
-                if (type === 'github' || url.includes('github.com/sponsors')) {
+                // Check by type first, then by URL pattern (secure hostname validation)
+                if (type === 'github' || this.isUrlFromHostname(url, 'github.com', '/sponsors')) {
                     funding.github = true;
                     funding.githubUrl = url;
                 }
-                if (type === 'patreon' || url.includes('patreon.com')) {
+                if (type === 'patreon' || this.isUrlFromHostname(url, 'patreon.com')) {
                     funding.patreon = true;
                     funding.patreonUrl = url;
                 }
-                if (type === 'opencollective' || url.includes('opencollective.com')) {
+                if (type === 'opencollective' || this.isUrlFromHostname(url, 'opencollective.com')) {
                     funding.opencollective = true;
                     funding.opencollectiveUrl = url;
                 }
-                if (type === 'tidelift' || url.includes('tidelift.com')) {
+                if (type === 'tidelift' || this.isUrlFromHostname(url, 'tidelift.com')) {
                     funding.tidelift = true;
                     funding.tideliftUrl = url;
                 }
@@ -401,50 +443,50 @@ class AuthorService {
             funding.url = data.funding.url;
             funding.type = data.funding.type;
             
-            // Set platform flags based on URL
-            if (funding.url.includes('github.com/sponsors')) {
+            // Set platform flags based on URL (secure hostname validation)
+            if (this.isUrlFromHostname(funding.url, 'github.com', '/sponsors')) {
                 funding.github = true;
                 funding.githubUrl = funding.url;
             }
-            if (funding.url.includes('patreon.com')) {
+            if (this.isUrlFromHostname(funding.url, 'patreon.com')) {
                 funding.patreon = true;
                 funding.patreonUrl = funding.url;
             }
-            if (funding.url.includes('opencollective.com')) {
+            if (this.isUrlFromHostname(funding.url, 'opencollective.com')) {
                 funding.opencollective = true;
                 funding.opencollectiveUrl = funding.url;
             }
-            if (funding.url.includes('tidelift.com')) {
+            if (this.isUrlFromHostname(funding.url, 'tidelift.com')) {
                 funding.tidelift = true;
                 funding.tideliftUrl = funding.url;
             }
         }
         
-        // Fallback: Check for specific platforms in URLs if not already set
+        // Fallback: Check for specific platforms in URLs if not already set (secure hostname validation)
         const urls = funding.urls || [funding.url];
         if (urls && urls.length > 0) {
             if (!funding.github) {
-                funding.github = urls.some(u => u && u.includes('github.com/sponsors'));
+                funding.github = urls.some(u => u && this.isUrlFromHostname(u, 'github.com', '/sponsors'));
                 if (funding.github && !funding.githubUrl) {
-                    funding.githubUrl = urls.find(u => u && u.includes('github.com/sponsors'));
+                    funding.githubUrl = urls.find(u => u && this.isUrlFromHostname(u, 'github.com', '/sponsors'));
                 }
             }
             if (!funding.opencollective) {
-                funding.opencollective = urls.some(u => u && u.includes('opencollective.com'));
+                funding.opencollective = urls.some(u => u && this.isUrlFromHostname(u, 'opencollective.com'));
                 if (funding.opencollective && !funding.opencollectiveUrl) {
-                    funding.opencollectiveUrl = urls.find(u => u && u.includes('opencollective.com'));
+                    funding.opencollectiveUrl = urls.find(u => u && this.isUrlFromHostname(u, 'opencollective.com'));
                 }
             }
             if (!funding.patreon) {
-                funding.patreon = urls.some(u => u && u.includes('patreon.com'));
+                funding.patreon = urls.some(u => u && this.isUrlFromHostname(u, 'patreon.com'));
                 if (funding.patreon && !funding.patreonUrl) {
-                    funding.patreonUrl = urls.find(u => u && u.includes('patreon.com'));
+                    funding.patreonUrl = urls.find(u => u && this.isUrlFromHostname(u, 'patreon.com'));
                 }
             }
             if (!funding.tidelift) {
-                funding.tidelift = urls.some(u => u && u.includes('tidelift.com'));
+                funding.tidelift = urls.some(u => u && this.isUrlFromHostname(u, 'tidelift.com'));
                 if (funding.tidelift && !funding.tideliftUrl) {
-                    funding.tideliftUrl = urls.find(u => u && u.includes('tidelift.com'));
+                    funding.tideliftUrl = urls.find(u => u && this.isUrlFromHostname(u, 'tidelift.com'));
                 }
             }
         }
@@ -470,10 +512,10 @@ class AuthorService {
                 funding.urls.push(url);
                 funding.url = funding.url || url;  // Set first as primary
                 
-                // Detect specific platforms
-                if (url.includes('github.com/sponsors')) funding.github = true;
-                if (url.includes('opencollective.com')) funding.opencollective = true;
-                if (url.includes('patreon.com')) funding.patreon = true;
+                // Detect specific platforms (secure hostname validation)
+                if (this.isUrlFromHostname(url, 'github.com', '/sponsors')) funding.github = true;
+                if (this.isUrlFromHostname(url, 'opencollective.com')) funding.opencollective = true;
+                if (this.isUrlFromHostname(url, 'patreon.com')) funding.patreon = true;
             }
         }
         
@@ -489,10 +531,10 @@ class AuthorService {
         
         const funding = { url: fundingUrl };
         
-        // Detect specific platforms
-        if (fundingUrl.includes('github.com/sponsors')) funding.github = true;
-        if (fundingUrl.includes('opencollective.com')) funding.opencollective = true;
-        if (fundingUrl.includes('patreon.com')) funding.patreon = true;
+        // Detect specific platforms (secure hostname validation)
+        if (this.isUrlFromHostname(fundingUrl, 'github.com', '/sponsors')) funding.github = true;
+        if (this.isUrlFromHostname(fundingUrl, 'opencollective.com')) funding.opencollective = true;
+        if (this.isUrlFromHostname(fundingUrl, 'patreon.com')) funding.patreon = true;
         
         return funding;
     }
@@ -566,9 +608,9 @@ class AuthorService {
                     const url = customMatch[1].replace(/['"]/g, '');
                     const funding = { url: url };
                     
-                    // Detect platform
-                    if (url.includes('opencollective.com')) funding.opencollective = true;
-                    if (url.includes('patreon.com')) funding.patreon = true;
+                    // Detect platform (secure hostname validation)
+                    if (this.isUrlFromHostname(url, 'opencollective.com')) funding.opencollective = true;
+                    if (this.isUrlFromHostname(url, 'patreon.com')) funding.patreon = true;
                     
                     authorEntity.funding = funding;
                     await window.cacheManager.saveAuthorEntity(authorKey, authorEntity);

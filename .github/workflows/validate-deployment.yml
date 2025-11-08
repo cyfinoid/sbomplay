@@ -19,7 +19,7 @@ jobs:
     
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           fetch-depth: 1
       
@@ -28,12 +28,12 @@ jobs:
           echo "🔍 Checking required HTML files..."
           REQUIRED_HTML=(
             "index.html"
-            "stats.html"
             "license-compliance.html"
             "vuln.html"
             "deps.html"
             "settings.html"
             "authors.html"
+            "quality.html"
           )
           
           MISSING=0

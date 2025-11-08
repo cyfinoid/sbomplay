@@ -9,6 +9,68 @@ class ViewManager {
     }
 
     /**
+     * Securely check if a URL belongs to a specific hostname
+     * This prevents security issues with substring matching (e.g., "evil.com/tidelift.com")
+     * @param {string} url - The URL to check
+     * @param {string} hostname - The expected hostname (e.g., "github.com", "tidelift.com")
+     * @param {string} pathPrefix - Optional path prefix to check (e.g., "/sponsors")
+     * @returns {boolean} - True if URL belongs to the hostname
+     */
+    isUrlFromHostname(url, hostname, pathPrefix = '') {
+        if (!url || typeof url !== 'string') return false;
+        
+        try {
+            // Ensure URL has a protocol
+            let urlToParse = url.trim();
+            if (!urlToParse.match(/^https?:\/\//i)) {
+                urlToParse = 'https://' + urlToParse;
+            }
+            
+            const parsedUrl = new URL(urlToParse);
+            const urlHostname = parsedUrl.hostname.toLowerCase();
+            const expectedHostname = hostname.toLowerCase();
+            
+            // Check exact hostname match or subdomain
+            // Allow subdomains (e.g., "www.github.com" matches "github.com")
+            const hostnameMatches = urlHostname === expectedHostname || 
+                                   urlHostname.endsWith('.' + expectedHostname);
+            
+            if (!hostnameMatches) return false;
+            
+            // If path prefix is specified, check it
+            if (pathPrefix) {
+                const urlPath = parsedUrl.pathname.toLowerCase();
+                return urlPath.startsWith(pathPrefix.toLowerCase());
+            }
+            
+            return true;
+        } catch (e) {
+            // Invalid URL
+            return false;
+        }
+    }
+
+    /**
+     * Properly escape a string for use in JavaScript string literals
+     * Escapes backslashes first, then quotes and other control characters
+     * @param {string} text - The string to escape
+     * @returns {string} - The escaped string safe for use in JavaScript string literals
+     */
+    escapeJsString(text) {
+        if (!text || typeof text !== 'string') return '';
+        // Must escape backslashes FIRST, then quotes
+        return String(text)
+            .replace(/\\/g, '\\\\')  // Escape backslashes first
+            .replace(/'/g, "\\'")    // Then escape single quotes
+            .replace(/"/g, '\\"')    // Escape double quotes
+            .replace(/\n/g, '\\n')   // Escape newlines
+            .replace(/\r/g, '\\r')   // Escape carriage returns
+            .replace(/\t/g, '\\t')   // Escape tabs
+            .replace(/\f/g, '\\f')   // Escape form feeds
+            .replace(/\v/g, '\\v');  // Escape vertical tabs
+    }
+
+    /**
      * Render overview header HTML
      */
     renderOverviewHeader(organization, analyzedDate) {
@@ -25,10 +87,10 @@ class ViewManager {
     <h2>📊 ${escapeHtml(organization)} - Dependency Overview</h2>
     <p class="text-muted">Analyzed on ${escapeHtml(analyzedDate)}</p>
     <div class="mt-2">
-        <button class="btn btn-primary btn-sm" onclick="viewManager.runBatchVulnerabilityQuery('${escapeHtml(organization).replace(/'/g, "\\'")}')">
+        <button class="btn btn-primary btn-sm" onclick="viewManager.runBatchVulnerabilityQuery('${this.escapeJsString(escapeHtml(organization))}')">
             <i class="fas fa-shield-alt"></i> Vulnerability Scan (All Repos)
         </button>
-        <button class="btn btn-success btn-sm" onclick="viewManager.runLicenseComplianceCheck('${escapeHtml(organization).replace(/'/g, "\\'")}')">
+        <button class="btn btn-success btn-sm" onclick="viewManager.runLicenseComplianceCheck('${this.escapeJsString(escapeHtml(organization))}')">
             <i class="fas fa-gavel"></i> License Compliance Check
         </button>
         <button class="btn btn-info btn-sm" onclick="viewManager.showVulnerabilityCacheStats()">
@@ -70,7 +132,7 @@ class ViewManager {
             <p>This organization hasn't been analyzed for license compliance yet. License analysis is performed automatically during the SBOM processing.</p>
             <p><strong>Note:</strong> License analysis includes detection of copyleft licenses, license conflicts, and compliance recommendations.</p>
             <div class="mt-3">
-                <button class="btn btn-success btn-sm" onclick="viewManager.runLicenseComplianceCheck('${escapeHtml(organization).replace(/'/g, "\\'")}')">
+                <button class="btn btn-success btn-sm" onclick="viewManager.runLicenseComplianceCheck('${this.escapeJsString(escapeHtml(organization))}')">
                     <i class="fas fa-gavel"></i> Run License Compliance Check
                 </button>
             </div>
@@ -134,7 +196,7 @@ class ViewManager {
         }
 
         const repositoriesHTML = data.repositories.map(repo => `
-            <div class="repository-item" onclick="viewManager.showRepositoryDetailsFromAllReposIndex(${repo.index}, '${escapeHtml(repo.organization).replace(/'/g, "\\'")}')">
+            <div class="repository-item" onclick="viewManager.showRepositoryDetailsFromAllReposIndex(${repo.index}, '${this.escapeJsString(escapeHtml(repo.organization))}')">
                 <div class="repo-name">${escapeHtml(repo.owner)}/${escapeHtml(repo.name)}</div>
                 <div class="repo-deps">${repo.totalDependencies} total deps</div>
             </div>`).join('');
@@ -164,7 +226,7 @@ class ViewManager {
             <h6>📋 No License Analysis Available</h6>
             <p>License analysis hasn't been performed for this organization yet. License information will be available after the next analysis run.</p>
             <div class="mt-3">
-                <button class="btn btn-success btn-sm" onclick="viewManager.runLicenseComplianceCheck('${escapeHtml(data.organization).replace(/'/g, "\\'")}')">
+                <button class="btn btn-success btn-sm" onclick="viewManager.runLicenseComplianceCheck('${this.escapeJsString(escapeHtml(data.organization))}')">
                     <i class="fas fa-gavel"></i> Run License Compliance Check
                 </button>
             </div>
@@ -172,7 +234,7 @@ class ViewManager {
         }
 
         return `<div class="view-header">
-    <button class="btn btn-secondary" onclick="viewManager.showOrganizationOverviewFromStorage('${escapeHtml(data.organization).replace(/'/g, "\\'")}')">
+    <button class="btn btn-secondary" onclick="viewManager.showOrganizationOverviewFromStorage('${this.escapeJsString(escapeHtml(data.organization))}')">
         ← Back to Overview
     </button>
     <h2>📦 ${escapeHtml(data.name)}@${escapeHtml(data.version)}</h2>
@@ -211,7 +273,7 @@ class ViewManager {
     <div class="detail-section">
         <h3>🔍 Security Analysis</h3>
         <div class="mt-3">
-            <button class="btn btn-primary btn-sm" onclick="viewManager.quickScanDependency('${escapeHtml(data.name).replace(/'/g, "\\'")}', '${escapeHtml(data.version).replace(/'/g, "\\'")}', '${escapeHtml(data.organization).replace(/'/g, "\\'")}')">
+            <button class="btn btn-primary btn-sm" onclick="viewManager.quickScanDependency('${this.escapeJsString(escapeHtml(data.name))}', '${this.escapeJsString(escapeHtml(data.version))}', '${this.escapeJsString(escapeHtml(data.organization))}')">
                 <i class="fas fa-shield-alt"></i> Quick Vulnerability Scan
             </button>
             <button class="btn btn-info btn-sm" onclick="viewManager.showVulnerabilityCacheStats()">
@@ -671,10 +733,10 @@ class ViewManager {
             fundingData = {
                 packageFunding: true,
                 fundingUrl: fundingUrl,
-                fundingGitHub: packageFunding.github || fundingUrl.includes('github.com/sponsors'),
-                fundingOpenCollective: packageFunding.opencollective || fundingUrl.includes('opencollective.com'),
-                fundingPatreon: packageFunding.patreon || fundingUrl.includes('patreon.com'),
-                fundingTidelift: packageFunding.tidelift || fundingUrl.includes('tidelift.com'),
+                fundingGitHub: packageFunding.github || this.isUrlFromHostname(fundingUrl, 'github.com', '/sponsors'),
+                fundingOpenCollective: packageFunding.opencollective || this.isUrlFromHostname(fundingUrl, 'opencollective.com'),
+                fundingPatreon: packageFunding.patreon || this.isUrlFromHostname(fundingUrl, 'patreon.com'),
+                fundingTidelift: packageFunding.tidelift || this.isUrlFromHostname(fundingUrl, 'tidelift.com'),
                 fundingGeneric: packageFunding.url && !packageFunding.github && !packageFunding.opencollective && !packageFunding.patreon && !packageFunding.tidelift
             };
         }
@@ -2828,7 +2890,7 @@ class ViewManager {
             ).join('');
             
             const cardHTML = `<div class="license-stat-card ${config.type} clickable-license-card license-card" 
-     onclick="viewManager.toggleLicenseRepositoriesPanel('${escapeHtml(orgName).replace(/'/g, "\\'")}', '${config.licenseType}')">
+     onclick="viewManager.toggleLicenseRepositoriesPanel('${this.escapeJsString(escapeHtml(orgName))}', '${this.escapeJsString(config.licenseType)}')">
     <h4>${escapeHtml(config.title)}</h4>
     <div class="license-number">${config.count}</div>
     <div class="license-detail">${escapeHtml(config.detail)}</div>
@@ -2850,7 +2912,7 @@ class ViewManager {
                 ${hasMoreRepos ? `<div class="license-tooltip-repo">... and ${repoList.length - 5} more</div>` : ''}
             </div>
             <div class="license-tooltip-footer">
-                <button class="license-tooltip-click" onclick="viewManager.toggleLicenseRepositoriesPanel('${escapeHtml(orgName).replace(/'/g, "\\'")}', '${config.licenseType}')">Click to view all</button>
+                <button class="license-tooltip-click" onclick="viewManager.toggleLicenseRepositoriesPanel('${this.escapeJsString(escapeHtml(orgName))}', '${this.escapeJsString(config.licenseType)}')">Click to view all</button>
             </div>
         </div>
     </div>
@@ -2915,7 +2977,7 @@ class ViewManager {
                     ${conflict.licenses.map(lic => `<span class="badge badge-license">${escapeHtml(lic)}</span>`).join('\n                    ')}
                 </div>
                 <div class="conflict-actions">
-                    <button class="btn btn-outline-danger btn-sm" onclick="viewManager.showLicenseConflictDetailsModal('${escapeHtml(orgName).replace(/'/g, "\\'")}', ${index})">
+                    <button class="btn btn-outline-danger btn-sm" onclick="viewManager.showLicenseConflictDetailsModal('${this.escapeJsString(escapeHtml(orgName))}', ${index})">
                         <i class="fas fa-eye me-1"></i>View Affected Repositories
                     </button>
                 </div>
@@ -2950,7 +3012,7 @@ class ViewManager {
                 ${warningsHTML}
             </div>
             <div class="risk-actions">
-                <button class="btn btn-outline-warning btn-sm" onclick="viewManager.showHighRiskLicenseDetailsModal('${escapeHtml(orgName).replace(/'/g, "\\'")}', '${escapeHtml(dep.name).replace(/'/g, "\\'")}', '${escapeHtml(dep.version).replace(/'/g, "\\'")}')">
+                <button class="btn btn-outline-warning btn-sm" onclick="viewManager.showHighRiskLicenseDetailsModal('${this.escapeJsString(escapeHtml(orgName))}', '${this.escapeJsString(escapeHtml(dep.name))}', '${this.escapeJsString(escapeHtml(dep.version))}')">
                     <i class="fas fa-eye me-1"></i>View Affected Repositories
                 </button>
             </div>
@@ -2973,7 +3035,7 @@ class ViewManager {
             <div class="rec-priority">${escapeHtml(rec.priority)}</div>
             <div class="rec-message">${escapeHtml(rec.message)}</div>
             <div class="rec-actions">
-                <button class="btn btn-outline-info btn-sm" onclick="viewManager.showRecommendationDetails('${escapeHtml(orgName).replace(/'/g, "\\'")}', ${index})">
+                <button class="btn btn-outline-info btn-sm" onclick="viewManager.showRecommendationDetails('${this.escapeJsString(escapeHtml(orgName))}', ${index})">
                     <i class="fas fa-eye me-1"></i>View Details
                 </button>
             </div>
@@ -3138,17 +3200,17 @@ class ViewManager {
         const topDepsHTML = topDepsForTemplate.length > 0 
             ? topDepsForTemplate.map(dep => `
             <div class="dependency-item ${dep.categoryType}">
-                <div class="dep-content" onclick="viewManager.showDependencyDetailsFromIndex(${dep.index}, '${escapeHtml(orgName).replace(/'/g, "\\'")}')">
+                <div class="dep-content" onclick="viewManager.showDependencyDetailsFromIndex(${dep.index}, '${this.escapeJsString(escapeHtml(orgName))}')">
                     <div class="dep-name">${escapeHtml(dep.name)}</div>
                     <div class="dep-version">${escapeHtml(dep.version)}</div>
                     <div class="dep-count">${dep.count} repos</div>
                     <div class="dep-category">${escapeHtml(dep.categoryType)}</div>
                 </div>
                 <div class="dep-actions">
-                    <button class="btn btn-sm btn-outline-primary" onclick="viewManager.queryVulnerabilityForDependency('${escapeHtml(dep.name).replace(/'/g, "\\'")}', '${escapeHtml(dep.version).replace(/'/g, "\\'")}', '${escapeHtml(orgName).replace(/'/g, "\\'")}'))" title="Query vulnerabilities">
+                    <button class="btn btn-sm btn-outline-primary" onclick="viewManager.queryVulnerabilityForDependency('${this.escapeJsString(escapeHtml(dep.name))}', '${this.escapeJsString(escapeHtml(dep.version))}', '${this.escapeJsString(escapeHtml(orgName))}'))" title="Query vulnerabilities">
                         <i class="fas fa-shield-alt"></i>
                     </button>
-                    ${dep.showQuickScan ? `<button class="btn btn-sm btn-outline-success" onclick="viewManager.quickScanDependency('${escapeHtml(dep.name).replace(/'/g, "\\'")}', '${escapeHtml(dep.version).replace(/'/g, "\\'")}', '${escapeHtml(orgName).replace(/'/g, "\\'")}'))" title="Quick scan for vulnerabilities">
+                    ${dep.showQuickScan ? `<button class="btn btn-sm btn-outline-success" onclick="viewManager.quickScanDependency('${this.escapeJsString(escapeHtml(dep.name))}', '${this.escapeJsString(escapeHtml(dep.version))}', '${this.escapeJsString(escapeHtml(orgName))}')" title="Quick scan for vulnerabilities">
                         <i class="fas fa-bolt"></i>
                     </button>` : ''}
                 </div>
@@ -3175,17 +3237,17 @@ class ViewManager {
         if (allDepsForTemplate.length > 0) {
             const allDepsHTML = allDepsForTemplate.map(dep => `
         <div class="dependency-card ${dep.categoryType}">
-            <div class="dep-content" onclick="viewManager.showDependencyDetailsFromAllDepsIndex(${dep.index}, '${escapeHtml(orgName).replace(/'/g, "\\'")}')">
+            <div class="dep-content" onclick="viewManager.showDependencyDetailsFromAllDepsIndex(${dep.index}, '${this.escapeJsString(escapeHtml(orgName))}')">
                 <div class="dep-name">${escapeHtml(dep.name)}</div>
                 <div class="dep-version">${escapeHtml(dep.version)}</div>
                 <div class="dep-count">${dep.count} repos</div>
                 <div class="dep-category">${escapeHtml(dep.categoryType)}</div>
             </div>
             <div class="dep-actions">
-                <button class="btn btn-sm btn-outline-primary" onclick="viewManager.queryVulnerabilityForDependency('${escapeHtml(dep.name).replace(/'/g, "\\'")}', '${escapeHtml(dep.version).replace(/'/g, "\\'")}', '${escapeHtml(orgName).replace(/'/g, "\\'")}'))" title="Query vulnerabilities">
+                <button class="btn btn-sm btn-outline-primary" onclick="viewManager.queryVulnerabilityForDependency('${this.escapeJsString(escapeHtml(dep.name))}', '${this.escapeJsString(escapeHtml(dep.version))}', '${this.escapeJsString(escapeHtml(orgName))}'))" title="Query vulnerabilities">
                     <i class="fas fa-shield-alt"></i>
                 </button>
-                ${dep.showQuickScan ? `<button class="btn btn-sm btn-outline-success" onclick="viewManager.quickScanDependency('${escapeHtml(dep.name).replace(/'/g, "\\'")}', '${escapeHtml(dep.version).replace(/'/g, "\\'")}', '${escapeHtml(orgName).replace(/'/g, "\\'")}'))" title="Quick scan for vulnerabilities">
+                ${dep.showQuickScan ? `<button class="btn btn-sm btn-outline-success" onclick="viewManager.quickScanDependency('${this.escapeJsString(escapeHtml(dep.name))}', '${this.escapeJsString(escapeHtml(dep.version))}', '${this.escapeJsString(escapeHtml(orgName))}')" title="Quick scan for vulnerabilities">
                     <i class="fas fa-bolt"></i>
                 </button>` : ''}
             </div>
@@ -3431,14 +3493,14 @@ class ViewManager {
             ${depData.vulnerabilities.map(vuln => `
             <span class="badge severity-${vuln.cssSeverity} clickable-severity-badge me-1" 
                   title="${escapeHtml(vuln.tooltip)}" 
-                  onclick="viewManager.showVulnerabilityDetails('${escapeHtml(depData.depName).replace(/'/g, "\\'")}', '${escapeHtml(depData.depVersion).replace(/'/g, "\\'")}', [${vuln.vulnJson}])">
+                  onclick="viewManager.showVulnerabilityDetails('${this.escapeJsString(escapeHtml(depData.depName))}', '${this.escapeJsString(escapeHtml(depData.depVersion))}', [${vuln.vulnJson}])">
                 ${escapeHtml(vuln.severity)}
             </span>`).join('')}
         </div>
         ${usageHTML}
     </div>
     <div class="vuln-dep-actions mt-2">
-        <button class="btn btn-sm btn-outline-info" onclick="viewManager.showVulnerabilityDetails('${escapeHtml(depData.name).replace(/'/g, "\\'")}', '${escapeHtml(depData.version).replace(/'/g, "\\'")}', ${depData.allVulnsJson})">
+        <button class="btn btn-sm btn-outline-info" onclick="viewManager.showVulnerabilityDetails('${this.escapeJsString(escapeHtml(depData.name))}', '${this.escapeJsString(escapeHtml(depData.version))}', ${depData.allVulnsJson})">
             <i class="fas fa-eye me-1"></i>View Details
         </button>
     </div>
@@ -3462,7 +3524,7 @@ class ViewManager {
     <div class="vulnerability-breakdown">
         <h3>🔒 Vulnerability Analysis</h3>
         <div class="vulnerability-actions mb-3">
-            <button class="btn btn-primary btn-sm" onclick="viewManager.runBatchVulnerabilityQuery('${escapeHtml(orgName).replace(/'/g, "\\'")}')">
+            <button class="btn btn-primary btn-sm" onclick="viewManager.runBatchVulnerabilityQuery('${this.escapeJsString(escapeHtml(orgName))}')">
                 <i class="fas fa-search"></i> Re-run Batch Vulnerability Query
             </button>
             <button class="btn btn-info btn-sm" onclick="viewManager.showVulnerabilityCacheStats()">
@@ -3512,7 +3574,7 @@ class ViewManager {
     <div class="vulnerability-breakdown">
         <h3>🔒 Vulnerability Analysis</h3>
         <div class="vulnerability-actions mb-3">
-            <button class="btn btn-primary btn-sm" onclick="viewManager.runBatchVulnerabilityQuery('${escapeHtml(orgName).replace(/'/g, "\\'")}')">
+            <button class="btn btn-primary btn-sm" onclick="viewManager.runBatchVulnerabilityQuery('${this.escapeJsString(escapeHtml(orgName))}')">
                 <i class="fas fa-search"></i> Run Initial Vulnerability Analysis
             </button>
             <button class="btn btn-info btn-sm" onclick="viewManager.showVulnerabilityCacheStats()">
