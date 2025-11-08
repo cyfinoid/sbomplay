@@ -289,7 +289,6 @@
                             </th>
                             <th style="text-align: center;">Vulnerabilities</th>
                             <th>License</th>
-                            <th style="text-align: center;">SBOM Quality</th>
                             <th style="text-align: center;">Sponsorship</th>
                             <th>Brought In By</th>
                         </tr>
@@ -387,6 +386,17 @@
         const orgParam = urlParams.get('org');
         const fundingParam = urlParams.get('funding');
         const directParam = urlParams.get('direct');
+        const searchParam = urlParams.get('search');
+        
+        // Function to set search input from URL parameter
+        function setSearchFromURL() {
+            if (searchParam) {
+                const searchInput = document.getElementById('searchInput');
+                if (searchInput) {
+                    searchInput.value = decodeURIComponent(searchParam);
+                }
+            }
+        }
         
         // Function to show funding filter notice
         function showFundingFilterNotice() {
@@ -422,6 +432,7 @@
                     if (typeFilter) {
                         typeFilter.value = 'direct';
                     }
+                    setSearchFromURL();
                     showFundingFilterNotice();
                 });
             } else {
@@ -430,14 +441,26 @@
                 if (typeFilter) {
                     typeFilter.value = 'direct';
                 }
+                setSearchFromURL();
                 showFundingFilterNotice();
             }
         } else if (fundingParam === 'true') {
             // Show notice even if direct is not set
             if (document.readyState === 'loading') {
-                document.addEventListener('DOMContentLoaded', showFundingFilterNotice);
+                document.addEventListener('DOMContentLoaded', () => {
+                    setSearchFromURL();
+                    showFundingFilterNotice();
+                });
             } else {
+                setSearchFromURL();
                 showFundingFilterNotice();
+            }
+        } else if (searchParam) {
+            // Set search input if search parameter is present
+            if (document.readyState === 'loading') {
+                document.addEventListener('DOMContentLoaded', setSearchFromURL);
+            } else {
+                setSearchFromURL();
             }
         }
         
@@ -576,6 +599,14 @@
             // Hide loading indicator
             document.getElementById('loadingOverlay').style.display = 'none';
             
+            // Set search input from URL parameter if present (in case it wasn't set earlier)
+            if (searchParam) {
+                const searchInput = document.getElementById('searchInput');
+                if (searchInput && !searchInput.value) {
+                    searchInput.value = decodeURIComponent(searchParam);
+                }
+            }
+            
             await filterTable();
             
             // Load funding data lazily in background (only for visible rows initially)
@@ -602,16 +633,11 @@
                 vulnMap.set(key, vulnDep);
             });
             
-            // Create a map for repository quality scores (for lazy calculation)
-            const repoQualityMap = new Map();
-            repos.forEach(repo => {
-                const repoKey = `${repo.owner}/${repo.name}`;
-                if (repo.qualityAssessment) {
-                    repoQualityMap.set(repoKey, repo.qualityAssessment);
-                }
-            });
+            // Note: We don't show SBOM quality for individual dependencies
+            // SBOM quality is only meaningful at the repository level since we only
+            // download SBOMs from repositories, not from dependencies themselves
             
-            // Store license processor and quality map for lazy evaluation
+            // Store license processor for lazy evaluation
             const licenseProcessor = window.LicenseProcessor ? new LicenseProcessor() : null;
             
             allDeps.forEach(dep => {
@@ -710,9 +736,7 @@
                     vulnLow: vulnLow,
                     // Lazy-evaluated fields (calculated only when rendering)
                     _licenseProcessor: licenseProcessor,
-                    _repoQualityMap: repoQualityMap,
                     _licenseCached: false,
-                    _qualityCached: false,
                     raw: dep
                 });
             });
@@ -999,37 +1023,6 @@
                 return { license: licenseText, licenseFull: licenseFull };
             }
             
-            // Helper function to get quality info (lazy evaluation)
-            function getQualityInfo(dep) {
-                if (dep._qualityCached) {
-                    return { qualityScore: dep.qualityScore, qualityGrade: dep.qualityGrade };
-                }
-                
-                let avgQuality = null;
-                let qualityGrade = null;
-                if (dep.repositories && dep.repositories.length > 0 && dep._repoQualityMap) {
-                    const qualityScores = [];
-                    dep.repositories.forEach(repoKey => {
-                        const quality = dep._repoQualityMap.get(repoKey);
-                        if (quality && quality.overallScore !== undefined) {
-                            qualityScores.push(quality.overallScore);
-                        }
-                    });
-                    if (qualityScores.length > 0) {
-                        avgQuality = Math.round(qualityScores.reduce((a, b) => a + b, 0) / qualityScores.length);
-                        const firstQuality = dep._repoQualityMap.get(dep.repositories[0]);
-                        if (firstQuality) {
-                            qualityGrade = firstQuality.grade;
-                        }
-                    }
-                }
-                
-                // Cache the result
-                dep.qualityScore = avgQuality;
-                dep.qualityGrade = qualityGrade;
-                dep._qualityCached = true;
-                return { qualityScore: avgQuality, qualityGrade: qualityGrade };
-            }
             
             // Render the batch
             toDisplay.forEach((dep, idx) => {
@@ -1094,21 +1087,9 @@
                 const licenseInfo = getLicenseInfo(dep);
                 const licenseCell = `<td><span title="${escapeHtml(licenseInfo.licenseFull)}">${escapeHtml(licenseInfo.license)}</span></td>`;
                 
-                // Build SBOM quality cell (lazy evaluation)
-                const qualityInfo = getQualityInfo(dep);
-                let qualityCell = '<td style="text-align: center;">—</td>';
-                if (qualityInfo.qualityScore !== null && qualityInfo.qualityGrade) {
-                    const gradeColors = {
-                        'A': 'success',
-                        'B': 'primary',
-                        'C': 'warning',
-                        'D': 'danger',
-                        'F': 'dark'
-                    };
-                    const gradeColor = gradeColors[qualityInfo.qualityGrade] || 'secondary';
-                    const displayScore = (qualityInfo.qualityScore / 10).toFixed(1);
-                    qualityCell = `<td style="text-align: center;"><span class="badge bg-${gradeColor}" title="SBOM Quality Score: ${displayScore}/10.0 (Grade ${qualityInfo.qualityGrade})">${qualityInfo.qualityGrade}</span></td>`;
-                }
+                // Note: SBOM Quality is not shown for individual dependencies
+                // SBOM quality scores are only meaningful at the repository level,
+                // not for individual dependencies, since we only download SBOMs from repositories
                 
                 const tr = document.createElement('tr');
                 tr.setAttribute('data-dep-index', startIndex + idx); // Store dependency index for easy lookup
@@ -1136,7 +1117,6 @@
                     </td>
                     ${vulnCell}
                     ${licenseCell}
-                    ${qualityCell}
                     ${sponsorshipCell}
                     <td>
                         ${dep.type === 'direct' 
@@ -1434,32 +1414,9 @@
                 `;
             }
             
-            // SBOM Quality section
-            if (repoQualityMap.size > 0) {
-                const qualityScores = Array.from(repoQualityMap.values()).map(q => q.overallScore);
-                const avgQuality = Math.round(qualityScores.reduce((a, b) => a + b, 0) / qualityScores.length);
-                const firstQuality = Array.from(repoQualityMap.values())[0];
-                const grade = firstQuality.grade;
-                const gradeColors = {
-                    'A': 'success',
-                    'B': 'primary',
-                    'C': 'warning',
-                    'D': 'danger',
-                    'F': 'dark'
-                };
-                const gradeColor = gradeColors[grade] || 'secondary';
-                
-                html += `
-                    <div class="mt-3">
-                        <h6><i class="fas fa-chart-line me-2"></i>SBOM Quality</h6>
-                        <p class="mb-2">Average SBOM quality across repositories using this package:</p>
-                        <div class="d-flex align-items-center gap-3">
-                            <span class="badge bg-${gradeColor} fs-6">${grade}</span>
-                            <span class="text-muted">${(avgQuality / 10).toFixed(1)}/10.0</span>
-                        </div>
-                    </div>
-                `;
-            }
+            // Note: We don't show average SBOM quality for dependencies
+            // SBOM quality scores are only meaningful at the repository level.
+            // Individual repository quality badges are shown in the "Usage" section above.
             
             modalBody.innerHTML = html;
         }
@@ -1572,30 +1529,8 @@
                 return 'Unknown';
             }
             
-            function getQualityInfoForCSV(dep) {
-                if (dep._qualityCached) {
-                    return dep.qualityScore !== null ? `${(dep.qualityScore / 10).toFixed(1)} (${dep.qualityGrade})` : 'N/A';
-                }
-                if (dep.repositories && dep.repositories.length > 0 && dep._repoQualityMap) {
-                    const qualityScores = [];
-                    dep.repositories.forEach(repoKey => {
-                        const quality = dep._repoQualityMap.get(repoKey);
-                        if (quality && quality.overallScore !== undefined) {
-                            qualityScores.push(quality.overallScore);
-                        }
-                    });
-                    if (qualityScores.length > 0) {
-                        const avgQuality = Math.round(qualityScores.reduce((a, b) => a + b, 0) / qualityScores.length);
-                        const firstQuality = dep._repoQualityMap.get(dep.repositories[0]);
-                        const grade = firstQuality ? firstQuality.grade : null;
-                        return `${(avgQuality / 10).toFixed(1)} (${grade})`;
-                    }
-                }
-                return 'N/A';
-            }
-            
             const csv = [
-                ['Package', 'Type', 'Ecosystem', 'Repositories', 'Vulnerabilities (H/M/L)', 'License', 'SBOM Quality', 'Brought In By'].join(','),
+                ['Package', 'Type', 'Ecosystem', 'Repositories', 'Vulnerabilities (H/M/L)', 'License', 'Brought In By'].join(','),
                 ...filtered.map(dep => [
                     `"${dep.name}@${dep.version}"`,
                     dep.type,
@@ -1603,7 +1538,6 @@
                     `"${dep.repositories.join(', ')}"`,
                     `"H:${dep.vulnHigh} M:${dep.vulnMedium} L:${dep.vulnLow}"`,
                     `"${getLicenseInfoForCSV(dep)}"`,
-                    getQualityInfoForCSV(dep),
                     dep.type === 'direct' ? 'N/A' : `"${dep.parents.join(', ')}"`
                 ].join(','))
             ].join('\n');

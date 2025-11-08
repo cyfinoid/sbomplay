@@ -1036,6 +1036,15 @@ class SBOMPlayApp {
         
         // Display stats cards
         this.displayStatsCards(combinedData);
+        
+        // Display top common dependencies
+        this.displayTopCommonDependencies(combinedData);
+        
+        // Display version sprawl
+        this.displayVersionSprawl(combinedData);
+        
+        // Display license distribution
+        this.displayLicenseDistribution(combinedData);
     }
     
     /**
@@ -1219,10 +1228,9 @@ class SBOMPlayApp {
         
         // Build HTML
         let html = `
-            <div class="alert alert-info mb-3">
-                <i class="fas fa-info-circle me-2"></i>
-                <strong>Industry-Aligned Assessment:</strong> Based on sbomqs methodology, adapted for GitHub SPDX SBOMs.
-                7 categories with GitHub-optimized weights. Scores: 0-10 scale.
+            <div class="alert alert-warning mb-3">
+                <i class="fas fa-flask me-2"></i>
+                <strong>Experimental SBOM Quality Assessment:</strong> Based on parameters listed in <a href="about.html" class="alert-link">about.html</a>.
             </div>
             
             <div class="row mb-4">
@@ -1232,9 +1240,9 @@ class SBOMPlayApp {
                 </div>
             </div>
             
-            <h6 class="mb-3">Average Category Scores (7 categories):</h6>
+            <h6 class="mb-3">Average Category Scores (6 categories):</h6>
             <div class="row g-3 mb-4">
-                <div class="col-lg-3 col-md-6">
+                <div class="col-lg-4 col-md-6">
                     <div class="card">
                         <div class="card-body p-2">
                             <p class="mb-1 small"><strong>Identification (25%)</strong></p>
@@ -1247,7 +1255,7 @@ class SBOMPlayApp {
                         </div>
                     </div>
                 </div>
-                <div class="col-lg-3 col-md-6">
+                <div class="col-lg-4 col-md-6">
                     <div class="card">
                         <div class="card-body p-2">
                             <p class="mb-1 small"><strong>Provenance (20%)</strong></p>
@@ -1260,33 +1268,33 @@ class SBOMPlayApp {
                         </div>
                     </div>
                 </div>
-                <div class="col-lg-3 col-md-6">
+                <div class="col-lg-4 col-md-6">
                     <div class="card">
                         <div class="card-body p-2">
-                            <p class="mb-1 small"><strong>Integrity (10%)</strong></p>
+                            <p class="mb-1 small"><strong>Dependencies (10%)</strong></p>
                             <div class="progress" style="height: 25px;">
-                                <div class="progress-bar bg-${getScoreColor(qa.averageIntegrity || 0)}" 
+                                <div class="progress-bar bg-${getScoreColor(qa.averageDependencies || 0)}" 
                                      role="progressbar" 
-                                     style="width: ${qa.averageIntegrity || 0}%">${qa.averageIntegrity || 0}/100</div>
+                                     style="width: ${qa.averageDependencies || 0}%">${qa.averageDependencies || 0}/100</div>
                             </div>
-                            <small class="text-muted">Checksums, SHA-256+</small>
+                            <small class="text-muted">Relationship mapping</small>
                         </div>
                     </div>
                 </div>
-                <div class="col-lg-3 col-md-6">
+                <div class="col-lg-4 col-md-6">
                     <div class="card">
                         <div class="card-body p-2">
-                            <p class="mb-1 small"><strong>Completeness (20%)</strong></p>
+                            <p class="mb-1 small"><strong>Metadata (10%)</strong></p>
                             <div class="progress" style="height: 25px;">
-                                <div class="progress-bar bg-${getScoreColor(qa.averageCompleteness || 0)}" 
+                                <div class="progress-bar bg-${getScoreColor(qa.averageMetadata || 0)}" 
                                      role="progressbar" 
-                                     style="width: ${qa.averageCompleteness || 0}%">${qa.averageCompleteness || 0}/100</div>
+                                     style="width: ${qa.averageMetadata || 0}%">${qa.averageMetadata || 0}/100</div>
                             </div>
-                            <small class="text-muted">Relationships, metadata</small>
+                            <small class="text-muted">Copyright, download location</small>
                         </div>
                     </div>
                 </div>
-                <div class="col-lg-3 col-md-6">
+                <div class="col-lg-4 col-md-6">
                     <div class="card">
                         <div class="card-body p-2">
                             <p class="mb-1 small"><strong>Licensing (10%)</strong></p>
@@ -1299,29 +1307,16 @@ class SBOMPlayApp {
                         </div>
                     </div>
                 </div>
-                <div class="col-lg-3 col-md-6">
+                <div class="col-lg-4 col-md-6">
                     <div class="card">
                         <div class="card-body p-2">
-                            <p class="mb-1 small"><strong>Vulnerability (10%)</strong></p>
+                            <p class="mb-1 small"><strong>Vulnerability (15%)</strong></p>
                             <div class="progress" style="height: 25px;">
                                 <div class="progress-bar bg-${getScoreColor(qa.averageVulnerability || 0)}" 
                                      role="progressbar" 
                                      style="width: ${qa.averageVulnerability || 0}%">${qa.averageVulnerability || 0}/100</div>
                             </div>
                             <small class="text-muted">PURL, CPE identifiers</small>
-                        </div>
-                    </div>
-                </div>
-                <div class="col-lg-3 col-md-6">
-                    <div class="card">
-                        <div class="card-body p-2">
-                            <p class="mb-1 small"><strong>Structural (5%)</strong></p>
-                            <div class="progress" style="height: 25px;">
-                                <div class="progress-bar bg-${getScoreColor(qa.averageStructural || 0)}" 
-                                     role="progressbar" 
-                                     style="width: ${qa.averageStructural || 0}%">${qa.averageStructural || 0}/100</div>
-                            </div>
-                            <small class="text-muted">SPDX compliance</small>
                         </div>
                     </div>
                 </div>
@@ -1346,7 +1341,7 @@ class SBOMPlayApp {
         if (qa.repositoriesNeedingAttention && qa.repositoriesNeedingAttention.length > 0) {
             html += `
                 <div class="alert alert-warning">
-                    <h6><i class="fas fa-exclamation-triangle me-2"></i>Repositories Needing Attention (${qa.repositoriesNeedingAttention.length})</h6>
+                    <h6><i class="fas fa-exclamation-triangle me-2"></i>Repositories Needing Attention (showing top ${Math.min(qa.repositoriesNeedingAttention.length, 5)} of ${qa.repositoriesNeedingAttention.length})</h6>
                     <p class="small mb-2">These repositories have SBOM quality scores below 70%:</p>
                     <div class="table-responsive">
                         <table class="table table-sm table-hover mb-0">
@@ -1361,7 +1356,7 @@ class SBOMPlayApp {
                             <tbody>
             `;
             
-            qa.repositoriesNeedingAttention.slice(0, 10).forEach(repo => {
+            qa.repositoriesNeedingAttention.slice(0, 5).forEach(repo => {
                 const issueCategories = repo.topIssues.map(issue => issue.category).join(', ');
                 const repoDisplayScore = repo.displayScore || (repo.score / 10).toFixed(1);
                 html += `
@@ -1433,6 +1428,46 @@ class SBOMPlayApp {
         `;
         
         statsContainer.innerHTML = html;
+    }
+    
+    /**
+     * Display top common dependencies
+     */
+    displayTopCommonDependencies(data) {
+        const section = document.getElementById('topCommonDependencies');
+        const content = document.getElementById('topCommonDependenciesContent');
+        
+        if (!section || !content) return;
+        
+        const topDeps = this.getTopCommonDependencies(data);
+        
+        if (topDeps.length === 0) {
+            section.style.display = 'none';
+            return;
+        }
+        
+        section.style.display = 'block';
+        content.innerHTML = this.renderTopCommonDependencies(topDeps);
+    }
+    
+    /**
+     * Display version sprawl dependencies
+     */
+    displayVersionSprawl(data) {
+        const section = document.getElementById('versionSprawl');
+        const content = document.getElementById('versionSprawlContent');
+        
+        if (!section || !content) return;
+        
+        const sprawlDeps = this.getVersionSprawlDependencies(data);
+        
+        if (sprawlDeps.length === 0) {
+            section.style.display = 'none';
+            return;
+        }
+        
+        section.style.display = 'block';
+        content.innerHTML = this.renderVersionSprawl(sprawlDeps);
     }
     
     /**
@@ -1563,6 +1598,281 @@ class SBOMPlayApp {
                 </div>
             </div>
         `;
+    }
+    
+    /**
+     * Get top 5 most commonly used dependencies (by name@version)
+     */
+    getTopCommonDependencies(data) {
+        if (!data.data.allDependencies || !Array.isArray(data.data.allDependencies)) {
+            return [];
+        }
+        
+        // Sort by count (repository count) descending and take top 5
+        return data.data.allDependencies
+            .sort((a, b) => (b.count || 0) - (a.count || 0))
+            .slice(0, 5)
+            .map(dep => ({
+                name: dep.name,
+                version: dep.version,
+                count: dep.count || 0,
+                repositories: dep.repositories || []
+            }));
+    }
+    
+    /**
+     * Get top 5 dependencies with version sprawl (multiple versions)
+     */
+    getVersionSprawlDependencies(data) {
+        if (!data.data.allDependencies || !Array.isArray(data.data.allDependencies)) {
+            return [];
+        }
+        
+        // Group by dependency name (ignoring version)
+        const nameMap = new Map();
+        
+        data.data.allDependencies.forEach(dep => {
+            const name = dep.name;
+            if (!nameMap.has(name)) {
+                nameMap.set(name, {
+                    name: name,
+                    versions: new Set(),
+                    versionDetails: []
+                });
+            }
+            const entry = nameMap.get(name);
+            entry.versions.add(dep.version);
+            entry.versionDetails.push({
+                version: dep.version,
+                count: dep.count || 0
+            });
+        });
+        
+        // Filter to dependencies with > 1 version, sort by version count, take top 5
+        return Array.from(nameMap.values())
+            .filter(entry => entry.versions.size > 1)
+            .map(entry => ({
+                name: entry.name,
+                versionCount: entry.versions.size,
+                versions: Array.from(entry.versions).sort(),
+                versionDetails: entry.versionDetails.sort((a, b) => (b.count || 0) - (a.count || 0))
+            }))
+            .sort((a, b) => b.versionCount - a.versionCount)
+            .slice(0, 5);
+    }
+    
+    /**
+     * Render top common dependencies
+     */
+    renderTopCommonDependencies(deps) {
+        if (deps.length === 0) {
+            return '<p class="text-muted small">No dependency data available</p>';
+        }
+        
+        return deps.map(dep => {
+            const depKey = `${dep.name}@${dep.version}`;
+            return `
+                <div class="d-flex justify-content-between align-items-center mb-2 p-2 border rounded">
+                    <div>
+                        <strong><code>${this.escapeHtml(dep.name)}@${this.escapeHtml(dep.version)}</code></strong>
+                        <br>
+                        <small class="text-muted">Used in ${dep.count} ${dep.count === 1 ? 'repository' : 'repositories'}</small>
+                    </div>
+                    <a href="deps.html?search=${encodeURIComponent(dep.name)}" class="btn btn-sm btn-outline-primary">
+                        <i class="fas fa-external-link-alt me-1"></i>View
+                    </a>
+                </div>
+            `;
+        }).join('');
+    }
+    
+    /**
+     * Render version sprawl dependencies
+     */
+    renderVersionSprawl(deps) {
+        if (deps.length === 0) {
+            return '<p class="text-muted small">No version sprawl detected. All dependencies use single versions.</p>';
+        }
+        
+        return deps.map(dep => {
+            const versionsDisplay = dep.versions.length > 5 
+                ? dep.versions.slice(0, 5).join(', ') + ` ... and ${dep.versions.length - 5} more`
+                : dep.versions.join(', ');
+            
+            return `
+                <div class="d-flex justify-content-between align-items-start mb-3 p-2 border rounded ${dep.versionCount > 1 ? 'border-warning' : ''}">
+                    <div class="flex-grow-1">
+                        <div class="d-flex align-items-center gap-2 mb-1">
+                            <strong><code>${this.escapeHtml(dep.name)}</code></strong>
+                            <span class="badge bg-${dep.versionCount > 1 ? 'warning' : 'secondary'}">${dep.versionCount} ${dep.versionCount === 1 ? 'version' : 'versions'}</span>
+                            ${dep.versionCount > 1 ? '<span class="badge bg-danger">Version Sprawl</span>' : ''}
+                        </div>
+                        <small class="text-muted">Versions: ${this.escapeHtml(versionsDisplay)}</small>
+                    </div>
+                    <a href="deps.html?search=${encodeURIComponent(dep.name)}" class="btn btn-sm btn-outline-primary">
+                        <i class="fas fa-external-link-alt me-1"></i>View
+                    </a>
+                </div>
+            `;
+        }).join('');
+    }
+    
+    /**
+     * Display license distribution with pie chart and cards
+     */
+    displayLicenseDistribution(data) {
+        const licenseSection = document.getElementById('licenseDistribution');
+        const licenseContent = document.getElementById('licenseDistributionContent');
+        
+        if (!licenseSection || !licenseContent) return;
+        
+        if (!data.data.licenseAnalysis || !data.data.licenseAnalysis.summary) {
+            licenseSection.style.display = 'none';
+            return;
+        }
+        
+        licenseSection.style.display = 'block';
+        const summary = data.data.licenseAnalysis.summary;
+        const breakdown = summary.categoryBreakdown || {};
+        
+        // Calculate copyleft (including LGPL)
+        const copyleftCount = (breakdown.copyleft || 0) + (breakdown.lgpl || 0);
+        const totalLicensed = summary.licensedDependencies || 0;
+        const unlicensed = summary.unlicensedDependencies || 0;
+        const proprietary = breakdown.proprietary || 0;
+        const unknown = breakdown.unknown || 0;
+        const permissive = breakdown.permissive || 0;
+        
+        // Calculate percentages for pie chart
+        const total = totalLicensed + unlicensed;
+        if (total === 0) {
+            licenseSection.style.display = 'none';
+            return;
+        }
+        
+        const copyleftPercent = total > 0 ? ((copyleftCount / total) * 100).toFixed(1) : 0;
+        const permissivePercent = total > 0 ? ((permissive / total) * 100).toFixed(1) : 0;
+        const proprietaryPercent = total > 0 ? ((proprietary / total) * 100).toFixed(1) : 0;
+        const unknownPercent = total > 0 ? ((unknown / total) * 100).toFixed(1) : 0;
+        const unlicensedPercent = total > 0 ? ((unlicensed / total) * 100).toFixed(1) : 0;
+        
+        // Build pie chart using CSS (conic-gradient)
+        const pieChartHtml = `
+            <div class="row mb-4">
+                <div class="col-md-6">
+                    <h6 class="mb-3">License Distribution</h6>
+                    <div class="d-flex justify-content-center align-items-center">
+                        <div style="width: 200px; height: 200px; border-radius: 50%; background: conic-gradient(
+                            #28a745 ${permissivePercent}%,
+                            #ffc107 ${parseFloat(permissivePercent)}% ${parseFloat(permissivePercent) + parseFloat(copyleftPercent)}%,
+                            #dc3545 ${parseFloat(permissivePercent) + parseFloat(copyleftPercent)}% ${parseFloat(permissivePercent) + parseFloat(copyleftPercent) + parseFloat(proprietaryPercent)}%,
+                            #6c757d ${parseFloat(permissivePercent) + parseFloat(copyleftPercent) + parseFloat(proprietaryPercent)}% ${parseFloat(permissivePercent) + parseFloat(copyleftPercent) + parseFloat(proprietaryPercent) + parseFloat(unknownPercent)}%,
+                            #17a2b8 ${parseFloat(permissivePercent) + parseFloat(copyleftPercent) + parseFloat(proprietaryPercent) + parseFloat(unknownPercent)}%
+                        ); position: relative;">
+                            <div style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 100px; height: 100px; background: var(--bg-color, #fff); border-radius: 50%; display: flex; align-items: center; justify-content: center;">
+                                <strong>${total}</strong>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="mt-3 text-center">
+                        <small class="text-muted">Total Dependencies</small>
+                    </div>
+                </div>
+                <div class="col-md-6">
+                    <h6 class="mb-3">Legend</h6>
+                    <div class="d-flex flex-column gap-2">
+                        <div class="d-flex align-items-center gap-2">
+                            <div style="width: 20px; height: 20px; background: #28a745; border-radius: 4px;"></div>
+                            <span>Permissive (${permissivePercent}%)</span>
+                        </div>
+                        <div class="d-flex align-items-center gap-2">
+                            <div style="width: 20px; height: 20px; background: #ffc107; border-radius: 4px;"></div>
+                            <span>Copyleft (${copyleftPercent}%)</span>
+                        </div>
+                        <div class="d-flex align-items-center gap-2">
+                            <div style="width: 20px; height: 20px; background: #dc3545; border-radius: 4px;"></div>
+                            <span>Proprietary (${proprietaryPercent}%)</span>
+                        </div>
+                        <div class="d-flex align-items-center gap-2">
+                            <div style="width: 20px; height: 20px; background: #6c757d; border-radius: 4px;"></div>
+                            <span>Unknown (${unknownPercent}%)</span>
+                        </div>
+                        <div class="d-flex align-items-center gap-2">
+                            <div style="width: 20px; height: 20px; background: #17a2b8; border-radius: 4px;"></div>
+                            <span>Unlicensed (${unlicensedPercent}%)</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        `;
+        
+        // Build license cards similar to license-compliance.html
+        const licenseCardsHtml = `
+            <div class="row g-3 mb-3">
+                <div class="col-md-4">
+                    <div class="card border-primary">
+                        <div class="card-body text-center">
+                            <h6 class="text-primary">📊 Total Licensed</h6>
+                            <h4 class="text-primary">${totalLicensed}</h4>
+                            <small class="text-muted">licensed dependencies</small>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-4">
+                    <div class="card border-warning">
+                        <div class="card-body text-center">
+                            <h6 class="text-warning">⚠️ Copyleft</h6>
+                            <h4 class="text-warning">${copyleftCount}</h4>
+                            <small class="text-muted">high risk</small>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-4">
+                    <div class="card border-danger">
+                        <div class="card-body text-center">
+                            <h6 class="text-danger">🔒 Proprietary</h6>
+                            <h4 class="text-danger">${proprietary}</h4>
+                            <small class="text-muted">medium risk</small>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-6">
+                    <div class="card border-secondary">
+                        <div class="card-body text-center">
+                            <h6 class="text-secondary">❓ Unknown</h6>
+                            <h4 class="text-secondary">${unknown}</h4>
+                            <small class="text-muted">high risk</small>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-6">
+                    <div class="card border-info">
+                        <div class="card-body text-center">
+                            <h6 class="text-info">🚨 Unlicensed</h6>
+                            <h4 class="text-info">${unlicensed}</h4>
+                            <small class="text-muted">unlicensed deps</small>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="text-center mt-3">
+                <a href="license-compliance.html" class="btn btn-outline-primary">
+                    <i class="fas fa-file-contract me-2"></i>View Detailed License Analysis
+                </a>
+            </div>
+        `;
+        
+        licenseContent.innerHTML = pieChartHtml + licenseCardsHtml;
+    }
+    
+    /**
+     * Escape HTML helper
+     */
+    escapeHtml(text) {
+        if (!text) return '';
+        const div = document.createElement('div');
+        div.textContent = text;
+        return div.innerHTML;
     }
     
     /**

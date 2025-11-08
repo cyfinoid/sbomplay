@@ -4,14 +4,14 @@
  * Assesses the quality of GitHub-generated SPDX SBOMs based on industry standards
  * Aligned with sbomqs methodology but adapted for GitHub's SBOM characteristics
  * 
- * Categories (7 total):
+ * Categories (6 total):
  * - Identification (25%): Component names, versions, IDs, PURLs
  * - Provenance (20%): Creation info, authors, tool, timestamps
- * - Integrity (10%): Checksums, hash algorithms
- * - Completeness (20%): Dependencies, relationships, suppliers
+ * - Dependencies (10%): Relationship mapping and dependency graph quality
+ * - Metadata (10%): Copyright, download location, external references
  * - Licensing (10%): License presence and validity (GitHub often uses NOASSERTION)
- * - Vulnerability (10%): PURL/CPE identifiers for security scanning
- * - Structural (5%): SPDX compliance (always valid from GitHub)
+ * - Vulnerability (15%): PURL/CPE identifiers for security scanning
+ * Note: Structural/SPDX compliance and Integrity/checksums are not assessed as GitHub SBOMs don't provide this data
  * 
  * Scoring: 0-10 scale (internally 0-100, displayed as 0-10)
  * Grades: A (9.0-10.0), B (8.0-8.9), C (7.0-7.9), D (5.0-6.9), F (<5.0)
@@ -19,14 +19,14 @@
 class SBOMQualityProcessor {
     constructor() {
         // Weights optimized for GitHub SPDX SBOMs (total: 100%)
+        // Structural and Integrity categories removed as GitHub SBOMs don't provide this data
         this.weights = {
             identification: 0.25,   // 25% - Core strength of GitHub SBOMs
-            provenance: 0.20,       // 20% - GitHub provides good metadata
-            integrity: 0.10,        // 10% - Variable by ecosystem, don't over-penalize
-            completeness: 0.20,     // 20% - Relationships always present
+            provenance: 0.20,        // 20% - GitHub provides good metadata
+            dependencies: 0.10,      // 10% - Relationship mapping quality
+            metadata: 0.10,         // 10% - Supplemental package metadata
             licensing: 0.10,        // 10% - Often NOASSERTION, lower weight
-            vulnerability: 0.10,    // 10% - PURL always present, CPE rare
-            structural: 0.05        // 5% - Always valid SPDX from GitHub
+            vulnerability: 0.15      // 15% - PURL always present, CPE rare
         };
         
         // Deprecated SPDX license identifiers (for informational warnings)
@@ -62,24 +62,22 @@ class SBOMQualityProcessor {
 
         const sbom = sbomData.sbom;
         
-        // Calculate individual category scores (all 7 categories)
+        // Calculate individual category scores (6 categories)
         const identification = this.assessIdentification(sbom);
         const provenance = this.assessProvenance(sbom);
-        const integrity = this.assessIntegrity(sbom);
-        const completeness = this.assessCompleteness(sbom);
+        const dependencies = this.assessDependencies(sbom);
+        const metadata = this.assessMetadata(sbom);
         const licensing = this.assessLicensing(sbom);
         const vulnerability = this.assessVulnerability(sbom);
-        const structural = this.assessStructural(sbom);
 
         // Calculate overall score (weighted average, 0-100 internal scale)
         const overallScore = Math.round(
             (identification.score * this.weights.identification) +
             (provenance.score * this.weights.provenance) +
-            (integrity.score * this.weights.integrity) +
-            (completeness.score * this.weights.completeness) +
+            (dependencies.score * this.weights.dependencies) +
+            (metadata.score * this.weights.metadata) +
             (licensing.score * this.weights.licensing) +
-            (vulnerability.score * this.weights.vulnerability) +
-            (structural.score * this.weights.structural)
+            (vulnerability.score * this.weights.vulnerability)
         );
 
         return {
@@ -92,14 +90,13 @@ class SBOMQualityProcessor {
             categories: {
                 identification,
                 provenance,
-                integrity,
-                completeness,
+                dependencies,
+                metadata,
                 licensing,
-                vulnerability,
-                structural
+                vulnerability
             },
-            summary: this.generateSummary(overallScore, identification, provenance, integrity, completeness, licensing, vulnerability, structural),
-            issues: this.collectIssues(identification, provenance, integrity, completeness, licensing, vulnerability, structural)
+            summary: this.generateSummary(overallScore, identification, provenance, dependencies, metadata, licensing, vulnerability),
+            issues: this.collectIssues(identification, provenance, dependencies, metadata, licensing, vulnerability)
         };
     }
 
@@ -344,7 +341,168 @@ class SBOMQualityProcessor {
     }
 
     /**
-     * Assess SBOM Completeness quality (30% weight)
+     * Assess SBOM Dependencies quality (10% weight)
+     * Checks: relationship mapping, dependency graph quality
+     */
+    assessDependencies(sbom) {
+        const checks = {
+            packagesWithRelationships: 0,
+            packagesWithExternalRefs: 0
+        };
+
+        const issues = [];
+        const packages = sbom.packages || [];
+        const relationships = sbom.relationships || [];
+
+        if (packages.length === 0) {
+            return {
+                score: 0,
+                checks,
+                issues: ['No packages to assess dependencies'],
+                details: 'Cannot assess dependencies without packages'
+            };
+        }
+
+        // Build relationship map
+        const packageRelationshipMap = new Map();
+        relationships.forEach(rel => {
+            if (!packageRelationshipMap.has(rel.relatedSpdxElement)) {
+                packageRelationshipMap.set(rel.relatedSpdxElement, []);
+            }
+            packageRelationshipMap.get(rel.relatedSpdxElement).push(rel);
+        });
+
+        const packagesWithoutRelationships = [];
+        const packagesWithoutExternalRefs = [];
+
+        packages.forEach((pkg, idx) => {
+            const ecosystem = this.getPackageEcosystem(pkg);
+            const packageIdentifier = this.formatPackageIdentifier(pkg, ecosystem, idx);
+
+            // Check if package has relationships
+            if (packageRelationshipMap.has(pkg.SPDXID)) {
+                checks.packagesWithRelationships++;
+            } else {
+                packagesWithoutRelationships.push(packageIdentifier);
+            }
+
+            // Check external references
+            if (pkg.externalRefs && pkg.externalRefs.length > 0) {
+                checks.packagesWithExternalRefs++;
+            } else {
+                packagesWithoutExternalRefs.push(packageIdentifier);
+            }
+        });
+
+        const totalPackages = packages.length;
+        const relationshipScore = (checks.packagesWithRelationships / totalPackages) * 100;
+        const externalRefScore = (checks.packagesWithExternalRefs / totalPackages) * 100;
+
+        // Weight: relationships 60%, external refs 40%
+        const score = Math.round(
+            (relationshipScore * 0.60 + externalRefScore * 0.40)
+        );
+
+        // Add informational issues
+        if (packagesWithoutRelationships.length > 0 && packagesWithoutRelationships.length <= 5) {
+            issues.push(`Missing relationships: ${packagesWithoutRelationships.join(', ')}`);
+        } else if (packagesWithoutRelationships.length > 5) {
+            issues.push(`Missing relationships for ${packagesWithoutRelationships.length} packages`);
+        }
+
+        if (packagesWithoutExternalRefs.length > 0 && packagesWithoutExternalRefs.length <= 5) {
+            issues.push(`Missing external references: ${packagesWithoutExternalRefs.join(', ')}`);
+        } else if (packagesWithoutExternalRefs.length > 5) {
+            issues.push(`Missing external references for ${packagesWithoutExternalRefs.length} packages`);
+        }
+
+        return {
+            score,
+            checks,
+            issues,
+            details: `${checks.packagesWithRelationships}/${totalPackages} with relationships, ${checks.packagesWithExternalRefs}/${totalPackages} with external references`
+        };
+    }
+
+    /**
+     * Assess SBOM Metadata quality (10% weight)
+     * Checks: copyright, download locations
+     */
+    assessMetadata(sbom) {
+        const checks = {
+            packagesWithCopyright: 0,
+            packagesWithDownloadLocation: 0
+        };
+
+        const issues = [];
+        const packages = sbom.packages || [];
+
+        if (packages.length === 0) {
+            return {
+                score: 0,
+                checks,
+                issues: ['No packages to assess metadata'],
+                details: 'Cannot assess metadata without packages'
+            };
+        }
+
+        const packagesWithoutCopyright = [];
+        const packagesWithoutDownloadLocation = [];
+
+        packages.forEach((pkg, idx) => {
+            const ecosystem = this.getPackageEcosystem(pkg);
+            const packageIdentifier = this.formatPackageIdentifier(pkg, ecosystem, idx);
+
+            // Check copyright
+            if (pkg.copyrightText && pkg.copyrightText !== 'NOASSERTION') {
+                checks.packagesWithCopyright++;
+            } else {
+                packagesWithoutCopyright.push(packageIdentifier);
+            }
+
+            // Check download location
+            if (pkg.downloadLocation && pkg.downloadLocation !== 'NOASSERTION') {
+                checks.packagesWithDownloadLocation++;
+            } else {
+                packagesWithoutDownloadLocation.push(packageIdentifier);
+            }
+        });
+
+        const totalPackages = packages.length;
+        const copyrightScore = (checks.packagesWithCopyright / totalPackages) * 100;
+        const downloadScore = (checks.packagesWithDownloadLocation / totalPackages) * 100;
+
+        // Note: GitHub SBOMs typically use NOASSERTION for downloadLocation, so we weight copyright more
+        // Weight: copyright 60%, download location 40%
+        const score = Math.round(
+            (copyrightScore * 0.60 + downloadScore * 0.40)
+        );
+
+        // Add informational issues
+        if (packagesWithoutCopyright.length > 0 && packagesWithoutCopyright.length <= 5) {
+            issues.push(`Missing copyright information: ${packagesWithoutCopyright.join(', ')}`);
+        } else if (packagesWithoutCopyright.length > 5) {
+            issues.push(`Missing copyright information for ${packagesWithoutCopyright.length} packages`);
+        }
+
+        // Note: downloadLocation often NOASSERTION in GitHub SBOMs, so we don't penalize heavily
+        if (packagesWithoutDownloadLocation.length > 0 && packagesWithoutDownloadLocation.length <= 5) {
+            issues.push(`Missing download location: ${packagesWithoutDownloadLocation.join(', ')}`);
+        } else if (packagesWithoutDownloadLocation.length > 5) {
+            issues.push(`Missing download location for ${packagesWithoutDownloadLocation.length} packages`);
+        }
+
+        return {
+            score,
+            checks,
+            issues,
+            details: `${checks.packagesWithCopyright}/${totalPackages} with copyright, ${checks.packagesWithDownloadLocation}/${totalPackages} with download location`
+        };
+    }
+
+    /**
+     * Assess SBOM Completeness quality (30% weight) - DEPRECATED
+     * Split into assessDependencies and assessMetadata
      * Checks: licenses, relationships, copyright, download locations
      */
     assessCompleteness(sbom) {
@@ -855,20 +1013,18 @@ class SBOMQualityProcessor {
         // Identify strengths (score >= 80)
         if (identification.score >= 80) strengths.push('strong component identification');
         if (provenance.score >= 80) strengths.push('excellent provenance');
-        if (integrity.score >= 80) strengths.push('good integrity checks');
-        if (completeness.score >= 80) strengths.push('comprehensive information');
+        if (dependencies.score >= 80) strengths.push('comprehensive dependency mapping');
+        if (metadata.score >= 80) strengths.push('complete metadata');
         if (licensing.score >= 80) strengths.push('clear licensing');
         if (vulnerability.score >= 80) strengths.push('vulnerability-ready');
-        if (structural.score >= 80) strengths.push('compliant structure');
 
         // Identify weaknesses (score < 60)
         if (identification.score < 60) weaknesses.push('weak identification');
         if (provenance.score < 60) weaknesses.push('incomplete provenance');
-        if (integrity.score < 60) weaknesses.push('limited integrity checks');
-        if (completeness.score < 60) weaknesses.push('limited completeness');
+        if (dependencies.score < 60) weaknesses.push('limited dependency mapping');
+        if (metadata.score < 60) weaknesses.push('incomplete metadata');
         if (licensing.score < 60) weaknesses.push('unclear licensing');
         if (vulnerability.score < 60) weaknesses.push('vulnerability tracking gaps');
-        if (structural.score < 60) weaknesses.push('structural issues');
 
         if (strengths.length > 0) {
             summary += `Strengths: ${strengths.join(', ')}. `;
@@ -884,9 +1040,9 @@ class SBOMQualityProcessor {
     }
 
     /**
-     * Collect all issues from categories (all 7 categories)
+     * Collect all issues from categories (6 categories)
      */
-    collectIssues(identification, provenance, integrity, completeness, licensing, vulnerability, structural) {
+    collectIssues(identification, provenance, dependencies, metadata, licensing, vulnerability) {
         const allIssues = [];
         
         if (identification.issues.length > 0) {
@@ -903,17 +1059,17 @@ class SBOMQualityProcessor {
             });
         }
         
-        if (integrity.issues.length > 0) {
+        if (dependencies.issues.length > 0) {
             allIssues.push({
-                category: 'Integrity',
-                issues: integrity.issues
+                category: 'Dependencies',
+                issues: dependencies.issues
             });
         }
         
-        if (completeness.issues.length > 0) {
+        if (metadata.issues.length > 0) {
             allIssues.push({
-                category: 'Completeness',
-                issues: completeness.issues
+                category: 'Metadata',
+                issues: metadata.issues
             });
         }
         
@@ -928,13 +1084,6 @@ class SBOMQualityProcessor {
             allIssues.push({
                 category: 'Vulnerability',
                 issues: vulnerability.issues
-            });
-        }
-        
-        if (structural.issues.length > 0) {
-            allIssues.push({
-                category: 'Structural',
-                issues: structural.issues
             });
         }
 
@@ -955,11 +1104,10 @@ class SBOMQualityProcessor {
             categories: {
                 identification: { score: 0, checks: {}, issues: [reason], details: reason },
                 provenance: { score: 0, checks: {}, issues: [reason], details: reason },
-                integrity: { score: 0, checks: {}, issues: [reason], details: reason },
-                completeness: { score: 0, checks: {}, issues: [reason], details: reason },
+                dependencies: { score: 0, checks: {}, issues: [reason], details: reason },
+                metadata: { score: 0, checks: {}, issues: [reason], details: reason },
                 licensing: { score: 0, checks: {}, issues: [reason], details: reason },
-                vulnerability: { score: 0, checks: {}, issues: [reason], details: reason },
-                structural: { score: 0, checks: {}, issues: [reason], details: reason }
+                vulnerability: { score: 0, checks: {}, issues: [reason], details: reason }
             },
             summary: reason,
             issues: [{ category: 'General', issues: [reason] }]
@@ -976,11 +1124,10 @@ class SBOMQualityProcessor {
                 averageDisplayScore: 0,
                 averageIdentification: 0,
                 averageProvenance: 0,
-                averageIntegrity: 0,
-                averageCompleteness: 0,
+                averageDependencies: 0,
+                averageMetadata: 0,
                 averageLicensing: 0,
                 averageVulnerability: 0,
-                averageStructural: 0,
                 totalRepositories: 0,
                 gradeDistribution: {},
                 repositoriesNeedingAttention: []
@@ -991,11 +1138,10 @@ class SBOMQualityProcessor {
             overall: 0,
             identification: 0,
             provenance: 0,
-            integrity: 0,
-            completeness: 0,
+            dependencies: 0,
+            metadata: 0,
             licensing: 0,
-            vulnerability: 0,
-            structural: 0
+            vulnerability: 0
         };
 
         const gradeDistribution = { 'A': 0, 'B': 0, 'C': 0, 'D': 0, 'F': 0, 'N/A': 0 };
@@ -1004,17 +1150,25 @@ class SBOMQualityProcessor {
         qualityAssessments.forEach(assessment => {
             totals.overall += assessment.overallScore || 0;
             
-            // Use optional chaining for backward compatibility with old 4-category data
+            // Use optional chaining for backward compatibility with old data
             totals.identification += assessment.categories?.identification?.score || 0;
             totals.provenance += assessment.categories?.provenance?.score || 0;
-            totals.integrity += assessment.categories?.integrity?.score || 0;
-            totals.completeness += assessment.categories?.completeness?.score || 0;
             totals.licensing += assessment.categories?.licensing?.score || 0;
             totals.vulnerability += assessment.categories?.vulnerability?.score || 0;
             
-            // Handle both old 'structure' and new 'structural' naming
-            totals.structural += assessment.categories?.structural?.score || 
-                                 assessment.categories?.structure?.score || 0;
+            // Handle new categories (dependencies, metadata) or old completeness for backward compatibility
+            if (assessment.categories?.dependencies) {
+                totals.dependencies += assessment.categories.dependencies.score || 0;
+            }
+            if (assessment.categories?.metadata) {
+                totals.metadata += assessment.categories.metadata.score || 0;
+            }
+            // Backward compatibility: if old completeness exists and new categories don't, split it
+            if (assessment.categories?.completeness && !assessment.categories?.dependencies && !assessment.categories?.metadata) {
+                const completenessScore = assessment.categories.completeness.score || 0;
+                totals.dependencies += Math.round(completenessScore / 2); // Split evenly
+                totals.metadata += Math.round(completenessScore / 2);
+            }
 
             gradeDistribution[assessment.grade]++;
 
@@ -1038,11 +1192,10 @@ class SBOMQualityProcessor {
             averageDisplayScore: this.toDisplayScore(avgOverallScore),
             averageIdentification: Math.round(totals.identification / count),
             averageProvenance: Math.round(totals.provenance / count),
-            averageIntegrity: Math.round(totals.integrity / count),
-            averageCompleteness: Math.round(totals.completeness / count),
+            averageDependencies: Math.round(totals.dependencies / count),
+            averageMetadata: Math.round(totals.metadata / count),
             averageLicensing: Math.round(totals.licensing / count),
             averageVulnerability: Math.round(totals.vulnerability / count),
-            averageStructural: Math.round(totals.structural / count),
             totalRepositories: count,
             gradeDistribution,
             repositoriesNeedingAttention: repositoriesNeedingAttention.sort((a, b) => a.score - b.score)

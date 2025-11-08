@@ -593,7 +593,7 @@
                                 <span class="badge bg-${gradeColor} fs-6" title="${qa.gradeLabel || ''}">${qa.grade}</span>
                             </td>
                             <td class="text-center">
-                                <button class="btn btn-sm btn-outline-primary" onclick="qualityApp.showDetails('${this.escapeHtml(repoName).replace(/'/g, "\\'")}')">
+                                <button class="btn btn-sm btn-outline-primary" onclick="qualityApp.showDetails('${this.escapeJsString(repoName)}')">
                                     <i class="fas fa-eye"></i> View Details
                                 </button>
                             </td>
@@ -611,14 +611,13 @@
                 const qa = repo.qualityAssessment;
                 const content = document.getElementById('qualityDetailsContent');
 
-                // Extract all 7 category scores
+                // Extract all 6 category scores
                 const identScore = qa.categories?.identification?.score ?? 0;
                 const provenanceScore = qa.categories?.provenance?.score ?? 0;
-                const integrityScore = qa.categories?.integrity?.score ?? 0;
-                const compScore = qa.categories?.completeness?.score ?? 0;
+                const dependenciesScore = qa.categories?.dependencies?.score ?? 0;
+                const metadataScore = qa.categories?.metadata?.score ?? 0;
                 const licensingScore = qa.categories?.licensing?.score ?? 0;
                 const vulnerabilityScore = qa.categories?.vulnerability?.score ?? 0;
-                const structuralScore = qa.categories?.structural?.score ?? 0;
                 
                 const displayScore = qa.displayScore || (qa.overallScore / 10).toFixed(1);
                 
@@ -638,7 +637,7 @@
                         ${qa.gradeLabel ? `<p class="text-center text-muted"><em>${this.escapeHtml(qa.gradeLabel)}</em></p>` : ''}
                     </div>
 
-                    <h6>Category Scores (7 categories, GitHub-optimized weights):</h6>
+                    <h6>Category Scores (6 categories, GitHub-optimized weights):</h6>
                     <div class="row g-2 mb-3">
                         <div class="col-md-6">
                             <div class="p-2 border rounded">
@@ -662,22 +661,22 @@
                         </div>
                         <div class="col-md-6">
                             <div class="p-2 border rounded">
-                                <strong>Integrity (10%):</strong> ${integrityScore}/100
+                                <strong>Dependencies (10%):</strong> ${dependenciesScore}/100
                                 <div class="progress mt-1" style="height: 8px;">
-                                    <div class="progress-bar ${this.getScoreColor(integrityScore)}" 
-                                         style="width: ${integrityScore}%"></div>
+                                    <div class="progress-bar ${this.getScoreColor(dependenciesScore)}" 
+                                         style="width: ${dependenciesScore}%"></div>
                                 </div>
-                                ${qa.categories?.integrity?.details ? `<small class="text-muted d-block mt-1">${this.escapeHtml(qa.categories.integrity.details)}</small>` : ''}
+                                ${qa.categories?.dependencies?.details ? `<small class="text-muted d-block mt-1">${this.escapeHtml(qa.categories.dependencies.details)}</small>` : ''}
                             </div>
                         </div>
                         <div class="col-md-6">
                             <div class="p-2 border rounded">
-                                <strong>Completeness (20%):</strong> ${compScore}/100
+                                <strong>Metadata (10%):</strong> ${metadataScore}/100
                                 <div class="progress mt-1" style="height: 8px;">
-                                    <div class="progress-bar ${this.getScoreColor(compScore)}" 
-                                         style="width: ${compScore}%"></div>
+                                    <div class="progress-bar ${this.getScoreColor(metadataScore)}" 
+                                         style="width: ${metadataScore}%"></div>
                                 </div>
-                                ${qa.categories?.completeness?.details ? `<small class="text-muted d-block mt-1">${this.escapeHtml(qa.categories.completeness.details)}</small>` : ''}
+                                ${qa.categories?.metadata?.details ? `<small class="text-muted d-block mt-1">${this.escapeHtml(qa.categories.metadata.details)}</small>` : ''}
                             </div>
                         </div>
                         <div class="col-md-6">
@@ -692,22 +691,12 @@
                         </div>
                         <div class="col-md-6">
                             <div class="p-2 border rounded">
-                                <strong>Vulnerability (10%):</strong> ${vulnerabilityScore}/100
+                                <strong>Vulnerability (15%):</strong> ${vulnerabilityScore}/100
                                 <div class="progress mt-1" style="height: 8px;">
                                     <div class="progress-bar ${this.getScoreColor(vulnerabilityScore)}" 
                                          style="width: ${vulnerabilityScore}%"></div>
                                 </div>
                                 ${qa.categories?.vulnerability?.details ? `<small class="text-muted d-block mt-1">${this.escapeHtml(qa.categories.vulnerability.details)}</small>` : ''}
-                            </div>
-                        </div>
-                        <div class="col-md-6">
-                            <div class="p-2 border rounded">
-                                <strong>Structural (5%):</strong> ${structuralScore}/100
-                                <div class="progress mt-1" style="height: 8px;">
-                                    <div class="progress-bar ${this.getScoreColor(structuralScore)}" 
-                                         style="width: ${structuralScore}%"></div>
-                                </div>
-                                ${qa.categories?.structural?.details ? `<small class="text-muted d-block mt-1">${this.escapeHtml(qa.categories.structural.details)}</small>` : ''}
                             </div>
                         </div>
                     </div>
@@ -760,6 +749,26 @@
                 if (!text) return '';
                 const map = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
                 return String(text).replace(/[&<>"']/g, m => map[m]);
+            }
+
+            /**
+             * Properly escape a string for use in JavaScript string literals
+             * Escapes backslashes first, then quotes and other control characters
+             * @param {string} text - The string to escape
+             * @returns {string} - The escaped string safe for use in JavaScript string literals
+             */
+            escapeJsString(text) {
+                if (!text || typeof text !== 'string') return '';
+                // Must escape backslashes FIRST, then quotes
+                return String(text)
+                    .replace(/\\/g, '\\\\')  // Escape backslashes first
+                    .replace(/'/g, "\\'")    // Then escape single quotes
+                    .replace(/"/g, '\\"')   // Escape double quotes
+                    .replace(/\n/g, '\\n')   // Escape newlines
+                    .replace(/\r/g, '\\r')   // Escape carriage returns
+                    .replace(/\t/g, '\\t')   // Escape tabs
+                    .replace(/\f/g, '\\f')   // Escape form feeds
+                    .replace(/\v/g, '\\v');  // Escape vertical tabs
             }
 
             showError(message) {

@@ -222,6 +222,63 @@
             <!-- Stats will be populated by JavaScript -->
         </div>
 
+        <!-- Top Common Dependencies -->
+        <div id="topCommonDependencies" class="card mb-4" style="display: none;">
+            <div class="card-header" style="cursor: pointer;" data-bs-toggle="collapse" data-bs-target="#topCommonDependenciesCollapse" aria-expanded="true" aria-controls="topCommonDependenciesCollapse">
+                <h5 class="mb-0 d-flex justify-content-between align-items-center">
+                    <span>
+                        <i class="fas fa-star me-2"></i>Top 5 Most Commonly Used Dependencies
+                    </span>
+                    <i class="fas fa-chevron-down" id="topCommonDependenciesCollapseIcon"></i>
+                </h5>
+            </div>
+            <div class="collapse show" id="topCommonDependenciesCollapse">
+                <div class="card-body">
+                    <div id="topCommonDependenciesContent">
+                        <!-- Content will be populated by JavaScript -->
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Version Sprawl -->
+        <div id="versionSprawl" class="card mb-4" style="display: none;">
+            <div class="card-header" style="cursor: pointer;" data-bs-toggle="collapse" data-bs-target="#versionSprawlCollapse" aria-expanded="true" aria-controls="versionSprawlCollapse">
+                <h5 class="mb-0 d-flex justify-content-between align-items-center">
+                    <span>
+                        <i class="fas fa-code-branch me-2"></i>Top 5 Dependencies with Version Sprawl
+                    </span>
+                    <i class="fas fa-chevron-down" id="versionSprawlCollapseIcon"></i>
+                </h5>
+            </div>
+            <div class="collapse show" id="versionSprawlCollapse">
+                <div class="card-body">
+                    <div id="versionSprawlContent">
+                        <!-- Content will be populated by JavaScript -->
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- License Distribution -->
+        <div id="licenseDistribution" class="card mb-4" style="display: none;">
+            <div class="card-header" style="cursor: pointer;" data-bs-toggle="collapse" data-bs-target="#licenseDistributionCollapse" aria-expanded="true" aria-controls="licenseDistributionCollapse">
+                <h5 class="mb-0 d-flex justify-content-between align-items-center">
+                    <span>
+                        <i class="fas fa-file-contract me-2"></i>License Distribution
+                    </span>
+                    <i class="fas fa-chevron-down" id="licenseDistributionCollapseIcon"></i>
+                </h5>
+            </div>
+            <div class="collapse show" id="licenseDistributionCollapse">
+                <div class="card-body">
+                    <div id="licenseDistributionContent">
+                        <!-- Content will be populated by JavaScript -->
+                    </div>
+                </div>
+            </div>
+        </div>
+
         <!-- Quick Analysis Access -->
         <div id="quickAnalysisSection" class="card mb-4" style="display: none;">
             <div class="card-header">
@@ -437,6 +494,48 @@
                     qualityCollapse.addEventListener('hide.bs.collapse', () => {
                         qualityCollapseIcon.classList.remove('fa-chevron-down');
                         qualityCollapseIcon.classList.add('fa-chevron-up');
+                    });
+                }
+                
+                // License distribution collapse
+                const licenseDistributionCollapse = document.getElementById('licenseDistributionCollapse');
+                const licenseDistributionCollapseIcon = document.getElementById('licenseDistributionCollapseIcon');
+                if (licenseDistributionCollapse && licenseDistributionCollapseIcon) {
+                    licenseDistributionCollapse.addEventListener('show.bs.collapse', () => {
+                        licenseDistributionCollapseIcon.classList.remove('fa-chevron-up');
+                        licenseDistributionCollapseIcon.classList.add('fa-chevron-down');
+                    });
+                    licenseDistributionCollapse.addEventListener('hide.bs.collapse', () => {
+                        licenseDistributionCollapseIcon.classList.remove('fa-chevron-down');
+                        licenseDistributionCollapseIcon.classList.add('fa-chevron-up');
+                    });
+                }
+                
+                // Top common dependencies collapse
+                const topCommonDependenciesCollapse = document.getElementById('topCommonDependenciesCollapse');
+                const topCommonDependenciesCollapseIcon = document.getElementById('topCommonDependenciesCollapseIcon');
+                if (topCommonDependenciesCollapse && topCommonDependenciesCollapseIcon) {
+                    topCommonDependenciesCollapse.addEventListener('show.bs.collapse', () => {
+                        topCommonDependenciesCollapseIcon.classList.remove('fa-chevron-up');
+                        topCommonDependenciesCollapseIcon.classList.add('fa-chevron-down');
+                    });
+                    topCommonDependenciesCollapse.addEventListener('hide.bs.collapse', () => {
+                        topCommonDependenciesCollapseIcon.classList.remove('fa-chevron-down');
+                        topCommonDependenciesCollapseIcon.classList.add('fa-chevron-up');
+                    });
+                }
+                
+                // Version sprawl collapse
+                const versionSprawlCollapse = document.getElementById('versionSprawlCollapse');
+                const versionSprawlCollapseIcon = document.getElementById('versionSprawlCollapseIcon');
+                if (versionSprawlCollapse && versionSprawlCollapseIcon) {
+                    versionSprawlCollapse.addEventListener('show.bs.collapse', () => {
+                        versionSprawlCollapseIcon.classList.remove('fa-chevron-up');
+                        versionSprawlCollapseIcon.classList.add('fa-chevron-down');
+                    });
+                    versionSprawlCollapse.addEventListener('hide.bs.collapse', () => {
+                        versionSprawlCollapseIcon.classList.remove('fa-chevron-down');
+                        versionSprawlCollapseIcon.classList.add('fa-chevron-up');
                     });
                 }
             });
