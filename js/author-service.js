@@ -678,17 +678,16 @@ class AuthorService {
             let repositoryUrl = null;
             
             // For Go packages, the package name often IS the repository path
-            if (ecosystem === 'golang' && packageName.includes('github.com/')) {
-                const match = packageName.match(/github\.com\/([^\/]+)/);
-                if (match) {
-                    return [`github:${match[1]}`];
+            // Use regex matching directly (more secure than substring matching)
+            if (ecosystem === 'golang') {
+                const githubMatch = packageName.match(/github\.com[\/:]([^\/]+)/i);
+                if (githubMatch) {
+                    return [`github:${githubMatch[1]}`];
                 }
-            }
-            
-            if (ecosystem === 'golang' && packageName.includes('bitbucket.org/')) {
-                const match = packageName.match(/bitbucket\.org\/([^\/]+)/);
-                if (match) {
-                    return [`bitbucket:${match[1]}`];
+                
+                const bitbucketMatch = packageName.match(/bitbucket\.org[\/:]([^\/]+)/i);
+                if (bitbucketMatch) {
+                    return [`bitbucket:${bitbucketMatch[1]}`];
                 }
             }
             
