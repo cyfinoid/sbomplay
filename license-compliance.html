@@ -204,46 +204,7 @@
             }
         }
         
-        // Setup event listeners
-        document.getElementById('analysisSelector').addEventListener('change', loadLicenseData);
-        document.getElementById('categoryFilter').addEventListener('change', loadLicenseData);
-        
-        // Load initial data
-        await loadLicenseData();
-        
-        async function loadAnalysesList() {
-            const storageInfo = await storageManager.getStorageInfo();
-            const selector = document.getElementById('analysisSelector');
-            const allEntries = [...storageInfo.organizations, ...storageInfo.repositories];
-            
-            if (allEntries.length === 0) {
-                document.getElementById('noDataSection').style.display = 'block';
-                selector.disabled = true;
-                return;
-            }
-            
-            // Add individual entries
-            allEntries.forEach(entry => {
-                const option = document.createElement('option');
-                option.value = entry.name;
-                option.textContent = `${entry.name} (${entry.dependencies} deps)`;
-                selector.appendChild(option);
-            });
-        }
-        
-        async function loadLicenseData() {
-            const analysisName = document.getElementById('analysisSelector').value;
-            const categoryFilter = document.getElementById('categoryFilter').value;
-            
-            if (!analysisName) {
-                document.getElementById('license-compliance-page').innerHTML = '<div class="alert alert-info">Please select an analysis to view license compliance data.</div>';
-                return;
-            }
-            
-            await loadOrganizationData(analysisName, categoryFilter === 'all' ? null : categoryFilter);
-        }
-
-        // Load entry data for license compliance
+        // Load entry data for license compliance (define before use)
         window.loadOrganizationData = async function(name, categoryFilter = null) {
             let data;
             
@@ -297,6 +258,45 @@
                 container.innerHTML = '<div class="alert alert-warning">No license compliance analysis found. Please run a license compliance check in the main app.</div>';
             }
         };
+        
+        async function loadAnalysesList() {
+            const storageInfo = await storageManager.getStorageInfo();
+            const selector = document.getElementById('analysisSelector');
+            const allEntries = [...storageInfo.organizations, ...storageInfo.repositories];
+            
+            if (allEntries.length === 0) {
+                document.getElementById('noDataSection').style.display = 'block';
+                selector.disabled = true;
+                return;
+            }
+            
+            // Add individual entries
+            allEntries.forEach(entry => {
+                const option = document.createElement('option');
+                option.value = entry.name;
+                option.textContent = `${entry.name} (${entry.dependencies} deps)`;
+                selector.appendChild(option);
+            });
+        }
+        
+        async function loadLicenseData() {
+            const analysisName = document.getElementById('analysisSelector').value;
+            const categoryFilter = document.getElementById('categoryFilter').value;
+            
+            if (!analysisName) {
+                document.getElementById('license-compliance-page').innerHTML = '<div class="alert alert-info">Please select an analysis to view license compliance data.</div>';
+                return;
+            }
+            
+            await loadOrganizationData(analysisName, categoryFilter === 'all' ? null : categoryFilter);
+        }
+        
+        // Setup event listeners
+        document.getElementById('analysisSelector').addEventListener('change', loadLicenseData);
+        document.getElementById('categoryFilter').addEventListener('change', loadLicenseData);
+        
+        // Load initial data
+        await loadLicenseData();
 
     });
     </script>

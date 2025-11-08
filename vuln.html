@@ -221,46 +221,7 @@
             }
         }
         
-        // Setup event listeners
-        document.getElementById('analysisSelector').addEventListener('change', loadVulnerabilityData);
-        document.getElementById('severityFilter').addEventListener('change', loadVulnerabilityData);
-        
-        // Load initial data
-        await loadVulnerabilityData();
-        
-        async function loadAnalysesList() {
-            const storageInfo = await storageManager.getStorageInfo();
-            const selector = document.getElementById('analysisSelector');
-            const allEntries = [...storageInfo.organizations, ...storageInfo.repositories];
-            
-            if (allEntries.length === 0) {
-                document.getElementById('noDataSection').style.display = 'block';
-                selector.disabled = true;
-                return;
-            }
-            
-            // Add individual entries
-            allEntries.forEach(entry => {
-                const option = document.createElement('option');
-                option.value = entry.name;
-                option.textContent = `${entry.name} (${entry.dependencies} deps)`;
-                selector.appendChild(option);
-            });
-        }
-        
-        async function loadVulnerabilityData() {
-            const analysisName = document.getElementById('analysisSelector').value;
-            const severityFilter = document.getElementById('severityFilter').value;
-            
-            if (!analysisName) {
-                document.getElementById('vulnerability-analysis-page').innerHTML = '<div class="alert alert-info">Please select an analysis to view vulnerability data.</div>';
-                return;
-            }
-            
-            await loadOrganizationData(analysisName, severityFilter === 'all' ? null : severityFilter.toUpperCase());
-        }
-
-        // Load entry data for vulnerability analysis
+        // Load entry data for vulnerability analysis (define before use)
         window.loadOrganizationData = async function(name, severityFilter = null) {
             let data;
             
@@ -297,6 +258,45 @@
                 viewManager.addOverviewEventListeners();
             }
         };
+        
+        async function loadAnalysesList() {
+            const storageInfo = await storageManager.getStorageInfo();
+            const selector = document.getElementById('analysisSelector');
+            const allEntries = [...storageInfo.organizations, ...storageInfo.repositories];
+            
+            if (allEntries.length === 0) {
+                document.getElementById('noDataSection').style.display = 'block';
+                selector.disabled = true;
+                return;
+            }
+            
+            // Add individual entries
+            allEntries.forEach(entry => {
+                const option = document.createElement('option');
+                option.value = entry.name;
+                option.textContent = `${entry.name} (${entry.dependencies} deps)`;
+                selector.appendChild(option);
+            });
+        }
+        
+        async function loadVulnerabilityData() {
+            const analysisName = document.getElementById('analysisSelector').value;
+            const severityFilter = document.getElementById('severityFilter').value;
+            
+            if (!analysisName) {
+                document.getElementById('vulnerability-analysis-page').innerHTML = '<div class="alert alert-info">Please select an analysis to view vulnerability data.</div>';
+                return;
+            }
+            
+            await loadOrganizationData(analysisName, severityFilter === 'all' ? null : severityFilter.toUpperCase());
+        }
+        
+        // Setup event listeners
+        document.getElementById('analysisSelector').addEventListener('change', loadVulnerabilityData);
+        document.getElementById('severityFilter').addEventListener('change', loadVulnerabilityData);
+        
+        // Load initial data
+        await loadVulnerabilityData();
 
     });
     </script>
