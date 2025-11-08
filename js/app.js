@@ -142,11 +142,11 @@ class SBOMPlayApp {
         resumeInfo.innerHTML = `
             <div class="row">
                 <div class="col-md-6">
-                    <p><strong>Organization:</strong> ${rateLimitState.organization}</p>
-                    <p><strong>Reset Time:</strong> ${resetDate.toLocaleTimeString()}</p>
+                    <p><strong>Organization:</strong> ${this.escapeHtml(rateLimitState.organization)}</p>
+                    <p><strong>Reset Time:</strong> ${this.escapeHtml(resetDate.toLocaleTimeString())}</p>
                 </div>
                 <div class="col-md-6">
-                    <p><strong>Time Remaining:</strong> <span id="resumeCountdown">${this.formatTime(remainingWait)}</span></p>
+                    <p><strong>Time Remaining:</strong> <span id="resumeCountdown">${this.escapeHtml(this.formatTime(remainingWait))}</span></p>
                     <p><strong>Status:</strong> <span class="badge bg-warning">Waiting for Rate Limit Reset</span></p>
                 </div>
             </div>
@@ -2604,7 +2604,7 @@ class SBOMPlayApp {
         const alertDiv = document.createElement('div');
         alertDiv.className = `alert alert-${type} alert-dismissible fade show`;
         alertDiv.innerHTML = `
-            ${message}
+            ${this.escapeHtml(message)}
             <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
         `;
         

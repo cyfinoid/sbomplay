@@ -236,6 +236,13 @@
             // Create AuthorService instance for secure URL validation
             const authorService = new AuthorService();
             
+            // HTML escaping helper function
+            const escapeHtml = (text) => {
+                if (!text) return '';
+                const map = {'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'};
+                return String(text).replace(/[&<>"']/g, m => map[m]);
+            };
+            
             const storageManager = new StorageManager();
             await storageManager.init();
             console.log('✅ Authors Page - Storage initialized');
@@ -1046,7 +1053,7 @@
                     } else if (fundingFilterActive) {
                         message = 'No authors found with funding information.';
                     }
-                    container.innerHTML = `<p class="text-muted text-center">${message}</p>`;
+                    container.innerHTML = `<p class="text-muted text-center">${escapeHtml(message)}</p>`;
                     return;
                 }
                 

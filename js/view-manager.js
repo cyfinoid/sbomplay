@@ -11,8 +11,10 @@ class ViewManager {
     /**
      * Safely set HTML content to an element using DOMParser
      * This prevents XSS by parsing HTML through the browser's safe parser
+     * Note: The HTML string should already have user-controlled data escaped
+     * by the caller (e.g., using escapeHtml() before building the HTML string)
      * @param {HTMLElement} element - The element to set HTML content for
-     * @param {string} html - The HTML string to insert
+     * @param {string} html - The HTML string to insert (should have user data already escaped)
      */
     safeSetHTML(element, html) {
         if (!element || !html) {
@@ -21,6 +23,7 @@ class ViewManager {
         }
         try {
             // Use DOMParser to safely parse the HTML string
+            // Note: This is safer than innerHTML but still requires callers to escape user data
             const parser = new DOMParser();
             const doc = parser.parseFromString(html, 'text/html');
             // Clear the element and append the parsed content
@@ -3796,7 +3799,13 @@ class ViewManager {
                 if (header) {
                     const totalMatch = vulnerableSection.querySelector('h4')?.textContent.match(/\((\d+) of (\d+)\)/);
                     if (totalMatch) {
-                        header.innerHTML = `🚨 Vulnerable Dependencies <small class="text-muted">(${totalMatch[1]} of ${totalMatch[2]})</small>`;
+                        // Escape the numbers even though they come from regex (defense in depth)
+                        const escapeHtml = (text) => {
+                            if (!text) return '';
+                            const map = {'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'};
+                            return String(text).replace(/[&<>"']/g, m => map[m]);
+                        };
+                        header.innerHTML = `🚨 Vulnerable Dependencies <small class="text-muted">(${escapeHtml(totalMatch[1])} of ${escapeHtml(totalMatch[2])})</small>`;
                     }
                 }
                 
