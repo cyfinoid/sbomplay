@@ -9,6 +9,34 @@ class ViewManager {
     }
 
     /**
+     * Safely set HTML content to an element using DOMParser
+     * This prevents XSS by parsing HTML through the browser's safe parser
+     * @param {HTMLElement} element - The element to set HTML content for
+     * @param {string} html - The HTML string to insert
+     */
+    safeSetHTML(element, html) {
+        if (!element || !html) {
+            if (element) element.innerHTML = '';
+            return;
+        }
+        try {
+            // Use DOMParser to safely parse the HTML string
+            const parser = new DOMParser();
+            const doc = parser.parseFromString(html, 'text/html');
+            // Clear the element and append the parsed content
+            element.innerHTML = '';
+            // Append all nodes from the parsed document body
+            while (doc.body.firstChild) {
+                element.appendChild(doc.body.firstChild);
+            }
+        } catch (e) {
+            // Fallback to empty content if parsing fails
+            console.error('Error parsing HTML:', e);
+            element.innerHTML = '';
+        }
+    }
+
+    /**
      * Securely check if a URL belongs to a specific hostname
      * This prevents security issues with substring matching (e.g., "evil.com/tidelift.com")
      * @param {string} url - The URL to check
@@ -328,7 +356,7 @@ class ViewManager {
         
         if (container) {
             const html = await this.generateOverviewHTML(orgData);
-            container.innerHTML = html;
+            this.safeSetHTML(container, html);
             
             // Add event listeners for navigation
             this.addOverviewEventListeners();
@@ -3751,7 +3779,7 @@ class ViewManager {
         
         // Extract just the vulnerable dependencies section
         const tempDiv = document.createElement('div');
-        tempDiv.innerHTML = nextBatchHTML;
+        this.safeSetHTML(tempDiv, nextBatchHTML);
         const vulnerableSection = tempDiv.querySelector('.vulnerable-dependencies');
         
         if (vulnerableSection) {

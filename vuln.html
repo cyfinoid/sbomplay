@@ -333,7 +333,7 @@
             
             // Render full vulnerability analysis dashboard (await the async method)
             // Default to showing first 25 entries
-            container.innerHTML = await viewManager.generateVulnerabilityAnalysisHTML(data, severityFilter, 25, 0);
+            viewManager.safeSetHTML(container, await viewManager.generateVulnerabilityAnalysisHTML(data, severityFilter, 25, 0));
             if (typeof viewManager.addOverviewEventListeners === 'function') {
                 viewManager.addOverviewEventListeners();
             }

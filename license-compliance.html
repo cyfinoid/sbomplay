@@ -237,7 +237,7 @@
             
             // Render license compliance dashboard (await the async method)
             if (typeof viewManager.generateLicenseComplianceHTML === 'function' && data.data.licenseAnalysis) {
-                container.innerHTML = await viewManager.generateLicenseComplianceHTML(data, categoryFilter);
+                viewManager.safeSetHTML(container, await viewManager.generateLicenseComplianceHTML(data, categoryFilter));
                 if (typeof viewManager.addOverviewEventListeners === 'function') {
                     viewManager.addOverviewEventListeners();
                 }
