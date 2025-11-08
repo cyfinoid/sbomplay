@@ -105,15 +105,31 @@
             <strong>Experimental Feature:</strong> This page is currently experimental and may have limitations or incomplete data.
             <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
         </div>
-        <h1><i class="fas fa-users me-2"></i>Author Analysis <span class="badge bg-warning text-dark">Experimental</span></h1>
-        <div class="alert alert-info alert-dismissible fade show" role="alert">
+        
+        <!-- Header -->
+        <div class="row mb-4">
+            <div class="col-12">
+                <div class="d-flex justify-content-between align-items-center">
+                    <div>
+                        <h1><i class="fas fa-users me-2"></i>Author Analysis <span class="badge bg-warning text-dark">Experimental</span></h1>
+                        <p class="text-muted">View package authors and maintainers from third-party dependencies ranked by contribution across your supply chain</p>
+                    </div>
+                    <div>
+                        <a href="index.html" class="btn btn-outline-primary">
+                            <i class="fas fa-arrow-left me-2"></i>Back to Analysis
+                        </a>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="alert alert-info alert-dismissible fade show mb-4" role="alert">
             <i class="fas fa-info-circle me-2"></i>
             <strong>Important:</strong> The authors, contributors, and maintainers listed here are from 
             <strong>third-party packages and dependencies</strong> used by your repositories, not the 
             repository authors themselves. This shows who maintains the external libraries your project depends on.
             <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
         </div>
-        <p class="text-muted mb-4">View package authors and maintainers from third-party dependencies ranked by contribution across your supply chain</p>
         
         <!-- View Selector -->
         <div class="card mb-4">

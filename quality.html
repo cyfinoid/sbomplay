@@ -37,12 +37,6 @@
         .progress {
             height: 20px;
         }
-        .filter-section {
-            background: #f8f9fa;
-            padding: 20px;
-            border-radius: 8px;
-            margin-bottom: 20px;
-        }
         .sbom-status-badge {
             font-size: 0.9rem;
         }
@@ -97,8 +91,9 @@
         </div>
 
         <!-- Filters -->
-        <div class="filter-section">
-            <div class="row g-3">
+        <div class="card mb-4">
+            <div class="card-body">
+                <div class="row g-3">
                 <div class="col-md-2">
                     <label for="orgFilter" class="form-label">Organization</label>
                     <select class="form-select" id="orgFilter">
@@ -144,6 +139,7 @@
                         <i class="fas fa-redo me-2"></i>Reset Filters
                     </button>
                 </div>
+            </div>
             </div>
         </div>
 
