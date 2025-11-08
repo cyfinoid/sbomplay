@@ -1003,7 +1003,7 @@ class SBOMQualityProcessor {
     /**
      * Generate human-readable summary
      */
-    generateSummary(overallScore, identification, provenance, integrity, completeness, licensing, vulnerability, structural) {
+    generateSummary(overallScore, identification, provenance, dependencies, metadata, licensing, vulnerability) {
         const grade = this.getGrade(overallScore);
         let summary = `SBOM quality grade: ${grade} (${overallScore}/100). `;
 

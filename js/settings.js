@@ -162,9 +162,12 @@ class SettingsApp {
                         </div>
                     </div>
                     <p class="small text-muted mb-0">
-                        ${(storageInfo.totalSize / 1024 / 1024).toFixed(2)}MB used of 
-                        ${(storageInfo.maxStorageSize / 1024 / 1024).toFixed(2)}MB total
+                        <strong>${(storageInfo.totalSize / 1024 / 1024).toFixed(2)}MB</strong> used of 
+                        <strong>${(storageInfo.maxStorageSize / 1024 / 1024).toFixed(2)}MB</strong> quota 
+                        (${((storageInfo.totalSize / storageInfo.maxStorageSize) * 100).toFixed(3)}%)
                     </p>
+                    ${storageInfo.totalSize > 0 && storageInfo.totalEntries === 0 ? 
+                        '<p class="small text-info mt-2 mb-0"><i class="fas fa-info-circle me-1"></i>Storage includes entity caches (authors, packages, vulnerabilities) that persist even when analysis data is cleared.</p>' : ''}
                 </div>
                 <div class="col-md-6">
                     <h6>Data Summary</h6>

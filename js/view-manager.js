@@ -3149,18 +3149,12 @@ class ViewManager {
 
         const counts = this.calculateLicenseCounts(orgData, categoryFilter);
 
-        // Calculate transitions count (not affected by category filter)
+        // Calculate transitions count from ALL dependencies (not just high-risk)
+        // This matches the logic in generateLicenseComplianceHTML
         let transitionCount = 0;
-        if (orgData.data.licenseAnalysis && orgData.data.licenseAnalysis.highRiskDependencies) {
-            const rawHighRiskDeps = orgData.data.licenseAnalysis.highRiskDependencies.map(dep => ({
-                name: dep.name || 'Unknown',
-                version: dep.version || 'Unknown',
-                license: dep.license || 'Unknown',
-                category: dep.category || 'Unknown',
-                warnings: dep.warnings || []
-            }));
-            const processedIssues = this.processHighRiskDependencies(rawHighRiskDeps);
-            transitionCount = processedIssues.filter(issue => issue.type === 'license-transition').length;
+        if (orgData.data.allDependencies && orgData.data.allDependencies.length > 0) {
+            const allLicenseTransitions = this.processAllDependenciesForLicenseChanges(orgData.data.allDependencies, orgData);
+            transitionCount = allLicenseTransitions.length;
         }
 
         // Update each card's count
@@ -3624,14 +3618,27 @@ class ViewManager {
         const allLicenseTransitions = this.processAllDependenciesForLicenseChanges(allDeps, orgData);
         const transitionCount = allLicenseTransitions.length;
         
-        // Process high-risk dependencies to count transitions (needed before cardConfigs)
-        const rawHighRiskDeps = (licenseAnalysis.highRiskDependencies || []).map(dep => ({
-            name: dep.name || 'Unknown',
-            version: dep.version || 'Unknown',
-            license: dep.license || 'Unknown',
-            category: dep.category || 'Unknown',
-            warnings: dep.warnings || []
-        }));
+        // Re-process high-risk dependencies from allDependencies using current license processor
+        // This ensures we use the latest license classifications, not stored old data
+        const licenseProcessor = new LicenseProcessor();
+        const rawHighRiskDeps = [];
+        allDeps.forEach(dep => {
+            if (!dep.originalPackage) return;
+            const licenseInfo = licenseProcessor.parseLicense(dep.originalPackage);
+            // Only include high-risk dependencies (copyleft, unknown, or unlicensed)
+            if (licenseInfo.risk === 'high' || licenseInfo.category === 'copyleft' || 
+                licenseInfo.category === 'unknown' || !licenseInfo.license || 
+                licenseInfo.license === 'NOASSERTION') {
+                rawHighRiskDeps.push({
+                    name: dep.name || 'Unknown',
+                    version: dep.version || 'Unknown',
+                    license: licenseInfo.license || 'Unknown',
+                    category: licenseInfo.category || 'unknown',
+                    warnings: licenseInfo.warnings || [],
+                    originalPackage: dep.originalPackage
+                });
+            }
+        });
         let processedIssues = this.processHighRiskDependencies(rawHighRiskDeps);
         
         // Filter processedIssues by categoryFilter if active
