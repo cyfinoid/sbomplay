@@ -3261,6 +3261,259 @@ class ViewManager {
     }
 
     /**
+     * Find repositories for a license issue by matching packages
+     */
+    findRepositoriesForIssue(issue, orgData) {
+        const repositories = new Map(); // Map: repoKey -> { packages: [{name, version}] }
+        
+        if (!orgData || !orgData.data || !orgData.data.allRepositories || !orgData.data.allDependencies) {
+            return repositories;
+        }
+
+        const allRepos = orgData.data.allRepositories;
+        const allDeps = orgData.data.allDependencies;
+
+        if (issue.type === 'same-license') {
+            // Find all versions of this package with this license
+            issue.versions.forEach(version => {
+                const depKey = `${issue.packageName}@${version}`;
+                allRepos.forEach(repo => {
+                    if (repo.dependencies && repo.dependencies.includes(depKey)) {
+                        const repoKey = `${repo.owner}/${repo.name}`;
+                        if (!repositories.has(repoKey)) {
+                            repositories.set(repoKey, { packages: [] });
+                        }
+                        repositories.get(repoKey).packages.push({
+                            name: issue.packageName,
+                            version: version
+                        });
+                    }
+                });
+            });
+        } else if (issue.type === 'license-transition') {
+            // Find repositories with either version (from or to)
+            const fromDepKey = `${issue.packageName}@${issue.fromVersion}`;
+            const toDepKey = `${issue.packageName}@${issue.toVersion}`;
+            
+            allRepos.forEach(repo => {
+                if (repo.dependencies) {
+                    const hasFrom = repo.dependencies.includes(fromDepKey);
+                    const hasTo = repo.dependencies.includes(toDepKey);
+                    
+                    if (hasFrom || hasTo) {
+                        const repoKey = `${repo.owner}/${repo.name}`;
+                        if (!repositories.has(repoKey)) {
+                            repositories.set(repoKey, { packages: [] });
+                        }
+                        if (hasFrom) {
+                            repositories.get(repoKey).packages.push({
+                                name: issue.packageName,
+                                version: issue.fromVersion,
+                                license: issue.fromLicense
+                            });
+                        }
+                        if (hasTo) {
+                            repositories.get(repoKey).packages.push({
+                                name: issue.packageName,
+                                version: issue.toVersion,
+                                license: issue.toLicense
+                            });
+                        }
+                    }
+                }
+            });
+        }
+
+        return repositories;
+    }
+
+    /**
+     * Group issues by license and find repositories for each
+     * For license transitions, create separate entries for both "from" and "to" licenses
+     */
+    groupIssuesByLicense(processedIssues, orgData) {
+        const licenseGroups = new Map(); // Map: license -> { issues: [], repositories: Map }
+
+        processedIssues.forEach(issue => {
+            if (issue.type === 'same-license') {
+                // Same license issues: group by the license
+                const licenseKey = issue.license;
+                
+                if (!licenseGroups.has(licenseKey)) {
+                    licenseGroups.set(licenseKey, {
+                        license: licenseKey,
+                        category: issue.category,
+                        issues: [],
+                        repositories: new Map()
+                    });
+                }
+
+                const group = licenseGroups.get(licenseKey);
+                group.issues.push(issue);
+
+                // Find repositories for this issue
+                const issueRepos = this.findRepositoriesForIssue(issue, orgData);
+                issueRepos.forEach((repoData, repoKey) => {
+                    if (!group.repositories.has(repoKey)) {
+                        group.repositories.set(repoKey, { packages: [] });
+                    }
+                    // Merge packages from this issue into the repository
+                    repoData.packages.forEach(pkg => {
+                        group.repositories.get(repoKey).packages.push({
+                            ...pkg,
+                            issueType: issue.type,
+                            issuePackageName: issue.packageName
+                        });
+                    });
+                });
+            } else if (issue.type === 'license-transition') {
+                // License transitions: create separate entries for both "from" and "to" licenses
+                const allDeps = orgData.data?.allDependencies || [];
+                
+                // Helper function to normalize versions for comparison
+                const normalizeVersion = window.normalizeVersion || ((version) => {
+                    if (!version) return '';
+                    return String(version).trim()
+                        .replace(/^[><=^~]+\s*/, '')
+                        .replace(/\s+-\s+[\d.]+.*$/, '')
+                        .replace(/\s*\|\|.*$/, '')
+                        .replace(/\s+/g, '');
+                });
+                
+                const normalizedFromVersion = normalizeVersion(issue.fromVersion);
+                const normalizedToVersion = normalizeVersion(issue.toVersion);
+                
+                // Process "from" license
+                const fromLicenseKey = issue.fromLicense;
+                if (!licenseGroups.has(fromLicenseKey)) {
+                    // Determine category for from license
+                    const licenseProcessor = new LicenseProcessor();
+                    const fromPkg = { licenseDeclared: issue.fromLicense };
+                    const fromInfo = licenseProcessor.parseLicense(fromPkg);
+                    
+                    licenseGroups.set(fromLicenseKey, {
+                        license: fromLicenseKey,
+                        category: fromInfo.category || 'unknown',
+                        issues: [],
+                        repositories: new Map()
+                    });
+                }
+                
+                const fromGroup = licenseGroups.get(fromLicenseKey);
+                fromGroup.issues.push({
+                    ...issue,
+                    isTransitionPart: 'from'
+                });
+                
+                // Find repositories with the "from" version using allDependencies
+                // Try exact match first, then normalized match
+                let fromDep = allDeps.find(dep => 
+                    dep.name === issue.packageName && dep.version === issue.fromVersion
+                );
+                if (!fromDep) {
+                    fromDep = allDeps.find(dep => 
+                        dep.name === issue.packageName && normalizeVersion(dep.version) === normalizedFromVersion
+                    );
+                }
+                if (fromDep && fromDep.repositories) {
+                    fromDep.repositories.forEach(repoKey => {
+                        if (!fromGroup.repositories.has(repoKey)) {
+                            fromGroup.repositories.set(repoKey, { packages: [] });
+                        }
+                        fromGroup.repositories.get(repoKey).packages.push({
+                            name: issue.packageName,
+                            version: issue.fromVersion,
+                            license: issue.fromLicense,
+                            issueType: issue.type,
+                            issuePackageName: issue.packageName,
+                            isTransitionPart: 'from'
+                        });
+                    });
+                }
+                
+                // Process "to" license
+                const toLicenseKey = issue.toLicense;
+                if (!licenseGroups.has(toLicenseKey)) {
+                    // Determine category for to license
+                    const licenseProcessor = new LicenseProcessor();
+                    const toPkg = { licenseDeclared: issue.toLicense };
+                    const toInfo = licenseProcessor.parseLicense(toPkg);
+                    
+                    licenseGroups.set(toLicenseKey, {
+                        license: toLicenseKey,
+                        category: toInfo.category || issue.category || 'unknown',
+                        issues: [],
+                        repositories: new Map()
+                    });
+                }
+                
+                const toGroup = licenseGroups.get(toLicenseKey);
+                toGroup.issues.push({
+                    ...issue,
+                    isTransitionPart: 'to'
+                });
+                
+                // Find repositories with the "to" version using allDependencies
+                // Try exact match first, then normalized match
+                let toDep = allDeps.find(dep => 
+                    dep.name === issue.packageName && dep.version === issue.toVersion
+                );
+                if (!toDep) {
+                    toDep = allDeps.find(dep => 
+                        dep.name === issue.packageName && normalizeVersion(dep.version) === normalizedToVersion
+                    );
+                }
+                if (toDep && toDep.repositories) {
+                    toDep.repositories.forEach(repoKey => {
+                        if (!toGroup.repositories.has(repoKey)) {
+                            toGroup.repositories.set(repoKey, { packages: [] });
+                        }
+                        toGroup.repositories.get(repoKey).packages.push({
+                            name: issue.packageName,
+                            version: issue.toVersion,
+                            license: issue.toLicense,
+                            issueType: issue.type,
+                            issuePackageName: issue.packageName,
+                            isTransitionPart: 'to'
+                        });
+                    });
+                }
+            } else {
+                // Unknown issue type
+                const licenseKey = 'Unknown';
+                if (!licenseGroups.has(licenseKey)) {
+                    licenseGroups.set(licenseKey, {
+                        license: licenseKey,
+                        category: 'unknown',
+                        issues: [],
+                        repositories: new Map()
+                    });
+                }
+                
+                const group = licenseGroups.get(licenseKey);
+                group.issues.push(issue);
+                
+                // Find repositories for this issue
+                const issueRepos = this.findRepositoriesForIssue(issue, orgData);
+                issueRepos.forEach((repoData, repoKey) => {
+                    if (!group.repositories.has(repoKey)) {
+                        group.repositories.set(repoKey, { packages: [] });
+                    }
+                    repoData.packages.forEach(pkg => {
+                        group.repositories.get(repoKey).packages.push({
+                            ...pkg,
+                            issueType: issue.type,
+                            issuePackageName: issue.packageName
+                        });
+                    });
+                });
+            }
+        });
+
+        return licenseGroups;
+    }
+
+    /**
      * Generate License Compliance HTML (standalone section)
      */
     async generateLicenseComplianceHTML(orgData, categoryFilter = null) {
@@ -3429,70 +3682,117 @@ class ViewManager {
         }
 
         // Generate high-risk dependencies HTML
-        // Store processedIssues globally for filtering
+        // Group issues by license and find repositories
         const highRiskListContainerId = 'high-risk-list-container';
         let highRiskHTML = '';
         if (processedIssues.length > 0) {
-            // Store all issues in a data attribute for filtering
-            const allIssuesJson = JSON.stringify(processedIssues).replace(/"/g, '&quot;');
-            // Limit to first 20 issues for display (will be filtered by click handlers)
-            const displayIssues = processedIssues.slice(0, 20);
+            // Group issues by license
+            const licenseGroups = this.groupIssuesByLicense(processedIssues, orgData);
             
-            const highRiskItems = displayIssues.map(issue => {
-                let warningsHTML = '';
-                const uniqueWarnings = [...new Set(issue.warnings || [])];
-                if (uniqueWarnings.length > 0) {
-                    warningsHTML = `<div class="risk-warnings">
-                    ${uniqueWarnings.map(w => `<span class="badge badge-warning">${escapeHtml(w)}</span>`).join('\n                    ')}
-                </div>`;
+            // Handle combined data names for deps.html URL
+            const orgParam = (orgName === 'All Entries Combined' || orgName === 'All Projects (Combined)' || orgName === 'All Organizations Combined') 
+                ? '__ALL__' 
+                : orgName;
+            
+            // Helper function to parse package name@version and create deps.html URL
+            const createDepsUrl = (packageName, version) => {
+                // Handle @scope/package names - ignore leading @ for name/version splitting
+                const searchTerm = version ? `${packageName}@${version}` : packageName;
+                return `deps.html?org=${encodeURIComponent(orgParam)}&search=${encodeURIComponent(searchTerm)}`;
+            };
+            
+            // Generate HTML for each license group
+            const licenseGroupItems = Array.from(licenseGroups.values()).map(licenseGroup => {
+                const licenseName = licenseGroup.license || 'Unknown';
+                const category = licenseGroup.category || 'unknown';
+                const repositories = Array.from(licenseGroup.repositories.entries());
+                
+                // Check if this license group contains transition parts
+                const transitionIssues = licenseGroup.issues.filter(issue => issue.isTransitionPart);
+                let transitionBadge = '';
+                if (transitionIssues.length > 0) {
+                    // Find the transition info (from or to)
+                    const transitionIssue = transitionIssues[0];
+                    if (transitionIssue.isTransitionPart === 'from') {
+                        transitionBadge = `<span class="badge bg-warning text-dark ms-2" title="License transition: This license changes to ${escapeHtml(transitionIssue.toLicense)} in version ${escapeHtml(transitionIssue.toVersion)}">
+                            <i class="fas fa-arrow-right me-1"></i>Transition From
+                        </span>`;
+                    } else if (transitionIssue.isTransitionPart === 'to') {
+                        transitionBadge = `<span class="badge bg-info ms-2" title="License transition: This license changed from ${escapeHtml(transitionIssue.fromLicense)} in version ${escapeHtml(transitionIssue.fromVersion)}">
+                            <i class="fas fa-arrow-left me-1"></i>Transition To
+                        </span>`;
+                    }
                 }
                 
-                let issueTitle = '';
-                let issueDescription = '';
-                // Handle combined data names for deps.html URL
-                const orgParam = (orgName === 'All Entries Combined' || orgName === 'All Projects (Combined)' || orgName === 'All Organizations Combined') 
-                    ? '__ALL__' 
-                    : orgName;
-                const depsUrl = `deps.html?org=${encodeURIComponent(orgParam)}&search=${encodeURIComponent(issue.packageName)}`;
-                
-                if (issue.type === 'same-license') {
-                    // Same license across all versions
-                    const versionsText = issue.versions.length === 1 
-                        ? issue.versions[0]
-                        : `${issue.versions.length} versions: ${issue.versions.slice(0, 3).join(', ')}${issue.versions.length > 3 ? '...' : ''}`;
-                    issueTitle = `${escapeHtml(issue.packageName)} (${versionsText})`;
-                    issueDescription = `License: ${escapeHtml(issue.license)}`;
-                } else if (issue.type === 'license-transition') {
-                    // License transition detected
-                    issueTitle = `${escapeHtml(issue.packageName)}`;
-                    issueDescription = `License changed from <strong>${escapeHtml(issue.fromLicense)}</strong> (${escapeHtml(issue.fromVersion)}) to <strong>${escapeHtml(issue.toLicense)}</strong> (${escapeHtml(issue.toVersion)})`;
+                // Group packages by repository
+                let repositoriesHTML = '';
+                if (repositories.length > 0) {
+                    repositoriesHTML = repositories.map(([repoKey, repoData]) => {
+                        const packagesHTML = repoData.packages.map(pkg => {
+                            const packageDisplay = pkg.version 
+                                ? `${escapeHtml(pkg.name)}@${escapeHtml(pkg.version)}`
+                                : escapeHtml(pkg.name);
+                            const depsUrl = createDepsUrl(pkg.name, pkg.version);
+                            return `
+                            <div class="package-entry">
+                                <a href="${depsUrl}" class="package-link text-primary" target="_blank">
+                                    <code>${packageDisplay}</code>
+                                </a>
+                                ${pkg.license ? `<span class="badge badge-secondary ms-2">${escapeHtml(pkg.license)}</span>` : ''}
+                            </div>`;
+                        }).join('');
+                        
+                        return `
+                        <div class="repo-group">
+                            <div class="repo-name">
+                                <i class="fas fa-code-branch me-2"></i>
+                                <strong>${escapeHtml(repoKey)}</strong>
+                                <span class="badge bg-info ms-2">${repoData.packages.length} ${repoData.packages.length === 1 ? 'package' : 'packages'}</span>
+                            </div>
+                            <div class="packages-list">
+                                ${packagesHTML}
+                            </div>
+                        </div>`;
+                    }).join('');
+                } else {
+                    repositoriesHTML = '<div class="text-muted">No repositories found for this license issue.</div>';
                 }
+                
+                // Count total packages across all repositories
+                const totalPackages = repositories.reduce((sum, [, repoData]) => sum + repoData.packages.length, 0);
                 
                 return `
-        <div class="high-risk-item">
-            <div class="risk-info">
-                <div class="risk-name">${issueTitle}</div>
-                <div class="risk-license">${issueDescription}</div>
-                <div class="risk-category">${escapeHtml(issue.category)}</div>
-                ${warningsHTML}
+        <div class="license-issue-group">
+            <div class="license-issue-header">
+                <h5>
+                    <span class="badge badge-license badge-${category}">${escapeHtml(licenseName)}</span>
+                    ${transitionBadge}
+                    <span class="text-muted ms-2">${licenseGroup.issues.length} ${licenseGroup.issues.length === 1 ? 'issue' : 'issues'}</span>
+                    <span class="text-muted ms-2">•</span>
+                    <span class="text-muted ms-2">${repositories.length} ${repositories.length === 1 ? 'repository' : 'repositories'}</span>
+                    <span class="text-muted ms-2">•</span>
+                    <span class="text-muted ms-2">${totalPackages} ${totalPackages === 1 ? 'package' : 'packages'}</span>
+                </h5>
             </div>
-            <div class="risk-actions">
-                <a href="${depsUrl}" class="btn btn-outline-warning btn-sm" target="_blank">
-                    <i class="fas fa-eye me-1"></i>View Affected Repositories
-                </a>
+            <div class="repositories-container">
+                ${repositoriesHTML}
             </div>
         </div>`;
             }).join('');
             
-            // Store categoryFilter for use in filterHighRiskList
+            // Store categoryFilter and orgData reference for use in filterHighRiskList
             const categoryFilterValue = categoryFilter || 'all';
+            const allIssuesJson = JSON.stringify(processedIssues).replace(/"/g, '&quot;');
+            // Store a reference to orgData name so we can reload it when filtering
+            const orgDataName = orgName;
+            
             highRiskHTML = `<div class="high-risk-licenses">
     <h4>⚠️ High-Risk Licenses</h4>
-    <div id="${highRiskListContainerId}" data-all-issues='${allIssuesJson}' data-org-name='${escapeHtml(orgName)}' data-category-filter='${escapeHtml(categoryFilterValue)}'>
+    <div id="${highRiskListContainerId}" data-all-issues='${allIssuesJson}' data-org-name='${escapeHtml(orgName)}' data-category-filter='${escapeHtml(categoryFilterValue)}' data-org-data-name='${escapeHtml(orgDataName)}'>
         <div class="high-risk-list" id="high-risk-list">
-            ${highRiskItems}
+            ${licenseGroupItems}
         </div>
-        <div id="high-risk-count" class="text-muted mt-2">Showing ${displayIssues.length} of ${processedIssues.length} issues</div>
+        <div id="high-risk-count" class="text-muted mt-2">Showing ${licenseGroups.size} license ${licenseGroups.size === 1 ? 'issue' : 'issues'} across ${processedIssues.length} total ${processedIssues.length === 1 ? 'issue' : 'issues'}</div>
     </div>
 </div>`;
         }
@@ -3557,7 +3857,7 @@ class ViewManager {
     /**
      * Filter high-risk list based on clicked stat card
      */
-    filterHighRiskList(filterType) {
+    async filterHighRiskList(filterType) {
         const container = document.getElementById('high-risk-list-container');
         if (!container) return;
 
@@ -3568,14 +3868,11 @@ class ViewManager {
             let allIssues = JSON.parse(allIssuesJson.replace(/&quot;/g, '"'));
             const orgName = container.getAttribute('data-org-name') || 
                           document.querySelector('#analysisSelector')?.value || '__ALL__';
+            const orgDataName = container.getAttribute('data-org-data-name') || orgName;
             
             // Get current category filter from dropdown (may have changed since page load)
             const categoryFilterDropdown = document.getElementById('categoryFilter');
             const currentCategoryFilter = categoryFilterDropdown?.value === 'all' ? null : categoryFilterDropdown?.value;
-            
-            // If category filter changed, we need to reload the page to get correct data
-            // For now, work with stored issues (which are filtered by the category filter at page load)
-            // The category filter dropdown change triggers a page reload anyway
             
             // Handle combined data names for deps.html URL
             const orgParam = (orgName === 'All Entries Combined' || orgName === 'All Projects (Combined)' || orgName === 'All Organizations Combined') 
@@ -3651,66 +3948,123 @@ class ViewManager {
                 }
             }
 
-            // Render filtered issues
-            const escapeHtml = (text) => {
-                if (!text) return '';
-                const map = {'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'};
-                return String(text).replace(/[&<>"']/g, m => map[m]);
-            };
-
-            const highRiskList = document.getElementById('high-risk-list');
-            const highRiskCount = document.getElementById('high-risk-count');
-            
-            if (!highRiskList || !highRiskCount) return;
-
-            if (filteredIssues.length === 0) {
-                highRiskList.innerHTML = '<div class="alert alert-info">No issues found for this category.</div>';
-                highRiskCount.textContent = 'Showing 0 of 0 issues';
-            } else {
-                const displayIssues = filteredIssues.slice(0, 20);
-                const highRiskItems = displayIssues.map(issue => {
-                    let warningsHTML = '';
-                    const uniqueWarnings = [...new Set(issue.warnings || [])];
-                    if (uniqueWarnings.length > 0) {
-                        warningsHTML = `<div class="risk-warnings">
-                        ${uniqueWarnings.map(w => `<span class="badge badge-warning">${escapeHtml(w)}</span>`).join('\n                        ')}
-                    </div>`;
+            // Need to reload orgData to regenerate grouped structure
+            // Get storageManager from global scope (set in license-compliance.html)
+            const storageManager = window.storageManager;
+            if (storageManager) {
+                let orgData;
+                if (!orgDataName || orgDataName === '__ALL__' || orgDataName === 'All Projects (Combined)' || orgDataName === 'All Entries Combined' || orgDataName === 'All Organizations Combined') {
+                    orgData = await storageManager.getCombinedData();
+                } else {
+                    orgData = await storageManager.loadAnalysisDataForOrganization(orgDataName);
+                }
+                
+                if (orgData && orgData.data) {
+                    // Regenerate grouped structure with filtered issues
+                    const licenseGroups = this.groupIssuesByLicense(filteredIssues, orgData);
+                    
+                    // Render the grouped structure
+                    const escapeHtml = (text) => {
+                        if (!text) return '';
+                        const map = {'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'};
+                        return String(text).replace(/[&<>"']/g, m => map[m]);
+                    };
+                    
+                    const createDepsUrl = (packageName, version) => {
+                        const searchTerm = version ? `${packageName}@${version}` : packageName;
+                        return `deps.html?org=${encodeURIComponent(orgParam)}&search=${encodeURIComponent(searchTerm)}`;
+                    };
+                    
+                    const licenseGroupItems = Array.from(licenseGroups.values()).map(licenseGroup => {
+                        const licenseName = licenseGroup.license || 'Unknown';
+                        const category = licenseGroup.category || 'unknown';
+                        const repositories = Array.from(licenseGroup.repositories.entries());
+                        
+                        // Check if this license group contains transition parts
+                        const transitionIssues = licenseGroup.issues.filter(issue => issue.isTransitionPart);
+                        let transitionBadge = '';
+                        if (transitionIssues.length > 0) {
+                            // Find the transition info (from or to)
+                            const transitionIssue = transitionIssues[0];
+                            if (transitionIssue.isTransitionPart === 'from') {
+                                transitionBadge = `<span class="badge bg-warning text-dark ms-2" title="License transition: This license changes to ${escapeHtml(transitionIssue.toLicense)} in version ${escapeHtml(transitionIssue.toVersion)}">
+                                    <i class="fas fa-arrow-right me-1"></i>Transition From
+                                </span>`;
+                            } else if (transitionIssue.isTransitionPart === 'to') {
+                                transitionBadge = `<span class="badge bg-info ms-2" title="License transition: This license changed from ${escapeHtml(transitionIssue.fromLicense)} in version ${escapeHtml(transitionIssue.fromVersion)}">
+                                    <i class="fas fa-arrow-left me-1"></i>Transition To
+                                </span>`;
+                            }
+                        }
+                        
+                        let repositoriesHTML = '';
+                        if (repositories.length > 0) {
+                            repositoriesHTML = repositories.map(([repoKey, repoData]) => {
+                                const packagesHTML = repoData.packages.map(pkg => {
+                                    const packageDisplay = pkg.version 
+                                        ? `${escapeHtml(pkg.name)}@${escapeHtml(pkg.version)}`
+                                        : escapeHtml(pkg.name);
+                                    const depsUrl = createDepsUrl(pkg.name, pkg.version);
+                                    return `
+                                    <div class="package-entry">
+                                        <a href="${depsUrl}" class="package-link text-primary" target="_blank">
+                                            <code>${packageDisplay}</code>
+                                        </a>
+                                        ${pkg.license ? `<span class="badge badge-secondary ms-2">${escapeHtml(pkg.license)}</span>` : ''}
+                                    </div>`;
+                                }).join('');
+                                
+                                return `
+                                <div class="repo-group">
+                                    <div class="repo-name">
+                                        <i class="fas fa-code-branch me-2"></i>
+                                        <strong>${escapeHtml(repoKey)}</strong>
+                                        <span class="badge bg-info ms-2">${repoData.packages.length} ${repoData.packages.length === 1 ? 'package' : 'packages'}</span>
+                                    </div>
+                                    <div class="packages-list">
+                                        ${packagesHTML}
+                                    </div>
+                                </div>`;
+                            }).join('');
+                        } else {
+                            repositoriesHTML = '<div class="text-muted">No repositories found for this license issue.</div>';
+                        }
+                        
+                        const totalPackages = repositories.reduce((sum, [, repoData]) => sum + repoData.packages.length, 0);
+                        
+                        return `
+                <div class="license-issue-group">
+                    <div class="license-issue-header">
+                        <h5>
+                            <span class="badge badge-license badge-${category}">${escapeHtml(licenseName)}</span>
+                            ${transitionBadge}
+                            <span class="text-muted ms-2">${licenseGroup.issues.length} ${licenseGroup.issues.length === 1 ? 'issue' : 'issues'}</span>
+                            <span class="text-muted ms-2">•</span>
+                            <span class="text-muted ms-2">${repositories.length} ${repositories.length === 1 ? 'repository' : 'repositories'}</span>
+                            <span class="text-muted ms-2">•</span>
+                            <span class="text-muted ms-2">${totalPackages} ${totalPackages === 1 ? 'package' : 'packages'}</span>
+                        </h5>
+                    </div>
+                    <div class="repositories-container">
+                        ${repositoriesHTML}
+                    </div>
+                </div>`;
+                    }).join('');
+                    
+                    const highRiskList = document.getElementById('high-risk-list');
+                    const highRiskCount = document.getElementById('high-risk-count');
+                    
+                    if (highRiskList && highRiskCount) {
+                        if (filteredIssues.length === 0) {
+                            highRiskList.innerHTML = '<div class="alert alert-info">No issues found for this category.</div>';
+                            highRiskCount.textContent = 'Showing 0 of 0 issues';
+                        } else {
+                            highRiskList.innerHTML = licenseGroupItems;
+                            const filterText = isFiltering ? ' (filtered)' : '';
+                            highRiskCount.textContent = `Showing ${licenseGroups.size} license ${licenseGroups.size === 1 ? 'issue' : 'issues'} across ${filteredIssues.length} total ${filteredIssues.length === 1 ? 'issue' : 'issues'}${filterText}`;
+                        }
                     }
-                    
-                    let issueTitle = '';
-                    let issueDescription = '';
-                    const depsUrl = `deps.html?org=${encodeURIComponent(orgParam)}&search=${encodeURIComponent(issue.packageName)}`;
-                    
-                    if (issue.type === 'same-license') {
-                        const versionsText = issue.versions.length === 1 
-                            ? issue.versions[0]
-                            : `${issue.versions.length} versions: ${issue.versions.slice(0, 3).join(', ')}${issue.versions.length > 3 ? '...' : ''}`;
-                        issueTitle = `${escapeHtml(issue.packageName)} (${versionsText})`;
-                        issueDescription = `License: ${escapeHtml(issue.license)}`;
-                    } else if (issue.type === 'license-transition') {
-                        issueTitle = `${escapeHtml(issue.packageName)}`;
-                        issueDescription = `License changed from <strong>${escapeHtml(issue.fromLicense)}</strong> (${escapeHtml(issue.fromVersion)}) to <strong>${escapeHtml(issue.toLicense)}</strong> (${escapeHtml(issue.toVersion)})`;
-                    }
-                    
-                    return `
-            <div class="high-risk-item">
-                <div class="risk-info">
-                    <div class="risk-name">${issueTitle}</div>
-                    <div class="risk-license">${issueDescription}</div>
-                    <div class="risk-category">${escapeHtml(issue.category)}</div>
-                    ${warningsHTML}
-                </div>
-                <div class="risk-actions">
-                    <a href="${depsUrl}" class="btn btn-outline-warning btn-sm" target="_blank">
-                        <i class="fas fa-eye me-1"></i>View Affected Repositories
-                    </a>
-                </div>
-            </div>`;
-                }).join('');
-
-                highRiskList.innerHTML = highRiskItems;
-                const filterText = isFiltering ? ' (filtered)' : '';
-                highRiskCount.textContent = `Showing ${displayIssues.length} of ${filteredIssues.length} issues${filterText}`;
+                }
             }
 
             // Update active card styling

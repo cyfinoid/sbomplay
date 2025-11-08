@@ -188,8 +188,9 @@
         await storageManager.init();
         const viewManager = new ViewManager();
         
-        // Make viewManager available globally for onclick handlers
+        // Make viewManager and storageManager available globally for onclick handlers
         window.viewManager = viewManager;
+        window.storageManager = storageManager;
         
         // Load analysis list into selector
         await loadAnalysesList();

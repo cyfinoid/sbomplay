@@ -381,6 +381,43 @@
         let fundingFilterActive = false;
         let isLoadingMore = false;
         let searchFromURL = false; // Track if search came from URL parameter (exact match) vs user typing (fuzzy match)
+        let searchPackageName = null; // Parsed package name from search parameter
+        let searchPackageVersion = null; // Parsed package version from search parameter
+        
+        // Helper function to parse package name@version from search term
+        // Handles @scope/package names by ignoring leading @ for splitting
+        function parsePackageSearch(searchTerm) {
+            if (!searchTerm) return { name: null, version: null };
+            
+            // Check if search term contains @ (but not at the start for scoped packages)
+            const atIndex = searchTerm.indexOf('@');
+            
+            // If @ is at position 0, it's a scoped package like @scope/package
+            // We need to find the next @ which would be the version separator
+            if (atIndex === 0) {
+                // Find the next @ after the scope
+                const nextAtIndex = searchTerm.indexOf('@', 1);
+                if (nextAtIndex > 0) {
+                    // Found version separator: @scope/package@version
+                    return {
+                        name: searchTerm.substring(0, nextAtIndex),
+                        version: searchTerm.substring(nextAtIndex + 1)
+                    };
+                } else {
+                    // No version separator, entire string is the package name
+                    return { name: searchTerm, version: null };
+                }
+            } else if (atIndex > 0) {
+                // Regular package name@version format
+                return {
+                    name: searchTerm.substring(0, atIndex),
+                    version: searchTerm.substring(atIndex + 1)
+                };
+            } else {
+                // No @ found, just package name
+                return { name: searchTerm, version: null };
+            }
+        }
         
         // Check for URL parameters
         const urlParams = new URLSearchParams(window.location.search);
@@ -390,9 +427,12 @@
         const searchParam = urlParams.get('search');
         const ecosystemParam = urlParams.get('ecosystem');
         
-        // Set flag if search came from URL parameter
+        // Parse search parameter for name@version format
         if (searchParam) {
             searchFromURL = true;
+            const parsed = parsePackageSearch(decodeURIComponent(searchParam));
+            searchPackageName = parsed.name;
+            searchPackageVersion = parsed.version;
         }
         
         // Function to set search input from URL parameter
@@ -524,6 +564,8 @@
             const urlSearchValue = searchParam ? decodeURIComponent(searchParam) : '';
             if (searchFromURL && currentValue !== urlSearchValue) {
                 searchFromURL = false;
+                searchPackageName = null;
+                searchPackageVersion = null;
             }
             filterTable();
         });
@@ -869,8 +911,14 @@
             // Apply other filters
             filtered = filtered.filter(dep => {
                 if (search) {
-                    // Use exact match if search came from URL parameter, fuzzy match if user is typing
-                    if (searchFromURL) {
+                    if (searchFromURL && searchPackageName && searchPackageVersion) {
+                        // Exact match for both name and version from URL parameter
+                        if (dep.name.toLowerCase() !== searchPackageName.toLowerCase()) return false;
+                        if (dep.version.toLowerCase() !== searchPackageVersion.toLowerCase()) return false;
+                    } else if (searchFromURL && searchPackageName) {
+                        // Exact match for name only (no version in search)
+                        if (dep.name.toLowerCase() !== searchPackageName.toLowerCase()) return false;
+                    } else if (searchFromURL) {
                         // Exact match: package name must exactly equal the search term (case-insensitive)
                         if (dep.name.toLowerCase() !== search) return false;
                     } else {
@@ -1542,8 +1590,14 @@
             
             let filtered = allDependencies.filter(dep => {
                 if (search) {
-                    // Use exact match if search came from URL parameter, fuzzy match if user is typing
-                    if (searchFromURL) {
+                    if (searchFromURL && searchPackageName && searchPackageVersion) {
+                        // Exact match for both name and version from URL parameter
+                        if (dep.name.toLowerCase() !== searchPackageName.toLowerCase()) return false;
+                        if (dep.version.toLowerCase() !== searchPackageVersion.toLowerCase()) return false;
+                    } else if (searchFromURL && searchPackageName) {
+                        // Exact match for name only (no version in search)
+                        if (dep.name.toLowerCase() !== searchPackageName.toLowerCase()) return false;
+                    } else if (searchFromURL) {
                         // Exact match: package name must exactly equal the search term (case-insensitive)
                         if (dep.name.toLowerCase() !== search) return false;
                     } else {

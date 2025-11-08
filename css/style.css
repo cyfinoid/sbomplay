@@ -2293,6 +2293,121 @@ body {
     gap: 5px;
 }
 
+/* License issue group styles (new structure) */
+.license-issue-group {
+    background: var(--bg-secondary);
+    border: 1px solid #dee2e6;
+    border-radius: 8px;
+    padding: 20px;
+    margin-bottom: 20px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+    transition: all 0.2s ease;
+}
+
+.license-issue-group:hover {
+    box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+}
+
+.license-issue-header {
+    margin-bottom: 15px;
+    padding-bottom: 15px;
+    border-bottom: 2px solid #dee2e6;
+}
+
+.license-issue-header h5 {
+    margin: 0;
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+}
+
+.badge-license {
+    font-size: 0.9rem;
+    padding: 0.4rem 0.8rem;
+    font-weight: 600;
+}
+
+.badge-copyleft {
+    background-color: #dc3545;
+    color: white;
+}
+
+.badge-proprietary {
+    background-color: #6c757d;
+    color: white;
+}
+
+.badge-unknown {
+    background-color: #ffc107;
+    color: #212529;
+}
+
+.badge-unlicensed {
+    background-color: #dc3545;
+    color: white;
+}
+
+.repositories-container {
+    display: flex;
+    flex-direction: column;
+    gap: 15px;
+}
+
+.repo-group {
+    background: var(--bg-tertiary);
+    border-radius: 6px;
+    padding: 15px;
+    border-left: 3px solid #007bff;
+}
+
+.repo-name {
+    display: flex;
+    align-items: center;
+    margin-bottom: 10px;
+    font-size: 1rem;
+}
+
+.repo-name i {
+    color: #007bff;
+}
+
+.packages-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-left: 25px;
+}
+
+.package-entry {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 5px 0;
+}
+
+.package-link {
+    text-decoration: none;
+    transition: all 0.2s ease;
+}
+
+.package-link:hover {
+    text-decoration: underline;
+    color: #0056b3 !important;
+}
+
+.package-link code {
+    background: rgba(0, 123, 255, 0.1);
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-size: 0.9em;
+    color: #007bff;
+}
+
+.package-link:hover code {
+    background: rgba(0, 123, 255, 0.2);
+}
+
 /* Recommendation item enhancements */
 .recommendation-item {
     background: var(--bg-secondary);

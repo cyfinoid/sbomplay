@@ -1999,7 +1999,7 @@ class SBOMPlayApp {
                         <br>
                         <small class="text-muted">Used in ${dep.count} ${dep.count === 1 ? 'repository' : 'repositories'}</small>
                     </div>
-                    <a href="deps.html?search=${encodeURIComponent(dep.name)}" class="btn btn-sm btn-outline-primary">
+                    <a href="deps.html?search=${encodeURIComponent(depKey)}" class="btn btn-sm btn-outline-primary">
                         <i class="fas fa-external-link-alt me-1"></i>View
                     </a>
                 </div>
