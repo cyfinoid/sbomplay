@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+## [0.0.2] - 2025-11-08
+
+### Added
+
 #### New Major Features (Pages)
 - **Author Analysis**: New author analysis page (`authors.html`) with funding detection (did not exist in v0.0.1)
   - Author deduplication across multiple repositories
@@ -173,6 +177,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Version comparison utilities
   - Version normalization
 
+#### License Compliance Enhancements
+- **Expanded License Recognition**: Added support for 40+ additional licenses
+  - Permissive licenses: MIT-0, MIT-CMU, 0BSD, Python-2.0, Python-2.0.1, PSF-2.0, CNRI-Python, CC-BY-4.0, OFL-1.1, BlueOak-1.0.0, AFL-2.1, CDDL-1.0, CDDL-1.1, Unicode-DFS-2016, and more
+  - LGPL variants: LGPL-2.1-only, LGPL-2.1-or-later, LGPL-2.0-only, LGPL-2.0-or-later, LGPL-3.0-only, LGPL-3.0-or-later
+  - Copyleft licenses: EPL-1.0, GPL-1.0-or-later, MPL-1.1, GPL-2.0-only WITH Classpath-exception-2.0
+  - LicenseRef-scancode references: public-domain, other-permissive, jsr-107-jcache-spec-2013
+- **License Re-processing**: License compliance now re-processes licenses from raw dependency data
+  - Ensures latest license classifications are used even for older stored data
+  - High-risk dependencies are re-evaluated using current license processor
+  - License counts and displayed entries now use consistent, up-to-date classifications
+
+#### Storage Management Improvements
+- **Enhanced Storage Status Display**: Improved clarity of storage usage information
+  - Changed "total" to "quota" for better clarity
+  - Added precise percentage display (e.g., 0.004%)
+  - Added informational note when storage includes entity caches after clearing analysis data
+  - Better explanation of what storage includes (entity caches vs analysis data)
+
 ### Changed
 
 - **Statistics Page**: Integrated statistics dashboard into main page
@@ -198,6 +220,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Font Awesome loaded second
   - Custom `style.css` loaded third (contains max-width override)
   - `themes.css` loaded last
+
+- **License Processing**: License compliance now processes licenses on-the-fly from raw dependency data
+  - No longer relies solely on stored license analysis data
+  - Ensures consistency between counts and displayed entries
+  - Automatically applies latest license classifications to all data
 
 ### Fixed
 
@@ -271,17 +298,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - In-page search input retains fuzzy matching behavior
   - Search behavior automatically switches based on input source
 
+- **SBOM Quality Processor**: Fixed parameter mismatch in `generateSummary` method
+  - Corrected function signature to match actual parameters (dependencies, metadata)
+  - Resolved "ReferenceError: dependencies is not defined" error
+  - SBOM quality assessment now works correctly for all repositories
+
+- **License Classification**: Fixed issue where old stored license data showed incorrect classifications
+  - Licenses are now re-parsed from `originalPackage` data using current processor
+  - Previously unknown licenses (e.g., Python-2.0, CC-BY-4.0, LGPL-2.1-or-later) now correctly classified
+  - High-risk dependency lists now reflect accurate license categories
+
+- **Storage Status Display**: Fixed confusing storage usage message
+  - Clarified that "total" refers to browser quota, not stored data
+  - Added helpful note explaining entity caches persist after clearing analysis data
+
 ### Removed
 
-- **Dependency Visualization Views**: Removed multiple dependency visualization options
-  - `deps-dagre.html` (Dagre layout)
-  - `deps-force.html` (Force-directed graph)
-  - `deps-grid.html` (Grid layout)
-  - `deps-list.html` (List view)
-  - `deps-radial.html` (Radial tree)
-  - `deps-sunburst.html` (Sunburst chart)
-  - `deps-tree.html` (Tree view)
-  - `deps-visual.html` (Visual view)
 
 - **Statistics Page**: Removed standalone statistics page
   - `stats.html` (functionality integrated into `index.html`)
@@ -323,12 +355,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Consistent checksum calculation (sorted keys, excludes checksum field)
   - Import operations validate checksums before proceeding
 
-### Documentation
-
-- **Markdown Files**: Added comprehensive documentation
-  - Multiple implementation and enhancement markdown files in `mdfiles/` directory
-  - Deployment documentation (`DEPLOY.md`)
-  - Brand guidelines (`brandguidelines.md`)
 
 ## [0.0.1] - 2024-07-13
 
