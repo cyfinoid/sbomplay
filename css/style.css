@@ -2294,6 +2294,148 @@ body {
 }
 
 /* License issue group styles (new structure) */
+/* License Changes Section */
+.license-changes-section {
+    margin: 30px 0;
+    padding: 20px;
+    background: var(--bg-secondary);
+    border-radius: 8px;
+}
+
+.license-changes-list {
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+}
+
+.license-change-item {
+    background: white;
+    border: 2px solid #ffc107;
+    border-radius: 8px;
+    padding: 20px;
+    box-shadow: 0 2px 8px rgba(255, 193, 7, 0.2);
+    transition: all 0.2s ease;
+}
+
+.license-change-item:hover {
+    box-shadow: 0 4px 12px rgba(255, 193, 7, 0.3);
+    transform: translateY(-2px);
+}
+
+.license-change-header {
+    margin-bottom: 15px;
+    padding-bottom: 15px;
+    border-bottom: 2px solid #ffc107;
+}
+
+.license-change-header h5 {
+    margin: 0;
+    display: flex;
+    align-items: center;
+}
+
+.license-change-body {
+    display: flex;
+    flex-direction: column;
+    gap: 15px;
+}
+
+.dependency-name {
+    font-size: 1.1rem;
+}
+
+.dependency-name code {
+    background: rgba(255, 193, 7, 0.1);
+    padding: 4px 8px;
+    border-radius: 4px;
+    font-size: 1rem;
+    color: #856404;
+}
+
+.version-comparison {
+    background: #f8f9fa;
+    border-radius: 6px;
+    padding: 15px;
+    border-left: 4px solid #ffc107;
+}
+
+.version-item {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 10px;
+    padding: 8px 0;
+}
+
+.version-arrow {
+    font-size: 1.5rem;
+    color: #007bff;
+}
+
+.affected-repositories {
+    margin-top: 10px;
+}
+
+.repositories-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-top: 10px;
+    padding-left: 10px;
+}
+
+.repo-item {
+    padding: 8px 12px;
+    background: #f8f9fa;
+    border-radius: 4px;
+    border-left: 3px solid #007bff;
+    transition: all 0.2s ease;
+}
+
+.repo-item:hover {
+    background: #e9ecef;
+    transform: translateX(5px);
+}
+
+.repo-link {
+    color: #007bff;
+    transition: all 0.2s ease;
+}
+
+.repo-link:hover {
+    color: #0056b3;
+    text-decoration: underline !important;
+}
+
+.repo-link strong {
+    font-weight: 600;
+}
+
+.dependency-link {
+    color: #007bff;
+    text-decoration: none;
+    transition: all 0.2s ease;
+}
+
+.dependency-link:hover {
+    color: #0056b3;
+    text-decoration: underline;
+}
+
+.dependency-link code {
+    background: rgba(0, 123, 255, 0.1);
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-size: 1rem;
+    color: #007bff;
+    transition: all 0.2s ease;
+}
+
+.dependency-link:hover code {
+    background: rgba(0, 123, 255, 0.2);
+    color: #0056b3;
+}
+
 .license-issue-group {
     background: var(--bg-secondary);
     border: 1px solid #dee2e6;

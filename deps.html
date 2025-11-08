@@ -426,6 +426,7 @@
         const directParam = urlParams.get('direct');
         const searchParam = urlParams.get('search');
         const ecosystemParam = urlParams.get('ecosystem');
+        const repoParam = urlParams.get('repo');
         
         // Parse search parameter for name@version format
         if (searchParam) {
@@ -654,6 +655,10 @@
                 const option = document.createElement('option');
                 option.value = repo;
                 option.textContent = repo;
+                // Pre-select repository from URL parameter
+                if (repoParam && repo === repoParam) {
+                    option.selected = true;
+                }
                 repoFilter.appendChild(option);
             });
             
@@ -670,6 +675,11 @@
             
             // Apply ecosystem filter from URL parameter
             if (ecosystemParam && ecosystemFilter.value === 'all') {
+                // Filter was already set above, trigger filterTable to apply it
+            }
+            
+            // Apply repository filter from URL parameter
+            if (repoParam && repoFilter.value === 'all') {
                 // Filter was already set above, trigger filterTable to apply it
             }
             

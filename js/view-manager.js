@@ -3178,6 +3178,77 @@ class ViewManager {
     }
 
     /**
+     * Process ALL dependencies to detect license changes (not just high-risk)
+     */
+    processAllDependenciesForLicenseChanges(allDependencies, orgData) {
+        if (!allDependencies || allDependencies.length === 0) {
+            return [];
+        }
+
+        const licenseProcessor = new LicenseProcessor();
+        const transitions = [];
+
+        // Group by package name
+        const packageMap = new Map();
+        
+        allDependencies.forEach(dep => {
+            const packageName = dep.name || 'Unknown';
+            if (!packageName || packageName === 'Unknown') return;
+            
+            // Parse license for this dependency
+            const licenseInfo = licenseProcessor.parseLicense(dep.originalPackage || {});
+            const license = licenseInfo.license || 'Unknown';
+            
+            if (!packageMap.has(packageName)) {
+                packageMap.set(packageName, []);
+            }
+            packageMap.get(packageName).push({
+                version: dep.version || 'Unknown',
+                license: license,
+                category: licenseInfo.category || 'unknown',
+                repositories: dep.repositories || []
+            });
+        });
+
+        // Process each package to detect license changes
+        packageMap.forEach((versions, packageName) => {
+            // Skip if only one version
+            if (versions.length < 2) return;
+            
+            // Sort versions chronologically
+            versions.sort((a, b) => {
+                return a.version.localeCompare(b.version, undefined, { numeric: true, sensitivity: 'base' });
+            });
+
+            // Detect transitions between consecutive versions
+            for (let i = 0; i < versions.length - 1; i++) {
+                const current = versions[i];
+                const next = versions[i + 1];
+                
+                // Only report if licenses are different
+                if (current.license !== next.license && current.license !== 'Unknown' && next.license !== 'Unknown') {
+                    // Combine repositories from both versions
+                    const allRepos = new Set([...(current.repositories || []), ...(next.repositories || [])]);
+                    
+                    transitions.push({
+                        type: 'license-transition',
+                        packageName: packageName,
+                        fromLicense: current.license,
+                        toLicense: next.license,
+                        fromVersion: current.version,
+                        toVersion: next.version,
+                        fromCategory: current.category,
+                        toCategory: next.category,
+                        repositories: Array.from(allRepos)
+                    });
+                }
+            }
+        });
+
+        return transitions;
+    }
+
+    /**
      * Process high-risk dependencies: group by package/license and detect transitions
      */
     processHighRiskDependencies(highRiskDeps) {
@@ -3548,6 +3619,11 @@ class ViewManager {
         // Calculate counts based on filter
         const counts = this.calculateLicenseCounts(orgData, categoryFilter);
         
+        // Process ALL dependencies for license changes (needed before cardConfigs)
+        const allDeps = orgData.data?.allDependencies || [];
+        const allLicenseTransitions = this.processAllDependenciesForLicenseChanges(allDeps, orgData);
+        const transitionCount = allLicenseTransitions.length;
+        
         // Process high-risk dependencies to count transitions (needed before cardConfigs)
         const rawHighRiskDeps = (licenseAnalysis.highRiskDependencies || []).map(dep => ({
             name: dep.name || 'Unknown',
@@ -3562,8 +3638,6 @@ class ViewManager {
         if (categoryFilter && categoryFilter !== 'all') {
             processedIssues = this.filterIssuesByCategory(processedIssues, categoryFilter);
         }
-        
-        const transitionCount = processedIssues.filter(issue => issue.type === 'license-transition').length;
         
         // Prepare license cards
         const licenseCards = [];
@@ -3681,6 +3755,82 @@ class ViewManager {
 </div>`;
         }
 
+        // Generate License Changes section (all dependencies)
+        // allLicenseTransitions already calculated above for transitionCount
+        let licenseChangesHTML = '';
+        if (allLicenseTransitions.length > 0) {
+            // Handle combined data names for deps.html URL
+            const orgParam = (orgName === 'All Entries Combined' || orgName === 'All Projects (Combined)' || orgName === 'All Organizations Combined') 
+                ? '__ALL__' 
+                : orgName;
+            
+            // Helper function to create deps.html URL
+            const createDepsUrl = (packageName, version) => {
+                const searchTerm = version ? `${packageName}@${version}` : packageName;
+                return `deps.html?org=${encodeURIComponent(orgParam)}&search=${encodeURIComponent(searchTerm)}`;
+            };
+            
+            const transitionItems = allLicenseTransitions.map(transition => {
+                const reposList = transition.repositories && transition.repositories.length > 0
+                    ? transition.repositories.map(repo => {
+                        // Create URL for deps.html filtered to this repository
+                        const depsUrl = `deps.html?org=${encodeURIComponent(orgParam)}&repo=${encodeURIComponent(repo)}`;
+                        return `
+                        <div class="repo-item">
+                            <i class="fas fa-code-branch me-2 text-primary"></i>
+                            <a href="${depsUrl}" class="repo-link text-decoration-none" target="_blank">
+                                <strong>${escapeHtml(repo)}</strong>
+                            </a>
+                        </div>`;
+                    }).join('')
+                    : '<div class="text-muted">No repositories found</div>';
+                
+                return `
+        <div class="license-change-item">
+            <div class="license-change-body">
+                <div class="dependency-name mb-3">
+                    <strong><i class="fas fa-cube me-2"></i>Dependency:</strong>
+                    <a href="${createDepsUrl(transition.packageName, null)}" class="dependency-link ms-2" target="_blank">
+                        <code>${escapeHtml(transition.packageName)}</code>
+                    </a>
+                </div>
+                <div class="version-comparison mb-3">
+                    <div class="version-item">
+                        <strong>Version ${escapeHtml(transition.fromVersion)}:</strong>
+                        <span class="badge badge-license ms-2">${escapeHtml(transition.fromLicense)}</span>
+                        <a href="${createDepsUrl(transition.packageName, transition.fromVersion)}" 
+                           class="btn btn-sm btn-outline-primary ms-2" target="_blank">
+                            <i class="fas fa-external-link-alt me-1"></i>View
+                        </a>
+                    </div>
+                    <div class="version-item">
+                        <strong>Version ${escapeHtml(transition.toVersion)}:</strong>
+                        <span class="badge badge-license ms-2">${escapeHtml(transition.toLicense)}</span>
+                        <a href="${createDepsUrl(transition.packageName, transition.toVersion)}" 
+                           class="btn btn-sm btn-outline-primary ms-2" target="_blank">
+                            <i class="fas fa-external-link-alt me-1"></i>View
+                        </a>
+                    </div>
+                </div>
+                <div class="affected-repositories">
+                    <strong><i class="fas fa-folder-open me-2"></i>Affected Repositories (${transition.repositories.length}):</strong>
+                    <div class="repositories-list mt-2">
+                        ${reposList}
+                    </div>
+                </div>
+            </div>
+        </div>`;
+            }).join('');
+            
+            licenseChangesHTML = `<div class="license-changes-section">
+    <h4>🔄 License Changes Detected</h4>
+    <p class="text-muted mb-3">All license changes across all dependencies (not just high-risk)</p>
+    <div class="license-changes-list">
+        ${transitionItems}
+    </div>
+</div>`;
+        }
+        
         // Generate high-risk dependencies HTML
         // Group issues by license and find repositories
         const highRiskListContainerId = 'high-risk-list-container';
@@ -3797,7 +3947,7 @@ class ViewManager {
 </div>`;
         }
 
-        return licenseCardsHTML + conflictsHTML + highRiskHTML;
+        return licenseCardsHTML + conflictsHTML + licenseChangesHTML + highRiskHTML;
     }
 
     /**
