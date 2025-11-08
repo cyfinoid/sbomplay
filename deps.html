@@ -427,6 +427,7 @@
         const searchParam = urlParams.get('search');
         const ecosystemParam = urlParams.get('ecosystem');
         const repoParam = urlParams.get('repo');
+        const licenseParam = urlParams.get('license');
         
         // Parse search parameter for name@version format
         if (searchParam) {
@@ -825,6 +826,29 @@
             return version.trim().replace(/^[><=^~]+\s*/, '').replace(/\s+-\s+[\d.]+.*$/, '').replace(/\s*\|\|.*$/, '').replace(/\s+/g, '');
         }
         
+        // Helper function to get license info (accessible to both filterTable and renderTable)
+        function getLicenseInfo(dep) {
+            if (dep._licenseCached) {
+                return { license: dep.license, licenseFull: dep.licenseFull };
+            }
+            
+            let licenseText = 'Unknown';
+            let licenseFull = 'Unknown';
+            if (dep.raw && dep.raw.originalPackage && dep._licenseProcessor) {
+                const licenseInfo = dep._licenseProcessor.parseLicense(dep.raw.originalPackage);
+                if (licenseInfo.license && licenseInfo.license !== 'NOASSERTION') {
+                    licenseFull = licenseInfo.license;
+                    licenseText = licenseFull.length > 5 ? licenseFull.substring(0, 5) : licenseFull;
+                }
+            }
+            
+            // Cache the result
+            dep.license = licenseText;
+            dep.licenseFull = licenseFull;
+            dep._licenseCached = true;
+            return { license: licenseText, licenseFull: licenseFull };
+        }
+
         async function filterTable() {
             const vulnerableFilter = document.getElementById('vulnerableFilter').checked;
             const analysisSelector = document.getElementById('analysisSelector');
@@ -939,6 +963,13 @@
                 if (typeFilter !== 'all' && dep.type !== typeFilter) return false;
                 if (ecosystemFilter !== 'all' && dep.ecosystem !== ecosystemFilter) return false;
                 if (repoFilter !== 'all' && !dep.repositories.includes(repoFilter)) return false;
+                // Apply license filter if license parameter is present
+                if (licenseParam) {
+                    const licenseInfo = getLicenseInfo(dep);
+                    if (licenseInfo.licenseFull.toLowerCase() !== licenseParam.toLowerCase()) {
+                        return false;
+                    }
+                }
                 return true;
             });
             
@@ -1091,28 +1122,7 @@
             const endIndex = Math.min(startIndex + batchSize, deps.length);
             const toDisplay = deps.slice(startIndex, endIndex);
             
-            // Helper function to get license info (lazy evaluation)
-            function getLicenseInfo(dep) {
-                if (dep._licenseCached) {
-                    return { license: dep.license, licenseFull: dep.licenseFull };
-                }
-                
-                let licenseText = 'Unknown';
-                let licenseFull = 'Unknown';
-                if (dep.raw.originalPackage && dep._licenseProcessor) {
-                    const licenseInfo = dep._licenseProcessor.parseLicense(dep.raw.originalPackage);
-                    if (licenseInfo.license && licenseInfo.license !== 'NOASSERTION') {
-                        licenseFull = licenseInfo.license;
-                        licenseText = licenseFull.length > 5 ? licenseFull.substring(0, 5) : licenseFull;
-                    }
-                }
-                
-                // Cache the result
-                dep.license = licenseText;
-                dep.licenseFull = licenseFull;
-                dep._licenseCached = true;
-                return { license: licenseText, licenseFull: licenseFull };
-            }
+            // getLicenseInfo is now defined globally above, so we can use it here
             
             
             // Render the batch

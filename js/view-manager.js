@@ -3172,6 +3172,132 @@ class ViewManager {
     }
 
     /**
+     * Generate license types table data - groups dependencies by unique license name
+     */
+    generateLicenseTypesTableData(allDependencies, categoryFilter = null) {
+        if (!allDependencies || allDependencies.length === 0) {
+            return [];
+        }
+
+        const licenseProcessor = new LicenseProcessor();
+        const licenseMap = new Map(); // license name -> { category, risk, packages: Set, repositories: Set }
+
+        allDependencies.forEach(dep => {
+            if (!dep.originalPackage) return;
+
+            const licenseInfo = licenseProcessor.parseLicense(dep.originalPackage);
+            const license = licenseInfo.license || 'Unknown';
+            const category = licenseInfo.category || 'unknown';
+            const risk = licenseInfo.risk || 'low';
+
+            // Apply category filter if active
+            if (categoryFilter && categoryFilter !== 'all') {
+                if (categoryFilter === 'unlicensed') {
+                    // Skip licensed dependencies when filtering unlicensed
+                    if (license && license !== 'Unknown' && license !== 'NOASSERTION') {
+                        return;
+                    }
+                } else if (category !== categoryFilter) {
+                    return;
+                }
+            }
+
+            // Skip unlicensed when not filtering for unlicensed
+            if (!categoryFilter || categoryFilter === 'all') {
+                if (!license || license === 'Unknown' || license === 'NOASSERTION') {
+                    return;
+                }
+            }
+
+            if (!licenseMap.has(license)) {
+                licenseMap.set(license, {
+                    license: license,
+                    category: category,
+                    risk: risk,
+                    packages: new Set(),
+                    repositories: new Set()
+                });
+            }
+
+            const licenseData = licenseMap.get(license);
+            const packageKey = `${dep.name}@${dep.version}`;
+            licenseData.packages.add(packageKey);
+
+            // Add repositories
+            if (dep.repositories && Array.isArray(dep.repositories)) {
+                dep.repositories.forEach(repo => {
+                    licenseData.repositories.add(repo);
+                });
+            }
+        });
+
+        // Convert to array and sort by package count (descending)
+        return Array.from(licenseMap.values())
+            .map(licenseData => ({
+                license: licenseData.license,
+                category: licenseData.category,
+                risk: licenseData.risk,
+                packageCount: licenseData.packages.size,
+                repositoryCount: licenseData.repositories.size
+            }))
+            .sort((a, b) => b.packageCount - a.packageCount);
+    }
+
+    /**
+     * Generate unlicensed dependencies table data
+     */
+    generateUnlicensedTableData(allDependencies) {
+        if (!allDependencies || allDependencies.length === 0) {
+            return [];
+        }
+
+        const licenseProcessor = new LicenseProcessor();
+        const packageMap = new Map();
+
+        allDependencies.forEach(dep => {
+            const licenseInfo = dep.originalPackage 
+                ? licenseProcessor.parseLicense(dep.originalPackage)
+                : { license: null, category: 'unknown' };
+
+            // Check if unlicensed
+            if (!licenseInfo.license || licenseInfo.license === 'NOASSERTION') {
+                const packageName = dep.name || 'Unknown';
+                if (!packageName || packageName === 'Unknown') return;
+
+                if (!packageMap.has(packageName)) {
+                    packageMap.set(packageName, {
+                        name: packageName,
+                        versions: new Set(),
+                        repositories: new Set(),
+                        totalUsage: 0
+                    });
+                }
+
+                const pkg = packageMap.get(packageName);
+                if (dep.version) pkg.versions.add(dep.version);
+                if (dep.repositories && Array.isArray(dep.repositories)) {
+                    dep.repositories.forEach(repo => {
+                        pkg.repositories.add(repo);
+                        pkg.totalUsage++;
+                    });
+                }
+            }
+        });
+
+        // Convert to array and sort by usage (most used first)
+        return Array.from(packageMap.values())
+            .map(pkg => ({
+                name: pkg.name,
+                versions: Array.from(pkg.versions),
+                repositories: Array.from(pkg.repositories),
+                totalUsage: pkg.totalUsage,
+                repositoryCount: pkg.repositories.size,
+                versionCount: pkg.versions.size  // Use .size for Set, not .length
+            }))
+            .sort((a, b) => b.totalUsage - a.totalUsage);
+    }
+
+    /**
      * Process ALL dependencies to detect license changes (not just high-risk)
      */
     processAllDependenciesForLicenseChanges(allDependencies, orgData) {
@@ -3762,21 +3888,21 @@ class ViewManager {
 </div>`;
         }
 
+        // Handle combined data names for deps.html URL
+        const orgParam = (orgName === 'All Entries Combined' || orgName === 'All Projects (Combined)' || orgName === 'All Organizations Combined') 
+            ? '__ALL__' 
+            : orgName;
+        
+        // Helper function to create deps.html URL
+        const createDepsUrl = (packageName, version) => {
+            const searchTerm = version ? `${packageName}@${version}` : packageName;
+            return `deps.html?org=${encodeURIComponent(orgParam)}&search=${encodeURIComponent(searchTerm)}`;
+        };
+
         // Generate License Changes section (all dependencies)
         // allLicenseTransitions already calculated above for transitionCount
         let licenseChangesHTML = '';
         if (allLicenseTransitions.length > 0) {
-            // Handle combined data names for deps.html URL
-            const orgParam = (orgName === 'All Entries Combined' || orgName === 'All Projects (Combined)' || orgName === 'All Organizations Combined') 
-                ? '__ALL__' 
-                : orgName;
-            
-            // Helper function to create deps.html URL
-            const createDepsUrl = (packageName, version) => {
-                const searchTerm = version ? `${packageName}@${version}` : packageName;
-                return `deps.html?org=${encodeURIComponent(orgParam)}&search=${encodeURIComponent(searchTerm)}`;
-            };
-            
             const transitionRows = allLicenseTransitions.map(transition => {
                 const repoCount = transition.repositories ? transition.repositories.length : 0;
                 return `
@@ -3824,124 +3950,133 @@ class ViewManager {
     </div>
 </div>`;
         }
-        
-        // Generate high-risk dependencies HTML
-        // Group issues by license and find repositories
-        const highRiskListContainerId = 'high-risk-list-container';
-        let highRiskHTML = '';
-        if (processedIssues.length > 0) {
-            // Group issues by license
-            const licenseGroups = this.groupIssuesByLicense(processedIssues, orgData);
-            
-            // Handle combined data names for deps.html URL
-            const orgParam = (orgName === 'All Entries Combined' || orgName === 'All Projects (Combined)' || orgName === 'All Organizations Combined') 
-                ? '__ALL__' 
-                : orgName;
-            
-            // Helper function to parse package name@version and create deps.html URL
-            const createDepsUrl = (packageName, version) => {
-                // Handle @scope/package names - ignore leading @ for name/version splitting
-                const searchTerm = version ? `${packageName}@${version}` : packageName;
-                return `deps.html?org=${encodeURIComponent(orgParam)}&search=${encodeURIComponent(searchTerm)}`;
+
+        // Generate License Types Table
+        const licenseTypesData = this.generateLicenseTypesTableData(allDeps, categoryFilter);
+        let licenseTypesHTML = '';
+        if (licenseTypesData.length > 0) {
+            const getRiskBadgeClass = (risk) => {
+                switch(risk) {
+                    case 'high': return 'bg-danger';
+                    case 'medium': return 'bg-warning';
+                    case 'low': return 'bg-success';
+                    default: return 'bg-secondary';
+                }
             };
-            
-            // Generate HTML for each license group
-            const licenseGroupItems = Array.from(licenseGroups.values()).map(licenseGroup => {
-                const licenseName = licenseGroup.license || 'Unknown';
-                const category = licenseGroup.category || 'unknown';
-                const repositories = Array.from(licenseGroup.repositories.entries());
-                
-                // Check if this license group contains transition parts
-                const transitionIssues = licenseGroup.issues.filter(issue => issue.isTransitionPart);
-                let transitionBadge = '';
-                if (transitionIssues.length > 0) {
-                    // Find the transition info (from or to)
-                    const transitionIssue = transitionIssues[0];
-                    if (transitionIssue.isTransitionPart === 'from') {
-                        transitionBadge = `<span class="badge bg-warning text-dark ms-2" title="License transition: This license changes to ${escapeHtml(transitionIssue.toLicense)} in version ${escapeHtml(transitionIssue.toVersion)}">
-                            <i class="fas fa-arrow-right me-1"></i>Transition From
-                        </span>`;
-                    } else if (transitionIssue.isTransitionPart === 'to') {
-                        transitionBadge = `<span class="badge bg-info ms-2" title="License transition: This license changed from ${escapeHtml(transitionIssue.fromLicense)} in version ${escapeHtml(transitionIssue.fromVersion)}">
-                            <i class="fas fa-arrow-left me-1"></i>Transition To
-                        </span>`;
-                    }
+
+            const getCategoryBadgeClass = (category) => {
+                switch(category) {
+                    case 'copyleft': return 'bg-danger';
+                    case 'proprietary': return 'bg-warning text-dark';
+                    case 'lgpl': return 'bg-info';
+                    case 'permissive': return 'bg-success';
+                    case 'unknown': return 'bg-secondary';
+                    default: return 'bg-secondary';
                 }
-                
-                // Group packages by repository
-                let repositoriesHTML = '';
-                if (repositories.length > 0) {
-                    repositoriesHTML = repositories.map(([repoKey, repoData]) => {
-                        const packagesHTML = repoData.packages.map(pkg => {
-                            const packageDisplay = pkg.version 
-                                ? `${escapeHtml(pkg.name)}@${escapeHtml(pkg.version)}`
-                                : escapeHtml(pkg.name);
-                            const depsUrl = createDepsUrl(pkg.name, pkg.version);
-                            return `
-                            <div class="package-entry">
-                                <a href="${depsUrl}" class="package-link text-primary" target="_blank">
-                                    <code>${packageDisplay}</code>
-                                </a>
-                                ${pkg.license ? `<span class="badge badge-secondary ms-2">${escapeHtml(pkg.license)}</span>` : ''}
-                            </div>`;
-                        }).join('');
-                        
-                        return `
-                        <div class="repo-group">
-                            <div class="repo-name">
-                                <i class="fas fa-code-branch me-2"></i>
-                                <strong>${escapeHtml(repoKey)}</strong>
-                                <span class="badge bg-info ms-2">${repoData.packages.length} ${repoData.packages.length === 1 ? 'package' : 'packages'}</span>
-                            </div>
-                            <div class="packages-list">
-                                ${packagesHTML}
-                            </div>
-                        </div>`;
-                    }).join('');
-                } else {
-                    repositoriesHTML = '<div class="text-muted">No repositories found for this license issue.</div>';
-                }
-                
-                // Count total packages across all repositories
-                const totalPackages = repositories.reduce((sum, [, repoData]) => sum + repoData.packages.length, 0);
-                
+            };
+
+            const licenseTypesRows = licenseTypesData.map(licenseData => {
                 return `
-        <div class="license-issue-group">
-            <div class="license-issue-header">
-                <h5>
-                    <span class="badge badge-license badge-${category}">${escapeHtml(licenseName)}</span>
-                    ${transitionBadge}
-                    <span class="text-muted ms-2">${licenseGroup.issues.length} ${licenseGroup.issues.length === 1 ? 'issue' : 'issues'}</span>
-                    <span class="text-muted ms-2">•</span>
-                    <span class="text-muted ms-2">${repositories.length} ${repositories.length === 1 ? 'repository' : 'repositories'}</span>
-                    <span class="text-muted ms-2">•</span>
-                    <span class="text-muted ms-2">${totalPackages} ${totalPackages === 1 ? 'package' : 'packages'}</span>
-                </h5>
-            </div>
-            <div class="repositories-container">
-                ${repositoriesHTML}
-            </div>
-        </div>`;
+                <tr>
+                    <td>
+                        <span class="badge badge-license ${getCategoryBadgeClass(licenseData.category)}">${escapeHtml(licenseData.license)}</span>
+                    </td>
+                    <td>
+                        <span class="badge ${getCategoryBadgeClass(licenseData.category)}">${escapeHtml(licenseData.category)}</span>
+                    </td>
+                    <td class="text-center">
+                        <strong>${licenseData.packageCount}</strong>
+                    </td>
+                    <td class="text-center">
+                        <strong>${licenseData.repositoryCount}</strong>
+                    </td>
+                    <td>
+                        <span class="badge ${getRiskBadgeClass(licenseData.risk)}">${escapeHtml(licenseData.risk)}</span>
+                    </td>
+                    <td>
+                        <a href="deps.html?org=${encodeURIComponent(orgParam)}&license=${encodeURIComponent(licenseData.license)}" class="btn btn-sm btn-outline-primary" target="_blank" title="View all packages with ${escapeHtml(licenseData.license)} license">
+                            <i class="fas fa-external-link-alt me-1"></i>View
+                        </a>
+                    </td>
+                </tr>`;
             }).join('');
-            
-            // Store categoryFilter and orgData reference for use in filterHighRiskList
-            const categoryFilterValue = categoryFilter || 'all';
-            const allIssuesJson = JSON.stringify(processedIssues).replace(/"/g, '&quot;');
-            // Store a reference to orgData name so we can reload it when filtering
-            const orgDataName = orgName;
-            
-            highRiskHTML = `<div class="high-risk-licenses">
-    <h4>⚠️ High-Risk Licenses</h4>
-    <div id="${highRiskListContainerId}" data-all-issues='${allIssuesJson}' data-org-name='${escapeHtml(orgName)}' data-category-filter='${escapeHtml(categoryFilterValue)}' data-org-data-name='${escapeHtml(orgDataName)}'>
-        <div class="high-risk-list" id="high-risk-list">
-            ${licenseGroupItems}
-        </div>
-        <div id="high-risk-count" class="text-muted mt-2">Showing ${licenseGroups.size} license ${licenseGroups.size === 1 ? 'issue' : 'issues'} across ${processedIssues.length} total ${processedIssues.length === 1 ? 'issue' : 'issues'}</div>
+
+            licenseTypesHTML = `<div class="license-types-section mb-4" id="license-types-section">
+    <h4>📋 License Types</h4>
+    <p class="text-muted mb-3">All unique licenses found in dependencies</p>
+    <div class="table-responsive">
+        <table class="table table-striped table-hover" id="license-types-table">
+            <thead>
+                <tr>
+                    <th>License Name</th>
+                    <th>Category</th>
+                    <th class="text-center">Packages</th>
+                    <th class="text-center">Repositories</th>
+                    <th>Risk Level</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                ${licenseTypesRows}
+            </tbody>
+        </table>
     </div>
 </div>`;
         }
 
-        return licenseCardsHTML + conflictsHTML + highRiskHTML + licenseChangesHTML;
+        // Generate Unlicensed Dependencies Table
+        const unlicensedData = this.generateUnlicensedTableData(allDeps);
+        let unlicensedHTML = '';
+        if (unlicensedData.length > 0) {
+            const unlicensedRows = unlicensedData.map(pkg => {
+                return `
+                <tr>
+                    <td>
+                        <a href="${createDepsUrl(pkg.name, null)}" class="dependency-link" target="_blank">
+                            <code>${escapeHtml(pkg.name)}</code>
+                        </a>
+                    </td>
+                    <td class="text-center">
+                        <strong>${pkg.repositoryCount}</strong>
+                    </td>
+                    <td class="text-center">
+                        <strong>${pkg.versionCount}</strong>
+                    </td>
+                </tr>`;
+            }).join('');
+
+            unlicensedHTML = `<div class="unlicensed-section mb-4" id="unlicensed-section">
+    <h4>🚨 Unlicensed Dependencies</h4>
+    <p class="text-muted mb-3">Dependencies without license information</p>
+    <div class="table-responsive">
+        <table class="table table-striped table-hover" id="unlicensed-table">
+            <thead>
+                <tr>
+                    <th>Dependency</th>
+                    <th class="text-center">Used by Repos</th>
+                    <th class="text-center">Version Count</th>
+                </tr>
+            </thead>
+            <tbody>
+                ${unlicensedRows}
+            </tbody>
+        </table>
+    </div>
+</div>`;
+        }
+
+        // Store data for filtering
+        const highRiskListContainerId = 'license-tables-container';
+        const categoryFilterValue = categoryFilter || 'all';
+        const allIssuesJson = JSON.stringify(processedIssues).replace(/"/g, '&quot;');
+        const orgDataName = orgName;
+
+        return licenseCardsHTML + conflictsHTML + 
+            `<div id="${highRiskListContainerId}" data-all-issues='${allIssuesJson}' data-org-name='${escapeHtml(orgName)}' data-category-filter='${escapeHtml(categoryFilterValue)}' data-org-data-name='${escapeHtml(orgDataName)}'>
+                ${licenseTypesHTML}
+                ${unlicensedHTML}
+                ${licenseChangesHTML}
+            </div>`;
     }
 
     /**
@@ -3999,378 +4134,276 @@ class ViewManager {
     }
 
     /**
-     * Filter high-risk list based on clicked stat card
+     * Filter tables based on clicked stat card
      */
     async filterHighRiskList(filterType) {
-        const container = document.getElementById('high-risk-list-container');
+        const container = document.getElementById('license-tables-container');
         if (!container) return;
 
-        const allIssuesJson = container.getAttribute('data-all-issues');
-        if (!allIssuesJson) return;
+        // Get current category filter from dropdown
+        const categoryFilterDropdown = document.getElementById('categoryFilter');
+        const currentCategoryFilter = categoryFilterDropdown?.value === 'all' ? null : categoryFilterDropdown?.value;
 
-        try {
-            let allIssues = JSON.parse(allIssuesJson.replace(/&quot;/g, '"'));
-            const orgName = container.getAttribute('data-org-name') || 
-                          document.querySelector('#analysisSelector')?.value || '__ALL__';
-            const orgDataName = container.getAttribute('data-org-data-name') || orgName;
-            
-            // Get current category filter from dropdown (may have changed since page load)
-            const categoryFilterDropdown = document.getElementById('categoryFilter');
-            const currentCategoryFilter = categoryFilterDropdown?.value === 'all' ? null : categoryFilterDropdown?.value;
-            
-            // Handle combined data names for deps.html URL
-            const orgParam = (orgName === 'All Entries Combined' || orgName === 'All Projects (Combined)' || orgName === 'All Organizations Combined') 
-                ? '__ALL__' 
-                : orgName;
+        // Check if same card is clicked (toggle filter)
+        const activeCard = document.getElementById(`license-card-${filterType}`);
+        const isActive = activeCard?.classList.contains('active-filter');
+        
+        // Get storageManager from global scope
+        const storageManager = window.storageManager;
+        if (!storageManager) return;
 
-            // Check if same card is clicked (toggle filter)
-            const activeCard = document.getElementById(`license-card-${filterType}`);
-            const isActive = activeCard?.classList.contains('active-filter');
-            
-            // Filter issues based on type
-            let filteredIssues = [];
-            let isFiltering = true;
-            
-            // Total card shows all issues (respecting category filter), or if clicking the same active card, reset to show all
-            if (filterType === 'total' || isActive) {
-                // Show all issues (already filtered by category filter if active)
-                filteredIssues = allIssues;
-                isFiltering = false;
-            } else {
-                switch (filterType) {
+        const orgName = container.getAttribute('data-org-name') || 
+                      document.querySelector('#analysisSelector')?.value || '__ALL__';
+        const orgDataName = container.getAttribute('data-org-data-name') || orgName;
+
+        // Load orgData
+        let orgData;
+        if (!orgDataName || orgDataName === '__ALL__' || orgDataName === 'All Projects (Combined)' || orgDataName === 'All Entries Combined' || orgDataName === 'All Organizations Combined') {
+            orgData = await storageManager.getCombinedData();
+        } else {
+            orgData = await storageManager.loadAnalysisDataForOrganization(orgDataName);
+        }
+
+        if (!orgData || !orgData.data) return;
+
+        const allDeps = orgData.data.allDependencies || [];
+        const orgParam = (orgName === 'All Entries Combined' || orgName === 'All Projects (Combined)' || orgName === 'All Organizations Combined') 
+            ? '__ALL__' 
+            : orgName;
+
+        // Determine which filter to apply
+        let filterCategory = currentCategoryFilter;
+        if (filterType === 'total' || isActive) {
+            // Show all - use current category filter or none
+            filterCategory = currentCategoryFilter;
+        } else {
+            // Apply filter based on card type
+            switch (filterType) {
                 case 'copyleft':
-                    filteredIssues = allIssues.filter(issue => {
-                        if (issue.type === 'license-transition') {
-                            // Check if transition involves copyleft licenses
-                            const fromLower = (issue.fromLicense || '').toLowerCase();
-                            const toLower = (issue.toLicense || '').toLowerCase();
-                            return fromLower.includes('gpl') || fromLower.includes('copyleft') || 
-                                   toLower.includes('gpl') || toLower.includes('copyleft') ||
-                                   issue.category === 'copyleft';
-                        }
-                        // For same-license issues, check category and license
-                        return issue.category === 'copyleft' || issue.category === 'lgpl' ||
-                               (issue.license && (issue.license.toLowerCase().includes('gpl') || issue.license.toLowerCase().includes('copyleft')));
-                    });
-                    break;
                 case 'proprietary':
-                    filteredIssues = allIssues.filter(issue => {
-                        if (issue.type === 'license-transition') {
-                            const fromLower = (issue.fromLicense || '').toLowerCase();
-                            const toLower = (issue.toLicense || '').toLowerCase();
-                            return fromLower.includes('proprietary') || toLower.includes('proprietary') ||
-                                   issue.category === 'proprietary';
-                        }
-                        return issue.category === 'proprietary' ||
-                               (issue.license && issue.license.toLowerCase().includes('proprietary'));
-                    });
-                    break;
                 case 'unknown':
-                    filteredIssues = allIssues.filter(issue => {
-                        if (issue.type === 'license-transition') {
-                            return issue.fromLicense === 'Unknown' || issue.toLicense === 'Unknown' ||
-                                   issue.category === 'unknown';
-                        }
-                        return issue.category === 'unknown' || issue.license === 'Unknown' || !issue.license;
-                    });
+                    filterCategory = filterType;
                     break;
                 case 'unlicensed':
-                    // For unlicensed, we need to get all unlicensed dependencies from orgData, not just high-risk
-                    // This will be handled specially below
-                    filteredIssues = [];
+                    filterCategory = 'unlicensed';
                     break;
                 case 'transitions':
-                    filteredIssues = allIssues.filter(issue => issue.type === 'license-transition');
+                    filterCategory = null; // Show transitions table
                     break;
-                default:
-                    filteredIssues = allIssues;
-                    isFiltering = false;
-                }
             }
+        }
 
-            // Need to reload orgData to regenerate grouped structure
-            // Get storageManager from global scope (set in license-compliance.html)
-            const storageManager = window.storageManager;
-            if (storageManager) {
-                let orgData;
-                if (!orgDataName || orgDataName === '__ALL__' || orgDataName === 'All Projects (Combined)' || orgDataName === 'All Entries Combined' || orgDataName === 'All Organizations Combined') {
-                    orgData = await storageManager.getCombinedData();
-                } else {
-                    orgData = await storageManager.loadAnalysisDataForOrganization(orgDataName);
-                }
-                
-                if (orgData && orgData.data) {
-                    // Special handling for unlicensed dependencies
-                    if (filterType === 'unlicensed') {
-                        const licenseProcessor = new LicenseProcessor();
-                        const allDeps = orgData.data.allDependencies || [];
-                        
-                        // Find all unlicensed dependencies
-                        const unlicensedDeps = allDeps.filter(dep => {
-                            if (!dep.originalPackage) return true;
-                            const licenseInfo = licenseProcessor.parseLicense(dep.originalPackage);
-                            return !licenseInfo.license || licenseInfo.license === 'NOASSERTION';
-                        });
-                        
-                        // Group by package name and count repository usage
-                        const packageMap = new Map();
-                        unlicensedDeps.forEach(dep => {
-                            const packageName = dep.name || 'Unknown';
-                            if (!packageMap.has(packageName)) {
-                                packageMap.set(packageName, {
-                                    name: packageName,
-                                    versions: new Set(),
-                                    repositories: new Set(),
-                                    totalUsage: 0
-                                });
-                            }
-                            const pkg = packageMap.get(packageName);
-                            if (dep.version) pkg.versions.add(dep.version);
-                            if (dep.repositories) {
-                                dep.repositories.forEach(repo => {
-                                    pkg.repositories.add(repo);
-                                    pkg.totalUsage++;
-                                });
-                            }
-                        });
-                        
-                        // Convert to array and sort by usage (most used first)
-                        const unlicensedPackages = Array.from(packageMap.values())
-                            .map(pkg => ({
-                                name: pkg.name,
-                                versions: Array.from(pkg.versions),
-                                repositories: Array.from(pkg.repositories),
-                                totalUsage: pkg.totalUsage
-                            }))
-                            .sort((a, b) => b.totalUsage - a.totalUsage);
-                        
-                        // Render unlicensed packages
-                        const escapeHtml = (text) => {
-                            if (!text) return '';
-                            const map = {'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'};
-                            return String(text).replace(/[&<>"']/g, m => map[m]);
-                        };
-                        
-                        const createDepsUrl = (packageName) => {
-                            return `deps.html?org=${encodeURIComponent(orgParam)}&search=${encodeURIComponent(packageName)}`;
-                        };
-                        
-                        const unlicensedRows = unlicensedPackages.map(pkg => {
-                            return `
-                                <tr>
-                                    <td>
-                                        <a href="${createDepsUrl(pkg.name)}" class="dependency-link" target="_blank">
-                                            <code>${escapeHtml(pkg.name)}</code>
-                                        </a>
-                                    </td>
-                                    <td class="text-center">
-                                        <strong>${pkg.repositories.length}</strong>
-                                    </td>
-                                    <td class="text-center">
-                                        <strong>${pkg.versions.length}</strong>
-                                    </td>
-                                </tr>`;
-                        }).join('');
-                        
-                        const unlicensedTableHTML = `
-                            <div class="table-responsive">
-                                <table class="table table-striped table-hover">
-                                    <thead>
-                                        <tr>
-                                            <th>Dependency</th>
-                                            <th class="text-center">Used by Repos</th>
-                                            <th class="text-center">Version Count</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        ${unlicensedRows}
-                                    </tbody>
-                                </table>
-                            </div>`;
-                        
-                        const highRiskList = document.getElementById('high-risk-list');
-                        const highRiskCount = document.getElementById('high-risk-count');
-                        const highRiskContainer = document.getElementById('high-risk-list-container');
-                        
-                        if (highRiskContainer) {
-                            highRiskContainer.style.display = 'block';
-                        }
-                        
-                        if (highRiskList && highRiskCount) {
-                            if (unlicensedPackages.length === 0) {
-                                highRiskList.innerHTML = '<div class="alert alert-info">No unlicensed dependencies found.</div>';
-                                highRiskCount.textContent = 'Showing 0 unlicensed packages';
-                            } else {
-                                highRiskList.innerHTML = unlicensedTableHTML;
-                                highRiskCount.textContent = `Showing ${unlicensedPackages.length} unlicensed ${unlicensedPackages.length === 1 ? 'package' : 'packages'} (sorted by usage)`;
-                            }
-                        }
-                        
-                        // Skip the rest of the filtering logic for unlicensed
-                        return;
-                    }
-                    
-                    // Regenerate grouped structure with filtered issues
-                    const licenseGroups = this.groupIssuesByLicense(filteredIssues, orgData);
-                    
-                    // Render the grouped structure
-                    const escapeHtml = (text) => {
-                        if (!text) return '';
-                        const map = {'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'};
-                        return String(text).replace(/[&<>"']/g, m => map[m]);
-                    };
-                    
-                    const createDepsUrl = (packageName, version) => {
-                        const searchTerm = version ? `${packageName}@${version}` : packageName;
-                        return `deps.html?org=${encodeURIComponent(orgParam)}&search=${encodeURIComponent(searchTerm)}`;
-                    };
-                    
-                    const licenseGroupItems = Array.from(licenseGroups.values()).map(licenseGroup => {
-                        const licenseName = licenseGroup.license || 'Unknown';
-                        const category = licenseGroup.category || 'unknown';
-                        const repositories = Array.from(licenseGroup.repositories.entries());
-                        
-                        // Check if this license group contains transition parts
-                        const transitionIssues = licenseGroup.issues.filter(issue => issue.isTransitionPart);
-                        let transitionBadge = '';
-                        if (transitionIssues.length > 0) {
-                            // Find the transition info (from or to)
-                            const transitionIssue = transitionIssues[0];
-                            if (transitionIssue.isTransitionPart === 'from') {
-                                transitionBadge = `<span class="badge bg-warning text-dark ms-2" title="License transition: This license changes to ${escapeHtml(transitionIssue.toLicense)} in version ${escapeHtml(transitionIssue.toVersion)}">
-                                    <i class="fas fa-arrow-right me-1"></i>Transition From
-                                </span>`;
-                            } else if (transitionIssue.isTransitionPart === 'to') {
-                                transitionBadge = `<span class="badge bg-info ms-2" title="License transition: This license changed from ${escapeHtml(transitionIssue.fromLicense)} in version ${escapeHtml(transitionIssue.fromVersion)}">
-                                    <i class="fas fa-arrow-left me-1"></i>Transition To
-                                </span>`;
-                            }
-                        }
-                        
-                        let repositoriesHTML = '';
-                        if (repositories.length > 0) {
-                            repositoriesHTML = repositories.map(([repoKey, repoData]) => {
-                                const packagesHTML = repoData.packages.map(pkg => {
-                                    const packageDisplay = pkg.version 
-                                        ? `${escapeHtml(pkg.name)}@${escapeHtml(pkg.version)}`
-                                        : escapeHtml(pkg.name);
-                                    const depsUrl = createDepsUrl(pkg.name, pkg.version);
-                                    return `
-                                    <div class="package-entry">
-                                        <a href="${depsUrl}" class="package-link text-primary" target="_blank">
-                                            <code>${packageDisplay}</code>
-                                        </a>
-                                        ${pkg.license ? `<span class="badge badge-secondary ms-2">${escapeHtml(pkg.license)}</span>` : ''}
-                                    </div>`;
-                                }).join('');
-                                
-                                return `
-                                <div class="repo-group">
-                                    <div class="repo-name">
-                                        <i class="fas fa-code-branch me-2"></i>
-                                        <strong>${escapeHtml(repoKey)}</strong>
-                                        <span class="badge bg-info ms-2">${repoData.packages.length} ${repoData.packages.length === 1 ? 'package' : 'packages'}</span>
-                                    </div>
-                                    <div class="packages-list">
-                                        ${packagesHTML}
-                                    </div>
-                                </div>`;
-                            }).join('');
-                        } else {
-                            repositoriesHTML = '<div class="text-muted">No repositories found for this license issue.</div>';
-                        }
-                        
-                        const totalPackages = repositories.reduce((sum, [, repoData]) => sum + repoData.packages.length, 0);
-                        
-                        return `
-                <div class="license-issue-group">
-                    <div class="license-issue-header">
-                        <h5>
-                            <span class="badge badge-license badge-${category}">${escapeHtml(licenseName)}</span>
-                            ${transitionBadge}
-                            <span class="text-muted ms-2">${licenseGroup.issues.length} ${licenseGroup.issues.length === 1 ? 'issue' : 'issues'}</span>
-                            <span class="text-muted ms-2">•</span>
-                            <span class="text-muted ms-2">${repositories.length} ${repositories.length === 1 ? 'repository' : 'repositories'}</span>
-                            <span class="text-muted ms-2">•</span>
-                            <span class="text-muted ms-2">${totalPackages} ${totalPackages === 1 ? 'package' : 'packages'}</span>
-                        </h5>
-                    </div>
-                    <div class="repositories-container">
-                        ${repositoriesHTML}
-                    </div>
-                </div>`;
-                    }).join('');
-                    
-                    const highRiskList = document.getElementById('high-risk-list');
-                    const highRiskCount = document.getElementById('high-risk-count');
-                    const highRiskContainer = document.getElementById('high-risk-list-container');
-                    
-                    // When filtering by transitions, hide high-risk section and show only license changes
-                    if (filterType === 'transitions') {
-                        if (highRiskContainer) {
-                            highRiskContainer.style.display = 'none';
-                        }
-                    } else {
-                        // Show high-risk section for other filters
-                        if (highRiskContainer) {
-                            highRiskContainer.style.display = 'block';
-                        }
-                        
-                        if (highRiskList && highRiskCount) {
-                            if (filteredIssues.length === 0) {
-                                highRiskList.innerHTML = '<div class="alert alert-info">No issues found for this category.</div>';
-                                highRiskCount.textContent = 'Showing 0 of 0 issues';
-                            } else {
-                                highRiskList.innerHTML = licenseGroupItems;
-                                const filterText = isFiltering ? ' (filtered)' : '';
-                                highRiskCount.textContent = `Showing ${licenseGroups.size} license ${licenseGroups.size === 1 ? 'issue' : 'issues'} across ${filteredIssues.length} total ${filteredIssues.length === 1 ? 'issue' : 'issues'}${filterText}`;
-                            }
-                        }
-                    }
-                }
-            }
+        // Regenerate tables with new filter
+        const escapeHtml = (text) => {
+            if (!text) return '';
+            const map = {'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'};
+            return String(text).replace(/[&<>"']/g, m => map[m]);
+        };
 
-            // Update active card styling
-            document.querySelectorAll('.license-stat-card').forEach(card => {
-                card.classList.remove('active-filter');
-            });
-            // Only add active class if we're filtering (not resetting)
-            if (isFiltering) {
-                const cardToActivate = document.getElementById(`license-card-${filterType}`);
-                if (cardToActivate) {
-                    cardToActivate.classList.add('active-filter');
-                }
-            }
-            
-            // Show/hide license changes section based on filter
-            const licenseChangesSection = document.getElementById('license-changes-section');
-            if (licenseChangesSection) {
-                // Show license changes section when "transitions" filter is active or when showing all (total)
-                if (filterType === 'transitions' || filterType === 'total' || isActive) {
-                    licenseChangesSection.style.display = 'block';
-                } else {
-                    licenseChangesSection.style.display = 'none';
-                }
-            }
-            
-            // When filtering by transitions, ensure high-risk section is hidden even if it wasn't updated above
-            if (filterType === 'transitions') {
-                const highRiskContainer = document.getElementById('high-risk-list-container');
-                if (highRiskContainer) {
-                    highRiskContainer.style.display = 'none';
-                }
-            } else if (filterType === 'total' || isActive) {
-                // Show high-risk section when showing all or resetting
-                const highRiskContainer = document.getElementById('high-risk-list-container');
-                if (highRiskContainer) {
-                    highRiskContainer.style.display = 'block';
-                }
-            }
+        const createDepsUrl = (packageName, version) => {
+            const searchTerm = version ? `${packageName}@${version}` : packageName;
+            return `deps.html?org=${encodeURIComponent(orgParam)}&search=${encodeURIComponent(searchTerm)}`;
+        };
 
-        } catch (error) {
-            console.error('Error filtering high-risk list:', error);
+        // Generate License Types Table
+        const licenseTypesData = this.generateLicenseTypesTableData(allDeps, filterCategory);
+        let licenseTypesHTML = '';
+        if (licenseTypesData.length > 0) {
+            const getRiskBadgeClass = (risk) => {
+                switch(risk) {
+                    case 'high': return 'bg-danger';
+                    case 'medium': return 'bg-warning';
+                    case 'low': return 'bg-success';
+                    default: return 'bg-secondary';
+                }
+            };
+
+            const getCategoryBadgeClass = (category) => {
+                switch(category) {
+                    case 'copyleft': return 'bg-danger';
+                    case 'proprietary': return 'bg-warning text-dark';
+                    case 'lgpl': return 'bg-info';
+                    case 'permissive': return 'bg-success';
+                    case 'unknown': return 'bg-secondary';
+                    default: return 'bg-secondary';
+                }
+            };
+
+            const licenseTypesRows = licenseTypesData.map(licenseData => {
+                return `
+                <tr>
+                    <td>
+                        <span class="badge badge-license ${getCategoryBadgeClass(licenseData.category)}">${escapeHtml(licenseData.license)}</span>
+                    </td>
+                    <td>
+                        <span class="badge ${getCategoryBadgeClass(licenseData.category)}">${escapeHtml(licenseData.category)}</span>
+                    </td>
+                    <td class="text-center">
+                        <strong>${licenseData.packageCount}</strong>
+                    </td>
+                    <td class="text-center">
+                        <strong>${licenseData.repositoryCount}</strong>
+                    </td>
+                    <td>
+                        <span class="badge ${getRiskBadgeClass(licenseData.risk)}">${escapeHtml(licenseData.risk)}</span>
+                    </td>
+                    <td>
+                        <a href="deps.html?org=${encodeURIComponent(orgParam)}&license=${encodeURIComponent(licenseData.license)}" class="btn btn-sm btn-outline-primary" target="_blank" title="View all packages with ${escapeHtml(licenseData.license)} license">
+                            <i class="fas fa-external-link-alt me-1"></i>View
+                        </a>
+                    </td>
+                </tr>`;
+            }).join('');
+
+            licenseTypesHTML = `<div class="license-types-section mb-4" id="license-types-section">
+    <h4>📋 License Types</h4>
+    <p class="text-muted mb-3">All unique licenses found in dependencies</p>
+    <div class="table-responsive">
+        <table class="table table-striped table-hover" id="license-types-table">
+            <thead>
+                <tr>
+                    <th>License Name</th>
+                    <th>Category</th>
+                    <th class="text-center">Packages</th>
+                    <th class="text-center">Repositories</th>
+                    <th>Risk Level</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                ${licenseTypesRows}
+            </tbody>
+        </table>
+    </div>
+</div>`;
+        }
+
+        // Generate Unlicensed Dependencies Table
+        const unlicensedData = this.generateUnlicensedTableData(allDeps);
+        let unlicensedHTML = '';
+        if (unlicensedData.length > 0) {
+            const unlicensedRows = unlicensedData.map(pkg => {
+                return `
+                <tr>
+                    <td>
+                        <a href="${createDepsUrl(pkg.name, null)}" class="dependency-link" target="_blank">
+                            <code>${escapeHtml(pkg.name)}</code>
+                        </a>
+                    </td>
+                    <td class="text-center">
+                        <strong>${pkg.repositoryCount}</strong>
+                    </td>
+                    <td class="text-center">
+                        <strong>${pkg.versionCount}</strong>
+                    </td>
+                </tr>`;
+            }).join('');
+
+            unlicensedHTML = `<div class="unlicensed-section mb-4" id="unlicensed-section">
+    <h4>🚨 Unlicensed Dependencies</h4>
+    <p class="text-muted mb-3">Dependencies without license information</p>
+    <div class="table-responsive">
+        <table class="table table-striped table-hover" id="unlicensed-table">
+            <thead>
+                <tr>
+                    <th>Dependency</th>
+                    <th class="text-center">Used by Repos</th>
+                    <th class="text-center">Version Count</th>
+                </tr>
+            </thead>
+            <tbody>
+                ${unlicensedRows}
+            </tbody>
+        </table>
+    </div>
+</div>`;
+        }
+
+        // Generate License Changes Table
+        const allLicenseTransitions = this.processAllDependenciesForLicenseChanges(allDeps, orgData);
+        let licenseChangesHTML = '';
+        if (allLicenseTransitions.length > 0) {
+            const transitionRows = allLicenseTransitions.map(transition => {
+                const repoCount = transition.repositories ? transition.repositories.length : 0;
+                return `
+                <tr>
+                    <td>
+                        <a href="${createDepsUrl(transition.packageName, null)}" class="dependency-link" target="_blank">
+                            <code>${escapeHtml(transition.packageName)}</code>
+                        </a>
+                    </td>
+                    <td>
+                        <a href="${createDepsUrl(transition.packageName, transition.fromVersion)}" class="text-decoration-none" target="_blank">
+                            <code>${escapeHtml(transition.fromVersion)}</code>
+                        </a>
+                        <span class="badge badge-license ms-2">${escapeHtml(transition.fromLicense)}</span>
+                    </td>
+                    <td>
+                        <a href="${createDepsUrl(transition.packageName, transition.toVersion)}" class="text-decoration-none" target="_blank">
+                            <code>${escapeHtml(transition.toVersion)}</code>
+                        </a>
+                        <span class="badge badge-license ms-2">${escapeHtml(transition.toLicense)}</span>
+                    </td>
+                    <td class="text-center">
+                        <strong>${repoCount}</strong>
+                    </td>
+                </tr>`;
+            }).join('');
+
+            licenseChangesHTML = `<div class="license-changes-section mb-4" id="license-changes-section">
+    <h4>🔄 License Changes Detected</h4>
+    <p class="text-muted mb-3">All license changes across all dependencies (not just high-risk)</p>
+    <div class="table-responsive">
+        <table class="table table-striped table-hover" id="license-changes-table">
+            <thead>
+                <tr>
+                    <th>Dependency</th>
+                    <th>Version 1 @ License 1</th>
+                    <th>Version 2 @ License 2</th>
+                    <th class="text-center">Repositories</th>
+                </tr>
+            </thead>
+            <tbody>
+                ${transitionRows}
+            </tbody>
+        </table>
+    </div>
+</div>`;
+        }
+
+        // Update container with new HTML
+        container.innerHTML = licenseTypesHTML + unlicensedHTML + licenseChangesHTML;
+
+        // Show/hide sections based on filter type (get elements after innerHTML update)
+        const licenseTypesSection = document.getElementById('license-types-section');
+        const unlicensedSection = document.getElementById('unlicensed-section');
+        const licenseChangesSection = document.getElementById('license-changes-section');
+
+        if (filterType === 'unlicensed') {
+            if (licenseTypesSection) licenseTypesSection.style.display = 'none';
+            if (licenseChangesSection) licenseChangesSection.style.display = 'none';
+            if (unlicensedSection) unlicensedSection.style.display = 'block';
+        } else if (filterType === 'transitions') {
+            if (licenseTypesSection) licenseTypesSection.style.display = 'none';
+            if (unlicensedSection) unlicensedSection.style.display = 'none';
+            if (licenseChangesSection) licenseChangesSection.style.display = 'block';
+        } else {
+            // Show all tables for other filters (total, copyleft, proprietary, unknown)
+            if (licenseTypesSection) licenseTypesSection.style.display = 'block';
+            if (unlicensedSection && unlicensedData.length > 0) unlicensedSection.style.display = 'block';
+            if (licenseChangesSection && allLicenseTransitions.length > 0) licenseChangesSection.style.display = 'block';
+        }
+
+        // Update active filter state on cards
+        document.querySelectorAll('.license-stat-card').forEach(card => {
+            card.classList.remove('active-filter');
+        });
+        const isFiltering = filterType !== 'total' && !isActive;
+        if (activeCard && isFiltering) {
+            activeCard.classList.add('active-filter');
         }
     }
+
 
     async generateDependencyOverviewHTML(orgData) {
         // Extracted from generateOverviewHTML: stats, category breakdown, language stats, top deps, all deps

@@ -2295,6 +2295,9 @@ body {
 
 /* License issue group styles (new structure) */
 /* License Changes Section */
+/* License Compliance Tables */
+.license-types-section,
+.unlicensed-section,
 .license-changes-section {
     margin: 30px 0;
     padding: 20px;
@@ -2302,33 +2305,67 @@ body {
     border-radius: 8px;
 }
 
+.license-types-section h4,
+.unlicensed-section h4,
+.license-changes-section h4 {
+    margin-bottom: 15px;
+    color: var(--text-primary);
+}
+
+.license-types-section .table-responsive,
+.unlicensed-section .table-responsive,
 .license-changes-section .table-responsive {
     max-width: 100%;
     overflow-x: auto;
 }
 
+.license-types-section table,
+.unlicensed-section table,
 .license-changes-section table {
     width: 100%;
     table-layout: auto;
+    margin-bottom: 0;
 }
 
+.license-types-section table td,
+.unlicensed-section table td,
 .license-changes-section table td {
     word-wrap: break-word;
     word-break: break-word;
     max-width: 0;
     overflow-wrap: break-word;
+    vertical-align: middle;
 }
 
+.license-types-section table td code,
+.unlicensed-section table td code,
 .license-changes-section table td code {
     white-space: normal;
     word-break: break-all;
 }
 
+.license-types-section .badge,
+.unlicensed-section .badge,
 .license-changes-section .badge {
     white-space: normal;
     word-break: break-word;
     max-width: 100%;
     display: inline-block;
+}
+
+.license-types-section table thead th,
+.unlicensed-section table thead th,
+.license-changes-section table thead th {
+    font-weight: 600;
+    background-color: var(--bg-tertiary);
+    border-bottom: 2px solid var(--border-color);
+}
+
+.license-types-section table tbody tr:hover,
+.unlicensed-section table tbody tr:hover,
+.license-changes-section table tbody tr:hover {
+    background-color: var(--bg-tertiary);
+    transition: background-color 0.2s ease;
 }
 
 .license-changes-list {
