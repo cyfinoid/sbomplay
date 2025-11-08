@@ -2969,51 +2969,11 @@ class ViewManager {
         
         // Generate license card HTML for each type
         for (const config of cardConfigs) {
-            let repoCount = 0;
-            let repoList = [];
-            
-            if (config.licenseType === 'copyleft') {
-                repoCount = this.getLicenseRepositoriesCount(orgData, 'copyleft') + this.getLicenseRepositoriesCount(orgData, 'lgpl');
-                repoList = [...this.getLicenseRepositoriesList(orgData, 'copyleft'), ...this.getLicenseRepositoriesList(orgData, 'lgpl')];
-            } else {
-                repoCount = this.getLicenseRepositoriesCount(orgData, config.licenseType);
-                repoList = this.getLicenseRepositoriesList(orgData, config.licenseType);
-            }
-            
-            const sampleRepos = repoList.slice(0, 5);
-            const hasMoreRepos = repoList.length > 5;
-            
-            const sampleReposHTML = sampleRepos.map(repo => 
-                `<div class="license-tooltip-repo">${escapeHtml(repo)}</div>`
-            ).join('');
-            
-            const cardHTML = `<div class="license-stat-card ${config.type} clickable-license-card license-card" 
-     onclick="viewManager.toggleLicenseRepositoriesPanel('${this.escapeJsString(escapeHtml(orgName))}', '${this.escapeJsString(config.licenseType)}')">
+            const cardHTML = `<div class="license-stat-card ${config.type} ${config.type === 'total' ? '' : 'clickable-license-card'} license-card" 
+     ${config.type === 'total' ? '' : `onclick="viewManager.toggleLicenseRepositoriesPanel('${this.escapeJsString(escapeHtml(orgName))}', '${this.escapeJsString(config.licenseType)}')"`}>
     <h4>${escapeHtml(config.title)}</h4>
     <div class="license-number">${config.count}</div>
     <div class="license-detail">${escapeHtml(config.detail)}</div>
-    <div class="license-tooltip">
-        <div class="license-tooltip-content">
-            <div class="license-tooltip-header">${escapeHtml(config.tooltipHeader)}</div>
-            <div class="license-tooltip-stats">
-                <div class="license-tooltip-stat">
-                    <span class="license-tooltip-stat-value">${config.count}</span>
-                    <span class="license-tooltip-stat-label">Dependencies</span>
-                </div>
-                <div class="license-tooltip-stat">
-                    <span class="license-tooltip-stat-value">${repoCount}</span>
-                    <span class="license-tooltip-stat-label">Repositories</span>
-                </div>
-            </div>
-            <div class="license-tooltip-repos">
-                ${sampleReposHTML}
-                ${hasMoreRepos ? `<div class="license-tooltip-repo">... and ${repoList.length - 5} more</div>` : ''}
-            </div>
-            <div class="license-tooltip-footer">
-                <button class="license-tooltip-click" onclick="viewManager.toggleLicenseRepositoriesPanel('${this.escapeJsString(escapeHtml(orgName))}', '${this.escapeJsString(config.licenseType)}')">Click to view all</button>
-            </div>
-        </div>
-    </div>
 </div>`;
             
             licenseCards.push(cardHTML);
