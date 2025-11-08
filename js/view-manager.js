@@ -9,8 +9,9 @@ class ViewManager {
     }
 
     /**
-     * Safely set HTML content to an element using DOMParser
-     * This prevents XSS by parsing HTML through the browser's safe parser
+     * Safely set HTML content to an element using DOMPurify (preferred) or DOMParser (fallback)
+     * DOMPurify provides better XSS protection by sanitizing HTML
+     * Falls back to DOMParser if DOMPurify is not available
      * Note: The HTML string should already have user-controlled data escaped
      * by the caller (e.g., using escapeHtml() before building the HTML string)
      * @param {HTMLElement} element - The element to set HTML content for
@@ -22,15 +23,39 @@ class ViewManager {
             return;
         }
         try {
-            // Use DOMParser to safely parse the HTML string
-            // Note: This is safer than innerHTML but still requires callers to escape user data
-            const parser = new DOMParser();
-            const doc = parser.parseFromString(html, 'text/html');
-            // Clear the element and append the parsed content
-            element.innerHTML = '';
-            // Append all nodes from the parsed document body
-            while (doc.body.firstChild) {
-                element.appendChild(doc.body.firstChild);
+            // Prefer DOMPurify if available (better XSS protection)
+            if (typeof DOMPurify !== 'undefined') {
+                // Sanitize HTML using DOMPurify with permissive settings for application HTML
+                // This allows Bootstrap classes, icons, and other safe HTML elements
+                const cleanHTML = DOMPurify.sanitize(html, {
+                    // Allow common HTML elements used in the application
+                    ALLOWED_TAGS: ['div', 'span', 'p', 'strong', 'em', 'b', 'i', 'u', 'code', 'pre', 'ul', 'ol', 'li', 
+                                   'a', 'br', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'blockquote', 'hr', 
+                                   'table', 'thead', 'tbody', 'tfoot', 'tr', 'th', 'td', 'button', 'input', 
+                                   'select', 'option', 'form', 'label', 'small', 'sup', 'sub', 'img', 'svg', 'path'],
+                    // Allow common attributes including Bootstrap classes and data attributes
+                    ALLOWED_ATTR: ['class', 'id', 'style', 'href', 'title', 'target', 'rel', 'role', 'aria-label', 
+                                   'aria-labelledby', 'aria-hidden', 'data-bs-toggle', 'data-bs-target', 'data-bs-dismiss',
+                                   'data-sort', 'data-dep-index', 'data-repos', 'data-parents', 'data-parents-by-repo',
+                                   'data-package', 'data-package-key', 'data-package-name', 'data-package-version',
+                                   'data-package-ecosystem', 'data-package-repos', 'data-package-raw', 'onclick',
+                                   'src', 'alt', 'width', 'height', 'type', 'value', 'checked', 'disabled', 'readonly'],
+                    // Allow safe URLs
+                    ALLOWED_URI_REGEXP: /^(?:(?:(?:f|ht)tps?|mailto|tel|callto|sms|cid|xmpp|data):|[^a-z]|[a-z+.\-]+(?:[^a-z+.\-:]|$))/i,
+                    // Keep relative URLs
+                    ALLOW_UNKNOWN_PROTOCOLS: false
+                });
+                element.innerHTML = cleanHTML;
+            } else {
+                // Fallback to DOMParser if DOMPurify is not available
+                const parser = new DOMParser();
+                const doc = parser.parseFromString(html, 'text/html');
+                // Clear the element and append the parsed content
+                element.innerHTML = '';
+                // Append all nodes from the parsed document body
+                while (doc.body.firstChild) {
+                    element.appendChild(doc.body.firstChild);
+                }
             }
         } catch (e) {
             // Fallback to empty content if parsing fails
