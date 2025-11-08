@@ -1166,7 +1166,6 @@ class SBOMPlayApp {
                 </div>
                 <div class="col-md-4">
                     <div class="text-center">
-                        ${fundingStats.authorsWithFunding > 0 ? `
                         <a href="authors.html?funding=true" class="text-decoration-none text-primary">
                             <h4 class="text-primary">
                                 <i class="fas fa-users me-2"></i>${fundingStats.authorsWithFunding}
@@ -1174,16 +1173,11 @@ class SBOMPlayApp {
                             <small class="text-muted">Package Authors</small>
                             <p class="text-muted small mb-0 mt-1">
                                 <i class="fas fa-info-circle me-1"></i>
-                                Maintainers accepting personal sponsorships
+                                ${fundingStats.authorsWithFunding > 0 
+                                    ? 'Maintainers accepting personal sponsorships' 
+                                    : 'No authors with funding found'}
                             </p>
                         </a>
-                        ` : `
-                        <h4 class="text-primary">
-                            <i class="fas fa-users me-2"></i>0
-                        </h4>
-                        <small class="text-muted">Package Authors</small>
-                        <p class="text-muted small mb-0 mt-1">No authors with funding found</p>
-                        `}
                     </div>
                 </div>
             </div>
@@ -1205,14 +1199,6 @@ class SBOMPlayApp {
                     <h6><i class="fas fa-exclamation-triangle me-2"></i>Issues by Severity</h6>
                 </div>
                 ${this.renderVulnerabilityCounts(data)}
-            </div>
-            
-            <!-- License Status Section -->
-            <div class="row mt-4 pt-3 border-top">
-                <div class="col-12 mb-3">
-                    <h6><i class="fas fa-file-contract me-2"></i>License Status</h6>
-                </div>
-                ${this.renderLicenseStatus(data)}
             </div>
         `;
         
@@ -1384,76 +1370,182 @@ class SBOMPlayApp {
             return '<div class="col-12"><p class="text-muted small">No license data available</p></div>';
         }
         
-        const licensed = compliance.compliant;
-        const unlicensed = compliance.nonCompliant;
+        const breakdown = compliance.categoryBreakdown;
         const total = compliance.total;
         
-        const licensedPercent = total > 0 ? Math.round((licensed / total) * 100) : 0;
-        const unlicensedPercent = total > 0 ? Math.round((unlicensed / total) * 100) : 0;
+        // Calculate counts for each category
+        const proprietary = breakdown.proprietary || 0;
+        const copyleft = breakdown.copyleft || 0;
+        const lgpl = breakdown.lgpl || 0;
+        const unknown = breakdown.unknown || 0;
+        const unlicensed = breakdown.unlicensed || 0;
         
-        // Calculate angles for pie chart
-        const licensedAngle = (licensed / total) * 360;
-        const unlicensedAngle = (unlicensed / total) * 360;
+        // Calculate percentages
+        const proprietaryPercent = total > 0 ? ((proprietary / total) * 100).toFixed(1) : 0;
+        const copyleftPercent = total > 0 ? ((copyleft / total) * 100).toFixed(1) : 0;
+        const lgplPercent = total > 0 ? ((lgpl / total) * 100).toFixed(1) : 0;
+        const unknownPercent = total > 0 ? ((unknown / total) * 100).toFixed(1) : 0;
+        const unlicensedPercent = total > 0 ? ((unlicensed / total) * 100).toFixed(1) : 0;
+        
+        // Calculate cumulative percentages for conic-gradient
+        let cumulative = 0;
+        const proprietaryStart = cumulative;
+        cumulative += parseFloat(proprietaryPercent);
+        const proprietaryEnd = cumulative;
+        
+        const copyleftStart = cumulative;
+        cumulative += parseFloat(copyleftPercent);
+        const copyleftEnd = cumulative;
+        
+        const lgplStart = cumulative;
+        cumulative += parseFloat(lgplPercent);
+        const lgplEnd = cumulative;
+        
+        const unknownStart = cumulative;
+        cumulative += parseFloat(unknownPercent);
+        const unknownEnd = cumulative;
+        
+        const unlicensedStart = cumulative;
+        cumulative += parseFloat(unlicensedPercent);
+        const unlicensedEnd = cumulative;
+        
+        // Color scheme
+        const colors = {
+            proprietary: '#dc3545',    // Red
+            copyleft: '#ffc107',       // Yellow/Warning
+            lgpl: '#fd7e14',           // Orange
+            unknown: '#6c757d',        // Gray
+            unlicensed: '#17a2b8'      // Cyan/Info
+        };
+        
+        // Helper function to escape HTML
+        const escapeHtml = (text) => {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        };
         
         return `
             <div class="col-md-6">
                 <div class="text-center">
-                    <div style="width: 200px; height: 200px; margin: 0 auto; position: relative;">
-                        <svg width="200" height="200" style="transform: rotate(-90deg);">
-                            <circle cx="100" cy="100" r="80" fill="none" stroke="#e9ecef" stroke-width="40"/>
-                            ${licensed > 0 ? `
-                            <circle cx="100" cy="100" r="80" fill="none" 
-                                    stroke="#28a745" stroke-width="40"
-                                    stroke-dasharray="${(licensedAngle / 360) * 502.4} 502.4"
-                                    stroke-linecap="round"/>
-                            ` : ''}
-                            ${unlicensed > 0 ? `
-                            <circle cx="100" cy="100" r="80" fill="none" 
-                                    stroke="#dc3545" stroke-width="40"
-                                    stroke-dasharray="${(unlicensedAngle / 360) * 502.4} 502.4"
-                                    stroke-dashoffset="${-(licensedAngle / 360) * 502.4}"
-                                    stroke-linecap="round"/>
-                            ` : ''}
-                        </svg>
-                        <div style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);">
-                            <div class="h4 mb-0">${total}</div>
-                            <small class="text-muted">Total</small>
+                    <div style="width: 250px; height: 250px; margin: 0 auto; position: relative; cursor: pointer;">
+                        <div style="width: 250px; height: 250px; border-radius: 50%; background: conic-gradient(
+                            ${proprietary > 0 ? `${colors.proprietary} ${proprietaryStart}% ${proprietaryEnd}%,` : ''}
+                            ${copyleft > 0 ? `${colors.copyleft} ${copyleftStart}% ${copyleftEnd}%,` : ''}
+                            ${lgpl > 0 ? `${colors.lgpl} ${lgplStart}% ${lgplEnd}%,` : ''}
+                            ${unknown > 0 ? `${colors.unknown} ${unknownStart}% ${unknownEnd}%,` : ''}
+                            ${unlicensed > 0 ? `${colors.unlicensed} ${unlicensedStart}% ${unlicensedEnd}%` : ''}
+                        ); position: relative;" id="licensePieChart">
+                            <div style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 120px; height: 120px; background: var(--bg-color, #fff); border-radius: 50%; display: flex; align-items: center; justify-content: center; flex-direction: column;">
+                                <div class="h4 mb-0">${total}</div>
+                                <small class="text-muted">Total</small>
+                            </div>
                         </div>
                     </div>
                 </div>
             </div>
             <div class="col-md-6">
                 <div class="d-flex flex-column justify-content-center h-100">
-                    <div class="mb-3">
-                        <div class="d-flex justify-content-between align-items-center mb-2">
-                            <div>
-                                <span class="badge bg-success me-2" style="width: 20px; height: 20px; display: inline-block;"></span>
-                                <strong>Licensed</strong>
+                    ${proprietary > 0 ? `
+                    <a href="license-compliance.html?category=proprietary" class="text-decoration-none text-reset license-category-link" data-category="proprietary" style="transition: all 0.2s;">
+                        <div class="mb-3 p-2 rounded" style="border: 2px solid transparent;" onmouseover="this.style.borderColor='${colors.proprietary}'; this.style.backgroundColor='rgba(220, 53, 69, 0.1)';" onmouseout="this.style.borderColor='transparent'; this.style.backgroundColor='transparent';">
+                            <div class="d-flex justify-content-between align-items-center mb-2">
+                                <div>
+                                    <span class="badge me-2" style="width: 20px; height: 20px; background-color: ${colors.proprietary}; display: inline-block;"></span>
+                                    <strong>Proprietary</strong>
+                                    <i class="fas fa-info-circle ms-2 text-muted" style="font-size: 0.8em;" title="Proprietary licenses require special attention"></i>
+                                </div>
+                                <div>
+                                    <span class="h5 mb-0">${proprietary}</span>
+                                    <small class="text-muted"> (${proprietaryPercent}%)</small>
+                                </div>
                             </div>
-                            <div>
-                                <span class="h5 mb-0">${licensed}</span>
-                                <small class="text-muted"> (${licensedPercent}%)</small>
-                            </div>
-                        </div>
-                        <div class="progress" style="height: 8px;">
-                            <div class="progress-bar bg-success" role="progressbar" style="width: ${licensedPercent}%"></div>
-                        </div>
-                    </div>
-                    <div>
-                        <div class="d-flex justify-content-between align-items-center mb-2">
-                            <div>
-                                <span class="badge bg-danger me-2" style="width: 20px; height: 20px; display: inline-block;"></span>
-                                <strong>Unlicensed</strong>
-                            </div>
-                            <div>
-                                <span class="h5 mb-0">${unlicensed}</span>
-                                <small class="text-muted"> (${unlicensedPercent}%)</small>
+                            <div class="progress" style="height: 8px;">
+                                <div class="progress-bar" role="progressbar" style="width: ${proprietaryPercent}%; background-color: ${colors.proprietary};"></div>
                             </div>
                         </div>
-                        <div class="progress" style="height: 8px;">
-                            <div class="progress-bar bg-danger" role="progressbar" style="width: ${unlicensedPercent}%"></div>
+                    </a>
+                    ` : ''}
+                    ${copyleft > 0 ? `
+                    <a href="license-compliance.html?category=copyleft" class="text-decoration-none text-reset license-category-link" data-category="copyleft" style="transition: all 0.2s;">
+                        <div class="mb-3 p-2 rounded" style="border: 2px solid transparent;" onmouseover="this.style.borderColor='${colors.copyleft}'; this.style.backgroundColor='rgba(255, 193, 7, 0.1)';" onmouseout="this.style.borderColor='transparent'; this.style.backgroundColor='transparent';">
+                            <div class="d-flex justify-content-between align-items-center mb-2">
+                                <div>
+                                    <span class="badge me-2" style="width: 20px; height: 20px; background-color: ${colors.copyleft}; display: inline-block;"></span>
+                                    <strong>Copyleft</strong>
+                                    <i class="fas fa-info-circle ms-2 text-muted" style="font-size: 0.8em;" title="Copyleft licenses (GPL, AGPL, MPL, EPL) require derivative works to be open source"></i>
+                                </div>
+                                <div>
+                                    <span class="h5 mb-0">${copyleft}</span>
+                                    <small class="text-muted"> (${copyleftPercent}%)</small>
+                                </div>
+                            </div>
+                            <div class="progress" style="height: 8px;">
+                                <div class="progress-bar" role="progressbar" style="width: ${copyleftPercent}%; background-color: ${colors.copyleft};"></div>
+                            </div>
                         </div>
-                    </div>
+                    </a>
+                    ` : ''}
+                    ${lgpl > 0 ? `
+                    <a href="license-compliance.html?category=lgpl" class="text-decoration-none text-reset license-category-link" data-category="lgpl" style="transition: all 0.2s;">
+                        <div class="mb-3 p-2 rounded" style="border: 2px solid transparent;" onmouseover="this.style.borderColor='${colors.lgpl}'; this.style.backgroundColor='rgba(253, 126, 20, 0.1)';" onmouseout="this.style.borderColor='transparent'; this.style.backgroundColor='transparent';">
+                            <div class="d-flex justify-content-between align-items-center mb-2">
+                                <div>
+                                    <span class="badge me-2" style="width: 20px; height: 20px; background-color: ${colors.lgpl}; display: inline-block;"></span>
+                                    <strong>LGPL</strong>
+                                    <i class="fas fa-info-circle ms-2 text-muted" style="font-size: 0.8em;" title="Lesser GPL - allows linking with proprietary software"></i>
+                                </div>
+                                <div>
+                                    <span class="h5 mb-0">${lgpl}</span>
+                                    <small class="text-muted"> (${lgplPercent}%)</small>
+                                </div>
+                            </div>
+                            <div class="progress" style="height: 8px;">
+                                <div class="progress-bar" role="progressbar" style="width: ${lgplPercent}%; background-color: ${colors.lgpl};"></div>
+                            </div>
+                        </div>
+                    </a>
+                    ` : ''}
+                    ${unknown > 0 ? `
+                    <a href="license-compliance.html?category=unknown" class="text-decoration-none text-reset license-category-link" data-category="unknown" style="transition: all 0.2s;">
+                        <div class="mb-3 p-2 rounded" style="border: 2px solid transparent;" onmouseover="this.style.borderColor='${colors.unknown}'; this.style.backgroundColor='rgba(108, 117, 125, 0.1)';" onmouseout="this.style.borderColor='transparent'; this.style.backgroundColor='transparent';">
+                            <div class="d-flex justify-content-between align-items-center mb-2">
+                                <div>
+                                    <span class="badge me-2" style="width: 20px; height: 20px; background-color: ${colors.unknown}; display: inline-block;"></span>
+                                    <strong>Unknown</strong>
+                                    <i class="fas fa-info-circle ms-2 text-muted" style="font-size: 0.8em;" title="Unknown or unrecognized license types"></i>
+                                </div>
+                                <div>
+                                    <span class="h5 mb-0">${unknown}</span>
+                                    <small class="text-muted"> (${unknownPercent}%)</small>
+                                </div>
+                            </div>
+                            <div class="progress" style="height: 8px;">
+                                <div class="progress-bar" role="progressbar" style="width: ${unknownPercent}%; background-color: ${colors.unknown};"></div>
+                            </div>
+                        </div>
+                    </a>
+                    ` : ''}
+                    ${unlicensed > 0 ? `
+                    <a href="license-compliance.html?category=unlicensed" class="text-decoration-none text-reset license-category-link" data-category="unlicensed" style="transition: all 0.2s;">
+                        <div class="mb-3 p-2 rounded" style="border: 2px solid transparent;" onmouseover="this.style.borderColor='${colors.unlicensed}'; this.style.backgroundColor='rgba(23, 162, 184, 0.1)';" onmouseout="this.style.borderColor='transparent'; this.style.backgroundColor='transparent';">
+                            <div class="d-flex justify-content-between align-items-center mb-2">
+                                <div>
+                                    <span class="badge me-2" style="width: 20px; height: 20px; background-color: ${colors.unlicensed}; display: inline-block;"></span>
+                                    <strong>Unlicensed</strong>
+                                    <i class="fas fa-info-circle ms-2 text-muted" style="font-size: 0.8em;" title="Dependencies without any license information"></i>
+                                </div>
+                                <div>
+                                    <span class="h5 mb-0">${unlicensed}</span>
+                                    <small class="text-muted"> (${unlicensedPercent}%)</small>
+                                </div>
+                            </div>
+                            <div class="progress" style="height: 8px;">
+                                <div class="progress-bar" role="progressbar" style="width: ${unlicensedPercent}%; background-color: ${colors.unlicensed};"></div>
+                            </div>
+                        </div>
+                    </a>
+                    ` : ''}
                 </div>
             </div>
         `;
@@ -1722,17 +1814,36 @@ class SBOMPlayApp {
      */
     getLicenseCompliance(data) {
         if (!data.data.licenseAnalysis || !data.data.licenseAnalysis.summary) {
-            return { total: 0, compliant: 0, nonCompliant: 0 };
+            return { 
+                total: 0, 
+                compliant: 0, 
+                nonCompliant: 0,
+                categoryBreakdown: {
+                    proprietary: 0,
+                    copyleft: 0,
+                    lgpl: 0,
+                    unknown: 0,
+                    unlicensed: 0
+                }
+            };
         }
         
         const summary = data.data.licenseAnalysis.summary;
         const total = summary.totalDependencies || 0;
         const compliant = summary.licensedDependencies || 0;
+        const breakdown = summary.categoryBreakdown || {};
         
         return {
             total,
             compliant,
-            nonCompliant: total - compliant
+            nonCompliant: total - compliant,
+            categoryBreakdown: {
+                proprietary: breakdown.proprietary || 0,
+                copyleft: breakdown.copyleft || 0,
+                lgpl: breakdown.lgpl || 0,
+                unknown: breakdown.unknown || 0,
+                unlicensed: summary.unlicensedDependencies || 0
+            }
         };
     }
     
@@ -2170,7 +2281,14 @@ class SBOMPlayApp {
 
                 const authorChecks = Array.from(uniqueAuthorKeys).map(async (authorKey) => {
                     const authorEntity = await window.cacheManager.getAuthorEntity(authorKey);
-                    return authorEntity && authorEntity.funding ? 1 : 0;
+                    // Check if author has actual funding platforms (same logic as authors.html)
+                    if (authorEntity && authorEntity.funding) {
+                        const funding = authorEntity.funding;
+                        if (funding.github || funding.opencollective || funding.patreon || funding.tidelift || funding.url) {
+                            return 1;
+                        }
+                    }
+                    return 0;
                 });
 
                 const authorResults = await Promise.all(authorChecks);

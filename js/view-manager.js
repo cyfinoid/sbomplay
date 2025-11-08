@@ -2803,7 +2803,7 @@ class ViewManager {
     /**
      * Generate License Compliance HTML (standalone section)
      */
-    async generateLicenseComplianceHTML(orgData) {
+    async generateLicenseComplianceHTML(orgData, categoryFilter = null) {
         if (!orgData || !orgData.data) {
             return `<div class="alert alert-danger">No organization data available.</div>`;
         }
@@ -2813,6 +2813,18 @@ class ViewManager {
         
         const licenseAnalysis = orgData.data.licenseAnalysis;
         const orgName = orgData.organization || orgData.name;
+        
+        // Show filter notice if category filter is active
+        const filterNotice = categoryFilter ? `
+            <div class="alert alert-info alert-dismissible fade show mb-3">
+                <i class="fas fa-filter me-2"></i>
+                <strong>Category Filter Active:</strong> Showing only ${categoryFilter} license category.
+                <a href="license-compliance.html" class="btn btn-sm btn-outline-primary ms-2">
+                    <i class="fas fa-times me-1"></i>Clear Filter
+                </a>
+                <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+            </div>
+        ` : '';
         
         const escapeHtml = (text) => {
             if (!text) return '';
@@ -2948,7 +2960,7 @@ class ViewManager {
         }));
         
         // Generate license cards HTML
-        const licenseCardsHTML = `<div class="license-stats">
+        const licenseCardsHTML = `${filterNotice}<div class="license-stats">
     ${licenseCards.join('\n    ')}
 </div>
 

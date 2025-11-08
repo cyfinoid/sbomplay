@@ -62,25 +62,30 @@
             </div>
         </div>
 
-        <!-- Stored Analyses Section -->
-        <div id="organizationsSection" class="card mb-4">
-            <div class="card-header">
-                <h5 class="mb-0">
-                    <i class="fas fa-database me-2"></i>Stored Analyses
-                </h5>
-            </div>
+        <!-- Filters -->
+        <div class="card mb-4">
             <div class="card-body">
-                <div id="organizationsContent">
-                    <div class="text-center text-muted">
-                        <i class="fas fa-spinner fa-spin fa-2x mb-3"></i>
-                        <p>Loading stored analyses...</p>
+                <div class="row">
+                    <div class="col-md-6">
+                        <label class="form-label">Select Analysis</label>
+                        <select class="form-select" id="analysisSelector">
+                            <option value="__ALL__">All Projects (Combined)</option>
+                        </select>
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label">Filter by License Category</label>
+                        <select class="form-select" id="categoryFilter">
+                            <option value="all">All Categories</option>
+                            <option value="proprietary">Proprietary</option>
+                            <option value="copyleft">Copyleft</option>
+                            <option value="lgpl">LGPL</option>
+                            <option value="unknown">Unknown</option>
+                            <option value="unlicensed">Unlicensed</option>
+                        </select>
                     </div>
                 </div>
             </div>
         </div>
-
-        <!-- Hidden organization input for analysis -->
-        <input type="hidden" id="orgName" value="">
         
         <div id="license-compliance-page">
             <!-- License Compliance content will be rendered here by JS -->
@@ -186,94 +191,76 @@
         // Make viewManager available globally for onclick handlers
         window.viewManager = viewManager;
         
-        // Display organizations overview
-        await displayOrganizationsOverview();
+        // Load analysis list into selector
+        await loadAnalysesList();
         
-        async function displayOrganizationsOverview() {
-            const storageInfo = await storageManager.getStorageInfo();
-            const organizationsContent = document.getElementById('organizationsContent');
-            
-            if (storageInfo.totalEntries === 0) {
-                document.getElementById('organizationsSection').style.display = 'none';
-                document.getElementById('noDataSection').style.display = 'block';
-                return;
+        // Check for category filter in URL and pre-select
+        const urlParams = new URLSearchParams(window.location.search);
+        const categoryParam = urlParams.get('category');
+        if (categoryParam) {
+            const categoryFilter = document.getElementById('categoryFilter');
+            if (categoryFilter) {
+                categoryFilter.value = categoryParam.toLowerCase();
             }
-
+        }
+        
+        // Setup event listeners
+        document.getElementById('analysisSelector').addEventListener('change', loadLicenseData);
+        document.getElementById('categoryFilter').addEventListener('change', loadLicenseData);
+        
+        // Load initial data
+        await loadLicenseData();
+        
+        async function loadAnalysesList() {
+            const storageInfo = await storageManager.getStorageInfo();
+            const selector = document.getElementById('analysisSelector');
             const allEntries = [...storageInfo.organizations, ...storageInfo.repositories];
             
-            let html = `
-                <div class="row mb-3">
-                    <div class="col-md-6">
-                        <h6>Stored Analyses (${allEntries.length})</h6>
-                    </div>
-                    <div class="col-md-6 text-end">
-                        <button class="btn btn-outline-primary btn-sm" onclick="exportAllData()">
-                            <i class="fas fa-download me-2"></i>Export All
-                        </button>
-                        <button class="btn btn-outline-danger btn-sm" onclick="clearAllData()">
-                            <i class="fas fa-trash me-2"></i>Clear All
-                        </button>
-                    </div>
-                </div>
-            `;
-
-            if (allEntries.length > 0) {
-                html += `
-                    <div class="table-responsive">
-                        <table class="table table-sm">
-                            <thead>
-                                <tr>
-                                    <th>Name</th>
-                                    <th>Repositories</th>
-                                    <th>Dependencies</th>
-                                    <th>Last Updated</th>
-                                    <th>Actions</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                `;
-
-                allEntries.forEach(entry => {
-                    const date = new Date(entry.timestamp).toLocaleDateString();
-                    const time = new Date(entry.timestamp).toLocaleTimeString();
-                    
-                    html += `
-                        <tr>
-                            <td><strong>${entry.name}</strong></td>
-                            <td><span class="badge bg-primary">${entry.repositories}</span></td>
-                            <td><span class="badge bg-success">${entry.dependencies}</span></td>
-                            <td><small>${date} ${time}</small></td>
-                            <td>
-                                <button class="btn btn-outline-primary btn-sm" onclick="loadOrganizationData('${entry.name}')">
-                                    <i class="fas fa-eye me-1"></i>View License Compliance
-                                </button>
-                                <button class="btn btn-outline-success btn-sm" onclick="restartLicenseAnalysis('${entry.name}')">
-                                    <i class="fas fa-redo me-1"></i>Restart Analysis
-                                </button>
-                                <button class="btn btn-outline-info btn-sm" onclick="debugOrganizationData('${entry.name}')">
-                                    <i class="fas fa-bug me-1"></i>Debug
-                                </button>
-                                <button class="btn btn-outline-danger btn-sm" onclick="removeOrganizationData('${entry.name}')">
-                                    <i class="fas fa-trash me-1"></i>Remove
-                                </button>
-                            </td>
-                        </tr>
-                    `;
-                });
-
-                html += `
-                            </tbody>
-                        </table>
-                    </div>
-                `;
+            if (allEntries.length === 0) {
+                document.getElementById('noDataSection').style.display = 'block';
+                selector.disabled = true;
+                return;
             }
-
-            organizationsContent.innerHTML = html;
+            
+            // Add individual entries
+            allEntries.forEach(entry => {
+                const option = document.createElement('option');
+                option.value = entry.name;
+                option.textContent = `${entry.name} (${entry.dependencies} deps)`;
+                selector.appendChild(option);
+            });
+        }
+        
+        async function loadLicenseData() {
+            const analysisName = document.getElementById('analysisSelector').value;
+            const categoryFilter = document.getElementById('categoryFilter').value;
+            
+            if (!analysisName) {
+                document.getElementById('license-compliance-page').innerHTML = '<div class="alert alert-info">Please select an analysis to view license compliance data.</div>';
+                return;
+            }
+            
+            await loadOrganizationData(analysisName, categoryFilter === 'all' ? null : categoryFilter);
         }
 
         // Load entry data for license compliance
-        window.loadOrganizationData = async function(name) {
-            const data = await storageManager.loadAnalysisDataForOrganization(name);
+        window.loadOrganizationData = async function(name, categoryFilter = null) {
+            let data;
+            
+            // If name is '__ALL__' or null/undefined, load combined data
+            if (!name || name === '__ALL__') {
+                data = await storageManager.getCombinedData();
+                if (!data) {
+                    data = {
+                        name: 'All Projects (Combined)',
+                        organization: 'All Projects (Combined)',
+                        data: {}
+                    };
+                }
+            } else {
+                data = await storageManager.loadAnalysisDataForOrganization(name);
+            }
+            
             const container = document.getElementById('license-compliance-page');
             
             if (!data || !data.data) {
@@ -281,11 +268,28 @@
                 return;
             }
             
+            // Use category filter from parameter or URL
+            if (!categoryFilter) {
+                const urlParams = new URLSearchParams(window.location.search);
+                categoryFilter = urlParams.get('category');
+            }
+            
             // Render license compliance dashboard (await the async method)
             if (typeof viewManager.generateLicenseComplianceHTML === 'function' && data.data.licenseAnalysis) {
-                container.innerHTML = await viewManager.generateLicenseComplianceHTML(data);
+                container.innerHTML = await viewManager.generateLicenseComplianceHTML(data, categoryFilter);
                 if (typeof viewManager.addOverviewEventListeners === 'function') {
                     viewManager.addOverviewEventListeners();
+                }
+                
+                // If category filter is present, automatically expand that section
+                if (categoryFilter) {
+                    // Wait a bit for DOM to be ready, then trigger the click
+                    setTimeout(() => {
+                        const categoryCard = document.querySelector(`.license-card.${categoryFilter}`);
+                        if (categoryCard) {
+                            categoryCard.click();
+                        }
+                    }, 100);
                 }
             } else if (data.data.licenseAnalysis) {
                 container.innerHTML = '<div class="alert alert-warning">This version does not support direct license compliance rendering. Please update your ViewManager.js or use the main app.</div>';
@@ -294,156 +298,6 @@
             }
         };
 
-        // Debug entry data
-        window.debugOrganizationData = async function(name) {
-            const data = await storageManager.loadAnalysisDataForOrganization(name);
-            const container = document.getElementById('license-compliance-page');
-            
-            if (data) {
-                container.innerHTML = `
-                    <div class="alert alert-info">
-                        <h6>🔍 Debug Data for ${name}</h6>
-                        <pre class="bg-light p-3 rounded" style="max-height: 400px; overflow-y: auto;">${JSON.stringify(data, null, 2)}</pre>
-                    </div>
-                `;
-            } else {
-                container.innerHTML = '<div class="alert alert-warning">No data found for this entry.</div>';
-            }
-        };
-
-        // Remove entry data
-        window.removeOrganizationData = async function(name) {
-            if (confirm(`Are you sure you want to remove all data for ${name}?`)) {
-                const success = await storageManager.removeOrganizationData(name);
-                if (success) {
-                    await displayOrganizationsOverview();
-                    document.getElementById('license-compliance-page').innerHTML = '<div class="alert alert-info">Please select an entry to view license compliance data.</div>';
-                    
-                    // Check if no entries left
-                    const storageInfo = await storageManager.getStorageInfo();
-                    if (storageInfo.totalEntries === 0) {
-                        document.getElementById('organizationsSection').style.display = 'none';
-                        document.getElementById('noDataSection').style.display = 'block';
-                    }
-                } else {
-                    alert('Failed to remove data for ' + name);
-                }
-            }
-        };
-
-        // Export all data
-        window.exportAllData = async function() {
-            try {
-                await storageManager.exportAllData();
-                alert('All data exported successfully');
-            } catch (error) {
-                alert('Failed to export all data: ' + error.message);
-            }
-        };
-
-        // Clear all data
-        window.clearAllData = async function() {
-            if (confirm('Are you sure you want to clear all stored data? This action cannot be undone.')) {
-                try {
-                    await storageManager.clearAllData();
-                    await displayOrganizationsOverview();
-                    document.getElementById('license-compliance-page').innerHTML = '<div class="alert alert-info">Please select an entry to view license compliance data.</div>';
-                    
-                    // Show no data section
-                    document.getElementById('organizationsSection').style.display = 'none';
-                    document.getElementById('noDataSection').style.display = 'block';
-                } catch (error) {
-                    alert('Failed to clear data: ' + error.message);
-                }
-            }
-        };
-
-        // Start license compliance check
-        window.startLicenseComplianceCheck = function() {
-            // Show modal for organization input
-            const modalHtml = `
-                <div class="modal fade" id="licenseCheckModal" tabindex="-1">
-                    <div class="modal-dialog">
-                        <div class="modal-content">
-                            <div class="modal-header">
-                                <h5 class="modal-title">
-                                    <i class="fas fa-shield-alt me-2"></i>License Compliance Check
-                                </h5>
-                                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-                            </div>
-                            <div class="modal-body">
-                                <div class="alert alert-info">
-                                    <i class="fas fa-info-circle me-2"></i>
-                                    <strong>Note:</strong> This will redirect you to the main analysis page where you can run a license compliance check.
-                                </div>
-                                <div class="mb-3">
-                                    <label for="orgNameInput" class="form-label">GitHub Organization or User Name</label>
-                                    <input type="text" class="form-control" id="orgNameInput" 
-                                           placeholder="e.g., microsoft, facebook, torvalds">
-                                    <div class="form-text">
-                                        Enter a GitHub organization name or username to analyze for license compliance
-                                    </div>
-                                </div>
-                            </div>
-                            <div class="modal-footer">
-                                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                                <button type="button" class="btn btn-success" onclick="proceedToLicenseCheck()">
-                                    <i class="fas fa-shield-alt me-2"></i>Start License Check
-                                </button>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            `;
-            
-            // Remove existing modal if any
-            const existingModal = document.getElementById('licenseCheckModal');
-            if (existingModal) {
-                existingModal.remove();
-            }
-            
-            // Add modal to body
-            document.body.insertAdjacentHTML('beforeend', modalHtml);
-            
-            // Show modal
-            const modal = new bootstrap.Modal(document.getElementById('licenseCheckModal'));
-            modal.show();
-        };
-
-        // Proceed to license check
-        window.proceedToLicenseCheck = function() {
-            const orgName = document.getElementById('orgNameInput').value.trim();
-            if (!orgName) {
-                alert('Please enter an organization or user name.');
-                return;
-            }
-            
-            // Close modal
-            const modal = bootstrap.Modal.getInstance(document.getElementById('licenseCheckModal'));
-            modal.hide();
-            
-            // Redirect to main page with organization pre-filled
-            const url = new URL('index.html', window.location.href);
-            url.searchParams.set('org', orgName);
-            url.searchParams.set('focus', 'license');
-            window.location.href = url.toString();
-        };
-
-        // Restart license analysis for specific organization
-        window.restartLicenseAnalysis = function(orgName) {
-            // Set the organization name and start analysis directly
-            document.getElementById('orgName').value = orgName;
-            app.startAnalysis();
-        };
-
-        // Load the most recent organization by default
-        const orgs = await storageManager.getOrganizations();
-        if (orgs && orgs.length > 0) {
-            const orgName = orgs[orgs.length - 1].organization || orgs[orgs.length - 1].name;
-            await loadOrganizationData(orgName);
-        } else {
-            document.getElementById('license-compliance-page').innerHTML = '<div class="alert alert-info">Please select an organization to view license compliance data.</div>';
-        }
     });
     </script>
 </body>

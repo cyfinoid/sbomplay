@@ -140,6 +140,16 @@
                         </select>
                     </div>
                 </div>
+                <div class="row mt-3">
+                    <div class="col-12">
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" id="fundingFilter" value="funding">
+                            <label class="form-check-label" for="fundingFilter">
+                                <i class="fas fa-heart me-1 text-danger"></i>Show only authors looking for sponsorship
+                            </label>
+                        </div>
+                    </div>
+                </div>
             </div>
         </div>
 
@@ -215,9 +225,13 @@
             await loadAnalysisList();
             console.log('✅ Authors Page - Analysis list loaded');
             
-            // Check for funding filter in URL
+            // Check for funding filter in URL and pre-check checkbox
             const urlParams = new URLSearchParams(window.location.search);
             if (urlParams.get('funding') === 'true') {
+                const fundingFilterCheckbox = document.getElementById('fundingFilter');
+                if (fundingFilterCheckbox) {
+                    fundingFilterCheckbox.checked = true;
+                }
                 // Show notice about funding filter
                 const notice = document.createElement('div');
                 notice.className = 'alert alert-info alert-dismissible fade show mt-3';
@@ -232,6 +246,7 @@
             // Setup event listeners
             document.getElementById('analysisSelector').addEventListener('change', loadAuthorData);
             document.getElementById('ecosystemFilter').addEventListener('change', loadAuthorData);
+            document.getElementById('fundingFilter').addEventListener('change', loadAuthorData);
             
             // Load initial data
             console.log('📊 Authors Page - Loading initial author data...');
@@ -980,17 +995,17 @@
                     console.log(`🎨 Authors Page - After filtering by ${ecosystemFilter}: ${filtered.length} authors`);
                 }
                 
-                // Filter by funding if URL parameter is set
-                const urlParams = new URLSearchParams(window.location.search);
-                if (urlParams.get('funding') === 'true') {
+                // Filter by funding if checkbox is checked
+                const fundingFilterCheckbox = document.getElementById('fundingFilter');
+                if (fundingFilterCheckbox && fundingFilterCheckbox.checked) {
                     filtered = filtered.filter(a => a.funding && (a.funding.github || a.funding.opencollective || a.funding.patreon || a.funding.tidelift || a.funding.url));
                     console.log(`🎨 Authors Page - After filtering by funding: ${filtered.length} authors`);
                 }
                 
                 if (filtered.length === 0) {
                     console.log('⚠️ Authors Page - No authors after filtering');
-                    const urlParams = new URLSearchParams(window.location.search);
-                    const fundingFilterActive = urlParams.get('funding') === 'true';
+                    const fundingFilterCheckbox = document.getElementById('fundingFilter');
+                    const fundingFilterActive = fundingFilterCheckbox && fundingFilterCheckbox.checked;
                     let message = 'No authors found';
                     if (ecosystemFilter !== 'all' && fundingFilterActive) {
                         message = `No authors found for ecosystem "${ecosystemFilter}" with funding. Try selecting "All Ecosystems" or removing the funding filter.`;

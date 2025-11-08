@@ -710,6 +710,65 @@ class StorageManager {
             };
         }
 
+        // Combine license analysis from all organizations
+        let totalLicensedDeps = 0;
+        let totalUnlicensedDeps = 0;
+        let totalDeps = 0;
+        const categoryBreakdown = {
+            permissive: 0,
+            copyleft: 0,
+            lgpl: 0,
+            proprietary: 0,
+            unknown: 0
+        };
+        const riskBreakdown = {
+            low: 0,
+            medium: 0,
+            high: 0
+        };
+
+        for (const entry of entriesData) {
+            if (entry.data.licenseAnalysis && entry.data.licenseAnalysis.summary) {
+                const summary = entry.data.licenseAnalysis.summary;
+                totalDeps += summary.totalDependencies || 0;
+                totalLicensedDeps += summary.licensedDependencies || 0;
+                totalUnlicensedDeps += summary.unlicensedDependencies || 0;
+                
+                // Combine category breakdown
+                if (summary.categoryBreakdown) {
+                    categoryBreakdown.permissive += summary.categoryBreakdown.permissive || 0;
+                    categoryBreakdown.copyleft += summary.categoryBreakdown.copyleft || 0;
+                    categoryBreakdown.lgpl += summary.categoryBreakdown.lgpl || 0;
+                    categoryBreakdown.proprietary += summary.categoryBreakdown.proprietary || 0;
+                    categoryBreakdown.unknown += summary.categoryBreakdown.unknown || 0;
+                }
+                
+                // Combine risk breakdown
+                if (summary.riskBreakdown) {
+                    riskBreakdown.low += summary.riskBreakdown.low || 0;
+                    riskBreakdown.medium += summary.riskBreakdown.medium || 0;
+                    riskBreakdown.high += summary.riskBreakdown.high || 0;
+                }
+            }
+        }
+
+        // Create combined license analysis
+        if (totalDeps > 0) {
+            combined.licenseAnalysis = {
+                summary: {
+                    totalDependencies: totalDeps,
+                    licensedDependencies: totalLicensedDeps,
+                    unlicensedDependencies: totalUnlicensedDeps,
+                    categoryBreakdown: categoryBreakdown,
+                    riskBreakdown: riskBreakdown
+                },
+                conflicts: [], // Conflicts would need to be deduplicated if needed
+                recommendations: [],
+                licenseFamilies: new Map(),
+                highRiskDependencies: [] // Would need to be deduplicated if needed
+            };
+        }
+
         return combined;
     }
 
