@@ -2302,6 +2302,35 @@ body {
     border-radius: 8px;
 }
 
+.license-changes-section .table-responsive {
+    max-width: 100%;
+    overflow-x: auto;
+}
+
+.license-changes-section table {
+    width: 100%;
+    table-layout: auto;
+}
+
+.license-changes-section table td {
+    word-wrap: break-word;
+    word-break: break-word;
+    max-width: 0;
+    overflow-wrap: break-word;
+}
+
+.license-changes-section table td code {
+    white-space: normal;
+    word-break: break-all;
+}
+
+.license-changes-section .badge {
+    white-space: normal;
+    word-break: break-word;
+    max-width: 100%;
+    display: inline-block;
+}
+
 .license-changes-list {
     display: flex;
     flex-direction: column;

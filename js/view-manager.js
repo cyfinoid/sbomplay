@@ -3770,63 +3770,50 @@ class ViewManager {
                 return `deps.html?org=${encodeURIComponent(orgParam)}&search=${encodeURIComponent(searchTerm)}`;
             };
             
-            const transitionItems = allLicenseTransitions.map(transition => {
-                const reposList = transition.repositories && transition.repositories.length > 0
-                    ? transition.repositories.map(repo => {
-                        // Create URL for deps.html filtered to this repository
-                        const depsUrl = `deps.html?org=${encodeURIComponent(orgParam)}&repo=${encodeURIComponent(repo)}`;
-                        return `
-                        <div class="repo-item">
-                            <i class="fas fa-code-branch me-2 text-primary"></i>
-                            <a href="${depsUrl}" class="repo-link text-decoration-none" target="_blank">
-                                <strong>${escapeHtml(repo)}</strong>
-                            </a>
-                        </div>`;
-                    }).join('')
-                    : '<div class="text-muted">No repositories found</div>';
-                
+            const transitionRows = allLicenseTransitions.map(transition => {
+                const repoCount = transition.repositories ? transition.repositories.length : 0;
                 return `
-        <div class="license-change-item">
-            <div class="license-change-body">
-                <div class="dependency-name mb-3">
-                    <strong><i class="fas fa-cube me-2"></i>Dependency:</strong>
-                    <a href="${createDepsUrl(transition.packageName, null)}" class="dependency-link ms-2" target="_blank">
-                        <code>${escapeHtml(transition.packageName)}</code>
-                    </a>
-                </div>
-                <div class="version-comparison mb-3">
-                    <div class="version-item">
-                        <strong>Version ${escapeHtml(transition.fromVersion)}:</strong>
+                <tr>
+                    <td>
+                        <a href="${createDepsUrl(transition.packageName, null)}" class="dependency-link" target="_blank">
+                            <code>${escapeHtml(transition.packageName)}</code>
+                        </a>
+                    </td>
+                    <td>
+                        <a href="${createDepsUrl(transition.packageName, transition.fromVersion)}" class="text-decoration-none" target="_blank">
+                            <code>${escapeHtml(transition.fromVersion)}</code>
+                        </a>
                         <span class="badge badge-license ms-2">${escapeHtml(transition.fromLicense)}</span>
-                        <a href="${createDepsUrl(transition.packageName, transition.fromVersion)}" 
-                           class="btn btn-sm btn-outline-primary ms-2" target="_blank">
-                            <i class="fas fa-external-link-alt me-1"></i>View
+                    </td>
+                    <td>
+                        <a href="${createDepsUrl(transition.packageName, transition.toVersion)}" class="text-decoration-none" target="_blank">
+                            <code>${escapeHtml(transition.toVersion)}</code>
                         </a>
-                    </div>
-                    <div class="version-item">
-                        <strong>Version ${escapeHtml(transition.toVersion)}:</strong>
                         <span class="badge badge-license ms-2">${escapeHtml(transition.toLicense)}</span>
-                        <a href="${createDepsUrl(transition.packageName, transition.toVersion)}" 
-                           class="btn btn-sm btn-outline-primary ms-2" target="_blank">
-                            <i class="fas fa-external-link-alt me-1"></i>View
-                        </a>
-                    </div>
-                </div>
-                <div class="affected-repositories">
-                    <strong><i class="fas fa-folder-open me-2"></i>Affected Repositories (${transition.repositories.length}):</strong>
-                    <div class="repositories-list mt-2">
-                        ${reposList}
-                    </div>
-                </div>
-            </div>
-        </div>`;
+                    </td>
+                    <td class="text-center">
+                        <strong>${repoCount}</strong>
+                    </td>
+                </tr>`;
             }).join('');
             
             licenseChangesHTML = `<div class="license-changes-section" id="license-changes-section">
     <h4>🔄 License Changes Detected</h4>
     <p class="text-muted mb-3">All license changes across all dependencies (not just high-risk)</p>
-    <div class="license-changes-list" id="license-changes-list">
-        ${transitionItems}
+    <div class="table-responsive">
+        <table class="table table-striped table-hover">
+            <thead>
+                <tr>
+                    <th>Dependency</th>
+                    <th>Version 1 @ License 1</th>
+                    <th>Version 2 @ License 2</th>
+                    <th class="text-center">Repositories</th>
+                </tr>
+            </thead>
+            <tbody>
+                ${transitionRows}
+            </tbody>
+        </table>
     </div>
 </div>`;
         }
@@ -4161,19 +4148,38 @@ class ViewManager {
                             return `deps.html?org=${encodeURIComponent(orgParam)}&search=${encodeURIComponent(packageName)}`;
                         };
                         
-                        const unlicensedHTML = unlicensedPackages.map(pkg => {
+                        const unlicensedRows = unlicensedPackages.map(pkg => {
                             return `
-                                <div class="package-entry">
-                                    <a href="${createDepsUrl(pkg.name)}" class="package-link text-primary text-decoration-none" target="_blank">
-                                        <code>${escapeHtml(pkg.name)}</code>
-                                    </a>
-                                    <span class="text-muted ms-2">
-                                        (${pkg.repositories.length} ${pkg.repositories.length === 1 ? 'repo' : 'repos'}, 
-                                        ${pkg.totalUsage} ${pkg.totalUsage === 1 ? 'usage' : 'usages'}, 
-                                        ${pkg.versions.length} ${pkg.versions.length === 1 ? 'version' : 'versions'})
-                                    </span>
-                                </div>`;
+                                <tr>
+                                    <td>
+                                        <a href="${createDepsUrl(pkg.name)}" class="dependency-link" target="_blank">
+                                            <code>${escapeHtml(pkg.name)}</code>
+                                        </a>
+                                    </td>
+                                    <td class="text-center">
+                                        <strong>${pkg.repositories.length}</strong>
+                                    </td>
+                                    <td class="text-center">
+                                        <strong>${pkg.versions.length}</strong>
+                                    </td>
+                                </tr>`;
                         }).join('');
+                        
+                        const unlicensedTableHTML = `
+                            <div class="table-responsive">
+                                <table class="table table-striped table-hover">
+                                    <thead>
+                                        <tr>
+                                            <th>Dependency</th>
+                                            <th class="text-center">Used by Repos</th>
+                                            <th class="text-center">Version Count</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        ${unlicensedRows}
+                                    </tbody>
+                                </table>
+                            </div>`;
                         
                         const highRiskList = document.getElementById('high-risk-list');
                         const highRiskCount = document.getElementById('high-risk-count');
@@ -4188,10 +4194,7 @@ class ViewManager {
                                 highRiskList.innerHTML = '<div class="alert alert-info">No unlicensed dependencies found.</div>';
                                 highRiskCount.textContent = 'Showing 0 unlicensed packages';
                             } else {
-                                highRiskList.innerHTML = `
-                                    <div class="packages-list" style="display: flex; flex-direction: column; gap: 10px;">
-                                        ${unlicensedHTML}
-                                    </div>`;
+                                highRiskList.innerHTML = unlicensedTableHTML;
                                 highRiskCount.textContent = `Showing ${unlicensedPackages.length} unlicensed ${unlicensedPackages.length === 1 ? 'package' : 'packages'} (sorted by usage)`;
                             }
                         }
