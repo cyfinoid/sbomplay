@@ -368,20 +368,85 @@ class AuthorService {
         if (typeof data.funding === 'string') {
             funding.url = data.funding;
         } else if (Array.isArray(data.funding)) {
+            // Handle array of funding objects
             funding.urls = data.funding.map(f => typeof f === 'string' ? f : f.url).filter(Boolean);
             funding.url = funding.urls[0]; // Use first URL as primary
+            
+            // Store URLs per platform type
+            data.funding.forEach(f => {
+                const url = typeof f === 'string' ? f : f.url;
+                const type = typeof f === 'string' ? null : f.type;
+                
+                if (!url) return;
+                
+                // Check by type first, then by URL pattern
+                if (type === 'github' || url.includes('github.com/sponsors')) {
+                    funding.github = true;
+                    funding.githubUrl = url;
+                }
+                if (type === 'patreon' || url.includes('patreon.com')) {
+                    funding.patreon = true;
+                    funding.patreonUrl = url;
+                }
+                if (type === 'opencollective' || url.includes('opencollective.com')) {
+                    funding.opencollective = true;
+                    funding.opencollectiveUrl = url;
+                }
+                if (type === 'tidelift' || url.includes('tidelift.com')) {
+                    funding.tidelift = true;
+                    funding.tideliftUrl = url;
+                }
+            });
         } else if (data.funding.url) {
             funding.url = data.funding.url;
             funding.type = data.funding.type;
+            
+            // Set platform flags based on URL
+            if (funding.url.includes('github.com/sponsors')) {
+                funding.github = true;
+                funding.githubUrl = funding.url;
+            }
+            if (funding.url.includes('patreon.com')) {
+                funding.patreon = true;
+                funding.patreonUrl = funding.url;
+            }
+            if (funding.url.includes('opencollective.com')) {
+                funding.opencollective = true;
+                funding.opencollectiveUrl = funding.url;
+            }
+            if (funding.url.includes('tidelift.com')) {
+                funding.tidelift = true;
+                funding.tideliftUrl = funding.url;
+            }
         }
         
-        // Check for specific platforms in URLs
+        // Fallback: Check for specific platforms in URLs if not already set
         const urls = funding.urls || [funding.url];
         if (urls && urls.length > 0) {
-            funding.github = urls.some(u => u && u.includes('github.com/sponsors'));
-            funding.opencollective = urls.some(u => u && u.includes('opencollective.com'));
-            funding.patreon = urls.some(u => u && u.includes('patreon.com'));
-            funding.tidelift = urls.some(u => u && u.includes('tidelift.com'));
+            if (!funding.github) {
+                funding.github = urls.some(u => u && u.includes('github.com/sponsors'));
+                if (funding.github && !funding.githubUrl) {
+                    funding.githubUrl = urls.find(u => u && u.includes('github.com/sponsors'));
+                }
+            }
+            if (!funding.opencollective) {
+                funding.opencollective = urls.some(u => u && u.includes('opencollective.com'));
+                if (funding.opencollective && !funding.opencollectiveUrl) {
+                    funding.opencollectiveUrl = urls.find(u => u && u.includes('opencollective.com'));
+                }
+            }
+            if (!funding.patreon) {
+                funding.patreon = urls.some(u => u && u.includes('patreon.com'));
+                if (funding.patreon && !funding.patreonUrl) {
+                    funding.patreonUrl = urls.find(u => u && u.includes('patreon.com'));
+                }
+            }
+            if (!funding.tidelift) {
+                funding.tidelift = urls.some(u => u && u.includes('tidelift.com'));
+                if (funding.tidelift && !funding.tideliftUrl) {
+                    funding.tideliftUrl = urls.find(u => u && u.includes('tidelift.com'));
+                }
+            }
         }
         
         return Object.keys(funding).length > 0 ? funding : null;
