@@ -645,6 +645,63 @@ class IndexedDBManager {
     }
 
     /**
+     * Get all author entities
+     */
+    async getAllAuthorEntities() {
+        try {
+            if (!this.db) {
+                console.warn('⚠️ IndexedDB not initialized yet');
+                return [];
+            }
+            const transaction = this.db.transaction(['authorEntities'], 'readonly');
+            const store = transaction.objectStore('authorEntities');
+            const result = await this._promisifyRequest(store.getAll());
+            return result || [];
+        } catch (error) {
+            console.error('❌ Failed to get all author entities:', error);
+            return [];
+        }
+    }
+
+    /**
+     * Get all package-author relationships
+     */
+    async getAllPackageAuthors() {
+        try {
+            if (!this.db) {
+                console.warn('⚠️ IndexedDB not initialized yet');
+                return [];
+            }
+            const transaction = this.db.transaction(['packageAuthors'], 'readonly');
+            const store = transaction.objectStore('packageAuthors');
+            const result = await this._promisifyRequest(store.getAll());
+            return result || [];
+        } catch (error) {
+            console.error('❌ Failed to get all package-author relationships:', error);
+            return [];
+        }
+    }
+
+    /**
+     * Get all packages
+     */
+    async getAllPackages() {
+        try {
+            if (!this.db) {
+                console.warn('⚠️ IndexedDB not initialized yet');
+                return [];
+            }
+            const transaction = this.db.transaction(['packages'], 'readonly');
+            const store = transaction.objectStore('packages');
+            const result = await this._promisifyRequest(store.getAll());
+            return result || [];
+        } catch (error) {
+            console.error('❌ Failed to get all packages:', error);
+            return [];
+        }
+    }
+
+    /**
      * Get storage size estimate
      */
     async getStorageEstimate() {

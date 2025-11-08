@@ -2883,7 +2883,7 @@ class ViewManager {
         const filterNotice = categoryFilter ? `
             <div class="alert alert-info alert-dismissible fade show mb-3">
                 <i class="fas fa-filter me-2"></i>
-                <strong>Category Filter Active:</strong> Showing only ${categoryFilter} license category.
+                <strong>Category Filter Active:</strong> Showing only ${escapeHtml(categoryFilter)} license category.
                 <a href="license-compliance.html" class="btn btn-sm btn-outline-primary ms-2">
                     <i class="fas fa-times me-1"></i>Clear Filter
                 </a>

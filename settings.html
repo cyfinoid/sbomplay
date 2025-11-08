@@ -72,13 +72,6 @@
                         <button class="btn btn-outline-primary btn-sm" onclick="settingsApp.showStorageStatus()">
                             <i class="fas fa-info-circle me-2"></i>Check Storage Status
                         </button>
-                        <button class="btn btn-outline-success btn-sm" onclick="settingsApp.exportAllData()">
-                            <i class="fas fa-download me-2"></i>Export All Data
-                        </button>
-                        <button class="btn btn-outline-primary btn-sm" onclick="settingsApp.importAllData()">
-                            <i class="fas fa-upload me-2"></i>Import All Data
-                        </button>
-                        <input type="file" id="importFileInput" accept=".json" style="display: none;" onchange="settingsApp.handleFileImport(event)">
                         <button class="btn btn-outline-info btn-sm" onclick="settingsApp.testStorageQuota()">
                             <i class="fas fa-vial me-2"></i>Test Storage
                         </button>
@@ -95,6 +88,79 @@
                         </button>
                     </div>
                 </div>
+                
+                <hr class="my-3">
+                
+                <h6 class="mb-3">Export & Import (with Checksum Validation)</h6>
+                <div class="alert alert-info mb-3">
+                    <i class="fas fa-shield-alt me-2"></i>
+                    <strong>Checksum Protection:</strong> All exports include SHA-256 checksums to detect tampering. 
+                    Imports automatically verify checksums before importing data.
+                </div>
+                
+                <div class="row mb-3">
+                    <div class="col-md-6">
+                        <h6 class="small text-muted mb-2">Export Options</h6>
+                        <div class="d-flex flex-wrap gap-2">
+                            <button class="btn btn-success btn-sm" onclick="settingsApp.exportAllData()">
+                                <i class="fas fa-download me-2"></i>Export All
+                            </button>
+                            <button class="btn btn-outline-success btn-sm" onclick="settingsApp.exportCachedDatabases()">
+                                <i class="fas fa-database me-2"></i>Export Cached DBs
+                            </button>
+                            <button class="btn btn-outline-success btn-sm" onclick="settingsApp.exportAnalysisData()">
+                                <i class="fas fa-file-export me-2"></i>Export Analysis
+                            </button>
+                        </div>
+                    </div>
+                    <div class="col-md-6">
+                        <h6 class="small text-muted mb-2">Import Options</h6>
+                        <div class="d-flex flex-wrap gap-2">
+                            <button class="btn btn-primary btn-sm" onclick="settingsApp.importAllData()">
+                                <i class="fas fa-upload me-2"></i>Import All
+                            </button>
+                            <button class="btn btn-outline-primary btn-sm" onclick="settingsApp.importCachedDatabases()">
+                                <i class="fas fa-database me-2"></i>Import Cached DBs
+                            </button>
+                            <button class="btn btn-outline-primary btn-sm" onclick="settingsApp.importAnalysisData()">
+                                <i class="fas fa-file-import me-2"></i>Import Analysis
+                            </button>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="row">
+                    <div class="col-md-6">
+                        <h6 class="small text-muted mb-2">Individual Cache Exports</h6>
+                        <div class="d-flex flex-wrap gap-2">
+                            <button class="btn btn-outline-secondary btn-sm" onclick="settingsApp.exportAuthorsCache()">
+                                <i class="fas fa-users me-2"></i>Export Authors
+                            </button>
+                            <button class="btn btn-outline-secondary btn-sm" onclick="settingsApp.exportPackagesCache()">
+                                <i class="fas fa-box me-2"></i>Export Packages
+                            </button>
+                            <button class="btn btn-outline-secondary btn-sm" onclick="settingsApp.exportVulnerabilitiesCache()">
+                                <i class="fas fa-shield-alt me-2"></i>Export Vulnerabilities
+                            </button>
+                        </div>
+                    </div>
+                    <div class="col-md-6">
+                        <h6 class="small text-muted mb-2">Individual Cache Imports</h6>
+                        <div class="d-flex flex-wrap gap-2">
+                            <button class="btn btn-outline-secondary btn-sm" onclick="settingsApp.importAuthorsCache()">
+                                <i class="fas fa-users me-2"></i>Import Authors
+                            </button>
+                            <button class="btn btn-outline-secondary btn-sm" onclick="settingsApp.importPackagesCache()">
+                                <i class="fas fa-box me-2"></i>Import Packages
+                            </button>
+                            <button class="btn btn-outline-secondary btn-sm" onclick="settingsApp.importVulnerabilitiesCache()">
+                                <i class="fas fa-shield-alt me-2"></i>Import Vulnerabilities
+                            </button>
+                        </div>
+                    </div>
+                </div>
+                
+                <input type="file" id="importFileInput" accept=".json" style="display: none;" onchange="settingsApp.handleFileImport(event)">
             </div>
         </div>
 

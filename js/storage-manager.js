@@ -213,23 +213,225 @@ class StorageManager {
     }
 
     /**
+     * Generate SHA-256 checksum for data (excluding checksum field)
+     * This ensures consistent checksum calculation
+     */
+    async generateChecksum(data) {
+        try {
+            // Create a copy without checksum field to ensure consistent hashing
+            const dataForChecksum = { ...data };
+            delete dataForChecksum.checksum;
+            
+            // Sort keys for consistent JSON stringification (optional but helps with consistency)
+            const sortedData = {};
+            Object.keys(dataForChecksum).sort().forEach(key => {
+                sortedData[key] = dataForChecksum[key];
+            });
+            
+            const jsonString = JSON.stringify(sortedData);
+            const encoder = new TextEncoder();
+            const dataBuffer = encoder.encode(jsonString);
+            const hashBuffer = await crypto.subtle.digest('SHA-256', dataBuffer);
+            const hashArray = Array.from(new Uint8Array(hashBuffer));
+            const hashHex = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+            return hashHex;
+        } catch (error) {
+            console.error('❌ Failed to generate checksum:', error);
+            throw error;
+        }
+    }
+
+    /**
      * Export all data
      */
     async exportAllData(filename = 'sbom-all-analyses.json') {
         try {
             const entries = await this.indexedDB.getAllEntries();
             const vulnerabilities = await this.indexedDB.getAllVulnerabilities();
+            const authorEntities = await this.indexedDB.getAllAuthorEntities();
+            const packageAuthors = await this.indexedDB.getAllPackageAuthors();
+            const packages = await this.indexedDB.getAllPackages();
             
             const exportData = {
+                version: '1.0',
+                type: 'all',
                 entries: entries,
                 vulnerabilities: vulnerabilities,
+                authorEntities: authorEntities,
+                packageAuthors: packageAuthors,
+                packages: packages,
                 exportTimestamp: new Date().toISOString()
             };
+            
+            // Generate checksum (before adding checksum field)
+            const checksum = await this.generateChecksum(exportData);
+            exportData.checksum = checksum;
             
             return this.exportData(exportData, filename);
         } catch (error) {
             console.error('❌ Failed to export all data:', error);
             return false;
+        }
+    }
+
+    /**
+     * Export cached databases (authors, packages, vulnerabilities)
+     */
+    async exportCachedDatabases(filename = 'sbom-cached-databases.json') {
+        try {
+            const authorEntities = await this.indexedDB.getAllAuthorEntities();
+            const packageAuthors = await this.indexedDB.getAllPackageAuthors();
+            const packages = await this.indexedDB.getAllPackages();
+            const vulnerabilities = await this.indexedDB.getAllVulnerabilities();
+            
+            const exportData = {
+                version: '1.0',
+                type: 'cached',
+                authorEntities: authorEntities,
+                packageAuthors: packageAuthors,
+                packages: packages,
+                vulnerabilities: vulnerabilities,
+                exportTimestamp: new Date().toISOString()
+            };
+            
+            // Generate checksum (before adding checksum field)
+            const checksum = await this.generateChecksum(exportData);
+            exportData.checksum = checksum;
+            
+            return this.exportData(exportData, filename);
+        } catch (error) {
+            console.error('❌ Failed to export cached databases:', error);
+            return false;
+        }
+    }
+
+    /**
+     * Export authors cache
+     */
+    async exportAuthorsCache(filename = 'sbom-authors-cache.json') {
+        try {
+            const authorEntities = await this.indexedDB.getAllAuthorEntities();
+            const packageAuthors = await this.indexedDB.getAllPackageAuthors();
+            
+            const exportData = {
+                version: '1.0',
+                type: 'authors',
+                authorEntities: authorEntities,
+                packageAuthors: packageAuthors,
+                exportTimestamp: new Date().toISOString()
+            };
+            
+            // Generate checksum (before adding checksum field)
+            const checksum = await this.generateChecksum(exportData);
+            exportData.checksum = checksum;
+            
+            return this.exportData(exportData, filename);
+        } catch (error) {
+            console.error('❌ Failed to export authors cache:', error);
+            return false;
+        }
+    }
+
+    /**
+     * Export packages cache
+     */
+    async exportPackagesCache(filename = 'sbom-packages-cache.json') {
+        try {
+            const packages = await this.indexedDB.getAllPackages();
+            
+            const exportData = {
+                version: '1.0',
+                type: 'packages',
+                packages: packages,
+                exportTimestamp: new Date().toISOString()
+            };
+            
+            // Generate checksum (before adding checksum field)
+            const checksum = await this.generateChecksum(exportData);
+            exportData.checksum = checksum;
+            
+            return this.exportData(exportData, filename);
+        } catch (error) {
+            console.error('❌ Failed to export packages cache:', error);
+            return false;
+        }
+    }
+
+    /**
+     * Export vulnerabilities cache
+     */
+    async exportVulnerabilitiesCache(filename = 'sbom-vulnerabilities-cache.json') {
+        try {
+            const vulnerabilities = await this.indexedDB.getAllVulnerabilities();
+            
+            const exportData = {
+                version: '1.0',
+                type: 'vulnerabilities',
+                vulnerabilities: vulnerabilities,
+                exportTimestamp: new Date().toISOString()
+            };
+            
+            // Generate checksum (before adding checksum field)
+            const checksum = await this.generateChecksum(exportData);
+            exportData.checksum = checksum;
+            
+            return this.exportData(exportData, filename);
+        } catch (error) {
+            console.error('❌ Failed to export vulnerabilities cache:', error);
+            return false;
+        }
+    }
+
+    /**
+     * Export analysis data only (organizations and repositories)
+     */
+    async exportAnalysisData(filename = 'sbom-analysis-data.json') {
+        try {
+            const entries = await this.indexedDB.getAllEntries();
+            
+            const exportData = {
+                version: '1.0',
+                type: 'analysis',
+                entries: entries,
+                exportTimestamp: new Date().toISOString()
+            };
+            
+            // Generate checksum (before adding checksum field)
+            const checksum = await this.generateChecksum(exportData);
+            exportData.checksum = checksum;
+            
+            return this.exportData(exportData, filename);
+        } catch (error) {
+            console.error('❌ Failed to export analysis data:', error);
+            return false;
+        }
+    }
+
+    /**
+     * Verify checksum of imported data
+     */
+    async verifyChecksum(jsonData) {
+        try {
+            if (!jsonData.checksum) {
+                return { valid: false, error: 'No checksum found in imported data' };
+            }
+
+            // Extract checksum
+            const providedChecksum = jsonData.checksum;
+
+            // Recalculate checksum (generateChecksum already excludes checksum field)
+            const calculatedChecksum = await this.generateChecksum(jsonData);
+
+            if (providedChecksum !== calculatedChecksum) {
+                return { 
+                    valid: false, 
+                    error: `Checksum mismatch! File may be corrupted or tampered with. Expected: ${calculatedChecksum.substring(0, 16)}..., Got: ${providedChecksum.substring(0, 16)}...` 
+                };
+            }
+
+            return { valid: true };
+        } catch (error) {
+            return { valid: false, error: `Checksum verification failed: ${error.message}` };
         }
     }
 
@@ -243,16 +445,61 @@ class StorageManager {
                 throw new Error('Invalid data format: Expected JSON object');
             }
 
+            // Verify checksum if present
+            if (jsonData.checksum) {
+                const checksumResult = await this.verifyChecksum(jsonData);
+                if (!checksumResult.valid) {
+                    throw new Error(checksumResult.error);
+                }
+            }
+
+            // Handle different import types
+            if (jsonData.type === 'all') {
+                return await this._importAllData(jsonData);
+            } else if (jsonData.type === 'cached') {
+                return await this._importCachedDatabases(jsonData);
+            } else if (jsonData.type === 'authors') {
+                return await this._importAuthorsCache(jsonData);
+            } else if (jsonData.type === 'packages') {
+                return await this._importPackagesCache(jsonData);
+            } else if (jsonData.type === 'vulnerabilities') {
+                return await this._importVulnerabilitiesCache(jsonData);
+            } else if (jsonData.type === 'analysis') {
+                return await this._importAnalysisData(jsonData);
+            } else {
+                // Legacy format - try to import as all data
+                return await this._importAllData(jsonData);
+            }
+        } catch (error) {
+            console.error('❌ Failed to import data:', error);
+            return {
+                success: false,
+                error: error.message
+            };
+        }
+    }
+
+    /**
+     * Import all data (legacy and new format)
+     */
+    async _importAllData(jsonData) {
+        try {
+            // Verify checksum if present
+            if (jsonData.checksum) {
+                const checksumResult = await this.verifyChecksum(jsonData);
+                if (!checksumResult.valid) {
+                    throw new Error(checksumResult.error);
+                }
+            }
+
             if (!Array.isArray(jsonData.entries)) {
                 throw new Error('Invalid data format: Missing or invalid entries array');
             }
 
-            if (!Array.isArray(jsonData.vulnerabilities)) {
-                throw new Error('Invalid data format: Missing or invalid vulnerabilities array');
-            }
-
             let importedEntries = 0;
             let importedVulnerabilities = 0;
+            let importedAuthors = 0;
+            let importedPackages = 0;
             let skippedEntries = 0;
             let errors = [];
 
@@ -265,7 +512,6 @@ class StorageManager {
                     }
 
                     if (entry.type === 'organization' || entry.organization) {
-                        // Import as organization
                         const success = await this.indexedDB.saveOrganization(entry.name || entry.organization, entry);
                         if (success) {
                             importedEntries++;
@@ -273,7 +519,6 @@ class StorageManager {
                             errors.push(`Failed to import organization: ${entry.name || entry.organization}`);
                         }
                     } else if (entry.type === 'repository' || entry.fullName) {
-                        // Import as repository
                         const success = await this.indexedDB.saveRepository(entry.fullName, entry);
                         if (success) {
                             importedEntries++;
@@ -288,19 +533,55 @@ class StorageManager {
                 }
             }
 
-            // Import vulnerabilities
-            for (const vuln of jsonData.vulnerabilities) {
-                try {
-                    if (!vuln.packageKey) {
-                        continue;
+            // Import vulnerabilities if present
+            if (Array.isArray(jsonData.vulnerabilities)) {
+                for (const vuln of jsonData.vulnerabilities) {
+                    try {
+                        if (!vuln.packageKey) continue;
+                        const success = await this.indexedDB.saveVulnerability(vuln.packageKey, vuln.data || vuln);
+                        if (success) importedVulnerabilities++;
+                    } catch (error) {
+                        errors.push(`Error importing vulnerability ${vuln.packageKey}: ${error.message}`);
                     }
+                }
+            }
 
-                    const success = await this.indexedDB.saveVulnerability(vuln.packageKey, vuln.data || vuln);
-                    if (success) {
-                        importedVulnerabilities++;
+            // Import author entities if present
+            if (Array.isArray(jsonData.authorEntities)) {
+                for (const author of jsonData.authorEntities) {
+                    try {
+                        if (!author.authorKey) continue;
+                        const success = await this.indexedDB.saveAuthorEntity(author.authorKey, author);
+                        if (success) importedAuthors++;
+                    } catch (error) {
+                        errors.push(`Error importing author ${author.authorKey}: ${error.message}`);
                     }
-                } catch (error) {
-                    errors.push(`Error importing vulnerability ${vuln.packageKey}: ${error.message}`);
+                }
+            }
+
+            // Import package-author relationships if present
+            if (Array.isArray(jsonData.packageAuthors)) {
+                for (const rel of jsonData.packageAuthors) {
+                    try {
+                        if (!rel.packageAuthorKey) continue;
+                        const success = await this.indexedDB.savePackageAuthor(rel.packageKey, rel.authorKey);
+                        if (success) importedPackages++;
+                    } catch (error) {
+                        errors.push(`Error importing package-author relationship: ${error.message}`);
+                    }
+                }
+            }
+
+            // Import packages if present
+            if (Array.isArray(jsonData.packages)) {
+                for (const pkg of jsonData.packages) {
+                    try {
+                        if (!pkg.packageKey) continue;
+                        const success = await this.indexedDB.savePackage(pkg.packageKey, pkg);
+                        if (success) importedPackages++;
+                    } catch (error) {
+                        errors.push(`Error importing package ${pkg.packageKey}: ${error.message}`);
+                    }
                 }
             }
 
@@ -308,15 +589,269 @@ class StorageManager {
                 success: true,
                 importedEntries,
                 importedVulnerabilities,
+                importedAuthors,
+                importedPackages,
                 skippedEntries,
                 errors: errors.length > 0 ? errors : null
             };
         } catch (error) {
-            console.error('❌ Failed to import data:', error);
+            throw error;
+        }
+    }
+
+    /**
+     * Import cached databases (authors, packages, vulnerabilities)
+     */
+    async _importCachedDatabases(jsonData) {
+        try {
+            const checksumResult = await this.verifyChecksum(jsonData);
+            if (!checksumResult.valid) {
+                throw new Error(checksumResult.error);
+            }
+
+            let importedAuthors = 0;
+            let importedPackages = 0;
+            let importedVulnerabilities = 0;
+            let errors = [];
+
+            // Import author entities
+            if (Array.isArray(jsonData.authorEntities)) {
+                for (const author of jsonData.authorEntities) {
+                    try {
+                        if (!author.authorKey) continue;
+                        const success = await this.indexedDB.saveAuthorEntity(author.authorKey, author);
+                        if (success) importedAuthors++;
+                    } catch (error) {
+                        errors.push(`Error importing author ${author.authorKey}: ${error.message}`);
+                    }
+                }
+            }
+
+            // Import package-author relationships
+            if (Array.isArray(jsonData.packageAuthors)) {
+                for (const rel of jsonData.packageAuthors) {
+                    try {
+                        if (!rel.packageAuthorKey) continue;
+                        const success = await this.indexedDB.savePackageAuthor(rel.packageKey, rel.authorKey);
+                        if (success) importedPackages++;
+                    } catch (error) {
+                        errors.push(`Error importing package-author relationship: ${error.message}`);
+                    }
+                }
+            }
+
+            // Import packages
+            if (Array.isArray(jsonData.packages)) {
+                for (const pkg of jsonData.packages) {
+                    try {
+                        if (!pkg.packageKey) continue;
+                        const success = await this.indexedDB.savePackage(pkg.packageKey, pkg);
+                        if (success) importedPackages++;
+                    } catch (error) {
+                        errors.push(`Error importing package ${pkg.packageKey}: ${error.message}`);
+                    }
+                }
+            }
+
+            // Import vulnerabilities
+            if (Array.isArray(jsonData.vulnerabilities)) {
+                for (const vuln of jsonData.vulnerabilities) {
+                    try {
+                        if (!vuln.packageKey) continue;
+                        const success = await this.indexedDB.saveVulnerability(vuln.packageKey, vuln.data || vuln);
+                        if (success) importedVulnerabilities++;
+                    } catch (error) {
+                        errors.push(`Error importing vulnerability ${vuln.packageKey}: ${error.message}`);
+                    }
+                }
+            }
+
             return {
-                success: false,
-                error: error.message
+                success: true,
+                importedAuthors,
+                importedPackages,
+                importedVulnerabilities,
+                errors: errors.length > 0 ? errors : null
             };
+        } catch (error) {
+            throw error;
+        }
+    }
+
+    /**
+     * Import authors cache
+     */
+    async _importAuthorsCache(jsonData) {
+        try {
+            const checksumResult = await this.verifyChecksum(jsonData);
+            if (!checksumResult.valid) {
+                throw new Error(checksumResult.error);
+            }
+
+            let importedAuthors = 0;
+            let importedRelationships = 0;
+            let errors = [];
+
+            if (Array.isArray(jsonData.authorEntities)) {
+                for (const author of jsonData.authorEntities) {
+                    try {
+                        if (!author.authorKey) continue;
+                        const success = await this.indexedDB.saveAuthorEntity(author.authorKey, author);
+                        if (success) importedAuthors++;
+                    } catch (error) {
+                        errors.push(`Error importing author ${author.authorKey}: ${error.message}`);
+                    }
+                }
+            }
+
+            if (Array.isArray(jsonData.packageAuthors)) {
+                for (const rel of jsonData.packageAuthors) {
+                    try {
+                        if (!rel.packageAuthorKey) continue;
+                        const success = await this.indexedDB.savePackageAuthor(rel.packageKey, rel.authorKey);
+                        if (success) importedRelationships++;
+                    } catch (error) {
+                        errors.push(`Error importing package-author relationship: ${error.message}`);
+                    }
+                }
+            }
+
+            return {
+                success: true,
+                importedAuthors,
+                importedRelationships,
+                errors: errors.length > 0 ? errors : null
+            };
+        } catch (error) {
+            throw error;
+        }
+    }
+
+    /**
+     * Import packages cache
+     */
+    async _importPackagesCache(jsonData) {
+        try {
+            const checksumResult = await this.verifyChecksum(jsonData);
+            if (!checksumResult.valid) {
+                throw new Error(checksumResult.error);
+            }
+
+            let importedPackages = 0;
+            let errors = [];
+
+            if (Array.isArray(jsonData.packages)) {
+                for (const pkg of jsonData.packages) {
+                    try {
+                        if (!pkg.packageKey) continue;
+                        const success = await this.indexedDB.savePackage(pkg.packageKey, pkg);
+                        if (success) importedPackages++;
+                    } catch (error) {
+                        errors.push(`Error importing package ${pkg.packageKey}: ${error.message}`);
+                    }
+                }
+            }
+
+            return {
+                success: true,
+                importedPackages,
+                errors: errors.length > 0 ? errors : null
+            };
+        } catch (error) {
+            throw error;
+        }
+    }
+
+    /**
+     * Import vulnerabilities cache
+     */
+    async _importVulnerabilitiesCache(jsonData) {
+        try {
+            const checksumResult = await this.verifyChecksum(jsonData);
+            if (!checksumResult.valid) {
+                throw new Error(checksumResult.error);
+            }
+
+            let importedVulnerabilities = 0;
+            let errors = [];
+
+            if (Array.isArray(jsonData.vulnerabilities)) {
+                for (const vuln of jsonData.vulnerabilities) {
+                    try {
+                        if (!vuln.packageKey) continue;
+                        const success = await this.indexedDB.saveVulnerability(vuln.packageKey, vuln.data || vuln);
+                        if (success) importedVulnerabilities++;
+                    } catch (error) {
+                        errors.push(`Error importing vulnerability ${vuln.packageKey}: ${error.message}`);
+                    }
+                }
+            }
+
+            return {
+                success: true,
+                importedVulnerabilities,
+                errors: errors.length > 0 ? errors : null
+            };
+        } catch (error) {
+            throw error;
+        }
+    }
+
+    /**
+     * Import analysis data only
+     */
+    async _importAnalysisData(jsonData) {
+        try {
+            const checksumResult = await this.verifyChecksum(jsonData);
+            if (!checksumResult.valid) {
+                throw new Error(checksumResult.error);
+            }
+
+            if (!Array.isArray(jsonData.entries)) {
+                throw new Error('Invalid data format: Missing or invalid entries array');
+            }
+
+            let importedEntries = 0;
+            let skippedEntries = 0;
+            let errors = [];
+
+            for (const entry of jsonData.entries) {
+                try {
+                    if (!entry.name && !entry.fullName) {
+                        skippedEntries++;
+                        continue;
+                    }
+
+                    if (entry.type === 'organization' || entry.organization) {
+                        const success = await this.indexedDB.saveOrganization(entry.name || entry.organization, entry);
+                        if (success) {
+                            importedEntries++;
+                        } else {
+                            errors.push(`Failed to import organization: ${entry.name || entry.organization}`);
+                        }
+                    } else if (entry.type === 'repository' || entry.fullName) {
+                        const success = await this.indexedDB.saveRepository(entry.fullName, entry);
+                        if (success) {
+                            importedEntries++;
+                        } else {
+                            errors.push(`Failed to import repository: ${entry.fullName}`);
+                        }
+                    } else {
+                        skippedEntries++;
+                    }
+                } catch (error) {
+                    errors.push(`Error importing entry ${entry.name || entry.fullName}: ${error.message}`);
+                }
+            }
+
+            return {
+                success: true,
+                importedEntries,
+                skippedEntries,
+                errors: errors.length > 0 ? errors : null
+            };
+        } catch (error) {
+            throw error;
         }
     }
 

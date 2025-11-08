@@ -185,7 +185,67 @@ class SettingsApp {
     async exportAllData() {
         try {
             await this.storageManager.exportAllData();
-            this.showAlert('All data exported successfully!', 'success');
+            this.showAlert('All data exported successfully with checksum!', 'success');
+        } catch (error) {
+            this.showAlert(`Export failed: ${error.message}`, 'danger');
+        }
+    }
+
+    /**
+     * Export cached databases (authors, packages, vulnerabilities)
+     */
+    async exportCachedDatabases() {
+        try {
+            await this.storageManager.exportCachedDatabases();
+            this.showAlert('Cached databases exported successfully with checksum!', 'success');
+        } catch (error) {
+            this.showAlert(`Export failed: ${error.message}`, 'danger');
+        }
+    }
+
+    /**
+     * Export authors cache
+     */
+    async exportAuthorsCache() {
+        try {
+            await this.storageManager.exportAuthorsCache();
+            this.showAlert('Authors cache exported successfully with checksum!', 'success');
+        } catch (error) {
+            this.showAlert(`Export failed: ${error.message}`, 'danger');
+        }
+    }
+
+    /**
+     * Export packages cache
+     */
+    async exportPackagesCache() {
+        try {
+            await this.storageManager.exportPackagesCache();
+            this.showAlert('Packages cache exported successfully with checksum!', 'success');
+        } catch (error) {
+            this.showAlert(`Export failed: ${error.message}`, 'danger');
+        }
+    }
+
+    /**
+     * Export vulnerabilities cache
+     */
+    async exportVulnerabilitiesCache() {
+        try {
+            await this.storageManager.exportVulnerabilitiesCache();
+            this.showAlert('Vulnerabilities cache exported successfully with checksum!', 'success');
+        } catch (error) {
+            this.showAlert(`Export failed: ${error.message}`, 'danger');
+        }
+    }
+
+    /**
+     * Export analysis data only
+     */
+    async exportAnalysisData() {
+        try {
+            await this.storageManager.exportAnalysisData();
+            this.showAlert('Analysis data exported successfully with checksum!', 'success');
         } catch (error) {
             this.showAlert(`Export failed: ${error.message}`, 'danger');
         }
@@ -197,6 +257,62 @@ class SettingsApp {
     importAllData() {
         const fileInput = document.getElementById('importFileInput');
         if (fileInput) {
+            fileInput.setAttribute('data-import-type', 'all');
+            fileInput.click();
+        }
+    }
+
+    /**
+     * Import cached databases - trigger file input
+     */
+    importCachedDatabases() {
+        const fileInput = document.getElementById('importFileInput');
+        if (fileInput) {
+            fileInput.setAttribute('data-import-type', 'cached');
+            fileInput.click();
+        }
+    }
+
+    /**
+     * Import authors cache - trigger file input
+     */
+    importAuthorsCache() {
+        const fileInput = document.getElementById('importFileInput');
+        if (fileInput) {
+            fileInput.setAttribute('data-import-type', 'authors');
+            fileInput.click();
+        }
+    }
+
+    /**
+     * Import packages cache - trigger file input
+     */
+    importPackagesCache() {
+        const fileInput = document.getElementById('importFileInput');
+        if (fileInput) {
+            fileInput.setAttribute('data-import-type', 'packages');
+            fileInput.click();
+        }
+    }
+
+    /**
+     * Import vulnerabilities cache - trigger file input
+     */
+    importVulnerabilitiesCache() {
+        const fileInput = document.getElementById('importFileInput');
+        if (fileInput) {
+            fileInput.setAttribute('data-import-type', 'vulnerabilities');
+            fileInput.click();
+        }
+    }
+
+    /**
+     * Import analysis data - trigger file input
+     */
+    importAnalysisData() {
+        const fileInput = document.getElementById('importFileInput');
+        if (fileInput) {
+            fileInput.setAttribute('data-import-type', 'analysis');
             fileInput.click();
         }
     }
@@ -236,7 +352,23 @@ class SettingsApp {
 
             if (result.success) {
                 let message = `Import completed! `;
-                message += `Imported ${result.importedEntries} entries and ${result.importedVulnerabilities} vulnerabilities.`;
+                
+                // Build message based on import type
+                if (result.importedEntries !== undefined) {
+                    message += `Imported ${result.importedEntries} entries. `;
+                }
+                if (result.importedVulnerabilities !== undefined) {
+                    message += `Imported ${result.importedVulnerabilities} vulnerabilities. `;
+                }
+                if (result.importedAuthors !== undefined) {
+                    message += `Imported ${result.importedAuthors} authors. `;
+                }
+                if (result.importedPackages !== undefined) {
+                    message += `Imported ${result.importedPackages} packages. `;
+                }
+                if (result.importedRelationships !== undefined) {
+                    message += `Imported ${result.importedRelationships} package-author relationships. `;
+                }
                 
                 if (result.skippedEntries > 0) {
                     message += ` Skipped ${result.skippedEntries} invalid entries.`;
@@ -247,11 +379,17 @@ class SettingsApp {
                     console.error('Import errors:', result.errors);
                 }
 
+                // Check if checksum was verified
+                if (jsonData.checksum) {
+                    message += ' Checksum verified successfully.';
+                }
+
                 this.showAlert(message, result.errors ? 'warning' : 'success');
                 
                 // Refresh displays
                 await this.showStorageStatus();
                 await this.displayOrganizationsOverview();
+                await this.showCacheStats();
             } else {
                 this.showAlert(`Import failed: ${result.error}`, 'danger');
             }
