@@ -44,11 +44,11 @@ jobs:
           
           echo "📦 Copying production files (matching update-prod.sh)..."
           
-          # Copy specific HTML files (matching update-prod.sh exactly)
+          # Copy all required HTML files
           cp index.html _site/
-          cp stats.html _site/
           cp license-compliance.html _site/
           cp vuln.html _site/
+          cp quality.html _site/
           cp deps.html _site/
           cp settings.html _site/
           cp authors.html _site/

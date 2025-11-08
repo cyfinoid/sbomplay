@@ -77,15 +77,22 @@ jobs:
           echo "🔍 Checking required JavaScript files..."
           REQUIRED_JS=(
             "js/app.js"
+            "js/author-service.js"
+            "js/cache-manager.js"
+            "js/dependency-tree-resolver.js"
+            "js/ecosystem-utils.js"
             "js/github-client.js"
             "js/indexeddb-manager.js"
             "js/license-processor.js"
             "js/osv-service.js"
+            "js/registry-utils.js"
             "js/sbom-processor.js"
+            "js/sbom-quality-processor.js"
+            "js/settings.js"
             "js/storage-manager.js"
             "js/theme-manager.js"
+            "js/version-utils.js"
             "js/view-manager.js"
-            "js/author-service.js"
           )
           
           MISSING=0

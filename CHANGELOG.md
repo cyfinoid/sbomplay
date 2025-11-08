@@ -7,8 +7,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Added
-
 ## [0.0.2] - 2025-11-08
 
 ### Added
@@ -195,6 +193,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Added informational note when storage includes entity caches after clearing analysis data
   - Better explanation of what storage includes (entity caches vs analysis data)
 
+#### Deployment & Infrastructure
+- **GitHub Release-Based Deployment**: Migrated to automated GitHub Actions deployment
+  - Deployment now triggered automatically on GitHub release creation
+  - Updated `deploy-github-pages.yml` workflow to deploy all required files
+  - Fixed deployment workflow to include `quality.html` and remove non-existent `stats.html`
+  - Enhanced `validate-deployment.yml` to check all JavaScript modules
+  - Updated deployment documentation in `DEPLOY.md`
+- **Cache Busting**: Updated all JavaScript and CSS references to use version `v=0.0.2`
+  - All HTML files now reference assets with version string for cache invalidation
+  - Ensures users always get latest files after deployment
+
 ### Changed
 
 - **Statistics Page**: Integrated statistics dashboard into main page
@@ -225,6 +234,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - No longer relies solely on stored license analysis data
   - Ensures consistency between counts and displayed entries
   - Automatically applies latest license classifications to all data
+
+- **License**: Migrated from MIT License to GNU General Public License v3 (GPLv3)
+  - Changed to GPL-3.0 to align with project goals and community standards
+  - See LICENSE file for full license text
 
 ### Fixed
 

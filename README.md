@@ -1,67 +1,44 @@
 # SBOM Play
 
-A web-based tool for analyzing Software Bill of Materials (SBOM) data from GitHub repositories, organizations, and users.
+## About
+
+A client-side web application for analyzing Software Bill of Materials (SBOM) data from GitHub repositories, organizations, and users. Built for security professionals to identify dependency vulnerabilities, assess license compliance, and understand software supply chain risks in real-time.
+
+The tool features comprehensive SBOM analysis including dependency tracking, vulnerability detection via OSV.dev integration, license compliance checking, author analysis with funding detection, and SBOM quality assessment. All analysis happens directly in your browser - no data ever leaves your machine.
+
+[![Live Demo](https://img.shields.io/badge/Live%20Demo-SBOM%20Play-blue?style=for-the-badge&logo=github)](https://cyfinoid.github.io/sbomplay/)
 
 ## Features
 
-- Analyze SBOM data from GitHub organizations and users
-- Track dependency usage across repositories
-- Generate dependency distribution reports
-- Export analysis results as JSON
-- Rate limit handling and recovery
-- Persistent storage of analysis results
-- Multi-organization storage: Keep data for all analyzed organizations until manually cleared
-- Organization management: View, load, and remove individual organization data
-- Bulk export: Export all stored analyses at once
+- **SBOM Analysis**: Analyze SBOM data from GitHub organizations, users, and repositories
+- **Dependency Tracking**: Track dependency usage across multiple repositories
+- **Vulnerability Detection**: OSV.dev integration for vulnerability scanning
+- **License Compliance**: Comprehensive license categorization and risk assessment
+- **Author Analysis**: Author deduplication and funding opportunity detection
+- **SBOM Quality Assessment**: Quality scoring based on multiple categories
+- **Multi-Organization Storage**: Persistent storage using IndexedDB
+- **Export/Import**: Export and import analysis data with checksum validation
+- **Rate Limit Handling**: Automatic rate limit handling and recovery
+- **Privacy-First**: All processing happens client-side in your browser
 
 ## Quick Start
 
-1. Open `index.html` in your web browser
-2. Optionally enter a GitHub Personal Access Token for better rate limits
-3. Enter an organization name or username to analyze
+1. Open `index.html` in your web browser or visit [https://cyfinoid.github.io/sbomplay/](https://cyfinoid.github.io/sbomplay/)
+2. Optionally enter a GitHub Personal Access Token for better rate limits (Settings page)
+3. Enter an organization name, username, or GitHub repository URL to analyze
 4. Click "Analyze Organization or User" to start the analysis
-5. View results and export data as needed
+5. View results across multiple pages:
+   - **Analysis**: Overview with statistics dashboard
+   - **License**: License compliance and risk assessment
+   - **Vulnerabilities**: OSV.dev vulnerability scanning results
+   - **Quality**: SBOM quality assessment scores
+   - **Dependencies**: Detailed dependency view with filtering
+   - **Authors**: Author analysis with funding opportunities
+   - **Settings**: Storage management and configuration
 
-## Development & Deployment
+## 🤖 AI-Assisted Development
 
-### Development Workflow
-1. **Work in main folder** - Edit `index.html`, `js/`, `css/` files directly
-2. **Test locally** - Open `index.html` in browser to test
-3. **Deploy when ready**:
-   ```bash
-   ./deploy.sh                    # Automatic deployment with meaningful commit
-   ```
-   
-   Or manually:
-   ```bash
-   ./update-prod.sh                    # Copy to docs folder
-   git add docs/                       # Stage changes
-   git commit -S -m "deploy: update SBOM Play production files"   # Commit with signing
-   git push                            # Deploy to GitHub Pages
-   ```
-
-### GitHub Pages Setup
-1. Go to repository Settings → Pages
-2. Source: Deploy from a branch
-3. Branch: `main` (or your default)
-4. Folder: `/docs`
-5. Your site will be at: `https://yourusername.github.io/sbomplay/`
-
-## Recent Fixes
-
-### SBOM Processing Issue (Fixed)
-The tool now correctly processes GitHub's SBOM data format. The issue was that GitHub's SBOM API uses `versionInfo` instead of `version` for package versions. This has been fixed and the tool should now properly capture dependencies.
-
-### Organization and User Support (Added)
-The tool now supports analyzing both GitHub organizations and individual users. It automatically detects whether the input is an organization or user and uses the appropriate API endpoint.
-
-### Multi-Organization Storage (Added)
-The tool now maintains data for all analyzed organizations and users until manually cleared. Features include:
-- **Persistent Storage**: All analysis data is saved and persists between sessions
-- **Organization Overview**: View all stored analyses with statistics
-- **Individual Management**: Load, view, or remove specific organization data
-- **Bulk Operations**: Export all data or clear all stored analyses
-- **Smart Updates**: Re-analyzing an organization updates existing data instead of creating duplicates
+This project was developed with the assistance of AI tools, most notably **Cursor IDE** and **Claude Code**. These tools helped accelerate development and improve velocity. All AI-generated code has been carefully reviewed and validated through human inspection to ensure it aligns with the project's intended functionality and quality standards.
 
 ## Storage Management
 
@@ -77,7 +54,7 @@ SBOM Play uses browser IndexedDB to store analysis data. IndexedDB provides gene
 
 #### Manual Management
 - **Storage Status**: Check current usage and available space in Settings
-- **Export Data**: Export all data to JSON for backup or sharing
+- **Export Data**: Export all data to JSON for backup or sharing (with checksum validation)
 - **Clear Old Data**: Remove old analyses while keeping recent ones
 - **Clear All Data**: Complete reset of stored data
 
@@ -138,9 +115,11 @@ Repositories need to have dependency files for the Dependency Graph to work:
 - Uses GitHub's Dependency Graph API
 - Supports all GitHub-supported dependency file formats
 - Handles rate limiting with automatic retry
-- Stores results in browser localStorage
+- Stores results in browser IndexedDB (not localStorage)
 - No server-side processing required
 - Correctly processes GitHub's SBOM format (`versionInfo` field)
+- Client-side vulnerability scanning via OSV.dev API
+- License compliance analysis with 100+ recognized licenses
 
 ## Rate Limits
 
@@ -151,26 +130,90 @@ Repositories need to have dependency files for the Dependency Graph to work:
 ## Browser Compatibility
 
 - Modern browsers with ES6+ support
-- Requires localStorage support
-- No external dependencies
+- Requires IndexedDB support
+- No external dependencies (uses CDN for Bootstrap and Font Awesome)
+
+## Development & Deployment
+
+### Development Workflow
+1. **Work in main folder** - Edit `index.html`, `js/`, `css/` files directly
+2. **Test locally** - Open `index.html` in browser to test
+3. **Deploy via GitHub Release** - Create a release tag to trigger automatic deployment
+
+### GitHub Pages Deployment
+
+Deployment is automated via GitHub Actions when a release is created:
+
+1. Create a new release on GitHub (with tag like `v0.0.2`)
+2. The `deploy-github-pages.yml` workflow automatically:
+   - Copies all required files to `_site/` directory
+   - Uploads artifact
+   - Deploys to GitHub Pages
+3. Your site will be available at: `https://cyfinoid.github.io/sbomplay/`
+
+See [DEPLOY.md](DEPLOY.md) for detailed deployment instructions.
 
 ## Project Structure
 
 ```
 sbomplay/
 ├── index.html              # Main application
-├── js/                     # JavaScript files
+├── license-compliance.html # License compliance page
+├── vuln.html              # Vulnerability analysis page
+├── quality.html           # SBOM quality assessment page
+├── deps.html              # Dependency view page
+├── authors.html           # Author analysis page
+├── settings.html          # Settings and storage management
+├── js/                    # JavaScript files
 │   ├── app.js
 │   ├── github-client.js
 │   ├── sbom-processor.js
-│   └── storage-manager.js
-├── css/                    # CSS files
-│   └── style.css
-├── docs/                   # Production deployment (for GitHub Pages)
-├── test-*.html            # Optional test files
-└── legacy/                 # Old Python scripts (deprecated)
+│   ├── license-processor.js
+│   ├── osv-service.js
+│   ├── storage-manager.js
+│   ├── view-manager.js
+│   └── ... (other modules)
+├── css/                   # CSS files
+│   ├── style.css
+│   └── themes.css
+├── .github/workflows/     # GitHub Actions workflows
+│   ├── deploy-github-pages.yml
+│   └── validate-deployment.yml
+└── LICENSE                # GPL-3.0 license
 ```
 
-## License
+## 💬 Community & Discussion
 
-MIT License - see LICENSE file for details.
+Join our Discord server for discussions, questions, and collaboration:
+
+**[Join our Discord Server](https://discord.gg/7trkcUFrgR)**
+
+Connect with other security researchers, share your findings, and get help with usage and development.
+
+## 📄 License
+
+This project is licensed under the GNU General Public License v3 (GPLv3) - see the [LICENSE](LICENSE) file for details.
+
+## ⚠️ Disclaimer
+
+This tool is designed for security auditing and analysis of systems you own or have explicit permission to analyze. Always ensure you have proper authorization before using this tool against any systems or repositories you don't own. The authors are not responsible for any misuse of this software.
+
+## 🔬 Cyfinoid Research
+
+**Cutting-Edge Software Supply Chain Security Research**
+
+Pioneering advanced software supply chain security research and developing innovative security tools for the community. This tool is part of our free research toolkit - helping security researchers and organizations identify software supply chain vulnerabilities and assess license compliance.
+
+### 🌐 Software Supply Chain Focus
+
+Specializing in software supply chain attacks, CI/CD pipeline security, and offensive security research. Our research tools help organizations understand their software supply chain vulnerabilities and develop effective defense strategies.
+
+### 🎓 Learn & Explore
+
+Explore our professional training programs, latest research insights, and free open source tools developed from our cutting-edge cybersecurity research.
+
+**[Upcoming Trainings](https://cyfinoid.com/trainings/#upcoming-trainings)** | **[Read Our Blog](https://cyfinoid.com/blog/)** | **[Open Source by Cyfinoid](https://cyfinoid.com/opensource-by-cyfinoid/)**
+
+Hands-on training in software supply chain security, CI/CD pipeline attacks, and offensive security techniques
+
+© 2025 Cyfinoid Research.
