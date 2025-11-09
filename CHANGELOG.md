@@ -78,7 +78,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Combined view showing vulnerabilities across all analyzed organizations
   - Individual vulnerability details with references and external links
 
-- **License Compliance**: Enhanced license compliance page (`license-compliance.html`)
+- **License Compliance**: Enhanced license compliance page (`licenses.html`)
   - License categorization (proprietary, copyleft, LGPL, permissive, unknown)
   - Risk assessment (low, medium, high)
   - License conflict detection

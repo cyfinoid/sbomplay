@@ -158,7 +158,7 @@ See [DEPLOY.md](DEPLOY.md) for detailed deployment instructions.
 ```
 sbomplay/
 ├── index.html              # Main application
-├── license-compliance.html # License compliance page
+├── licenses.html # License compliance page
 ├── vuln.html              # Vulnerability analysis page
 ├── quality.html           # SBOM quality assessment page
 ├── deps.html              # Dependency view page

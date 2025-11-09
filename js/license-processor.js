@@ -642,6 +642,68 @@ class LicenseProcessor {
 
         return stats;
     }
+
+    /**
+     * Check if a dependency license is compatible with a repository license
+     * Returns true if compatible, false if incompatible, null if unknown/indeterminate
+     * @param {string} dependencyLicense - The dependency's license (SPDX identifier)
+     * @param {string} repositoryLicense - The repository's license (SPDX identifier)
+     * @returns {boolean|null} - true if compatible, false if incompatible, null if unknown
+     */
+    isDependencyCompatibleWithRepository(dependencyLicense, repositoryLicense) {
+        // If repository license is not available, we can't determine compatibility
+        if (!repositoryLicense) {
+            return null;
+        }
+
+        // If dependency license is not available, it's a concern regardless
+        if (!dependencyLicense || dependencyLicense === 'NOASSERTION') {
+            return false;
+        }
+
+        // Same license is always compatible
+        if (dependencyLicense === repositoryLicense) {
+            return true;
+        }
+
+        // Check compatibility using the existing compatibility matrix
+        // If repository is GPL and dependency is GPL, they're compatible
+        if (this.areLicensesCompatible(dependencyLicense, repositoryLicense)) {
+            return true;
+        }
+
+        // Special case: If repository is GPL-licensed, GPL dependencies are compatible
+        const repoIsGPL = repositoryLicense.toLowerCase().includes('gpl') && 
+                          !repositoryLicense.toLowerCase().includes('lgpl') &&
+                          !repositoryLicense.toLowerCase().includes('agpl');
+        const depIsGPL = dependencyLicense.toLowerCase().includes('gpl') && 
+                         !dependencyLicense.toLowerCase().includes('lgpl') &&
+                         !dependencyLicense.toLowerCase().includes('agpl');
+        
+        if (repoIsGPL && depIsGPL) {
+            return true; // GPL dependencies are compatible with GPL repositories
+        }
+
+        // Special case: If repository is LGPL-licensed, LGPL and GPL dependencies are compatible
+        const repoIsLGPL = repositoryLicense.toLowerCase().includes('lgpl');
+        const depIsLGPL = dependencyLicense.toLowerCase().includes('lgpl');
+        
+        if (repoIsLGPL && (depIsLGPL || depIsGPL)) {
+            return true; // LGPL/GPL dependencies are compatible with LGPL repositories
+        }
+
+        // If repository is permissive (MIT, Apache, BSD, etc.), all dependencies are generally compatible
+        // But copyleft dependencies might still be flagged for awareness
+        const repoIsPermissive = this.licenseCategories.permissive.licenses.includes(repositoryLicense);
+        if (repoIsPermissive) {
+            // Permissive licenses can use any dependency, but we still want to flag copyleft for awareness
+            // Return true for compatibility, but the risk assessment will still flag copyleft
+            return true;
+        }
+
+        // For other cases, use the compatibility matrix
+        return this.areLicensesCompatible(dependencyLicense, repositoryLicense);
+    }
 }
 
 // Export for use in other modules

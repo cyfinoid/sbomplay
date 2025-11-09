@@ -114,8 +114,12 @@ class SBOMProcessor {
 
     /**
      * Process SBOM data from a repository
+     * @param {string} owner - Repository owner
+     * @param {string} repo - Repository name
+     * @param {Object} sbomData - SBOM data from GitHub
+     * @param {string} repositoryLicense - Repository's own license (SPDX identifier, e.g., 'GPL-3.0', 'MIT')
      */
-    processSBOM(owner, repo, sbomData) {
+    processSBOM(owner, repo, sbomData, repositoryLicense = null) {
         if (!sbomData || !sbomData.sbom || !sbomData.sbom.packages) {
             console.log(`⚠️  Invalid SBOM data for ${owner}/${repo}`);
             return false;
@@ -127,6 +131,7 @@ class SBOMProcessor {
         const repoData = {
             name: repo,
             owner: owner,
+            license: repositoryLicense || null,  // Store repository's own license
             dependencies: new Set(),
             directDependencies: new Set(),  // Track direct dependencies from relationships
             totalDependencies: 0,
@@ -845,6 +850,7 @@ class SBOMProcessor {
             allRepositories = Array.from(this.repositories.values()).map(repo => ({
                 name: repo.name,
                 owner: repo.owner,
+                license: repo.license || null,  // Include repository license
                 totalDependencies: repo.totalDependencies,
                 dependencies: Array.from(repo.dependencies),
                 dependencyCategories: {

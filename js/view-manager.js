@@ -3037,7 +3037,9 @@ class ViewManager {
             // Set total to the filtered count
             counts.total = filteredCount;
         } else {
-            // No filter: count all dependencies normally
+            // No filter: count all dependencies normally, but exclude copyleft dependencies
+            // that are compatible with all repository licenses
+            const allRepos = orgData.data?.allRepositories || [];
             dependencies.forEach(dep => {
                 if (!dep.originalPackage) {
                     counts.unlicensed++;
@@ -3047,14 +3049,48 @@ class ViewManager {
                 const licenseInfo = licenseProcessor.parseLicense(dep.originalPackage);
                 
                 if (licenseInfo.license && licenseInfo.license !== 'NOASSERTION') {
-                    counts.total++;
-                    
+                    // For copyleft dependencies, check compatibility with repository licenses
                     if (licenseInfo.category === 'copyleft' || licenseInfo.category === 'lgpl') {
-                        counts.copyleft++;
-                    } else if (licenseInfo.category === 'proprietary') {
-                        counts.proprietary++;
-                    } else if (licenseInfo.category === 'unknown') {
-                        counts.unknown++;
+                        const depRepos = dep.repositories || [];
+                        let isCompatibleWithAllRepos = true;
+                        
+                        if (depRepos.length > 0 && allRepos.length > 0) {
+                            // Check each repository that uses this dependency
+                            for (const repoKey of depRepos) {
+                                const repo = allRepos.find(r => `${r.owner}/${r.name}` === repoKey);
+                                if (repo && repo.license) {
+                                    const compatibility = licenseProcessor.isDependencyCompatibleWithRepository(
+                                        licenseInfo.license, 
+                                        repo.license
+                                    );
+                                    if (compatibility === false) {
+                                        isCompatibleWithAllRepos = false;
+                                        break; // Found at least one incompatible repo
+                                    } else if (compatibility === null) {
+                                        // Unknown compatibility - treat as potentially incompatible
+                                        isCompatibleWithAllRepos = false;
+                                    }
+                                } else {
+                                    // Repository license not available - treat as potentially incompatible
+                                    isCompatibleWithAllRepos = false;
+                                }
+                            }
+                        }
+                        
+                        // Only count copyleft dependencies that are incompatible with at least one repo
+                        if (!isCompatibleWithAllRepos) {
+                            counts.copyleft++;
+                        }
+                        // Always count in total
+                        counts.total++;
+                    } else {
+                        counts.total++;
+                        
+                        if (licenseInfo.category === 'proprietary') {
+                            counts.proprietary++;
+                        } else if (licenseInfo.category === 'unknown') {
+                            counts.unknown++;
+                        }
                     }
                 } else {
                     counts.unlicensed++;
@@ -3677,7 +3713,7 @@ class ViewManager {
             <div class="alert alert-info alert-dismissible fade show mb-3">
                 <i class="fas fa-filter me-2"></i>
                 <strong>Category Filter Active:</strong> Showing only ${escapeHtml(categoryFilter)} license category.
-                <a href="license-compliance.html" class="btn btn-sm btn-outline-primary ms-2">
+                <a href="licenses.html" class="btn btn-sm btn-outline-primary ms-2">
                     <i class="fas fa-times me-1"></i>Clear Filter
                 </a>
                 <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
@@ -3697,21 +3733,69 @@ class ViewManager {
         // Re-process high-risk dependencies from allDependencies using current license processor
         // This ensures we use the latest license classifications, not stored old data
         const licenseProcessor = new LicenseProcessor();
+        const allRepos = orgData.data?.allRepositories || [];
         const rawHighRiskDeps = [];
         allDeps.forEach(dep => {
             if (!dep.originalPackage) return;
             const licenseInfo = licenseProcessor.parseLicense(dep.originalPackage);
+            
+            // Check if this dependency is used by any repositories and if it's compatible
+            const depRepos = dep.repositories || [];
+            let isIncompatibleWithAnyRepo = false;
+            let isCompatibleWithAllRepos = true;
+            
+            // For copyleft dependencies (GPL/LGPL), check compatibility with repository licenses
+            if (licenseInfo.category === 'copyleft' || licenseInfo.category === 'lgpl') {
+                if (depRepos.length > 0 && allRepos.length > 0) {
+                    // Check each repository that uses this dependency
+                    for (const repoKey of depRepos) {
+                        const repo = allRepos.find(r => `${r.owner}/${r.name}` === repoKey);
+                        if (repo && repo.license) {
+                            const compatibility = licenseProcessor.isDependencyCompatibleWithRepository(
+                                licenseInfo.license, 
+                                repo.license
+                            );
+                            if (compatibility === false) {
+                                isIncompatibleWithAnyRepo = true;
+                                isCompatibleWithAllRepos = false;
+                                break; // Found at least one incompatible repo
+                            } else if (compatibility === null) {
+                                // Unknown compatibility - treat as potentially incompatible
+                                isCompatibleWithAllRepos = false;
+                            }
+                        } else {
+                            // Repository license not available - treat as potentially incompatible
+                            isCompatibleWithAllRepos = false;
+                        }
+                    }
+                    
+                    // If copyleft dependency is compatible with all repositories, don't flag it as high-risk
+                    if (isCompatibleWithAllRepos && !isIncompatibleWithAnyRepo) {
+                        return; // Skip this dependency - it's compatible with all repos
+                    }
+                }
+            }
+            
             // Only include high-risk dependencies (copyleft, unknown, or unlicensed)
+            // But skip copyleft dependencies that are compatible with all repositories
             if (licenseInfo.risk === 'high' || licenseInfo.category === 'copyleft' || 
                 licenseInfo.category === 'unknown' || !licenseInfo.license || 
                 licenseInfo.license === 'NOASSERTION') {
+                // For copyleft dependencies, only include if incompatible with at least one repo
+                if (licenseInfo.category === 'copyleft' || licenseInfo.category === 'lgpl') {
+                    if (!isIncompatibleWithAnyRepo && isCompatibleWithAllRepos) {
+                        return; // Skip - compatible with all repositories
+                    }
+                }
+                
                 rawHighRiskDeps.push({
                     name: dep.name || 'Unknown',
                     version: dep.version || 'Unknown',
                     license: licenseInfo.license || 'Unknown',
                     category: licenseInfo.category || 'unknown',
                     warnings: licenseInfo.warnings || [],
-                    originalPackage: dep.originalPackage
+                    originalPackage: dep.originalPackage,
+                    isIncompatibleWithAnyRepo: isIncompatibleWithAnyRepo
                 });
             }
         });

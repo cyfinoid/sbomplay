@@ -39,7 +39,7 @@ You can also manually trigger the deployment workflow:
 ## ✅ Pre-deploy Checklist
 
 - [ ] Test locally: `open index.html`
-- [ ] Verify all HTML files are present (index.html, license-compliance.html, vuln.html, deps.html, authors.html, settings.html, quality.html)
+- [ ] Verify all HTML files are present (index.html, licenses.html, vuln.html, deps.html, authors.html, settings.html, quality.html)
 - [ ] Verify all JavaScript files are present in `js/` directory
 - [ ] Verify all CSS files are present in `css/` directory
 - [ ] Update version strings in HTML files (e.g., `?v=0.0.2`)
@@ -51,7 +51,7 @@ You can also manually trigger the deployment workflow:
 ```
 sbomplay/
 ├── index.html              # Main app
-├── license-compliance.html # License compliance page
+├── licenses.html # License compliance page
 ├── vuln.html              # Vulnerability analysis page
 ├── quality.html           # SBOM quality assessment page
 ├── deps.html              # Dependency view page

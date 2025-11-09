@@ -536,7 +536,9 @@ class SBOMPlayApp {
             // Process SBOM
             this.updateProgress(50, 'Processing SBOM data...');
             this.sbomProcessor.setTotalRepositories(1);
-            const success = this.sbomProcessor.processSBOM(owner, repo, sbomData);
+            // Extract repository license from GitHub API response
+            const repositoryLicense = repoData.license?.spdx_id || repoData.license?.key || null;
+            const success = this.sbomProcessor.processSBOM(owner, repo, sbomData, repositoryLicense);
             
             if (!success) {
                 this.showAlert(`Failed to process SBOM data for ${repoKey}`, 'danger');
@@ -711,7 +713,9 @@ class SBOMPlayApp {
                     const sbomData = await this.githubClient.fetchSBOM(owner, name);
                     
                     if (sbomData) {
-                        const success = this.sbomProcessor.processSBOM(owner, name, sbomData);
+                        // Extract repository license from GitHub API response
+                        const repositoryLicense = repo.license?.spdx_id || repo.license?.key || null;
+                        const success = this.sbomProcessor.processSBOM(owner, name, sbomData, repositoryLicense);
                         this.sbomProcessor.updateProgress(success);
                         if (success) {
                             successfulRepos++;
@@ -1114,7 +1118,7 @@ class SBOMPlayApp {
                     </p>
                 </div>
                 <div class="col-md-6 text-end">
-                    <a href="license-compliance.html" class="btn btn-outline-primary btn-sm me-2">
+                    <a href="licenses.html" class="btn btn-outline-primary btn-sm me-2">
                         <i class="fas fa-file-contract me-1"></i>License Details
                     </a>
                     <a href="vuln.html" class="btn btn-outline-warning btn-sm me-2">
@@ -1478,7 +1482,7 @@ class SBOMPlayApp {
             <div class="col-md-6">
                 <div class="d-flex flex-column justify-content-center h-100">
                     ${proprietary > 0 ? `
-                    <a href="license-compliance.html?category=proprietary" class="text-decoration-none text-reset license-category-link" data-category="proprietary" style="transition: all 0.2s;">
+                    <a href="licenses.html?category=proprietary" class="text-decoration-none text-reset license-category-link" data-category="proprietary" style="transition: all 0.2s;">
                         <div class="mb-3 p-2 rounded" style="border: 2px solid transparent;" onmouseover="this.style.borderColor='${colors.proprietary}'; this.style.backgroundColor='rgba(220, 53, 69, 0.1)';" onmouseout="this.style.borderColor='transparent'; this.style.backgroundColor='transparent';">
                             <div class="d-flex justify-content-between align-items-center mb-2">
                                 <div>
@@ -1498,7 +1502,7 @@ class SBOMPlayApp {
                     </a>
                     ` : ''}
                     ${copyleft > 0 ? `
-                    <a href="license-compliance.html?category=copyleft" class="text-decoration-none text-reset license-category-link" data-category="copyleft" style="transition: all 0.2s;">
+                    <a href="licenses.html?category=copyleft" class="text-decoration-none text-reset license-category-link" data-category="copyleft" style="transition: all 0.2s;">
                         <div class="mb-3 p-2 rounded" style="border: 2px solid transparent;" onmouseover="this.style.borderColor='${colors.copyleft}'; this.style.backgroundColor='rgba(255, 193, 7, 0.1)';" onmouseout="this.style.borderColor='transparent'; this.style.backgroundColor='transparent';">
                             <div class="d-flex justify-content-between align-items-center mb-2">
                                 <div>
@@ -1518,7 +1522,7 @@ class SBOMPlayApp {
                     </a>
                     ` : ''}
                     ${lgpl > 0 ? `
-                    <a href="license-compliance.html?category=lgpl" class="text-decoration-none text-reset license-category-link" data-category="lgpl" style="transition: all 0.2s;">
+                    <a href="licenses.html?category=lgpl" class="text-decoration-none text-reset license-category-link" data-category="lgpl" style="transition: all 0.2s;">
                         <div class="mb-3 p-2 rounded" style="border: 2px solid transparent;" onmouseover="this.style.borderColor='${colors.lgpl}'; this.style.backgroundColor='rgba(253, 126, 20, 0.1)';" onmouseout="this.style.borderColor='transparent'; this.style.backgroundColor='transparent';">
                             <div class="d-flex justify-content-between align-items-center mb-2">
                                 <div>
@@ -1538,7 +1542,7 @@ class SBOMPlayApp {
                     </a>
                     ` : ''}
                     ${unknown > 0 ? `
-                    <a href="license-compliance.html?category=unknown" class="text-decoration-none text-reset license-category-link" data-category="unknown" style="transition: all 0.2s;">
+                    <a href="licenses.html?category=unknown" class="text-decoration-none text-reset license-category-link" data-category="unknown" style="transition: all 0.2s;">
                         <div class="mb-3 p-2 rounded" style="border: 2px solid transparent;" onmouseover="this.style.borderColor='${colors.unknown}'; this.style.backgroundColor='rgba(108, 117, 125, 0.1)';" onmouseout="this.style.borderColor='transparent'; this.style.backgroundColor='transparent';">
                             <div class="d-flex justify-content-between align-items-center mb-2">
                                 <div>
@@ -1558,7 +1562,7 @@ class SBOMPlayApp {
                     </a>
                     ` : ''}
                     ${unlicensed > 0 ? `
-                    <a href="license-compliance.html?category=unlicensed" class="text-decoration-none text-reset license-category-link" data-category="unlicensed" style="transition: all 0.2s;">
+                    <a href="licenses.html?category=unlicensed" class="text-decoration-none text-reset license-category-link" data-category="unlicensed" style="transition: all 0.2s;">
                         <div class="mb-3 p-2 rounded" style="border: 2px solid transparent;" onmouseover="this.style.borderColor='${colors.unlicensed}'; this.style.backgroundColor='rgba(23, 162, 184, 0.1)';" onmouseout="this.style.borderColor='transparent'; this.style.backgroundColor='transparent';">
                             <div class="d-flex justify-content-between align-items-center mb-2">
                                 <div>
@@ -2173,7 +2177,7 @@ class SBOMPlayApp {
             </div>
         `;
         
-        // Build license cards similar to license-compliance.html
+        // Build license cards similar to licenses.html
         const licenseCardsHtml = `
             <div class="row g-3 mb-3">
                 <div class="col-md-4">
@@ -2223,7 +2227,7 @@ class SBOMPlayApp {
                 </div>
             </div>
             <div class="text-center mt-3">
-                <a href="license-compliance.html" class="btn btn-outline-primary">
+                <a href="licenses.html" class="btn btn-outline-primary">
                     <i class="fas fa-file-contract me-2"></i>View Detailed License Analysis
                 </a>
             </div>
@@ -2414,7 +2418,7 @@ class SBOMPlayApp {
                     <a href="index.html" class="btn btn-sm btn-outline-primary">
                         <i class="fas fa-chart-bar me-1"></i>Statistics
                     </a>
-                    <a href="license-compliance.html" class="btn btn-sm btn-outline-primary">
+                    <a href="licenses.html" class="btn btn-sm btn-outline-primary">
                         <i class="fas fa-shield-alt me-1"></i>Licenses
                     </a>
                     <a href="vuln.html" class="btn btn-sm btn-outline-primary">
