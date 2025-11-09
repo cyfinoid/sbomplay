@@ -1269,15 +1269,36 @@
                 licenseInfo = licenseProcessor.parseLicense(packageRaw.originalPackage);
             }
             
-            // Get quality info for repositories
-            const repoQualityMap = new Map();
-            if (currentData && currentData.allRepositories) {
-                currentData.allRepositories.forEach(repo => {
-                    const repoKey = `${repo.owner}/${repo.name}`;
-                    if (packageRepos.includes(repoKey) && repo.qualityAssessment) {
-                        repoQualityMap.set(repoKey, repo.qualityAssessment);
+            // Extract GitHub repository URL from package metadata
+            let githubRepoUrl = null;
+            if (packageRaw && packageRaw.originalPackage && packageRaw.originalPackage.externalRefs) {
+                // Check externalRefs for repository URLs
+                for (const ref of packageRaw.originalPackage.externalRefs) {
+                    if (ref.referenceType === 'vcs' || ref.referenceType === 'repository' || ref.referenceType === 'website') {
+                        const url = ref.referenceLocator || ref.referenceUrl || '';
+                        // Check if it's a GitHub URL
+                        if (url.match(/github\.com[\/:]([^\/]+)\/([^\/\s]+)/i)) {
+                            // Clean up git+https:// and .git suffixes
+                            githubRepoUrl = url.replace(/^git\+/, '').replace(/\.git$/, '').replace(/\/$/, '');
+                            // Ensure it starts with https://
+                            if (!githubRepoUrl.startsWith('http')) {
+                                githubRepoUrl = 'https://' + githubRepoUrl;
+                            }
+                            break;
+                        }
+                    } else if (ref.referenceType === 'purl' && ref.referenceLocator) {
+                        // Check PURL for repository info
+                        const purl = ref.referenceLocator;
+                        // PURL might contain repository info in qualifiers
+                        if (purl.includes('github.com')) {
+                            const match = purl.match(/github\.com[\/:]([^\/]+)\/([^\/\s]+)/i);
+                            if (match) {
+                                githubRepoUrl = `https://github.com/${match[1]}/${match[2]}`;
+                                break;
+                            }
+                        }
                     }
-                });
+                }
             }
             
             // Get current organization context for the link
@@ -1297,11 +1318,11 @@
             // Build HTML
             let html = `
                 <div class="row">
-                    <div class="col-md-6">
+                    <div class="col-12">
                         <h6><i class="fas fa-info-circle me-2"></i>Basic Information</h6>
                         <table class="table table-sm">
                             <tr>
-                                <th width="40%">Package:</th>
+                                <th width="20%">Package:</th>
                                 <td><code>${escapeHtml(packageName)}@${escapeHtml(packageVersion)}</code></td>
                             </tr>
                             <tr>
@@ -1317,25 +1338,17 @@
                                     ${licenseInfo.category !== 'unknown' ? `<span class="badge bg-info ms-2">${licenseInfo.category}</span>` : ''}
                                 </td>
                             </tr>
+                            ${githubRepoUrl ? `
+                            <tr>
+                                <th>Repository:</th>
+                                <td>
+                                    <a href="${escapeHtml(githubRepoUrl)}" target="_blank" class="text-decoration-none">
+                                        <i class="fab fa-github me-1"></i>${escapeHtml(githubRepoUrl)}
+                                    </a>
+                                </td>
+                            </tr>
+                            ` : ''}
                         </table>
-                    </div>
-                    <div class="col-md-6">
-                        <h6><i class="fas fa-code-branch me-2"></i>Usage</h6>
-                        <p class="mb-2">Used in <strong>${packageRepos.length}</strong> ${packageRepos.length === 1 ? 'repository' : 'repositories'}:</p>
-                        <div class="list-group max-h-200 overflow-y-auto">
-                            ${packageRepos.map(repo => {
-                                const quality = repoQualityMap.get(repo);
-                                return `
-                                    <div class="list-group-item">
-                                        <i class="fas fa-code-branch me-2 text-primary"></i>
-                                        <a href="${createRepoLink(repo)}" class="text-decoration-none">
-                                            <strong>${escapeHtml(repo)}</strong>
-                                        </a>
-                                        ${quality ? `<span class="badge bg-${quality.grade === 'A' ? 'success' : quality.grade === 'B' ? 'primary' : quality.grade === 'C' ? 'warning' : quality.grade === 'D' ? 'danger' : 'dark'} ms-2" title="SBOM Quality: ${(quality.overallScore / 10).toFixed(1)}/10.0">${quality.grade}</span>` : ''}
-                                    </div>
-                                `;
-                            }).join('')}
-                        </div>
                     </div>
                 </div>
             `;

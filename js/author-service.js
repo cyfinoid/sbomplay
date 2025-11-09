@@ -794,14 +794,23 @@ class AuthorService {
         const hasMaintainers = data.maintainers && Array.isArray(data.maintainers) && data.maintainers.length > 0;
         
         // PRIMARY: Collect maintainers (current responsible parties for security/accountability)
+        // For npm, maintainers[].name is the username (e.g., "tmpvar", "josdejong")
+        // This is what npm profiles use, not the display name from author.name
         if (hasMaintainers) {
             data.maintainers.forEach(m => {
                 if (m && (m.name || m.email)) {
-                    authorObjects.push({ 
-                        name: m.name || null, 
+                    const authorObj = { 
+                        name: m.name || null,  // Username for npm (e.g., "tmpvar")
                         email: m.email || null,
                         isMaintainer: true  // Mark as maintainer
-                    });
+                    };
+                    
+                    // Store npm username in metadata for profile URL construction
+                    if (m.name) {
+                        authorObj.metadata = { npm_username: m.name };
+                    }
+                    
+                    authorObjects.push(authorObj);
                 }
             });
         }
@@ -977,17 +986,29 @@ class AuthorService {
                     
                     if (preferNew) {
                         // Keep maintainer flag if either is maintainer, prefer longer name
+                        // But preserve npm_username from maintainer if available
+                        const mergedMetadata = { ...existing.metadata, ...author.metadata };
                         emailMap.set(author.email, { 
                             name: author.name || existing.name, 
                             email: author.email,
-                            isMaintainer: author.isMaintainer || existing.isMaintainer || false
+                            isMaintainer: author.isMaintainer || existing.isMaintainer || false,
+                            metadata: Object.keys(mergedMetadata).length > 0 ? mergedMetadata : null
                         });
                     } else {
-                        // Keep existing but preserve maintainer flag
+                        // Keep existing but preserve maintainer flag and npm username
                         if (author.isMaintainer && !existing.isMaintainer) {
+                            const mergedMetadata = { ...existing.metadata, ...author.metadata };
                             emailMap.set(author.email, {
                                 ...existing,
-                                isMaintainer: true
+                                isMaintainer: true,
+                                metadata: Object.keys(mergedMetadata).length > 0 ? mergedMetadata : existing.metadata
+                            });
+                        } else if (author.metadata?.npm_username && !existing.metadata?.npm_username) {
+                            // Preserve npm username even if not preferring new author
+                            const mergedMetadata = { ...existing.metadata, ...author.metadata };
+                            emailMap.set(author.email, {
+                                ...existing,
+                                metadata: mergedMetadata
                             });
                         }
                     }
@@ -1026,9 +1047,16 @@ class AuthorService {
                         // Only prefer longer name if neither is maintainer
                         bestName = noEmailAuthor.name;
                     }
-                    // Preserve metadata from either source (prefer noEmailAuthor if it has metadata)
+                    // Preserve metadata from either source (merge both, prefer maintainer's npm_username)
                     if (noEmailAuthor.metadata) {
                         bestMetadata = { ...bestMetadata, ...noEmailAuthor.metadata };
+                    }
+                    // Preserve npm_username from maintainer even if we prefer display name
+                    if (emailAuthor.metadata?.npm_username) {
+                        bestMetadata = { ...bestMetadata, npm_username: emailAuthor.metadata.npm_username };
+                    }
+                    if (noEmailAuthor.metadata?.npm_username) {
+                        bestMetadata = { ...bestMetadata, npm_username: noEmailAuthor.metadata.npm_username };
                     }
                     usedNoEmailIndices.add(idx);
                 }
@@ -1228,6 +1256,20 @@ class AuthorService {
     extractPyPiAuthors(data) {
         const authorObjects = [];
         
+        // Extract GitHub username from project_urls (if available)
+        let githubUsername = null;
+        if (data.info && data.info.project_urls) {
+            const urls = data.info.project_urls;
+            // Check Source, Homepage, or Repository URLs for GitHub
+            const repoUrl = urls.Source || urls.Homepage || urls.Repository || urls['Source Code'] || urls['Code'];
+            if (repoUrl) {
+                const githubMatch = repoUrl.match(/github\.com[\/:]([^\/]+)/i);
+                if (githubMatch) {
+                    githubUsername = githubMatch[1];
+                }
+            }
+        }
+        
         if (data.info) {
             // Collect author with email
             if (data.info.author || data.info.author_email) {
@@ -1268,12 +1310,19 @@ class AuthorService {
                             username: authorUsername,
                             isOrganization: this.isPyPIOrganization(authorName, authorEmail)
                         };
-                        // Store username in metadata for profile URL construction (only for users, not orgs)
+                        
+                        // Build metadata object
+                        authorObj.metadata = {};
                         if (authorUsername && !authorObj.isOrganization) {
-                            authorObj.metadata = { pypi_username: authorUsername };
+                            authorObj.metadata.pypi_username = authorUsername;
                         } else if (authorObj.isOrganization) {
-                            authorObj.metadata = { pypi_organization: authorName.toLowerCase() };
+                            authorObj.metadata.pypi_organization = authorName.toLowerCase();
                         }
+                        // Add GitHub username if available
+                        if (githubUsername) {
+                            authorObj.metadata.github = githubUsername;
+                        }
+                        
                         authorObjects.push(authorObj);
                     });
                 } else {
@@ -1284,12 +1333,19 @@ class AuthorService {
                         username,
                         isOrganization: isOrg
                     };
-                    // Store username in metadata for profile URL construction
+                    
+                    // Build metadata object
+                    authorObj.metadata = {};
                     if (isOrg) {
-                        authorObj.metadata = { pypi_organization: name.toLowerCase() };
+                        authorObj.metadata.pypi_organization = name.toLowerCase();
                     } else if (username) {
-                        authorObj.metadata = { pypi_username: username };
+                        authorObj.metadata.pypi_username = username;
                     }
+                    // Add GitHub username if available
+                    if (githubUsername) {
+                        authorObj.metadata.github = githubUsername;
+                    }
+                    
                     authorObjects.push(authorObj);
                 }
             }
@@ -1332,11 +1388,19 @@ class AuthorService {
                             isMaintainer: true,
                             isOrganization: isMaintainerOrg
                         };
+                        
+                        // Build metadata object
+                        authorObj.metadata = {};
                         if (isMaintainerOrg) {
-                            authorObj.metadata = { pypi_organization: maintainerName.toLowerCase() };
+                            authorObj.metadata.pypi_organization = maintainerName.toLowerCase();
                         } else if (maintainerUsername) {
-                            authorObj.metadata = { pypi_username: maintainerUsername };
+                            authorObj.metadata.pypi_username = maintainerUsername;
                         }
+                        // Add GitHub username if available
+                        if (githubUsername) {
+                            authorObj.metadata.github = githubUsername;
+                        }
+                        
                         authorObjects.push(authorObj);
                     });
                 } else {
@@ -1348,11 +1412,19 @@ class AuthorService {
                         isMaintainer: true,
                         isOrganization: isOrg
                     };
+                    
+                    // Build metadata object
+                    authorObj.metadata = {};
                     if (isOrg) {
-                        authorObj.metadata = { pypi_organization: name.toLowerCase() };
+                        authorObj.metadata.pypi_organization = name.toLowerCase();
                     } else if (username) {
-                        authorObj.metadata = { pypi_username: username };
+                        authorObj.metadata.pypi_username = username;
                     }
+                    // Add GitHub username if available
+                    if (githubUsername) {
+                        authorObj.metadata.github = githubUsername;
+                    }
+                    
                     authorObjects.push(authorObj);
                 }
             }
@@ -1365,7 +1437,7 @@ class AuthorService {
         // The calling code expects either strings or objects with name/metadata
         return deduplicated.map(authorObj => {
             // If we have metadata, return object with name and metadata
-            if (authorObj.metadata) {
+            if (authorObj.metadata && Object.keys(authorObj.metadata).length > 0) {
                 return { name: authorObj.name || authorObj.email, metadata: authorObj.metadata };
             }
             // Otherwise return just the name string (for backwards compatibility)

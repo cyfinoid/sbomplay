@@ -3182,13 +3182,15 @@ class ViewManager {
             .map(licenseData => ({
                 license: licenseData.license,
                 category: licenseData.category,
-                risk: licenseData.risk,
+                risk: (licenseData.risk || 'low').toLowerCase(),
                 packageCount: licenseData.packages.size,
                 repositoryCount: licenseData.repositories.size
             }))
             .sort((a, b) => {
                 // First sort by risk level (high first)
-                const riskDiff = (riskOrder[a.risk] || 99) - (riskOrder[b.risk] || 99);
+                const riskA = riskOrder[a.risk] ?? 99;
+                const riskB = riskOrder[b.risk] ?? 99;
+                const riskDiff = riskA - riskB;
                 if (riskDiff !== 0) return riskDiff;
                 // Then sort by package count (descending)
                 return b.packageCount - a.packageCount;
@@ -3919,8 +3921,8 @@ class ViewManager {
                     case 'proprietary': return 'bg-warning text-dark';
                     case 'lgpl': return 'bg-info';
                     case 'permissive': return 'bg-success';
-                    case 'unknown': return 'bg-secondary';
-                    default: return 'bg-secondary';
+                    case 'unknown': return 'bg-warning text-dark';
+                    default: return 'bg-secondary text-dark';
                 }
             };
 
@@ -4169,8 +4171,8 @@ class ViewManager {
                     case 'proprietary': return 'bg-warning text-dark';
                     case 'lgpl': return 'bg-info';
                     case 'permissive': return 'bg-success';
-                    case 'unknown': return 'bg-secondary';
-                    default: return 'bg-secondary';
+                    case 'unknown': return 'bg-warning text-dark';
+                    default: return 'bg-secondary text-dark';
                 }
             };
 

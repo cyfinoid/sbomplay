@@ -491,6 +491,30 @@
                 document.getElementById('packageModalLabel').textContent = 
                     `${uniquePackages.length} Package${uniquePackages.length !== 1 ? 's' : ''} by ${author.author}`;
                 
+                // Get current organization context for links
+                const currentOrg = document.getElementById('analysisSelector')?.value || 'combined';
+                const orgParamForLink = (currentOrg === 'combined' || currentOrg === 'Combined (All Scans)') ? null : currentOrg;
+                
+                // Helper function to create deps.html URL with package search filter
+                const createPackageLink = (packageName) => {
+                    const params = new URLSearchParams();
+                    if (orgParamForLink) {
+                        params.set('org', orgParamForLink);
+                    }
+                    params.set('search', packageName);
+                    return `deps.html?${params.toString()}`;
+                };
+                
+                // Helper function to create deps.html URL with repo filter
+                const createRepoLink = (repo) => {
+                    const params = new URLSearchParams();
+                    if (orgParamForLink) {
+                        params.set('org', orgParamForLink);
+                    }
+                    params.set('repo', repo);
+                    return `deps.html?${params.toString()}`;
+                };
+                
                 let html = `
                     <div class="mb-3">
                         <strong>Ecosystem:</strong> <span class="badge bg-info">${author.ecosystem}</span><br>
@@ -508,7 +532,7 @@
                         <div class="list-group-item">
                             <div class="d-flex justify-content-between align-items-start">
                                 <div class="flex-grow-1">
-                                    <strong>${pkg}</strong>
+                                    <strong><a href="${createPackageLink(pkg)}" class="text-decoration-none" target="_blank">${escapeHtml(pkg)}</a></strong>
                                     ${repoCount > 0 ? `
                                         <br><small class="text-muted">
                                             <i class="fas fa-folder me-1"></i>
@@ -522,14 +546,14 @@
                                 <div class="mt-2">
                                     <small class="text-muted">
                                         <i class="fas fa-code-branch me-1"></i>
-                                        ${repos.map(r => `<code>${r}</code>`).join(', ')}
+                                        ${repos.map(r => `<a href="${createRepoLink(r)}" class="text-decoration-none" target="_blank"><code>${escapeHtml(r)}</code></a>`).join(', ')}
                                     </small>
                                 </div>
                             ` : repoCount > 10 ? `
                                 <div class="mt-2">
                                     <small class="text-muted">
                                         <i class="fas fa-code-branch me-1"></i>
-                                        ${repos.slice(0, 5).map(r => `<code>${r}</code>`).join(', ')}
+                                        ${repos.slice(0, 5).map(r => `<a href="${createRepoLink(r)}" class="text-decoration-none" target="_blank"><code>${escapeHtml(r)}</code></a>`).join(', ')}
                                         <strong>+ ${repoCount - 5} more</strong>
                                     </small>
                                 </div>
@@ -549,9 +573,14 @@
             const links = [];
             
             // Only show npm profile if we know they're a maintainer (from our author extraction)
+            // npm profiles use the username (from maintainers[].name), not the display name (from author.name)
+            // e.g., username "tmpvar" not display name "Elijah Insua"
             if (author.ecosystem === 'npm' && author.author) {
+                // Use npm_username from metadata if available (from maintainers[].name)
+                // Otherwise fall back to author.author (which should be the username if no metadata)
+                const npmUsername = author.metadata?.npm_username || author.author;
                 links.push({
-                    url: `https://www.npmjs.com/~${encodeURIComponent(author.author)}`,
+                    url: `https://www.npmjs.com/~${encodeURIComponent(npmUsername)}`,
                     icon: 'fab fa-npm',
                     label: 'npm Profile',
                     class: 'btn-outline-danger'
@@ -722,19 +751,19 @@
                 };
                 const registryName = ecosystemMap[author.ecosystem.toLowerCase()];
                 if (registryName) {
-                    // For ecosyste.ms, use username/maintainer identifier, not full name
-                    // PyPI uses username from metadata, npm uses author name directly
+                    // For ecosyste.ms, use the correct identifier for each ecosystem
                     let maintainerIdentifier = author.author;
                     
                     // For PyPI, prefer username from metadata (e.g., "gastlygem" not "Weiwei Wang")
                     if (author.ecosystem === 'pypi' && author.metadata?.pypi_username) {
                         maintainerIdentifier = author.metadata.pypi_username;
                     }
-                    // For npm, check if author name might need normalization
+                    // For npm, ecosyste.ms uses the username (from maintainers[].name), not display name
+                    // Use npm_username from metadata if available, otherwise fall back to author.author
                     else if (author.ecosystem === 'npm') {
-                        // npm usernames are usually lowercase, no spaces
-                        // But if we have email, we could extract username
-                        // For now, use author name as-is (ecosyste.ms should handle it)
+                        // npm maintainer identifier is the username (e.g., "tmpvar"), not display name
+                        // ecosyste.ms expects the username format
+                        maintainerIdentifier = author.metadata?.npm_username || author.author;
                     }
                     
                     html += `
@@ -857,6 +886,30 @@
                     `;
                 }
                 
+                // Get current organization context for links
+                const currentOrg = document.getElementById('analysisSelector')?.value || 'combined';
+                const orgParamForLink = (currentOrg === 'combined' || currentOrg === 'Combined (All Scans)') ? null : currentOrg;
+                
+                // Helper function to create deps.html URL with package search filter
+                const createPackageLink = (packageName) => {
+                    const params = new URLSearchParams();
+                    if (orgParamForLink) {
+                        params.set('org', orgParamForLink);
+                    }
+                    params.set('search', packageName);
+                    return `deps.html?${params.toString()}`;
+                };
+                
+                // Helper function to create deps.html URL with repo filter
+                const createRepoLink = (repo) => {
+                    const params = new URLSearchParams();
+                    if (orgParamForLink) {
+                        params.set('org', orgParamForLink);
+                    }
+                    params.set('repo', repo);
+                    return `deps.html?${params.toString()}`;
+                };
+                
                 // Show ALL packages with repository usage
                 html += `
                     <div class="mb-3">
@@ -872,7 +925,7 @@
                         <div class="list-group-item">
                             <div class="d-flex justify-content-between align-items-start">
                                 <div class="flex-grow-1">
-                                    <strong>${pkg}</strong>
+                                    <strong><a href="${createPackageLink(pkg)}" class="text-decoration-none" target="_blank">${escapeHtml(pkg)}</a></strong>
                                     ${repoCount > 0 ? `
                                         <br><small class="text-muted">
                                             <i class="fas fa-folder me-1"></i>
@@ -886,14 +939,14 @@
                                 <div class="mt-2">
                                     <small class="text-muted">
                                         <i class="fas fa-code-branch me-1"></i>
-                                        ${repos.map(r => `<code>${r}</code>`).join(', ')}
+                                        ${repos.map(r => `<a href="${createRepoLink(r)}" class="text-decoration-none" target="_blank"><code>${escapeHtml(r)}</code></a>`).join(', ')}
                                     </small>
                                 </div>
                             ` : repoCount > 10 ? `
                                 <div class="mt-2">
                                     <small class="text-muted">
                                         <i class="fas fa-code-branch me-1"></i>
-                                        ${repos.slice(0, 5).map(r => `<code>${r}</code>`).join(', ')}
+                                        ${repos.slice(0, 5).map(r => `<a href="${createRepoLink(r)}" class="text-decoration-none" target="_blank"><code>${escapeHtml(r)}</code></a>`).join(', ')}
                                         <strong>+ ${repoCount - 5} more</strong>
                                     </small>
                                 </div>
