@@ -198,7 +198,14 @@ h6 { font-size: var(--font-size-body); }
 .badge.bg-warning { color: #000000 !important; }
 .badge.bg-danger { color: #ffffff !important; }
 .badge.bg-info { color: #ffffff !important; }
-.badge.bg-secondary { color: #ffffff !important; }
+/* bg-secondary badge: dark text in light theme, white text in dark theme */
+[data-theme="light"] .badge.bg-secondary { 
+    color: #1e1e1e !important; 
+    background-color: #e0e0e0 !important; /* Light gray background for better contrast */
+}
+[data-theme="dark"] .badge.bg-secondary { 
+    color: #ffffff !important; 
+}
 
 /* Navbar theming */
 .navbar-dark {

@@ -1,0 +1,671 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SBOM Play - Repositories</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <link href="css/style.css?v=0.0.2" rel="stylesheet">
+    <link href="css/themes.css?v=0.0.2" rel="stylesheet">
+    <script src="js/theme-manager.js?v=0.0.2"></script>
+</head>
+<body>
+    <nav class="navbar navbar-expand-lg navbar-dark bg-primary">
+        <div class="container">
+            <a class="navbar-brand" href="index.html">
+                <i class="fas fa-cubes me-2"></i>SBOM Play
+            </a>
+            <div class="navbar-nav ms-auto">
+                <a class="nav-link" href="index.html">Home</a>
+                <a class="nav-link" href="licenses.html">License</a>
+                <a class="nav-link" href="vuln.html">Vulns</a>
+                <a class="nav-link" href="quality.html">Quality</a>
+                <a class="nav-link" href="deps.html">Deps</a>
+                <a class="nav-link active" href="repos.html">Repos</a>
+                <a class="nav-link" href="authors.html">Authors</a>
+                <a class="nav-link" href="about.html">About</a>
+                <a class="nav-link" href="settings.html">
+                    <i class="fas fa-cog"></i>
+                </a>
+                <button class="btn btn-outline-secondary btn-sm ms-2 theme-toggle" onclick="themeManager.toggleTheme()" title="Toggle theme">
+                    <i class="fas fa-sun"></i>
+                </button>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container mt-4">
+        <!-- Header -->
+        <div class="row mb-4">
+            <div class="col-12">
+                <div class="d-flex justify-content-between align-items-center">
+                    <div>
+                        <h1><i class="fas fa-code-branch me-2"></i>Repositories</h1>
+                        <p class="text-muted">View repository statistics and analysis</p>
+                    </div>
+                    <div>
+                        <a href="index.html" class="btn btn-outline-primary">
+                            <i class="fas fa-arrow-left me-2"></i>Back to Analysis
+                        </a>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Filters -->
+        <div class="card mb-4">
+            <div class="card-body">
+                <div class="row g-3">
+                    <div class="col-md-6">
+                        <label class="form-label">Analysis</label>
+                        <select class="form-select" id="analysisSelector">
+                            <!-- Options populated dynamically, defaults to "All Projects (Combined)" -->
+                        </select>
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label">Search</label>
+                        <input type="text" class="form-control" id="searchInput" placeholder="Search repository name...">
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Stats -->
+        <div class="stats-row d-none" id="statsRow">
+            <div class="row">
+                <div class="col-md-3 stat-box">
+                    <h3 id="statTotal">0</h3>
+                    <p>Total Repositories</p>
+                </div>
+                <div class="col-md-3 stat-box">
+                    <h3 id="statWithSBOM">0</h3>
+                    <p>With SBOM</p>
+                </div>
+                <div class="col-md-3 stat-box">
+                    <h3 id="statVulnerable">0</h3>
+                    <p>With Vulnerabilities</p>
+                </div>
+                <div class="col-md-3 stat-box">
+                    <h3 id="statShowing">0</h3>
+                    <p>Showing (filtered)</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Table -->
+        <div class="card position-relative d-none" id="tableCard">
+            <div class="loading-overlay d-none" id="loadingOverlay">
+                <div class="loading-spinner">
+                    <div class="spinner-border text-primary" role="status">
+                        <span class="visually-hidden">Loading...</span>
+                    </div>
+                    <p class="mt-2">Loading repositories...</p>
+                </div>
+            </div>
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="mb-0"><i class="fas fa-list me-2"></i>Repositories</h5>
+                <button class="btn btn-sm btn-success" id="exportBtn">
+                    <i class="fas fa-download me-2"></i>Export CSV
+                </button>
+            </div>
+            <div class="card-body table-responsive p-0">
+                <table class="table table-striped table-hover mb-0">
+                    <thead>
+                        <tr>
+                            <th class="sortable" data-sort="name">
+                                Repository
+                                <i class="fas fa-sort sort-icon"></i>
+                            </th>
+                            <th class="sortable" data-sort="sbomGrade">
+                                SBOM Grade
+                                <i class="fas fa-sort sort-icon"></i>
+                            </th>
+                            <th class="sortable" data-sort="vulnCount">
+                                Vulnerabilities
+                                <i class="fas fa-sort sort-icon"></i>
+                            </th>
+                            <th class="sortable" data-sort="depCount">
+                                Dependencies
+                                <i class="fas fa-sort sort-icon"></i>
+                            </th>
+                            <th class="sortable" data-sort="authorCount">
+                                Authors
+                                <i class="fas fa-sort sort-icon"></i>
+                            </th>
+                            <th class="sortable" data-sort="license">
+                                Repository License
+                                <i class="fas fa-sort sort-icon"></i>
+                            </th>
+                        </tr>
+                    </thead>
+                    <tbody id="tableBody">
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <div class="alert alert-info d-none" id="noDataMessage">
+            <i class="fas fa-info-circle me-2"></i>
+            <strong>No Data Available</strong>
+            <p class="mb-0 mt-2">Please select an analysis to view repositories.</p>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="js/indexeddb-manager.js?v=0.0.2"></script>
+    <script src="js/utils.js?v=0.0.2"></script>
+    <script src="js/storage-manager.js?v=0.0.2"></script>
+    <script src="js/osv-service.js?v=0.0.2"></script>
+    <script type="module">
+        const storageManager = new StorageManager();
+        await storageManager.init();
+        
+        let allRepositories = [];
+        let filteredRepositories = [];
+        let currentData = null;
+        let sortColumn = 'name';
+        let sortDirection = 'asc';
+        
+        // Check for URL parameters
+        const urlParams = new URLSearchParams(window.location.search);
+        const orgParam = urlParams.get('org');
+        const searchParam = urlParams.get('search');
+        
+        await loadAnalysesList();
+        
+        async function loadAnalysesList() {
+            const storageInfo = await storageManager.getStorageInfo();
+            const selector = document.getElementById('analysisSelector');
+            const allEntries = [...storageInfo.organizations, ...storageInfo.repositories];
+            
+            if (allEntries.length === 0) {
+                document.getElementById('noDataMessage').classList.remove('d-none');
+                return;
+            }
+            
+            // Add "All Projects (Combined)" as the first option
+            const allOption = document.createElement('option');
+            allOption.value = '__ALL__';
+            const totalRepos = allEntries.reduce((sum, entry) => sum + (entry.repositories || 0), 0);
+            allOption.textContent = `All Projects (Combined) (${totalRepos} repos)`;
+            selector.appendChild(allOption);
+            
+            // Add individual entries
+            allEntries.forEach(entry => {
+                const option = document.createElement('option');
+                option.value = entry.name;
+                option.textContent = `${entry.name} (${entry.repositories || 0} repos)`;
+                selector.appendChild(option);
+            });
+            
+            // Set default based on URL parameter or default to "All Projects (Combined)"
+            if (allEntries.length > 0) {
+                if (orgParam) {
+                    const orgExists = allEntries.some(entry => entry.name === orgParam);
+                    if (orgExists) {
+                        selector.value = orgParam;
+                    } else {
+                        selector.value = '__ALL__';
+                    }
+                } else {
+                    selector.value = '__ALL__';
+                }
+                await loadAnalysis();
+            }
+        }
+        
+        document.getElementById('analysisSelector').addEventListener('change', () => {
+            loadAnalysis().then(() => filterTable());
+        });
+        document.getElementById('searchInput').addEventListener('input', () => filterTable());
+        document.getElementById('exportBtn').addEventListener('click', exportCSV);
+        
+        // Sort handlers
+        document.querySelectorAll('.sortable').forEach(header => {
+            header.addEventListener('click', () => {
+                const column = header.getAttribute('data-sort');
+                if (sortColumn === column) {
+                    sortDirection = sortDirection === 'asc' ? 'desc' : 'asc';
+                } else {
+                    sortColumn = column;
+                    sortDirection = 'asc';
+                }
+                updateSortIcons();
+                filterTable();
+            });
+        });
+        
+        function updateSortIcons() {
+            document.querySelectorAll('.sort-icon').forEach(icon => {
+                icon.className = 'fas fa-sort sort-icon';
+            });
+            const activeHeader = document.querySelector(`[data-sort="${sortColumn}"]`);
+            if (activeHeader) {
+                const icon = activeHeader.querySelector('.sort-icon');
+                icon.className = `fas fa-sort-${sortDirection === 'asc' ? 'up' : 'down'} sort-icon active`;
+            }
+        }
+        
+        async function loadAnalysis() {
+            const analysisName = document.getElementById('analysisSelector').value;
+            if (!analysisName) return;
+            
+            // Show loading indicator
+            const loadingOverlay = document.getElementById('loadingOverlay');
+            const tableCard = document.getElementById('tableCard');
+            const statsRow = document.getElementById('statsRow');
+            const noDataMessage = document.getElementById('noDataMessage');
+            
+            loadingOverlay.classList.remove('d-none');
+            tableCard.classList.remove('d-none');
+            statsRow.classList.remove('d-none');
+            noDataMessage.classList.add('d-none');
+            
+            let data;
+            
+            // Handle "All Projects (Combined)" option
+            if (analysisName === '__ALL__') {
+                data = await storageManager.getCombinedData();
+            } else {
+                data = await storageManager.loadAnalysisDataForOrganization(analysisName);
+            }
+            
+            if (!data || !data.data) {
+                alert('No data found');
+                document.getElementById('loadingOverlay').classList.add('d-none');
+                return;
+            }
+            
+            currentData = data.data;
+            allRepositories = processData(currentData);
+            
+            // Set search input from URL parameter if present
+            if (searchParam) {
+                const searchInput = document.getElementById('searchInput');
+                if (searchInput) {
+                    searchInput.value = decodeURIComponent(searchParam);
+                }
+            }
+            
+            // Hide loading indicator
+            document.getElementById('loadingOverlay').classList.add('d-none');
+            
+            await filterTable();
+        }
+        
+        function processData(data) {
+            const repos = [];
+            const allRepos = data.allRepositories || [];
+            const vulnAnalysis = data.vulnerabilityAnalysis || {};
+            const vulnerableDeps = vulnAnalysis.vulnerableDependencies || [];
+            const authorAnalysis = data.authorAnalysis || {};
+            const authorRefs = authorAnalysis.authors || [];
+            
+            // Create maps for quick lookups
+            const vulnMap = new Map();
+            vulnerableDeps.forEach(vulnDep => {
+                const key = `${vulnDep.name}@${vulnDep.version}`;
+                vulnMap.set(key, vulnDep);
+            });
+            
+            // Map dependencies to repositories
+            const depRepoMap = new Map(); // repo -> Set of dep keys
+            const allDeps = data.allDependencies || [];
+            allDeps.forEach(dep => {
+                const depKey = `${dep.name}@${dep.version}`;
+                (dep.repositories || []).forEach(repo => {
+                    if (!depRepoMap.has(repo)) {
+                        depRepoMap.set(repo, new Set());
+                    }
+                    depRepoMap.get(repo).add(depKey);
+                });
+            });
+            
+            // Map authors to repositories
+            const authorRepoMap = new Map(); // repo -> Set of author keys
+            const isNewFormat = authorAnalysis._cacheVersion === 3 || 
+                               (authorRefs.length > 0 && authorRefs[0].authorKey);
+            
+            if (isNewFormat) {
+                // New format: Use packageRepositories from author refs
+                authorRefs.forEach(ref => {
+                    if (ref.packageRepositories) {
+                        Object.keys(ref.packageRepositories).forEach(pkg => {
+                            (ref.packageRepositories[pkg] || []).forEach(repo => {
+                                if (!authorRepoMap.has(repo)) {
+                                    authorRepoMap.set(repo, new Set());
+                                }
+                                authorRepoMap.get(repo).add(ref.authorKey || `${ref.ecosystem}:${ref.author}`);
+                            });
+                        });
+                    }
+                });
+            } else {
+                // Old format: Use repositories array directly from author objects
+                authorRefs.forEach(author => {
+                    (author.repositories || []).forEach(repo => {
+                        if (!authorRepoMap.has(repo)) {
+                            authorRepoMap.set(repo, new Set());
+                        }
+                        authorRepoMap.get(repo).add(`${author.ecosystem}:${author.author}`);
+                    });
+                });
+            }
+            
+            allRepos.forEach(repo => {
+                const repoKey = `${repo.owner}/${repo.name}`;
+                
+                // Get SBOM quality
+                const quality = repo.qualityAssessment || null;
+                const sbomStatus = quality ? 'Available' : 'Not Available';
+                const sbomGrade = quality ? quality.grade : 'N/A';
+                const sbomScore = quality ? quality.displayScore : null;
+                
+                // Get repository license
+                const repoLicense = repo.license || null;
+                
+                // Count vulnerabilities for this repository
+                const repoDepKeys = depRepoMap.get(repoKey) || new Set();
+                let vulnHigh = 0, vulnMedium = 0, vulnLow = 0;
+                
+                repoDepKeys.forEach(depKey => {
+                    const vulnDep = vulnMap.get(depKey);
+                    if (vulnDep && vulnDep.vulnerabilities) {
+                        vulnDep.vulnerabilities.forEach(vuln => {
+                            const severity = vuln.severity || (window.osvService ? window.osvService.getHighestSeverity(vuln) : 'UNKNOWN');
+                            if (severity === 'CRITICAL' || severity === 'HIGH') {
+                                vulnHigh++;
+                            } else if (severity === 'MEDIUM' || severity === 'MODERATE') {
+                                vulnMedium++;
+                            } else if (severity === 'LOW') {
+                                vulnLow++;
+                            }
+                        });
+                    }
+                });
+                
+                // Get dependency count
+                const depCount = repoDepKeys.size || repo.totalDependencies || 0;
+                
+                // Get author count
+                const authorCount = (authorRepoMap.get(repoKey) || new Set()).size;
+                
+                repos.push({
+                    name: repoKey,
+                    owner: repo.owner,
+                    repoName: repo.name,
+                    sbomStatus: sbomStatus,
+                    sbomGrade: sbomGrade,
+                    sbomScore: sbomScore,
+                    quality: quality,
+                    vulnHigh: vulnHigh,
+                    vulnMedium: vulnMedium,
+                    vulnLow: vulnLow,
+                    vulnCount: vulnHigh + vulnMedium + vulnLow,
+                    depCount: depCount,
+                    authorCount: authorCount,
+                    license: repoLicense,
+                    raw: repo
+                });
+            });
+            
+            return repos;
+        }
+        
+        async function filterTable() {
+            // Early return if no data is loaded
+            if (!allRepositories || allRepositories.length === 0) {
+                document.getElementById('tableCard').classList.add('d-none');
+                document.getElementById('statsRow').classList.add('d-none');
+                document.getElementById('noDataMessage').classList.remove('d-none');
+                return;
+            }
+            
+            const search = document.getElementById('searchInput').value.toLowerCase();
+            
+            let filtered = allRepositories;
+            
+            // Apply search filter
+            if (search) {
+                filtered = filtered.filter(repo => {
+                    return repo.name.toLowerCase().includes(search);
+                });
+            }
+            
+            // Sort
+            filtered.sort((a, b) => {
+                let aVal = a[sortColumn];
+                let bVal = b[sortColumn];
+                
+                // Handle special cases
+                if (sortColumn === 'sbomGrade') {
+                    // Sort by grade value (A=4, B=3, C=2, D=1, F=0, N/A=-1)
+                    const gradeValues = { 'A': 4, 'B': 3, 'C': 2, 'D': 1, 'F': 0, 'N/A': -1 };
+                    aVal = gradeValues[aVal] ?? -1;
+                    bVal = gradeValues[bVal] ?? -1;
+                } else if (typeof aVal === 'string') {
+                    aVal = aVal.toLowerCase();
+                    bVal = bVal.toLowerCase();
+                }
+                
+                // Handle null/undefined values
+                if (aVal == null) aVal = '';
+                if (bVal == null) bVal = '';
+                
+                if (sortDirection === 'asc') {
+                    return aVal < bVal ? -1 : aVal > bVal ? 1 : 0;
+                } else {
+                    return aVal > bVal ? -1 : aVal < bVal ? 1 : 0;
+                }
+            });
+            
+            filteredRepositories = filtered;
+            
+            updateStats(filtered);
+            renderTable(filtered);
+        }
+        
+        function updateStats(filtered) {
+            const withSBOM = allRepositories.filter(r => r.sbomStatus === 'Available').length;
+            const withVulns = allRepositories.filter(r => r.vulnCount > 0).length;
+            
+            document.getElementById('statTotal').textContent = allRepositories.length;
+            document.getElementById('statWithSBOM').textContent = withSBOM;
+            document.getElementById('statVulnerable').textContent = withVulns;
+            document.getElementById('statShowing').textContent = filtered.length;
+        }
+        
+        function renderTable(repos) {
+            const tbody = document.getElementById('tableBody');
+            tbody.innerHTML = '';
+            
+            // Get current organization context for links
+            const currentOrg = document.getElementById('analysisSelector')?.value || '__ALL__';
+            const orgParamForLink = (currentOrg === '__ALL__' || currentOrg === 'All Projects (Combined)') ? '__ALL__' : currentOrg;
+            
+            // Helper function to create links with repo filter
+            const createRepoLink = (page, repo) => {
+                const params = new URLSearchParams();
+                if (orgParamForLink && orgParamForLink !== '__ALL__') {
+                    params.set('org', orgParamForLink);
+                }
+                params.set('repo', repo);
+                return `${page}?${params.toString()}`;
+            };
+            
+            repos.forEach(repo => {
+                // Build SBOM Grade cell (combined status and grade, clickable if available)
+                const qualityLink = createRepoLink('quality.html', repo.name);
+                let sbomGradeCell = '<td>';
+                if (repo.sbomGrade && repo.sbomGrade !== 'N/A') {
+                    const gradeClass = {
+                        'A': 'bg-success',
+                        'B': 'bg-info',
+                        'C': 'bg-warning',
+                        'D': 'bg-warning text-dark',
+                        'F': 'bg-danger'
+                    }[repo.sbomGrade] || 'bg-secondary';
+                    sbomGradeCell += `<a href="${qualityLink}" class="text-decoration-none" title="View quality details">
+                        <span class="badge ${gradeClass}">${repo.sbomGrade}</span>`;
+                    if (repo.sbomScore !== null) {
+                        sbomGradeCell += ` <small class="text-muted">(${repo.sbomScore})</small>`;
+                    }
+                    sbomGradeCell += '</a>';
+                } else {
+                    sbomGradeCell += '<span class="text-muted">Not Available</span>';
+                }
+                sbomGradeCell += '</td>';
+                
+                // Build vulnerability cell (clickable)
+                const vulnLink = createRepoLink('vuln.html', repo.name);
+                let vulnCell = '<td>';
+                if (repo.vulnCount > 0) {
+                    vulnCell += `<a href="${vulnLink}" class="text-decoration-none">`;
+                    const vulnParts = [];
+                    if (repo.vulnHigh > 0) {
+                        vulnParts.push(`<span class="badge bg-danger" title="High: ${repo.vulnHigh}">H:${repo.vulnHigh}</span>`);
+                    }
+                    if (repo.vulnMedium > 0) {
+                        vulnParts.push(`<span class="badge bg-warning text-dark" title="Medium: ${repo.vulnMedium}">M:${repo.vulnMedium}</span>`);
+                    }
+                    if (repo.vulnLow > 0) {
+                        vulnParts.push(`<span class="badge bg-info" title="Low: ${repo.vulnLow}">L:${repo.vulnLow}</span>`);
+                    }
+                    vulnCell += `<span class="d-flex gap-1 flex-wrap">${vulnParts.join(' ')}</span>`;
+                    vulnCell += '</a>';
+                } else {
+                    vulnCell += `<a href="${vulnLink}" class="text-decoration-none text-muted">—</a>`;
+                }
+                vulnCell += '</td>';
+                
+                // Build dependencies cell (clickable)
+                const depsLink = createRepoLink('deps.html', repo.name);
+                const depsCell = `<td><a href="${depsLink}" class="text-decoration-none"><span class="badge bg-primary">${repo.depCount}</span></a></td>`;
+                
+                // Build authors cell (clickable)
+                const authorsLink = createRepoLink('authors.html', repo.name);
+                const authorsCell = `<td><a href="${authorsLink}" class="text-decoration-none"><span class="badge bg-secondary">${repo.authorCount}</span></a></td>`;
+                
+                // Build repository license cell (clickable)
+                const licensesLink = createRepoLink('licenses.html', repo.name);
+                let licenseCell = '<td>';
+                if (repo.license) {
+                    licenseCell += `<a href="${licensesLink}" class="text-decoration-none"><span class="badge bg-info">${escapeHtml(repo.license)}</span></a>`;
+                } else {
+                    licenseCell += `<a href="${licensesLink}" class="text-decoration-none text-muted">—</a>`;
+                }
+                licenseCell += '</td>';
+                
+                const tr = document.createElement('tr');
+                tr.innerHTML = `
+                    <td>
+                        <strong><a href="https://github.com/${repo.name}" target="_blank" class="text-decoration-none">
+                            <i class="fab fa-github me-1"></i>${escapeHtml(repo.name)}
+                        </a></strong>
+                    </td>
+                    ${sbomGradeCell}
+                    ${vulnCell}
+                    ${depsCell}
+                    ${authorsCell}
+                    ${licenseCell}
+                `;
+                tbody.appendChild(tr);
+            });
+        }
+        
+        function exportCSV() {
+            const search = document.getElementById('searchInput').value.toLowerCase();
+            
+            let filtered = allRepositories.filter(repo => {
+                if (search && !repo.name.toLowerCase().includes(search)) return false;
+                return true;
+            });
+            
+            const csv = [
+                ['Repository', 'SBOM Grade', 'SBOM Score', 'Vulnerabilities (H/M/L)', 'Dependencies', 'Authors', 'Repository License'].join(','),
+                ...filtered.map(repo => [
+                    `"${repo.name}"`,
+                    repo.sbomGrade,
+                    repo.sbomScore || 'N/A',
+                    `"H:${repo.vulnHigh} M:${repo.vulnMedium} L:${repo.vulnLow}"`,
+                    repo.depCount,
+                    repo.authorCount,
+                    repo.license || 'N/A'
+                ].join(','))
+            ].join('\n');
+            
+            const blob = new Blob([csv], { type: 'text/csv' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `repositories-${Date.now()}.csv`;
+            a.click();
+            URL.revokeObjectURL(url);
+        }
+        
+        // escapeHtml is now provided by utils.js
+    </script>
+
+    <!-- Footer -->
+    <footer class="bg-light mt-5 py-4">
+        <div class="container">
+            <div class="row">
+                <!-- First Column: SBOM Play Tool -->
+                <div class="col-md-4">
+                    <h6 class="text-primary">SBOM Play</h6>
+                    <p class="text-muted small mb-3">
+                        A client-side tool for analyzing Software Bill of Materials from GitHub organizations and users.
+                        All processing happens in your browser for maximum privacy and security.
+                    </p>
+                    <p class="text-muted small mb-0">
+                        <strong>Privacy-First:</strong> All processing happens in your browser<br>
+                        <strong>No Server Required:</strong> Works entirely client-side<br>
+                        <strong>Persistent Storage:</strong> Results saved in browser storage<br>
+                        <strong>Rate Limit Aware:</strong> Handles GitHub API limits intelligently
+                    </p>
+                </div>
+                
+                <!-- Second Column: Links -->
+                <div class="col-md-4">
+                    <h6 class="text-primary">Resources</h6>
+                    <div class="d-flex flex-column gap-2">
+                        <a href="https://cyfinoid.com/" target="_blank" class="btn btn-outline-primary btn-sm">
+                            <i class="fas fa-globe me-1"></i>Website
+                        </a>
+                        <a href="https://cyfinoid.com/blog/" target="_blank" class="btn btn-outline-primary btn-sm">
+                            <i class="fas fa-blog me-1"></i>Blog
+                        </a>
+                        <a href="https://cyfinoid.com/trainings/#upcoming-trainings" target="_blank" class="btn btn-outline-primary btn-sm">
+                            <i class="fas fa-graduation-cap me-1"></i>Upcoming Trainings
+                        </a>
+                        <a href="https://cyfinoid.com/opensource-by-cyfinoid/" target="_blank" class="btn btn-outline-primary btn-sm">
+                            <i class="fab fa-github me-1"></i>Open Source by Cyfinoid
+                        </a>
+                    </div>
+                </div>
+                
+                <!-- Third Column: Company Information -->
+                <div class="col-md-4">
+                    <h6 class="text-primary">About Cyfinoid Research</h6>
+                    <p class="text-muted small mb-3">
+                        Leading cybersecurity research company specializing in software supply chain security, 
+                        Android security, and cloud security. Our expertise spans across comprehensive software 
+                        supply chain protection.
+                    </p>
+                </div>
+            </div>
+            <hr class="my-3">
+            <div class="text-center">
+                <small class="text-muted">
+                    © 2025 Cyfinoid Research. All rights reserved. | 
+                    <a href="https://github.com/cyfinoid/sbomplay" target="_blank" class="text-muted">
+                        <i class="fab fa-github me-1"></i>View on GitHub
+                    </a>
+                </small>
+            </div>
+        </div>
+    </footer>
+</body>
+</html>
+

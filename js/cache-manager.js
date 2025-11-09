@@ -94,6 +94,57 @@ class CacheManager {
     }
 
     /**
+     * Find author entity by email in the same ecosystem
+     * Used for correlating authors (e.g., "Kyle Robinson Young" with "shama" if same email)
+     * @param {string} email - Email address to search for
+     * @param {string} ecosystem - Ecosystem to filter by
+     * @returns {Promise<{authorKey: string, entity: Object}|null>} - Found author or null
+     */
+    async findAuthorByEmail(email, ecosystem) {
+        if (!email || !ecosystem) return null;
+        
+        const dbManager = window.indexedDBManager;
+        if (!dbManager || !dbManager.db) {
+            return null;
+        }
+
+        try {
+            // Get all author entities
+            // Note: This is a simple implementation - in production you might want an email index
+            const allAuthors = await dbManager.getAllAuthorEntities();
+            
+            if (!allAuthors || !Array.isArray(allAuthors)) {
+                return null;
+            }
+            
+            // Find author with matching email in same ecosystem
+            // IndexedDB getAll() returns array of objects with keyPath as property
+            // Since authorEntities uses 'authorKey' as keyPath, each entry has authorKey property
+            for (const authorData of allAuthors) {
+                if (!authorData || !authorData.authorKey) {
+                    continue;
+                }
+                
+                const authorKey = authorData.authorKey;
+                // authorKey format: "ecosystem:authorName"
+                const [authorEcosystem] = authorKey.split(':');
+                
+                if (authorEcosystem === ecosystem && authorData.email === email) {
+                    return {
+                        authorKey: authorKey,
+                        entity: authorData
+                    };
+                }
+            }
+            
+            return null;
+        } catch (error) {
+            console.warn('⚠️ Cache: Failed to find author by email:', error);
+            return null;
+        }
+    }
+
+    /**
      * Helper to promisify IndexedDB requests
      */
     _promisifyRequest(request) {

@@ -261,6 +261,22 @@ class AuthorService {
 
             if (!authorString) continue;
 
+            // Map login from ecosyste.ms to ecosystem-specific username field
+            if (authorMetadata?.login) {
+                const login = authorMetadata.login;
+                // Map login to ecosystem-specific username field
+                if (ecosystem === 'gem' || ecosystem === 'rubygems') {
+                    authorMetadata.rubygems_username = login;
+                } else if (ecosystem === 'npm') {
+                    authorMetadata.npm_username = login;
+                } else if (ecosystem === 'pypi') {
+                    authorMetadata.pypi_username = login;
+                } else if (ecosystem === 'cargo') {
+                    authorMetadata.cargo_username = login;
+                }
+                // Keep login field for reference, but ecosystem-specific field takes precedence
+            }
+
             // Determine authorKey
             let authorKey, authorName, authorSource;
             if (authorString.includes(':')) {
@@ -274,8 +290,26 @@ class AuthorService {
                 authorName = authorString;
             }
 
-            // Check if author entity already exists
-            let authorEntity = await window.cacheManager.getAuthorEntity(authorKey);
+            // CRITICAL: Check for existing author by email first (for correlation)
+            // This allows us to merge "Kyle Robinson Young" with "shama" if they share the same email
+            let authorEntity = null;
+            let existingAuthorKey = authorKey;
+            
+            if (authorMetadata?.email && window.cacheManager) {
+                // Try to find existing author by email in the same ecosystem
+                const existingByEmail = await window.cacheManager.findAuthorByEmail(authorMetadata.email, ecosystem);
+                if (existingByEmail) {
+                    // Found existing author with same email - merge them
+                    authorEntity = existingByEmail.entity;
+                    existingAuthorKey = existingByEmail.authorKey;
+                    console.log(`🔗 Found existing author by email: ${existingAuthorKey} (email: ${authorMetadata.email})`);
+                }
+            }
+            
+            // If not found by email, check by authorKey
+            if (!authorEntity) {
+                authorEntity = await window.cacheManager.getAuthorEntity(authorKey);
+            }
             
             if (!authorEntity) {
                 // Create new author entity (NO package funding here - that's stored with package)
@@ -289,29 +323,72 @@ class AuthorService {
                 await window.cacheManager.saveAuthorEntity(authorKey, authorEntity);
                 console.log(`👤 Saved new author entity: ${authorKey}`);
             } else {
-                // Update existing entity if we have new information
-                // Note: We don't store package funding in author entity
+                // Merge with existing entity
+                // Strategy: Use display name (prefer longer/more complete name), but keep username for profile links
                 let updated = false;
-                if (authorMetadata && !authorEntity.metadata) {
-                    authorEntity.metadata = authorMetadata;
+                let mergedName = authorEntity.author;
+                let mergedMetadata = authorEntity.metadata || {};
+                
+                // Prefer longer/more complete display name (e.g., "Kyle Robinson Young" over "shama")
+                // But only if the new name looks like a display name (has spaces or is longer)
+                const isNewNameDisplayName = authorName.includes(' ') || 
+                    (authorName.length > mergedName.length && mergedName.length < 20);
+                const isExistingNameDisplayName = mergedName.includes(' ') || 
+                    (mergedName.length > authorName.length && authorName.length < 20);
+                
+                if (isNewNameDisplayName && (!isExistingNameDisplayName || authorName.length > mergedName.length)) {
+                    mergedName = authorName;
+                    updated = true;
+                    console.log(`📝 Updating display name: ${mergedName} (was: ${authorEntity.author})`);
+                }
+                
+                // Always merge metadata, preserving username for profile links
+                if (authorMetadata) {
+                    // Merge metadata, but preserve username fields (they're critical for profile links)
+                    const newMetadata = { ...mergedMetadata, ...authorMetadata };
+                    // Ensure username fields are preserved (prefer new if available, but don't lose existing)
+                    if (authorMetadata.npm_username) {
+                        newMetadata.npm_username = authorMetadata.npm_username;
+                    }
+                    if (authorMetadata.rubygems_username) {
+                        newMetadata.rubygems_username = authorMetadata.rubygems_username;
+                    }
+                    if (authorMetadata.login) {
+                        newMetadata.login = authorMetadata.login;
+                    }
+                    
+                    if (JSON.stringify(newMetadata) !== JSON.stringify(mergedMetadata)) {
+                        mergedMetadata = newMetadata;
+                        updated = true;
+                    }
+                }
+                
+                // Update email if we have a new one
+                if (authorMetadata?.email && !authorEntity.email) {
+                    authorEntity.email = authorMetadata.email;
                     updated = true;
                 }
-                if (updated) {
-                    await window.cacheManager.saveAuthorEntity(authorKey, authorEntity);
-                    console.log(`👤 Updated author entity: ${authorKey}`);
+                
+                if (updated || mergedName !== authorEntity.author) {
+                    authorEntity.author = mergedName;
+                    authorEntity.metadata = Object.keys(mergedMetadata).length > 0 ? mergedMetadata : null;
+                    // If we found by email but authorKey is different, update the existing entity
+                    await window.cacheManager.saveAuthorEntity(existingAuthorKey, authorEntity);
+                    console.log(`👤 Updated author entity: ${existingAuthorKey} (display: ${mergedName}, username: ${mergedMetadata.npm_username || mergedMetadata.login || 'N/A'})`);
                 }
             }
 
             // Fetch author-level funding if we have GitHub username or email
             // This will be done asynchronously and updated separately
             if (authorMetadata?.github || authorMetadata?.email) {
-                this.fetchAuthorFunding(authorKey, authorEntity).catch(err => 
-                    console.warn(`Failed to fetch author funding for ${authorKey}:`, err)
+                this.fetchAuthorFunding(existingAuthorKey, authorEntity).catch(err => 
+                    console.warn(`Failed to fetch author funding for ${existingAuthorKey}:`, err)
                 );
             }
 
             // Save package-author relationship (junction table)
-            await window.cacheManager.savePackageAuthorRelationship(packageKey, authorKey, isMaintainer);
+            // Use existingAuthorKey (which may be different from authorKey if we found by email)
+            await window.cacheManager.savePackageAuthorRelationship(packageKey, existingAuthorKey, isMaintainer);
         }
     }
 
@@ -727,11 +804,13 @@ class AuthorService {
             }
             
             // Construct package URL using registry's packages_url
-            // packages_url format: "https://packages.ecosyste.ms/api/v1/registries/{registry.name}/packages"
-            // Append package name to get specific package
+            // IMPORTANT: Use full package endpoint, NOT version-specific endpoint
+            // Full package endpoint: "https://packages.ecosyste.ms/api/v1/registries/{registry.name}/packages/{package}"
+            // This provides maintainers array at top level (NOT in issue_metadata)
+            // Version endpoint would be: .../packages/{package}/versions/{version} - DO NOT USE for author extraction
             const url = `${registry.packages_url}/${encodeURIComponent(packageName)}`;
             
-            console.log(`🔍 Fetching from ecosyste.ms: ${ecosystem} → ${registry.name} (${url})`);
+            console.log(`🔍 Fetching from ecosyste.ms (full package): ${ecosystem} → ${registry.name} (${url})`);
             
             const response = await fetch(url);
             if (!response.ok) {
@@ -740,6 +819,12 @@ class AuthorService {
             }
             
             const data = await response.json();
+            
+            // Verify we have the expected structure (top-level maintainers array)
+            if (!data.maintainers && !data.owners && !data.author) {
+                console.warn(`⚠️ ecosyste.ms response for ${packageName} has no maintainers/owners/author fields`);
+            }
+            
             return this.extractEcosystemsAuthors(data);
         } catch (error) {
             console.warn(`Error fetching from ecosyste.ms:`, error.message);
@@ -1638,43 +1723,89 @@ class AuthorService {
 
     /**
      * Extract authors from ecosyste.ms response
-     * ecosyste.ms provides: {login, name, email} for maintainers
+     * IMPORTANT: Extract maintainers from top-level 'maintainers' array, NOT from 'issue_metadata.maintainers'
+     * ecosyste.ms full package endpoint provides: maintainers array with {uuid, login, name, email, html_url, ...}
+     * Structure: https://packages.ecosyste.ms/api/v1/registries/{registry}/packages/{package}
      */
     extractEcosystemsAuthors(data) {
         const authorObjects = [];
         
-        // ecosyste.ms provides maintainers with login, name, and email
+        // CRITICAL: Extract from top-level 'maintainers' array only
+        // Do NOT use 'issue_metadata.maintainers' - that's for issue tracking, not package maintainers
         if (data.maintainers && Array.isArray(data.maintainers)) {
             data.maintainers.forEach(m => {
                 if (m) {
+                    // ecosyste.ms maintainer structure: {uuid, login, name, email, html_url, packages_count, ...}
+                    // login is the username (e.g., "shama"), name might be null or display name
+                    const authorLogin = m.login || null;  // Username (e.g., "shama" for npm)
+                    const authorName = m.name || authorLogin || null;  // Display name if available, fallback to login
+                    const authorEmail = m.email || null;
+                    
+                    // Build metadata object with login/username
+                    const metadata = {};
+                    if (authorLogin) {
+                        // Store login as username in metadata (for RubyGems, npm, etc.)
+                        // The ecosystem will determine which field to use (rubygems_username, npm_username, etc.)
+                        metadata.login = authorLogin;
+                    }
+                    
+                    // Store html_url if available (e.g., npm profile URL)
+                    if (m.html_url) {
+                        metadata.html_url = m.html_url;
+                    }
+                    
                     authorObjects.push({
-                        name: m.name || m.login || null,  // Prefer name, fallback to login
-                        email: m.email || m.login || null  // Use login as pseudo-email if no real email
+                        name: authorName,
+                        email: authorEmail || null,  // Don't use login as email fallback - keep it null if no email
+                        metadata: Object.keys(metadata).length > 0 ? metadata : null
                     });
                 }
             });
         }
         
-        // Also check owners field (some registries use this)
+        // Also check owners field (some registries use this instead of maintainers)
         if (data.owners && Array.isArray(data.owners)) {
             data.owners.forEach(o => {
                 if (o) {
+                    const authorLogin = o.login || null;
+                    const authorName = o.name || authorLogin || null;
+                    const authorEmail = o.email || null;
+                    
+                    const metadata = {};
+                    if (authorLogin) {
+                        metadata.login = authorLogin;
+                    }
+                    if (o.html_url) {
+                        metadata.html_url = o.html_url;
+                    }
+                    
                     authorObjects.push({
-                        name: o.name || o.login || null,
-                        email: o.email || o.login || null
+                        name: authorName,
+                        email: authorEmail || null,
+                        metadata: Object.keys(metadata).length > 0 ? metadata : null
                     });
                 }
             });
         }
         
-        // Single author field (less common in ecosyste.ms)
+        // Single author field (less common in ecosyste.ms full package endpoint)
         if (data.author) {
             if (typeof data.author === 'string') {
                 authorObjects.push({ name: data.author, email: null });
             } else {
+                const authorLogin = data.author.login || null;
+                const metadata = {};
+                if (authorLogin) {
+                    metadata.login = authorLogin;
+                }
+                if (data.author.html_url) {
+                    metadata.html_url = data.author.html_url;
+                }
+                
                 authorObjects.push({
                     name: data.author.name || data.author.login || null,
-                    email: data.author.email || null
+                    email: data.author.email || null,
+                    metadata: Object.keys(metadata).length > 0 ? metadata : null
                 });
             }
         }

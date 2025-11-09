@@ -17,11 +17,12 @@
                 <i class="fas fa-cubes me-2"></i>SBOM Play
             </a>
             <div class="navbar-nav ms-auto">
-                <a class="nav-link" href="index.html">Analysis</a>
+                <a class="nav-link" href="index.html">Home</a>
                 <a class="nav-link" href="licenses.html">License</a>
-                <a class="nav-link" href="vuln.html">Vulnerabilities</a>
+                <a class="nav-link" href="vuln.html">Vulns</a>
                 <a class="nav-link" href="quality.html">Quality</a>
-                <a class="nav-link active" href="deps.html">Dependencies</a>
+                <a class="nav-link active" href="deps.html">Deps</a>
+                <a class="nav-link" href="repos.html">Repos</a>
                 <a class="nav-link" href="authors.html">Authors</a>
                 <a class="nav-link" href="about.html">About</a>
                 <a class="nav-link" href="settings.html">
@@ -656,14 +657,36 @@
                 });
                 
                 // Extract package key for funding lookup
+                // IMPORTANT: Normalize ecosystem name to match database format (lowercase, aliases handled)
+                // e.g., "RubyGems" -> "gem", "PyPI" -> "pypi", "Go" -> "golang"
                 let packageKey = null;
                 if (dep.category?.ecosystem && dep.name) {
-                    packageKey = `${dep.category.ecosystem}:${dep.name}`;
+                    let ecosystem = dep.category.ecosystem.toLowerCase();
+                    // Normalize ecosystem aliases to match database format
+                    if (ecosystem === 'rubygems' || ecosystem === 'gem') {
+                        ecosystem = 'gem';  // Database uses "gem"
+                    } else if (ecosystem === 'go' || ecosystem === 'golang') {
+                        ecosystem = 'golang';  // Database uses "golang"
+                    } else if (ecosystem === 'pypi') {
+                        ecosystem = 'pypi';  // Keep as is
+                    } else if (ecosystem === 'packagist' || ecosystem === 'composer') {
+                        ecosystem = 'composer';  // Database uses "composer"
+                    }
+                    packageKey = `${ecosystem}:${dep.name}`;
                 } else if (dep.purl) {
                     // PURL format: pkg:ecosystem/name@version
                     const purlMatch = dep.purl.match(/pkg:([^\/]+)\/([^@\/]+)/);
                     if (purlMatch) {
-                        packageKey = `${purlMatch[1]}:${purlMatch[2]}`;
+                        let ecosystem = purlMatch[1].toLowerCase();
+                        // Normalize ecosystem aliases
+                        if (ecosystem === 'rubygems' || ecosystem === 'gem') {
+                            ecosystem = 'gem';
+                        } else if (ecosystem === 'go') {
+                            ecosystem = 'golang';
+                        } else if (ecosystem === 'packagist') {
+                            ecosystem = 'composer';
+                        }
+                        packageKey = `${ecosystem}:${purlMatch[2]}`;
                     }
                 } else if (dep.originalPackage?.externalRefs) {
                     // Try to extract from originalPackage externalRefs
@@ -671,7 +694,16 @@
                     if (purlRef && purlRef.referenceLocator) {
                         const purlMatch = purlRef.referenceLocator.match(/pkg:([^\/]+)\/([^@\/]+)/);
                         if (purlMatch) {
-                            packageKey = `${purlMatch[1]}:${purlMatch[2]}`;
+                            let ecosystem = purlMatch[1].toLowerCase();
+                            // Normalize ecosystem aliases
+                            if (ecosystem === 'rubygems' || ecosystem === 'gem') {
+                                ecosystem = 'gem';
+                            } else if (ecosystem === 'go') {
+                                ecosystem = 'golang';
+                            } else if (ecosystem === 'packagist') {
+                                ecosystem = 'composer';
+                            }
+                            packageKey = `${ecosystem}:${purlMatch[2]}`;
                         }
                     }
                 }
@@ -1165,58 +1197,77 @@
                 }, 50);
             }
             
-            // Check version drift for displayed dependencies (lazy loading)
-            if (window.versionDriftAnalyzer && toDisplay.length > 0) {
+            // Load version drift from cache (no API calls - data should be pre-fetched during analysis)
+            if (window.versionDriftAnalyzer && window.cacheManager && toDisplay.length > 0) {
                 setTimeout(async () => {
-                    const batchSize = 5; // Smaller batches for version checks (more API calls)
-                    
-                    for (let i = 0; i < toDisplay.length; i += batchSize) {
-                        const subBatch = toDisplay.slice(i, i + batchSize);
-                        await Promise.all(subBatch.map(async (dep, batchIdx) => {
-                            if (dep.ecosystem && dep.version && dep.name) {
-                                try {
-                                    const drift = await window.versionDriftAnalyzer.checkVersionDrift(
-                                        dep.name,
-                                        dep.version,
-                                        dep.ecosystem
-                                    );
-                                    
-                                    if (drift.latestVersion) {
-                                        const depIndex = startIndex + i + batchIdx;
-                                        const badgeElement = document.getElementById(`drift-${depIndex}`);
-                                        if (badgeElement) {
-                                            let badgeHtml = '';
-                                            if (drift.hasMajorUpdate) {
-                                                badgeHtml = `<span class="badge bg-danger" title="Major update available: v${escapeHtml(drift.latestVersion)}"><i class="fas fa-arrow-up"></i> Major: v${escapeHtml(drift.latestVersion)}</span>`;
-                                            } else if (drift.hasMinorUpdate) {
-                                                badgeHtml = `<span class="badge bg-warning text-dark" title="Minor update available: v${escapeHtml(drift.latestVersion)}"><i class="fas fa-arrow-up"></i> Minor: v${escapeHtml(drift.latestVersion)}</span>`;
-                                            } else {
-                                                // Check for staleness if no updates available
-                                                try {
-                                                    const staleness = await window.versionDriftAnalyzer.checkStaleness(
+                    // Process all displayed dependencies (no batching needed since we're reading from cache)
+                    await Promise.all(toDisplay.map(async (dep, idx) => {
+                        if (dep.ecosystem && dep.version && dep.name) {
+                            try {
+                                // Normalize ecosystem for packageKey
+                                let ecosystem = dep.ecosystem.toLowerCase();
+                                if (ecosystem === 'rubygems' || ecosystem === 'gem') {
+                                    ecosystem = 'gem';
+                                } else if (ecosystem === 'go' || ecosystem === 'golang') {
+                                    ecosystem = 'golang';
+                                } else if (ecosystem === 'packagist' || ecosystem === 'composer') {
+                                    ecosystem = 'composer';
+                                }
+                                const packageKey = `${ecosystem}:${dep.name}`;
+                                
+                                // Get version drift from cache (fast - no API call)
+                                const drift = await window.versionDriftAnalyzer.getVersionDriftFromCache(packageKey, dep.version);
+                                
+                                // If not in cache, try to fetch (but this should be rare if analysis ran properly)
+                                const driftData = drift || await window.versionDriftAnalyzer.checkVersionDrift(
+                                    dep.name,
+                                    dep.version,
+                                    dep.ecosystem
+                                );
+                                
+                                if (driftData && driftData.latestVersion) {
+                                    const depIndex = startIndex + idx;
+                                    const badgeElement = document.getElementById(`drift-${depIndex}`);
+                                    if (badgeElement) {
+                                        let badgeHtml = '';
+                                        if (driftData.hasMajorUpdate) {
+                                            badgeHtml = `<span class="badge bg-danger" title="Major update available: v${escapeHtml(driftData.latestVersion)}"><i class="fas fa-arrow-up"></i> Major: v${escapeHtml(driftData.latestVersion)}</span>`;
+                                        } else if (driftData.hasMinorUpdate) {
+                                            badgeHtml = `<span class="badge bg-warning text-dark" title="Minor update available: v${escapeHtml(driftData.latestVersion)}"><i class="fas fa-arrow-up"></i> Minor: v${escapeHtml(driftData.latestVersion)}</span>`;
+                                        } else {
+                                            // Check for staleness if no updates available
+                                            // Staleness is also stored in versionDrift cache
+                                            try {
+                                                // Try to get staleness from cached drift data first
+                                                let staleness = null;
+                                                if (driftData.staleness) {
+                                                    // Staleness already in drift data
+                                                    staleness = driftData.staleness;
+                                                } else {
+                                                    // Fetch staleness (will check cache first)
+                                                    staleness = await window.versionDriftAnalyzer.checkStaleness(
                                                         dep.name,
                                                         dep.version,
                                                         dep.ecosystem
                                                     );
-                                                    if (staleness.isStale) {
-                                                        badgeHtml = `<span class="badge bg-warning" title="Stale: Last release ${staleness.monthsSinceRelease} months ago"><i class="fas fa-clock"></i> Stale (${staleness.monthsSinceRelease}m)</span>`;
-                                                    }
-                                                } catch (e) {
-                                                    // Ignore staleness check errors
                                                 }
+                                                
+                                                if (staleness && staleness.isStale) {
+                                                    badgeHtml = `<span class="badge bg-warning" title="Stale: Last release ${staleness.monthsSinceRelease} months ago"><i class="fas fa-clock"></i> Stale (${staleness.monthsSinceRelease}m)</span>`;
+                                                }
+                                            } catch (e) {
+                                                // Ignore staleness check errors
                                             }
-                                            badgeElement.innerHTML = badgeHtml;
                                         }
+                                        badgeElement.innerHTML = badgeHtml;
                                     }
-                                } catch (e) {
-                                    console.warn('Failed to check version drift for', dep.name, e);
                                 }
+                            } catch (e) {
+                                console.warn('Failed to check version drift for', dep.name, e);
                             }
-                        }));
-                        // Small delay between batches to avoid overwhelming the API
-                        await new Promise(resolve => setTimeout(resolve, 200));
-                    }
-                }, 500); // Start after funding check
+                        }
+                    }));
+                }, 100); // Small delay to allow table to render first
             }
             
             displayedCount = endIndex;

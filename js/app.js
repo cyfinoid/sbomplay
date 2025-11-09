@@ -2764,6 +2764,74 @@ class SBOMPlayApp {
             }
         );
         
+        // Fetch version drift data for all unique package versions in background
+        // This populates the cache so deps.html can read from it instead of fetching at runtime
+        if (window.VersionDriftAnalyzer) {
+            const versionDriftAnalyzer = new window.VersionDriftAnalyzer();
+            const uniquePackageVersions = new Map(); // Key: packageKey, Value: Set of versions
+            
+            // Collect unique package versions from dependencies
+            data.data.allDependencies.forEach(dep => {
+                if (dep.name && dep.version && dep.category?.ecosystem) {
+                    let ecosystem = dep.category.ecosystem.toLowerCase();
+                    // Normalize ecosystem aliases
+                    if (ecosystem === 'rubygems' || ecosystem === 'gem') {
+                        ecosystem = 'gem';
+                    } else if (ecosystem === 'go' || ecosystem === 'golang') {
+                        ecosystem = 'golang';
+                    } else if (ecosystem === 'packagist' || ecosystem === 'composer') {
+                        ecosystem = 'composer';
+                    }
+                    const packageKey = `${ecosystem}:${dep.name}`;
+                    if (!uniquePackageVersions.has(packageKey)) {
+                        uniquePackageVersions.set(packageKey, new Set());
+                    }
+                    uniquePackageVersions.get(packageKey).add(dep.version);
+                }
+            });
+            
+            // Fetch version drift in batches (don't block, run in background)
+            const totalVersions = Array.from(uniquePackageVersions.values()).reduce((sum, versions) => sum + versions.size, 0);
+            console.log(`📦 Fetching version drift for ${uniquePackageVersions.size} packages (${totalVersions} versions) in background...`);
+            
+            // Run in background without blocking
+            setTimeout(async () => {
+                let processed = 0;
+                const batchSize = 10; // Process 10 packages at a time
+                const packageKeys = Array.from(uniquePackageVersions.keys());
+                
+                for (let i = 0; i < packageKeys.length; i += batchSize) {
+                    const batch = packageKeys.slice(i, i + batchSize);
+                    await Promise.all(batch.map(async (packageKey) => {
+                        const [ecosystem, packageName] = packageKey.split(':');
+                        const versions = Array.from(uniquePackageVersions.get(packageKey));
+                        
+                        // Fetch drift for each version
+                        for (const version of versions) {
+                            try {
+                                // Check cache first - only fetch if not cached
+                                const cached = await versionDriftAnalyzer.getVersionDriftFromCache(packageKey, version);
+                                if (!cached) {
+                                    await versionDriftAnalyzer.checkVersionDrift(packageName, version, ecosystem);
+                                    processed++;
+                                    if (processed % 10 === 0) {
+                                        console.log(`📦 Version drift: ${processed}/${totalVersions} versions processed`);
+                                    }
+                                }
+                            } catch (e) {
+                                console.debug(`Failed to fetch version drift for ${packageKey}@${version}:`, e);
+                            }
+                        }
+                    }));
+                    
+                    // Small delay between batches to avoid overwhelming APIs
+                    await new Promise(resolve => setTimeout(resolve, 100));
+                }
+                
+                console.log(`✅ Version drift fetching complete: ${processed} versions fetched`);
+            }, 1000); // Start after a short delay
+        }
+        
         // Convert Map to array and sort by repository count (risk factor) then package count
         // Higher repository count = higher risk (single point of failure across multiple projects)
         const authorsList = Array.from(authorResults.values())

@@ -24,9 +24,10 @@ class VersionDriftAnalyzer {
      * @param {string} packageName - Package name
      * @param {string} currentVersion - Current version
      * @param {string} ecosystem - Ecosystem (npm, pypi, cargo, etc.)
+     * @param {boolean} forceRefresh - Force refresh even if cached (default: false)
      * @returns {Promise<Object>} - {hasMajorUpdate: bool, hasMinorUpdate: bool, latestVersion: string, checkedAt: timestamp}
      */
-    async checkVersionDrift(packageName, currentVersion, ecosystem) {
+    async checkVersionDrift(packageName, currentVersion, ecosystem, forceRefresh = false) {
         if (!packageName || !currentVersion || !ecosystem) {
             return {
                 hasMajorUpdate: false,
@@ -36,11 +37,40 @@ class VersionDriftAnalyzer {
             };
         }
 
+        // Normalize ecosystem for packageKey
+        let normalizedEcosystem = ecosystem.toLowerCase();
+        if (normalizedEcosystem === 'rubygems' || normalizedEcosystem === 'gem') {
+            normalizedEcosystem = 'gem';
+        } else if (normalizedEcosystem === 'go' || normalizedEcosystem === 'golang') {
+            normalizedEcosystem = 'golang';
+        } else if (normalizedEcosystem === 'packagist' || normalizedEcosystem === 'composer') {
+            normalizedEcosystem = 'composer';
+        }
+        
+        const packageKey = `${normalizedEcosystem}:${packageName}`;
+        const versionDriftKey = `${packageKey}@${currentVersion}`;
         const cacheKey = `drift:${ecosystem}:${packageName}:${currentVersion}`;
         
-        // Check cache first
+        // Check persistent cache first (from database)
+        if (!forceRefresh && window.cacheManager) {
+            try {
+                const packageData = await window.cacheManager.getPackage(packageKey);
+                if (packageData && packageData.versionDrift && packageData.versionDrift[currentVersion]) {
+                    const cachedDrift = packageData.versionDrift[currentVersion];
+                    // Check if cache is still valid (24 hours)
+                    if (cachedDrift.checkedAt && (Date.now() - cachedDrift.checkedAt) < this.cacheExpiry) {
+                        console.log(`📦 Version drift cache hit: ${packageKey}@${currentVersion}`);
+                        return cachedDrift;
+                    }
+                }
+            } catch (e) {
+                console.debug('Cache check failed, will fetch:', e);
+            }
+        }
+        
+        // Check in-memory cache
         const cached = this.cache.get(cacheKey);
-        if (cached && (Date.now() - cached.checkedAt) < this.cacheExpiry) {
+        if (!forceRefresh && cached && (Date.now() - cached.checkedAt) < this.cacheExpiry) {
             return cached;
         }
 
@@ -48,12 +78,18 @@ class VersionDriftAnalyzer {
             const latestVersion = await this.fetchLatestVersion(packageName, ecosystem);
             
             if (!latestVersion) {
-                return {
+                const result = {
                     hasMajorUpdate: false,
                     hasMinorUpdate: false,
                     latestVersion: null,
                     checkedAt: Date.now()
                 };
+                // Still cache the result (even if null) to avoid repeated failed requests
+                this.cache.set(cacheKey, result);
+                if (window.cacheManager) {
+                    await this.saveVersionDriftToCache(packageKey, currentVersion, result);
+                }
+                return result;
             }
 
             // Normalize versions for comparison
@@ -69,6 +105,9 @@ class VersionDriftAnalyzer {
                     checkedAt: Date.now()
                 };
                 this.cache.set(cacheKey, result);
+                if (window.cacheManager) {
+                    await this.saveVersionDriftToCache(packageKey, currentVersion, result);
+                }
                 return result;
             }
 
@@ -87,8 +126,11 @@ class VersionDriftAnalyzer {
                 checkedAt: Date.now()
             };
 
-            // Cache the result
+            // Cache the result (both in-memory and persistent)
             this.cache.set(cacheKey, result);
+            if (window.cacheManager) {
+                await this.saveVersionDriftToCache(packageKey, currentVersion, result);
+            }
             return result;
 
         } catch (error) {
@@ -99,6 +141,64 @@ class VersionDriftAnalyzer {
                 latestVersion: null,
                 checkedAt: Date.now()
             };
+        }
+    }
+
+    /**
+     * Save version drift data to persistent cache
+     * @param {string} packageKey - Package key (ecosystem:packageName)
+     * @param {string} version - Package version
+     * @param {Object} driftData - Version drift data
+     */
+    async saveVersionDriftToCache(packageKey, version, driftData) {
+        if (!window.cacheManager) return;
+        
+        try {
+            // Get existing package data
+            const packageData = await window.cacheManager.getPackage(packageKey) || {
+                packageKey: packageKey,
+                name: packageKey.split(':')[1] || packageKey,
+                ecosystem: packageKey.split(':')[0] || 'unknown'
+            };
+            
+            // Initialize versionDrift object if needed
+            if (!packageData.versionDrift) {
+                packageData.versionDrift = {};
+            }
+            
+            // Store drift data for this version
+            packageData.versionDrift[version] = driftData;
+            
+            // Save updated package data
+            await window.cacheManager.savePackage(packageKey, packageData);
+            console.log(`💾 Saved version drift for ${packageKey}@${version}`);
+        } catch (error) {
+            console.warn(`⚠️ Failed to save version drift to cache:`, error);
+        }
+    }
+
+    /**
+     * Get version drift from cache
+     * @param {string} packageKey - Package key (ecosystem:packageName)
+     * @param {string} version - Package version
+     * @returns {Promise<Object|null>} - Cached drift data or null
+     */
+    async getVersionDriftFromCache(packageKey, version) {
+        if (!window.cacheManager) return null;
+        
+        try {
+            const packageData = await window.cacheManager.getPackage(packageKey);
+            if (packageData && packageData.versionDrift && packageData.versionDrift[version]) {
+                const drift = packageData.versionDrift[version];
+                // Check if cache is still valid (24 hours)
+                if (drift.checkedAt && (Date.now() - drift.checkedAt) < this.cacheExpiry) {
+                    return drift;
+                }
+            }
+            return null;
+        } catch (error) {
+            console.warn(`⚠️ Failed to get version drift from cache:`, error);
+            return null;
         }
     }
 
@@ -118,9 +218,38 @@ class VersionDriftAnalyzer {
             };
         }
 
+        // Normalize ecosystem for packageKey
+        let normalizedEcosystem = ecosystem.toLowerCase();
+        if (normalizedEcosystem === 'rubygems' || normalizedEcosystem === 'gem') {
+            normalizedEcosystem = 'gem';
+        } else if (normalizedEcosystem === 'go' || normalizedEcosystem === 'golang') {
+            normalizedEcosystem = 'golang';
+        } else if (normalizedEcosystem === 'packagist' || normalizedEcosystem === 'composer') {
+            normalizedEcosystem = 'composer';
+        }
+        
+        const packageKey = `${normalizedEcosystem}:${packageName}`;
         const cacheKey = `stale:${ecosystem}:${packageName}:${currentVersion}`;
         
-        // Check cache first (7 days expiry for staleness)
+        // Check persistent cache first (from database)
+        if (window.cacheManager) {
+            try {
+                const packageData = await window.cacheManager.getPackage(packageKey);
+                if (packageData && packageData.versionDrift && packageData.versionDrift[currentVersion]) {
+                    const drift = packageData.versionDrift[currentVersion];
+                    if (drift.staleness && drift.staleness.stalenessCheckedAt) {
+                        // Check if staleness cache is still valid (7 days)
+                        if ((Date.now() - drift.staleness.stalenessCheckedAt) < (7 * 24 * 60 * 60 * 1000)) {
+                            return drift.staleness;
+                        }
+                    }
+                }
+            } catch (e) {
+                console.debug('Staleness cache check failed, will calculate:', e);
+            }
+        }
+        
+        // Check in-memory cache (7 days expiry for staleness)
         const cached = this.cache.get(cacheKey);
         if (cached && cached.stalenessCheckedAt && (Date.now() - cached.stalenessCheckedAt) < (7 * 24 * 60 * 60 * 1000)) {
             return cached.staleness || {
@@ -139,9 +268,14 @@ class VersionDriftAnalyzer {
                 const result = {
                     isStale: false,
                     lastReleaseDate: null,
-                    monthsSinceRelease: 0
+                    monthsSinceRelease: 0,
+                    stalenessCheckedAt: Date.now()
                 };
                 this.cache.set(cacheKey, { staleness: result, stalenessCheckedAt: Date.now() });
+                // Also save to persistent cache
+                if (window.cacheManager) {
+                    await this.saveStalenessToCache(packageKey, currentVersion, result);
+                }
                 return result;
             }
 
@@ -149,11 +283,14 @@ class VersionDriftAnalyzer {
             const publishDate = await this.fetchVersionPublishDate(packageName, currentVersion, ecosystem);
             
             if (!publishDate) {
-                return {
+                const result = {
                     isStale: false,
                     lastReleaseDate: null,
-                    monthsSinceRelease: 0
+                    monthsSinceRelease: 0,
+                    stalenessCheckedAt: Date.now()
                 };
+                this.cache.set(cacheKey, { staleness: result, stalenessCheckedAt: Date.now() });
+                return result;
             }
 
             const monthsSinceRelease = this.calculateMonthsSince(publishDate);
@@ -162,11 +299,15 @@ class VersionDriftAnalyzer {
             const result = {
                 isStale: isStale,
                 lastReleaseDate: publishDate,
-                monthsSinceRelease: monthsSinceRelease
+                monthsSinceRelease: monthsSinceRelease,
+                stalenessCheckedAt: Date.now()
             };
 
-            // Cache the result
+            // Cache the result (both in-memory and persistent)
             this.cache.set(cacheKey, { staleness: result, stalenessCheckedAt: Date.now() });
+            if (window.cacheManager) {
+                await this.saveStalenessToCache(packageKey, currentVersion, result);
+            }
             return result;
 
         } catch (error) {
@@ -176,6 +317,49 @@ class VersionDriftAnalyzer {
                 lastReleaseDate: null,
                 monthsSinceRelease: 0
             };
+        }
+    }
+
+    /**
+     * Save staleness data to persistent cache
+     * @param {string} packageKey - Package key (ecosystem:packageName)
+     * @param {string} version - Package version
+     * @param {Object} stalenessData - Staleness data
+     */
+    async saveStalenessToCache(packageKey, version, stalenessData) {
+        if (!window.cacheManager) return;
+        
+        try {
+            // Get existing package data
+            const packageData = await window.cacheManager.getPackage(packageKey) || {
+                packageKey: packageKey,
+                name: packageKey.split(':')[1] || packageKey,
+                ecosystem: packageKey.split(':')[0] || 'unknown'
+            };
+            
+            // Initialize versionDrift object if needed
+            if (!packageData.versionDrift) {
+                packageData.versionDrift = {};
+            }
+            
+            // Initialize drift data for this version if needed
+            if (!packageData.versionDrift[version]) {
+                packageData.versionDrift[version] = {
+                    hasMajorUpdate: false,
+                    hasMinorUpdate: false,
+                    latestVersion: null,
+                    checkedAt: Date.now()
+                };
+            }
+            
+            // Store staleness data
+            packageData.versionDrift[version].staleness = stalenessData;
+            
+            // Save updated package data
+            await window.cacheManager.savePackage(packageKey, packageData);
+            console.log(`💾 Saved staleness for ${packageKey}@${version}`);
+        } catch (error) {
+            console.warn(`⚠️ Failed to save staleness to cache:`, error);
         }
     }
 
@@ -377,6 +561,49 @@ class VersionDriftAnalyzer {
                 throw new Error('Request timeout');
             }
             throw error;
+        }
+    }
+
+    /**
+     * Refresh version drift data for a package (force refresh from API)
+     * Useful for periodic refresh of cached data
+     * @param {string} packageName - Package name
+     * @param {string} version - Package version
+     * @param {string} ecosystem - Ecosystem
+     * @returns {Promise<Object>} - Updated version drift data
+     */
+    async refreshVersionDrift(packageName, version, ecosystem) {
+        return await this.checkVersionDrift(packageName, version, ecosystem, true);
+    }
+
+    /**
+     * Batch refresh version drift for multiple packages
+     * @param {Array<{name: string, version: string, ecosystem: string}>} packages - Array of package info
+     * @param {Function} onProgress - Progress callback (processed, total)
+     * @returns {Promise<void>}
+     */
+    async refreshVersionDriftBatch(packages, onProgress = null) {
+        const total = packages.length;
+        let processed = 0;
+        
+        const batchSize = 10; // Process 10 at a time
+        
+        for (let i = 0; i < packages.length; i += batchSize) {
+            const batch = packages.slice(i, i + batchSize);
+            await Promise.all(batch.map(async (pkg) => {
+                try {
+                    await this.refreshVersionDrift(pkg.name, pkg.version, pkg.ecosystem);
+                    processed++;
+                    if (onProgress) {
+                        onProgress(processed, total);
+                    }
+                } catch (e) {
+                    console.warn(`Failed to refresh version drift for ${pkg.name}@${pkg.version}:`, e);
+                }
+            }));
+            
+            // Small delay between batches
+            await new Promise(resolve => setTimeout(resolve, 100));
         }
     }
 }
