@@ -127,6 +127,11 @@ h6 { font-size: var(--font-size-body); }
   color: var(--text-primary) !important;
 }
 
+.table th {
+  background-color: var(--bg-tertiary) !important;
+  color: var(--text-primary) !important;
+}
+
 .table-hover tbody tr:hover {
   background-color: var(--bg-primary) !important;
 }
@@ -230,6 +235,24 @@ footer {
 /* Progress bar theming - base styles in style.css */
 .progress-bar {
   background-color: var(--color-green) !important;
+}
+
+/* Bootstrap bg-light override for theme support */
+.bg-light {
+  background-color: var(--bg-secondary) !important;
+}
+
+/* Bootstrap text-dark override for theme support */
+/* Note: text-dark is used for badges and specific elements where contrast is needed */
+/* For badges with bg-warning, we keep dark text for contrast */
+.bg-warning.text-dark,
+.badge.bg-warning.text-dark {
+  color: #000000 !important; /* Keep black text on yellow background for contrast */
+}
+
+/* For other uses of text-dark, use theme-aware color */
+.text-dark:not(.bg-warning):not(.badge) {
+  color: var(--text-primary) !important;
 }
 
 /* Smooth transitions for theme changes */

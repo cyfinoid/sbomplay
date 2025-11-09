@@ -184,8 +184,9 @@
             await loadAnalysisList();
             console.log('✅ Authors Page - Analysis list loaded');
             
-            // Check for funding filter in URL and pre-check checkbox
+            // Check for funding and repo filters in URL and pre-check checkbox
             const urlParams = new URLSearchParams(window.location.search);
+            const repoParam = urlParams.get('repo');
             if (urlParams.get('funding') === 'true') {
                 const fundingFilterCheckbox = document.getElementById('fundingFilter');
                 if (fundingFilterCheckbox) {
@@ -201,6 +202,9 @@
                 `;
                 document.querySelector('.container').insertBefore(notice, document.querySelector('.container').firstChild);
             }
+            
+            // Store repoParam globally for use in loadAuthorData
+            window.repoParam = repoParam;
             
             // Setup event listeners
             document.getElementById('analysisSelector').addEventListener('change', loadAuthorData);
@@ -250,6 +254,25 @@
                 }
                 
                 console.log(`📊 Authors Page - Loaded ${authorData ? authorData.length : 0} authors`);
+                
+                // Filter by repository if repo parameter is present
+                if (window.repoParam && authorData) {
+                    authorData = authorData.filter(author => {
+                        // Check if any of the author's packages are used in the specified repository
+                        if (author.packageRepositories) {
+                            return Object.values(author.packageRepositories).some(repos => 
+                                repos && repos.includes(window.repoParam)
+                            );
+                        }
+                        // Fallback: check repositories array
+                        if (author.repositories && Array.isArray(author.repositories)) {
+                            return author.repositories.includes(window.repoParam);
+                        }
+                        return false;
+                    });
+                    console.log(`📊 Authors Page - Filtered to ${authorData.length} authors for repo ${window.repoParam}`);
+                }
+                
                 displayAuthors(authorData, ecosystem);
             }
             

@@ -501,31 +501,45 @@ class OSVService {
     }
 
     /**
-     * Query vulnerabilities individually as fallback
+     * Query vulnerabilities individually as fallback (parallelized)
      */
     async queryVulnerabilitiesIndividually(packages, onProgress = null) {
-        console.log(`🔍 OSV: Querying ${packages.length} packages individually`);
+        console.log(`🔍 OSV: Querying ${packages.length} packages individually (parallelized)`);
         
-        const results = [];
-        for (let i = 0; i < packages.length; i++) {
-            const pkg = packages[i];
+        const CONCURRENCY_LIMIT = 15; // Process 15 packages concurrently
+        const results = new Array(packages.length); // Pre-allocate array to maintain order
+        let processedCount = 0;
+        
+        // Helper function to query a single package
+        const queryPackage = async (pkg, index) => {
             try {
                 const result = await this.queryVulnerabilities(pkg.name, pkg.version, pkg.ecosystem);
-                results.push(result);
-                
-                // Report progress
-                if (onProgress) {
-                    const progressPercent = ((i + 1) / packages.length) * 100;
-                    onProgress(progressPercent, `Scanning package ${i + 1}/${packages.length} for vulnerabilities...`);
-                }
-                
-                // Add small delay to be respectful to the API
-                if (i < packages.length - 1) {
-                    await new Promise(resolve => setTimeout(resolve, 100));
-                }
+                results[index] = result;
+                return { index, result, success: true };
             } catch (error) {
                 console.error(`❌ OSV: Error querying ${pkg.name}@${pkg.version}:`, error);
-                results.push({ vulns: [] });
+                results[index] = { vulns: [] };
+                return { index, result: { vulns: [] }, success: false };
+            }
+        };
+        
+        // Process packages in batches with concurrency limit
+        for (let i = 0; i < packages.length; i += CONCURRENCY_LIMIT) {
+            const batch = packages.slice(i, i + CONCURRENCY_LIMIT);
+            const batchPromises = batch.map((pkg, batchIndex) => 
+                queryPackage(pkg, i + batchIndex)
+            );
+            
+            // Wait for all packages in this batch to complete
+            const batchResults = await Promise.allSettled(batchPromises);
+            
+            // Update processed count (thread-safe - done after batch completes)
+            processedCount += batchResults.length;
+            
+            // Report progress
+            if (onProgress) {
+                const progressPercent = (processedCount / packages.length) * 100;
+                onProgress(progressPercent, `Scanning package ${processedCount}/${packages.length} for vulnerabilities...`);
             }
         }
         

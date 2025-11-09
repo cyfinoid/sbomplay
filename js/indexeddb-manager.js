@@ -342,6 +342,41 @@ class IndexedDBManager {
     }
 
     /**
+     * Batch save multiple packages in a single transaction
+     */
+    async batchSavePackages(packages) {
+        try {
+            if (!this.db) {
+                console.warn('⚠️ IndexedDB not initialized yet');
+                return false;
+            }
+            if (!packages || packages.length === 0) {
+                return true;
+            }
+            
+            const transaction = this.db.transaction(['packages'], 'readwrite');
+            const store = transaction.objectStore('packages');
+            
+            const timestamp = new Date().toISOString();
+            const promises = packages.map(([packageKey, packageData]) => {
+                const entry = {
+                    packageKey: packageKey,
+                    ...packageData,
+                    timestamp: timestamp
+                };
+                return this._promisifyRequest(store.put(entry));
+            });
+
+            await Promise.all(promises);
+            console.log(`✅ Batch saved ${packages.length} packages`);
+            return true;
+        } catch (error) {
+            console.error('❌ Failed to batch save packages:', error);
+            return false;
+        }
+    }
+
+    /**
      * Get package metadata from global cache
      */
     async getPackage(packageKey) {
@@ -382,6 +417,41 @@ class IndexedDBManager {
             return true;
         } catch (error) {
             console.error('❌ Failed to save author entity:', error);
+            return false;
+        }
+    }
+
+    /**
+     * Batch save multiple author entities in a single transaction
+     */
+    async batchSaveAuthorEntities(authorEntities) {
+        try {
+            if (!this.db) {
+                console.warn('⚠️ IndexedDB not initialized yet');
+                return false;
+            }
+            if (!authorEntities || authorEntities.length === 0) {
+                return true;
+            }
+            
+            const transaction = this.db.transaction(['authorEntities'], 'readwrite');
+            const store = transaction.objectStore('authorEntities');
+            
+            const timestamp = new Date().toISOString();
+            const promises = authorEntities.map(([authorKey, authorData]) => {
+                const entry = {
+                    authorKey: authorKey,
+                    ...authorData,
+                    timestamp: timestamp
+                };
+                return this._promisifyRequest(store.put(entry));
+            });
+
+            await Promise.all(promises);
+            console.log(`✅ Batch saved ${authorEntities.length} author entities`);
+            return true;
+        } catch (error) {
+            console.error('❌ Failed to batch save author entities:', error);
             return false;
         }
     }
@@ -430,6 +500,44 @@ class IndexedDBManager {
             return true;
         } catch (error) {
             console.error('❌ Failed to save package-author relationship:', error);
+            return false;
+        }
+    }
+
+    /**
+     * Batch save multiple package-author relationships in a single transaction
+     */
+    async batchSavePackageAuthors(relationships) {
+        try {
+            if (!this.db) {
+                console.warn('⚠️ IndexedDB not initialized yet');
+                return false;
+            }
+            if (!relationships || relationships.length === 0) {
+                return true;
+            }
+            
+            const transaction = this.db.transaction(['packageAuthors'], 'readwrite');
+            const store = transaction.objectStore('packageAuthors');
+            
+            const timestamp = new Date().toISOString();
+            const promises = relationships.map(({ packageKey, authorKey, isMaintainer = false }) => {
+                const packageAuthorKey = `${packageKey}:${authorKey}`;
+                const entry = {
+                    packageAuthorKey: packageAuthorKey,
+                    packageKey: packageKey,
+                    authorKey: authorKey,
+                    isMaintainer: isMaintainer,
+                    timestamp: timestamp
+                };
+                return this._promisifyRequest(store.put(entry));
+            });
+
+            await Promise.all(promises);
+            console.log(`✅ Batch saved ${relationships.length} package-author relationships`);
+            return true;
+        } catch (error) {
+            console.error('❌ Failed to batch save package-author relationships:', error);
             return false;
         }
     }
@@ -582,6 +690,41 @@ class IndexedDBManager {
             return true;
         } catch (error) {
             console.error('❌ Failed to save vulnerability:', error);
+            return false;
+        }
+    }
+
+    /**
+     * Batch save multiple vulnerability data entries in a single transaction
+     */
+    async batchSaveVulnerabilities(vulnerabilities) {
+        try {
+            if (!this.db) {
+                console.warn('⚠️ IndexedDB not initialized yet');
+                return false;
+            }
+            if (!vulnerabilities || vulnerabilities.length === 0) {
+                return true;
+            }
+            
+            const transaction = this.db.transaction(['vulnerabilities'], 'readwrite');
+            const store = transaction.objectStore('vulnerabilities');
+            
+            const timestamp = new Date().toISOString();
+            const promises = vulnerabilities.map(([packageKey, data]) => {
+                const entry = {
+                    packageKey: packageKey,
+                    data: data,
+                    timestamp: timestamp
+                };
+                return this._promisifyRequest(store.put(entry));
+            });
+
+            await Promise.all(promises);
+            console.log(`✅ Batch saved ${vulnerabilities.length} vulnerability data entries`);
+            return true;
+        } catch (error) {
+            console.error('❌ Failed to batch save vulnerability data:', error);
             return false;
         }
     }

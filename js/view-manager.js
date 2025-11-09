@@ -4888,6 +4888,7 @@ class ViewManager {
                     hasUsage: usage.length > 0,
                     uniqueReposCount: uniqueRepos.length,
                     reposPlural: uniqueRepos.length !== 1 ? 'ies' : 'y',
+                    reposWord: uniqueRepos.length !== 1 ? 'repositories' : 'repository',
                     usage: usageForTemplate,
                     allVulnsJson: JSON.stringify(depVulnerabilities).replace(/"/g, '&quot;') // Use filtered vulnerabilities
                 });
@@ -4900,7 +4901,7 @@ class ViewManager {
                         ? `<div class="vuln-repo-usage mt-3 p-2 bg-light rounded">
             <small class="text-muted d-block mb-2">
                 <i class="fas fa-code-branch me-1"></i>
-                <strong>Used in ${depData.uniqueReposCount} repository${depData.reposPlural}:</strong>
+                <strong>Used in ${depData.uniqueReposCount} ${depData.reposWord}:</strong>
             </small>
             <div class="vuln-paths" style="font-size: 0.85em;">
                 ${depData.usage.map(u => `
@@ -4918,7 +4919,7 @@ class ViewManager {
                     return `<div class="vulnerable-dep-item mb-3" style="border-left: 3px solid #dc3545; padding-left: 15px;">
     <div class="vuln-dep-info">
         <div class="vuln-dep-name" style="font-weight: bold; font-size: 1.1em;">${escapeHtml(depData.name)}@${escapeHtml(depData.version)}</div>
-        <div class="vuln-dep-count mb-2">${depData.vulnerabilityCount} vulnerability${depData.vulnerabilityPlural}</div>
+        <div class="vuln-dep-count mb-2">${depData.vulnerabilityCount} ${depData.vulnerabilityCount !== 1 ? 'vulnerabilities' : 'vulnerability'}</div>
         <div class="vuln-severity-badges mb-2">
             ${depData.vulnerabilities.map(vuln => `
             <span class="badge severity-${vuln.cssSeverity} clickable-severity-badge me-1" 

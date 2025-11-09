@@ -221,9 +221,10 @@
         // Load analysis list into selector
         await loadAnalysesList();
         
-        // Check for severity filter in URL and pre-select
+        // Check for severity and repo filters in URL and pre-select
         const urlParams = new URLSearchParams(window.location.search);
         const severityParam = urlParams.get('severity');
+        const repoParam = urlParams.get('repo');
         if (severityParam) {
             const severityFilter = document.getElementById('severityFilter');
             if (severityFilter) {
@@ -254,6 +255,27 @@
             if (!data || !data.data) {
                 container.innerHTML = '<div class="alert alert-warning">No data found for this entry.</div>';
                 return;
+            }
+            
+            // Filter by repository if repo parameter is present
+            if (repoParam && data.data.vulnerabilityAnalysis && data.data.vulnerabilityAnalysis.vulnerableDependencies) {
+                const filteredVulnDeps = data.data.vulnerabilityAnalysis.vulnerableDependencies.filter(dep => {
+                    // Check if this dependency is used in the specified repository
+                    if (dep.repositories && Array.isArray(dep.repositories)) {
+                        return dep.repositories.includes(repoParam);
+                    }
+                    // Also check allDependencies for repository usage
+                    if (data.data.allDependencies) {
+                        const matchingDep = data.data.allDependencies.find(d => 
+                            d.name === dep.name && d.version === dep.version
+                        );
+                        return matchingDep && matchingDep.repositories && matchingDep.repositories.includes(repoParam);
+                    }
+                    return false;
+                });
+                // Create a copy of data and filter vulnerable dependencies
+                data = JSON.parse(JSON.stringify(data)); // Deep copy
+                data.data.vulnerabilityAnalysis.vulnerableDependencies = filteredVulnDeps;
             }
             
             // Use severity filter from parameter or URL

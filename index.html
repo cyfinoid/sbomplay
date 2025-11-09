@@ -157,6 +157,20 @@
                 <div id="progressText" class="text-muted">
                     Initializing analysis...
                 </div>
+                <div id="timingInfo" class="mt-3 small text-muted">
+                    <div id="startTime" class="d-none">
+                        <i class="fas fa-clock me-1"></i><strong>Started:</strong> <span id="startTimeValue"></span>
+                    </div>
+                    <div id="elapsedTime" class="d-none mt-1">
+                        <i class="fas fa-hourglass-half me-1"></i><strong>Elapsed:</strong> <span id="elapsedTimeValue">0s</span>
+                    </div>
+                    <div id="endTime" class="d-none mt-1">
+                        <i class="fas fa-check-circle me-1"></i><strong>Finished:</strong> <span id="endTimeValue"></span>
+                    </div>
+                    <div id="totalTime" class="d-none mt-1">
+                        <i class="fas fa-stopwatch me-1"></i><strong>Total Time:</strong> <span id="totalTimeValue"></span>
+                    </div>
+                </div>
                 <div id="rateLimitInfo" class="mt-2"></div>
             </div>
         </div>
@@ -392,6 +406,7 @@
         <script src="js/sbom-processor.js?v=0.0.2"></script>
         <script src="js/license-processor.js?v=0.0.2"></script>
         <script src="js/cache-manager.js?v=0.0.2"></script>
+        <script src="js/request-queue-manager.js?v=0.0.2"></script>
         <script src="js/osv-service.js?v=0.0.2"></script>
         <script src="js/author-service.js?v=0.0.2"></script>
         <script src="js/storage-manager.js?v=0.0.2"></script>

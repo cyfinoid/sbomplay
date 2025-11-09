@@ -532,32 +532,24 @@ class SBOMProcessor {
             
             console.log(`📊 Found ${directDepsByEcosystem.size} ecosystems with direct dependencies`);
             
-            let processedEcosystems = 0;
+            // Resolve trees for all ecosystems in parallel
+            const ecosystemEntries = Array.from(directDepsByEcosystem.entries());
             
-            // Resolve trees for each ecosystem
-            for (const [ecosystem, directDeps] of directDepsByEcosystem) {
+            // Helper function to resolve a single ecosystem
+            const resolveEcosystem = async ([ecosystem, directDeps], index) => {
                 console.log(`  🔍 Resolving ${ecosystem} dependencies (${directDeps.size} direct)...`);
-                
-                if (onProgress) {
-                    onProgress({
-                        phase: 'resolving-tree',
-                        ecosystem: ecosystem,
-                        processed: processedEcosystems,
-                        total: directDepsByEcosystem.size
-                    });
-                }
                 
                 try {
                     // Create progress callback for this ecosystem
                     const ecosystemProgressCallback = (progress) => {
                         if (onProgress && progress.phase === 'resolving-package') {
                             // Map package-level progress to ecosystem-level progress
-                            const ecosystemProgress = processedEcosystems + (progress.processed / progress.total);
+                            const ecosystemProgress = index + (progress.processed / progress.total);
                             onProgress({
                                 phase: 'resolving-tree',
                                 ecosystem: ecosystem,
-                                processed: processedEcosystems,
-                                total: directDepsByEcosystem.size,
+                                processed: index,
+                                total: ecosystemEntries.length,
                                 packageProgress: progress,
                                 ecosystemProgress: ecosystemProgress
                             });
@@ -570,8 +562,6 @@ class SBOMProcessor {
                         ecosystem,
                         ecosystemProgressCallback
                     );
-                    
-                    resolvedTrees.set(ecosystem, tree);
                     
                     // Update dependencies with depth information
                     for (const [packageKey, treeNode] of tree) {
@@ -586,12 +576,38 @@ class SBOMProcessor {
                     const stats = resolver.getTreeStats(tree);
                     console.log(`    ✅ Resolved ${ecosystem}: ${stats.totalPackages} packages, max depth: ${stats.maxDepth}`);
                     
+                    return { ecosystem, tree, success: true };
                 } catch (error) {
                     console.error(`    ❌ Error resolving ${ecosystem}:`, error);
+                    return { ecosystem, tree: null, success: false };
                 }
-                
-                processedEcosystems++;
-            }
+            };
+            
+            // Resolve all ecosystems in parallel
+            const resolutionPromises = ecosystemEntries.map((entry, index) => 
+                resolveEcosystem(entry, index)
+            );
+            
+            const resolutionResults = await Promise.allSettled(resolutionPromises);
+            
+            // Process results and update progress
+            let processedEcosystems = 0;
+            resolutionResults.forEach((result, index) => {
+                if (result.status === 'fulfilled' && result.value.success) {
+                    const { ecosystem, tree } = result.value;
+                    resolvedTrees.set(ecosystem, tree);
+                    processedEcosystems++;
+                    
+                    if (onProgress) {
+                        onProgress({
+                            phase: 'resolving-tree',
+                            ecosystem: ecosystem,
+                            processed: processedEcosystems,
+                            total: ecosystemEntries.length
+                        });
+                    }
+                }
+            });
             
             console.log('✅ Dependency tree resolution complete');
             this.dependencyTreesResolved = true;
@@ -944,6 +960,40 @@ class SBOMProcessor {
                         delete vuln.affected;
                         delete vuln.database_specific;
                     });
+                }
+            });
+        }
+        
+        // Clear processed repository data that's already saved (keep only essential info)
+        // This reduces memory usage for large organizations
+        if (this.repositories.size > 50) {
+            // For large datasets, clear detailed relationship data after processing
+            this.repositories.forEach((repoData, repoKey) => {
+                // Keep essential data but clear large arrays/objects
+                if (repoData.relationships && repoData.relationships.length > 100) {
+                    // Keep only direct relationships, clear transitive ones
+                    repoData.relationships = repoData.relationships.filter(rel => rel.isDirectFromMain);
+                }
+                // Clear SPDX packages if we have too many (keep only essential mapping)
+                if (repoData.spdxPackages && repoData.spdxPackages.length > 200) {
+                    repoData.spdxPackages = repoData.spdxPackages.slice(0, 200);
+                }
+            });
+        }
+        
+        // Clear intermediate dependency data structures if they're too large
+        if (this.dependencies.size > 1000) {
+            // For very large dependency sets, clear originalPackage data (already processed)
+            let clearedCount = 0;
+            this.dependencies.forEach((dep, depKey) => {
+                if (dep.originalPackage && clearedCount < this.dependencies.size * 0.5) {
+                    // Keep essential PURL info but clear full package object
+                    if (dep.originalPackage.externalRefs) {
+                        const purlRef = dep.originalPackage.externalRefs.find(ref => ref.referenceType === 'purl');
+                        dep.purl = purlRef ? purlRef.referenceLocator : null;
+                    }
+                    delete dep.originalPackage;
+                    clearedCount++;
                 }
             });
         }

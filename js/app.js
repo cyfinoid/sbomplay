@@ -9,6 +9,9 @@ class SBOMPlayApp {
         this.isAnalyzing = false;
         this.rateLimitTimer = null;
         this.initialized = false;
+        this.analysisStartTime = null;
+        this.analysisEndTime = null;
+        this.elapsedTimeInterval = null;
         
         // Warn user before navigating away during analysis
         window.addEventListener('beforeunload', (e) => {
@@ -507,6 +510,7 @@ class SBOMPlayApp {
         }
         
         this.updateProgress(0, 'Initializing repository analysis...');
+        this.startTiming();
 
         try {
             // Get rate limit info
@@ -641,10 +645,12 @@ class SBOMPlayApp {
             await this.displaySingleRepoResults(results, repoKey);
             
             this.updateProgress(100, 'Analysis complete!');
+            this.stopTiming();
             this.showAlert(`Analysis complete for ${repoKey}!`, 'success');
             
         } catch (error) {
             console.error('Single repository analysis failed:', error);
+            this.stopTiming();
             this.showAlert(`Analysis failed: ${error.message}`, 'danger');
         } finally {
             this.finishAnalysis();
@@ -677,6 +683,7 @@ class SBOMPlayApp {
         }
         
         this.updateProgress(0, 'Initializing analysis...');
+        this.startTiming();
 
         try {
             // Get rate limit info
@@ -696,18 +703,18 @@ class SBOMPlayApp {
             this.sbomProcessor.setTotalRepositories(repositories.length);
             this.updateProgress(20, `Found ${repositories.length} repositories. Starting SBOM analysis...`);
 
-            // Process each repository
+            // Process repositories in parallel with concurrency limit
+            const CONCURRENCY_LIMIT = 8; // Process 8 repositories concurrently
             let successfulRepos = 0;
             let failedRepos = 0;
             let reposWithDeps = 0;
+            let processedCount = 0;
             
-            for (let i = 0; i < repositories.length; i++) {
-                const repo = repositories[i];
+            // Helper function to process a single repository
+            const processRepository = async (repo, index) => {
                 const owner = repo.owner.login;
                 const name = repo.name;
-                const progress = 20 + (i / repositories.length) * 70;
-                
-                this.updateProgress(progress, `Analyzing ${owner}/${name}...`);
+                let result = { success: false, hasDeps: false };
                 
                 try {
                     const sbomData = await this.githubClient.fetchSBOM(owner, name);
@@ -720,30 +727,58 @@ class SBOMPlayApp {
                         const success = this.sbomProcessor.processSBOM(owner, name, sbomData, repositoryLicense, archived);
                         this.sbomProcessor.updateProgress(success);
                         if (success) {
-                            successfulRepos++;
+                            result.success = true;
                             const repoData = this.sbomProcessor.repositories.get(`${owner}/${name}`);
                             if (repoData && repoData.totalDependencies > 0) {
+                                result.hasDeps = true;
+                            }
+                        }
+                    } else {
+                        this.sbomProcessor.updateProgress(false);
+                    }
+                } catch (error) {
+                    console.error(`Error processing ${owner}/${name}:`, error);
+                    this.sbomProcessor.updateProgress(false);
+                }
+                
+                return result;
+            };
+            
+            // Process repositories in batches with concurrency limit
+            for (let i = 0; i < repositories.length; i += CONCURRENCY_LIMIT) {
+                const batch = repositories.slice(i, i + CONCURRENCY_LIMIT);
+                const batchPromises = batch.map((repo) => processRepository(repo, i));
+                
+                // Wait for all repositories in this batch to complete
+                const results = await Promise.allSettled(batchPromises);
+                
+                // Update counters from results (thread-safe)
+                results.forEach((result, batchIndex) => {
+                    if (result.status === 'fulfilled') {
+                        if (result.value.success) {
+                            successfulRepos++;
+                            if (result.value.hasDeps) {
                                 reposWithDeps++;
                             }
                         } else {
                             failedRepos++;
                         }
                     } else {
-                        this.sbomProcessor.updateProgress(false);
                         failedRepos++;
                     }
-                } catch (error) {
-                    console.error(`Error processing ${owner}/${name}:`, error);
-                    this.sbomProcessor.updateProgress(false);
-                    failedRepos++;
-                }
-
-                // Save incrementally every 10 repositories
-                if ((i + 1) % 10 === 0 || i === repositories.length - 1) {
-                    console.log(`💾 Saving incremental data (${i + 1}/${repositories.length} repositories processed)`);
+                    processedCount++;
+                });
+                
+                // Update progress
+                const progress = 20 + (processedCount / repositories.length) * 70;
+                this.updateProgress(progress, `Analyzed ${processedCount}/${repositories.length} repositories...`);
+                
+                // Save incrementally every 10 repositories or at the end
+                if (processedCount % 10 === 0 || processedCount === repositories.length) {
+                    console.log(`💾 Saving incremental data (${processedCount}/${repositories.length} repositories processed)`);
                     
                     const partialData = this.sbomProcessor.exportPartialData();
-                    const isComplete = (i === repositories.length - 1);
+                    const isComplete = (processedCount === repositories.length);
                     
                     const saveSuccess = await this.storageManager.saveIncrementalAnalysisData(ownerName, partialData, isComplete);
                     if (saveSuccess) {
@@ -764,9 +799,6 @@ class SBOMPlayApp {
                         console.warn(`⚠️ Failed to save incremental data for ${ownerName}`);
                     }
                 }
-
-                // Add small delay to be respectful to GitHub API
-                await this.sleep(100);
             }
 
             // Resolve full dependency trees with API queries
@@ -895,9 +927,11 @@ class SBOMPlayApp {
             }
             
             this.updateProgress(100, 'Analysis complete!');
+            this.stopTiming();
             
         } catch (error) {
             console.error('Analysis failed:', error);
+            this.stopTiming();
             this.showAlert(`Analysis failed: ${error.message}`, 'danger');
         } finally {
             this.finishAnalysis();
@@ -2638,10 +2672,151 @@ class SBOMPlayApp {
     }
 
     /**
+     * Start timing for analysis
+     */
+    startTiming() {
+        // Clear any previous timing interval
+        if (this.elapsedTimeInterval) {
+            clearInterval(this.elapsedTimeInterval);
+            this.elapsedTimeInterval = null;
+        }
+        
+        this.analysisStartTime = Date.now();
+        this.analysisEndTime = null;
+        
+        const startDate = new Date(this.analysisStartTime);
+        const startTimeString = startDate.toLocaleString();
+        
+        // Reset/hide previous timing display elements
+        const endTimeElement = document.getElementById('endTime');
+        const totalTimeElement = document.getElementById('totalTime');
+        
+        if (endTimeElement) {
+            endTimeElement.classList.add('d-none');
+        }
+        if (totalTimeElement) {
+            totalTimeElement.classList.add('d-none');
+        }
+        
+        // Update UI with start time (console logging happens at completion)
+        const startTimeElement = document.getElementById('startTime');
+        const startTimeValue = document.getElementById('startTimeValue');
+        const elapsedTimeElement = document.getElementById('elapsedTime');
+        const elapsedTimeValue = document.getElementById('elapsedTimeValue');
+        
+        if (startTimeElement && startTimeValue) {
+            startTimeValue.textContent = startTimeString;
+            startTimeElement.classList.remove('d-none');
+        }
+        
+        if (elapsedTimeElement) {
+            elapsedTimeElement.classList.remove('d-none');
+        }
+        
+        if (elapsedTimeValue) {
+            elapsedTimeValue.textContent = '0s';
+        }
+        
+        // Update elapsed time every second
+        this.elapsedTimeInterval = setInterval(() => {
+            this.updateElapsedTime();
+        }, 1000);
+        
+        // Initial update
+        this.updateElapsedTime();
+    }
+
+    /**
+     * Update elapsed time display
+     */
+    updateElapsedTime() {
+        if (!this.analysisStartTime) return;
+        
+        const elapsed = Date.now() - this.analysisStartTime;
+        const formattedDuration = this.formatDuration(elapsed);
+        
+        // Update UI only (no console logging per second)
+        const elapsedTimeValue = document.getElementById('elapsedTimeValue');
+        if (elapsedTimeValue) {
+            elapsedTimeValue.textContent = formattedDuration;
+        }
+    }
+
+    /**
+     * Stop timing and show final results
+     */
+    stopTiming() {
+        this.analysisEndTime = Date.now();
+        
+        // Clear interval
+        if (this.elapsedTimeInterval) {
+            clearInterval(this.elapsedTimeInterval);
+            this.elapsedTimeInterval = null;
+        }
+        
+        // Update UI with end time and total duration
+        const endTimeElement = document.getElementById('endTime');
+        const endTimeValue = document.getElementById('endTimeValue');
+        const totalTimeElement = document.getElementById('totalTime');
+        const totalTimeValue = document.getElementById('totalTimeValue');
+        
+        if (this.analysisStartTime && this.analysisEndTime) {
+            const totalDuration = this.analysisEndTime - this.analysisStartTime;
+            const formattedDuration = this.formatDuration(totalDuration);
+            const endDate = new Date(this.analysisEndTime);
+            const endTimeString = endDate.toLocaleString();
+            
+            // Log to console (final values only)
+            console.log(`⏱️ Started: ${new Date(this.analysisStartTime).toLocaleString()}`);
+            console.log(`⏱️ Finished: ${endTimeString}`);
+            console.log(`⏱️ Total Time: ${formattedDuration}`);
+            
+            if (endTimeElement && endTimeValue) {
+                endTimeValue.textContent = endTimeString;
+                endTimeElement.classList.remove('d-none');
+            }
+            
+            if (totalTimeElement && totalTimeValue) {
+                totalTimeValue.textContent = formattedDuration;
+                totalTimeElement.classList.remove('d-none');
+            }
+            
+            // Final elapsed time update
+            this.updateElapsedTime();
+        }
+    }
+
+    /**
+     * Format duration in milliseconds to human-readable string
+     */
+    formatDuration(ms) {
+        const seconds = Math.floor(ms / 1000);
+        const minutes = Math.floor(seconds / 60);
+        const hours = Math.floor(minutes / 60);
+        const days = Math.floor(hours / 24);
+        
+        if (days > 0) {
+            return `${days}d ${hours % 24}h ${minutes % 60}m ${seconds % 60}s`;
+        } else if (hours > 0) {
+            return `${hours}h ${minutes % 60}m ${seconds % 60}s`;
+        } else if (minutes > 0) {
+            return `${minutes}m ${seconds % 60}s`;
+        } else {
+            return `${seconds}s`;
+        }
+    }
+
+    /**
      * Finish analysis and reset UI
      */
     finishAnalysis() {
         this.isAnalyzing = false;
+        
+        // Clear timing interval if still running
+        if (this.elapsedTimeInterval) {
+            clearInterval(this.elapsedTimeInterval);
+            this.elapsedTimeInterval = null;
+        }
         
         const analyzeBtn = document.getElementById('analyzeBtn');
         const progressSection = document.getElementById('progressSection');

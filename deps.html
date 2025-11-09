@@ -768,7 +768,16 @@
                 const licenseInfo = dep._licenseProcessor.parseLicense(dep.raw.originalPackage);
                 if (licenseInfo.license && licenseInfo.license !== 'NOASSERTION') {
                     licenseFull = licenseInfo.license;
-                    licenseText = licenseFull.length > 5 ? licenseFull.substring(0, 5) : licenseFull;
+                    // Better abbreviation: show first part of license name, but handle "Apache-2.0 AND MIT" properly
+                    if (licenseFull.includes(' AND ')) {
+                        // For compound licenses, show first license name
+                        const firstLicense = licenseFull.split(' AND ')[0];
+                        licenseText = firstLicense.startsWith('Apache') ? 'Apache' : (firstLicense.length > 8 ? firstLicense.substring(0, 8) + '...' : firstLicense);
+                    } else if (licenseFull.startsWith('Apache')) {
+                        licenseText = 'Apache';
+                    } else {
+                        licenseText = licenseFull.length > 8 ? licenseFull.substring(0, 8) + '...' : licenseFull;
+                    }
                 }
             }
             

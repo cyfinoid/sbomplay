@@ -298,6 +298,10 @@
                     // Initialize modal
                     this.qualityModal = new bootstrap.Modal(document.getElementById('qualityDetailsModal'));
                     
+                    // Check for repo parameter in URL
+                    const urlParams = new URLSearchParams(window.location.search);
+                    const repoParam = urlParams.get('repo');
+                    
                     // Load data
                     const data = await this.storageManager.getCombinedData();
                     if (!data || !data.data || !data.data.allRepositories) {
@@ -307,6 +311,15 @@
 
                     this.allRepositories = data.data.allRepositories;
                     this.populateOrganizations();
+                    
+                    // Apply repo filter from URL parameter if present
+                    if (repoParam) {
+                        const searchBox = document.getElementById('searchBox');
+                        if (searchBox) {
+                            searchBox.value = repoParam;
+                        }
+                    }
+                    
                     this.updateSummaryCards();
                     this.applyFilters();
 

@@ -198,9 +198,10 @@
         // Load analysis list into selector
         await loadAnalysesList();
         
-        // Check for category filter in URL and pre-select
+        // Check for category and repo filters in URL and pre-select
         const urlParams = new URLSearchParams(window.location.search);
         const categoryParam = urlParams.get('category');
+        const repoParam = urlParams.get('repo');
         if (categoryParam) {
             const categoryFilter = document.getElementById('categoryFilter');
             if (categoryFilter) {
@@ -231,6 +232,17 @@
             if (!data || !data.data) {
                 container.innerHTML = '<div class="alert alert-warning">No data found for this entry.</div>';
                 return;
+            }
+            
+            // Filter by repository if repo parameter is present
+            if (repoParam && data.data.allDependencies) {
+                // Filter dependencies to only those used in the specified repository
+                const filteredDeps = data.data.allDependencies.filter(dep => {
+                    return dep.repositories && dep.repositories.includes(repoParam);
+                });
+                // Create a copy of data and filter dependencies
+                data = JSON.parse(JSON.stringify(data)); // Deep copy
+                data.data.allDependencies = filteredDeps;
             }
             
             // Use category filter from parameter or URL

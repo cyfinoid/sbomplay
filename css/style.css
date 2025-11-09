@@ -158,10 +158,10 @@ body {
 }
 
 .table th {
-    background-color: var(--light-bg);
+    background-color: var(--bg-tertiary, var(--light-bg));
     border-bottom: 2px solid var(--border-color);
     font-weight: 600;
-    color: #495057;
+    color: var(--text-primary, #495057);
 }
 
 .table td {
@@ -170,7 +170,7 @@ body {
 }
 
 .table tbody tr:hover {
-    background-color: var(--light-bg);
+    background-color: var(--bg-tertiary, var(--light-bg));
     transition: background-color 0.2s ease;
 }
 
@@ -2867,21 +2867,24 @@ body {
 }
 
 .badge-direct {
-    background: #0d6efd;
+    background: var(--color-blue, #0d6efd);
+    color: #ffffff;
 }
 
 .badge-transitive {
-    background: #6c757d;
+    background: var(--text-secondary, #6c757d);
+    color: #ffffff;
 }
 
 .clickable-cell {
     cursor: pointer;
-    color: #0d6efd;
+    color: var(--color-blue, #0d6efd);
     text-decoration: underline;
 }
 
 .clickable-cell:hover {
-    color: #0a58ca;
+    color: var(--color-blue, #0a58ca);
+    opacity: 0.8;
 }
 
 .package-link {
@@ -2905,12 +2908,12 @@ body {
 
 .stat-box h3 {
     margin: 0;
-    color: #0d6efd;
+    color: var(--color-blue, #0d6efd);
 }
 
 .stat-box p {
     margin: 5px 0 0 0;
-    color: #6c757d;
+    color: var(--text-secondary, #6c757d);
     font-size: 0.9em;
 }
 
@@ -3042,13 +3045,14 @@ body {
 
 .vulnerability-summary a,
 .vulnerability-details a {
-    color: #0d6efd;
+    color: var(--color-blue, #0d6efd);
     text-decoration: underline;
 }
 
 .vulnerability-summary a:hover,
 .vulnerability-details a:hover {
-    color: #0a58ca;
+    color: var(--color-blue, #0a58ca);
+    opacity: 0.8;
 }
 
 .vulnerability-summary blockquote,

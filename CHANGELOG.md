@@ -9,6 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+#### URL Parameter Support
+- **Repository Filter Parameter**: Added `repo` URL parameter support across multiple pages
+  - `deps.html` - Filters dependencies by repository
+  - `vuln.html` - Filters vulnerabilities by repository
+  - `quality.html` - Filters repositories by repository name
+  - `licenses.html` - Filters licenses by repository
+  - `authors.html` - Filters authors by repository
+  - Enables deep linking and cross-page navigation from `repos.html`
+
 #### New Major Features (Pages)
 - **Repository View**: New repository-focused page (`repos.html`) for viewing repository statistics and analysis
   - Repository statistics table showing:
@@ -26,6 +35,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - URL parameter support (`org`, `search`)
 
 ### Changed
+
+#### Theme & Visual Improvements
+- **Enhanced Dark Mode Support**: Comprehensive theme fixes for better readability
+  - Fixed table headers to use theme-aware backgrounds (`var(--bg-tertiary)`) instead of hardcoded light colors
+  - Fixed footer backgrounds to adapt to both themes (all pages)
+  - Fixed stat box colors to use CSS variables for theme adaptation
+  - Fixed badge and link colors to use theme-aware CSS variables
+  - Added theme support for Bootstrap utility classes (`bg-light`, `text-dark`)
+  - Improved contrast and readability in both light and dark modes
 
 #### Navigation & UI Improvements
 - **Concise Navigation Menu**: Streamlined navigation menu across all pages
@@ -319,6 +337,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Improved user experience when exploring packages by license type
 
 ### Fixed
+
+#### Typography & Text Issues
+- **Fixed Typos**: Corrected spelling errors throughout the application
+  - Fixed "repositoryy" → "repositories" in vulnerability analysis page
+  - Fixed "vulnerabilityies" → "vulnerabilities" in vulnerability count display
+  - Improved pluralization logic for better text consistency
+
+#### Display & Formatting Issues
+- **License Abbreviation**: Fixed license display in dependencies table
+  - Changed "Apach" → "Apache" for Apache licenses
+  - Improved handling of compound licenses (e.g., "Apache-2.0 AND MIT")
+  - License abbreviations now display correctly while maintaining readability
+
+#### Theme & Color Issues
+- **Table Headers in Dark Mode**: Fixed white background issue in dark mode
+  - Table headers now use theme-aware `var(--bg-tertiary)` instead of hardcoded light color
+  - Text color now uses `var(--text-primary)` for proper theme adaptation
+  - Added explicit dark mode override in `themes.css` with `!important` for consistency
+
+- **Footer Backgrounds**: Fixed footer backgrounds not adapting to themes
+  - All footers now use theme-aware `var(--bg-secondary)` via CSS override
+  - Consistent appearance across all pages in both light and dark modes
+
+- **Stat Box Colors**: Fixed hardcoded colors in statistics boxes
+  - Headings now use `var(--color-blue)` for theme adaptation
+  - Paragraphs now use `var(--text-secondary)` for proper contrast
+
+- **Badge and Link Colors**: Fixed hardcoded colors for better theme support
+  - Badge colors (`.badge-direct`, `.badge-transitive`) now use CSS variables
+  - Clickable cell links now use theme-aware colors
+  - Vulnerability page links now adapt to themes properly
+
+- **Bootstrap Utility Classes**: Added theme support for Bootstrap classes
+  - `bg-light` now uses `var(--bg-secondary)` for theme adaptation
+  - `text-dark` now uses `var(--text-primary)` with exception for warning badges that need dark text for contrast
 
 - **Vulnerability Filter**: Fixed issue where vulnerable dependencies filter showed zero results when no organization was selected
   - Now automatically loads combined data when filter is active and no data is loaded

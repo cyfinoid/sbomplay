@@ -131,38 +131,69 @@ class AuthorService {
             }
         }
         
-        // If not in cache, fetch from APIs
+        // If not in cache, fetch from APIs (try multiple sources in parallel)
         console.log(`🔍 Fetching authors for ${packageKey} from APIs...`);
         let authors = [];
         let funding = null;
         let packageWarnings = null;
         
-            // Try native registry first (fastest and most reliable)
-            if (this.registryUrls[ecosystem]) {
-                const result = await this.fetchFromNativeRegistry(ecosystem, packageName);
-                // Handle both old format (array) and new format (object with authors/packageFunding/packageWarnings)
-                if (Array.isArray(result)) {
-                    authors = result;
-                } else {
-                    authors = result.authors || [];
-                    funding = result.packageFunding || null;  // Renamed from funding to packageFunding
-                    packageWarnings = result.packageWarnings || null;  // Package warnings (maintenance and deprecation)
-                }
-                
-                if (authors.length > 0) {
-                    console.log(`✅ Found ${authors.length} authors for ${packageKey} from native registry`);
-                }
-            }
+        // Try native registry and ecosyste.ms in parallel (race condition - use first successful response)
+        const apiPromises = [];
         
-        // Fallback to ecosyste.ms if no authors found
-        if (authors.length === 0) {
-            authors = await this.fetchFromEcosystems(ecosystem, packageName);
-            if (authors.length > 0) {
-                console.log(`✅ Found ${authors.length} authors for ${packageKey} from ecosyste.ms`);
+        // Try native registry if available
+        if (this.registryUrls[ecosystem]) {
+            apiPromises.push(
+                this.fetchFromNativeRegistry(ecosystem, packageName)
+                    .then(result => ({ source: 'native', result }))
+                    .catch(() => ({ source: 'native', result: null }))
+            );
+        }
+        
+        // Try ecosyste.ms in parallel
+        apiPromises.push(
+            this.fetchFromEcosystems(ecosystem, packageName)
+                .then(result => ({ source: 'ecosystems', result: Array.isArray(result) ? { authors: result } : { authors: result } }))
+                .catch(() => ({ source: 'ecosystems', result: null }))
+        );
+        
+        // Wait for all API calls to complete
+        const apiResults = await Promise.allSettled(apiPromises);
+        
+        // Use first successful response with authors
+        for (const apiResult of apiResults) {
+            if (apiResult.status === 'fulfilled' && apiResult.value.result) {
+                const { source, result } = apiResult.value;
+                
+                if (source === 'native') {
+                    // Handle both old format (array) and new format (object with authors/packageFunding/packageWarnings)
+                    if (Array.isArray(result)) {
+                        if (result.length > 0) {
+                            authors = result;
+                            console.log(`✅ Found ${authors.length} authors for ${packageKey} from native registry`);
+                            break; // Use first successful result
+                        }
+                    } else {
+                        const resultAuthors = result.authors || [];
+                        if (resultAuthors.length > 0) {
+                            authors = resultAuthors;
+                            funding = result.packageFunding || null;
+                            packageWarnings = result.packageWarnings || null;
+                            console.log(`✅ Found ${authors.length} authors for ${packageKey} from native registry`);
+                            break; // Use first successful result
+                        }
+                    }
+                } else if (source === 'ecosystems') {
+                    const resultAuthors = result.authors || [];
+                    if (resultAuthors.length > 0) {
+                        authors = resultAuthors;
+                        console.log(`✅ Found ${authors.length} authors for ${packageKey} from ecosyste.ms`);
+                        break; // Use first successful result
+                    }
+                }
             }
         }
         
-        // If still no authors, try to extract from repository URL
+        // If still no authors, try to extract from repository URL (fallback)
         if (authors.length === 0) {
             const repoAuthors = await this.fetchAuthorsFromRepository(ecosystem, packageName);
             if (repoAuthors.length > 0) {
@@ -1823,103 +1854,118 @@ class AuthorService {
     }
 
     /**
-     * Batch fetch authors for multiple packages with funding information
+     * Batch fetch authors for multiple packages with funding information (parallelized)
      */
     async fetchAuthorsForPackages(packages, onProgress) {
         const results = new Map();
+        const CONCURRENCY_LIMIT = 12; // Process 12 packages concurrently
         let processed = 0;
         
-        for (const pkg of packages) {
+        // Helper function to process a single package
+        const processPackage = async (pkg) => {
             // fetchAuthors now returns {authors: [...], funding: {...}} or just [...]
             // NOTE: fetchAuthors() already saves package, authors, and relationships to cache immediately
             const authorData = await this.fetchAuthors(pkg.ecosystem, pkg.name);
             const authors = Array.isArray(authorData) ? authorData : (authorData.authors || []);
             const funding = Array.isArray(authorData) ? null : (authorData.funding || null);
             
-            // Verify: fetchAuthors() should have already saved package and authors to cache
-            // This happens inside saveAuthorsToCache() which is called by fetchAuthors()
+            return { pkg, authors, funding };
+        };
+        
+        // Process packages in batches with concurrency limit
+        for (let i = 0; i < packages.length; i += CONCURRENCY_LIMIT) {
+            const batch = packages.slice(i, i + CONCURRENCY_LIMIT);
+            const batchPromises = batch.map(pkg => processPackage(pkg));
             
-            // Store authors with appropriate prefix
-            authors.forEach(author => {
-                // Handle both string authors and object authors (with metadata)
-                let authorString, authorMetadata;
-                if (typeof author === 'string') {
-                    authorString = author;
-                    authorMetadata = null;
-                } else if (author && typeof author === 'object') {
-                    authorString = author.name || author.author || '';
-                    authorMetadata = author.metadata || null;
-                } else {
-                    return; // Skip invalid authors
-                }
-                
-                let authorKey, authorName, authorSource;
-                
-                // Check if author already has a prefix (github:, bitbucket:, gitlab:)
-                if (authorString.includes(':')) {
-                    authorKey = authorString;  // Already prefixed (e.g., "github:jackc")
-                    const parts = authorString.split(':');
-                    authorSource = parts[0];  // "github", "bitbucket", "gitlab"
-                    authorName = parts[1];    // "jackc"
-                } else {
-                    // Regular author, use ecosystem prefix
-                    authorKey = `${pkg.ecosystem}:${authorString}`;
-                    authorSource = pkg.ecosystem;
-                    authorName = authorString;
-                }
-                
-                if (!results.has(authorKey)) {
-                    results.set(authorKey, {
-                        author: authorName,
-                        ecosystem: authorSource,  // Will be "github", "bitbucket", "gitlab", or ecosystem name
-                        count: 0,  // Total occurrences (including transitive, across all repos)
-                        packages: [],  // Array of package names
-                        packageRepositories: {},  // Map: packageName -> array of repositories using it
-                        repositories: new Set(),  // Set of all repositories using any of this author's packages
-                        repositoryCount: 0,  // Unique repository count (calculated at end)
-                        funding: null,  // Author-level funding (from author profile, NOT package funding)
-                        metadata: null  // Will be set if any package has metadata
-                    });
-                }
-                const entry = results.get(authorKey);
-                entry.count++;  // Increment total occurrences
-                
-                // Track package usage
-                if (!entry.packages.includes(pkg.name)) {
-                    entry.packages.push(pkg.name);
-                    entry.packageRepositories[pkg.name] = [];
-                }
-                
-                // Track repository usage for this package
-                if (pkg.repositories && Array.isArray(pkg.repositories)) {
-                    pkg.repositories.forEach(repo => {
-                        entry.repositories.add(repo);
-                        if (!entry.packageRepositories[pkg.name].includes(repo)) {
-                            entry.packageRepositories[pkg.name].push(repo);
+            // Wait for all packages in this batch to complete
+            const batchResults = await Promise.allSettled(batchPromises);
+            
+            // Process results from this batch
+            batchResults.forEach((result) => {
+                if (result.status === 'fulfilled') {
+                    const { pkg, authors, funding } = result.value;
+                    
+                    // Store authors with appropriate prefix
+                    authors.forEach(author => {
+                        // Handle both string authors and object authors (with metadata)
+                        let authorString, authorMetadata;
+                        if (typeof author === 'string') {
+                            authorString = author;
+                            authorMetadata = null;
+                        } else if (author && typeof author === 'object') {
+                            authorString = author.name || author.author || '';
+                            authorMetadata = author.metadata || null;
+                        } else {
+                            return; // Skip invalid authors
+                        }
+                        
+                        let authorKey, authorName, authorSource;
+                        
+                        // Check if author already has a prefix (github:, bitbucket:, gitlab:)
+                        if (authorString.includes(':')) {
+                            authorKey = authorString;  // Already prefixed (e.g., "github:jackc")
+                            const parts = authorString.split(':');
+                            authorSource = parts[0];  // "github", "bitbucket", "gitlab"
+                            authorName = parts[1];    // "jackc"
+                        } else {
+                            // Regular author, use ecosystem prefix
+                            authorKey = `${pkg.ecosystem}:${authorString}`;
+                            authorSource = pkg.ecosystem;
+                            authorName = authorString;
+                        }
+                        
+                        if (!results.has(authorKey)) {
+                            results.set(authorKey, {
+                                author: authorName,
+                                ecosystem: authorSource,  // Will be "github", "bitbucket", "gitlab", or ecosystem name
+                                count: 0,  // Total occurrences (including transitive, across all repos)
+                                packages: [],  // Array of package names
+                                packageRepositories: {},  // Map: packageName -> array of repositories using it
+                                repositories: new Set(),  // Set of all repositories using any of this author's packages
+                                repositoryCount: 0,  // Unique repository count (calculated at end)
+                                funding: null,  // Author-level funding (from author profile, NOT package funding)
+                                metadata: null  // Will be set if any package has metadata
+                            });
+                        }
+                        const entry = results.get(authorKey);
+                        entry.count++;  // Increment total occurrences
+                        
+                        // Track package usage
+                        if (!entry.packages.includes(pkg.name)) {
+                            entry.packages.push(pkg.name);
+                            entry.packageRepositories[pkg.name] = [];
+                        }
+                        
+                        // Track repository usage for this package
+                        if (pkg.repositories && Array.isArray(pkg.repositories)) {
+                            pkg.repositories.forEach(repo => {
+                                entry.repositories.add(repo);
+                                if (!entry.packageRepositories[pkg.name].includes(repo)) {
+                                    entry.packageRepositories[pkg.name].push(repo);
+                                }
+                            });
+                        }
+                        
+                        // IMPORTANT: Do NOT store package funding here - package funding is stored separately in package cache
+                        // Author funding should come from author entity (fetched from GitHub profile, author.json, etc.)
+                        // We'll fetch author funding from author entities at the end
+                        
+                        // If this package has metadata, merge it with existing metadata
+                        if (authorMetadata && !entry.metadata) {
+                            entry.metadata = authorMetadata;
+                        } else if (authorMetadata && entry.metadata) {
+                            // Merge metadata objects
+                            entry.metadata = { ...entry.metadata, ...authorMetadata };
                         }
                     });
                 }
-                
-                // IMPORTANT: Do NOT store package funding here - package funding is stored separately in package cache
-                // Author funding should come from author entity (fetched from GitHub profile, author.json, etc.)
-                // We'll fetch author funding from author entities at the end
-                
-                // If this package has metadata, merge it with existing metadata
-                if (authorMetadata && !entry.metadata) {
-                    entry.metadata = authorMetadata;
-                } else if (authorMetadata && entry.metadata) {
-                    // Merge metadata objects
-                    entry.metadata = { ...entry.metadata, ...authorMetadata };
-                }
+                processed++;
             });
             
-            processed++;
+            // Update progress
             if (onProgress) {
                 onProgress(processed, packages.length);
             }
-            
-            // Rate limiting: wait 100ms between requests
-            await this.sleep(100);
         }
         
         // Calculate repository count for each author (unique repos across all their packages)
