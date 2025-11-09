@@ -28,7 +28,7 @@ jobs:
           echo "🔍 Checking required HTML files..."
           REQUIRED_HTML=(
             "index.html"
-            "license-compliance.html"
+            "licenses.html"
             "vuln.html"
             "deps.html"
             "settings.html"
