@@ -1,0 +1,228 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SBOM Play - About</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <link href="css/style.css?v=0.0.2" rel="stylesheet">
+    <link href="css/themes.css?v=0.0.2" rel="stylesheet">
+    <script src="js/theme-manager.js?v=0.0.2"></script>
+</head>
+<body>
+    <nav class="navbar navbar-expand-lg navbar-dark bg-primary">
+        <div class="container">
+            <a class="navbar-brand" href="index.html">
+                <i class="fas fa-cubes me-2"></i>SBOM Play
+            </a>
+            <div class="navbar-nav ms-auto">
+                <a class="nav-link" href="index.html">Analysis</a>
+                <a class="nav-link" href="licenses.html">License</a>
+                <a class="nav-link" href="vuln.html">Vulnerabilities</a>
+                <a class="nav-link" href="quality.html">Quality</a>
+                <a class="nav-link" href="deps.html">Dependencies</a>
+                <a class="nav-link" href="authors.html">Authors</a>
+                <a class="nav-link active" href="about.html">About</a>
+                <a class="nav-link" href="settings.html">
+                    <i class="fas fa-cog"></i>
+                </a>
+                <button class="btn btn-outline-secondary btn-sm ms-2 theme-toggle" onclick="themeManager.toggleTheme()" title="Toggle theme">
+                    <i class="fas fa-sun"></i>
+                </button>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container mt-4">
+        <!-- Header -->
+        <div class="row mb-4">
+            <div class="col-12">
+                <h1><i class="fas fa-info-circle me-2"></i>About SBOM Play</h1>
+                <p class="text-muted">Learn more about this client-side SBOM analysis tool</p>
+            </div>
+        </div>
+
+        <!-- Project Overview -->
+        <div class="card mb-4">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="fas fa-cubes me-2"></i>Project Overview</h5>
+            </div>
+            <div class="card-body">
+                <p>
+                    SBOM Play is a client-side web application for analyzing Software Bill of Materials (SBOM) data 
+                    from GitHub repositories, organizations, and users. Built for security professionals to identify 
+                    dependency vulnerabilities, assess license compliance, and understand software supply chain risks in real-time.
+                </p>
+                <p>
+                    The tool features comprehensive SBOM analysis including dependency tracking, vulnerability detection 
+                    via OSV.dev integration, license compliance checking, author analysis with funding detection, and 
+                    SBOM quality assessment.
+                </p>
+                <p class="mb-0">
+                    <strong>Key Principle:</strong> All analysis happens directly in your browser - no data ever leaves your machine.
+                </p>
+            </div>
+        </div>
+
+        <!-- Features -->
+        <div class="card mb-4">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="fas fa-star me-2"></i>Features</h5>
+            </div>
+            <div class="card-body">
+                <div class="row">
+                    <div class="col-md-6">
+                        <ul class="list-unstyled">
+                            <li><i class="fas fa-check text-success me-2"></i><strong>SBOM Analysis:</strong> Analyze SBOM data from GitHub organizations, users, and repositories</li>
+                            <li><i class="fas fa-check text-success me-2"></i><strong>Dependency Tracking:</strong> Track dependency usage across multiple repositories</li>
+                            <li><i class="fas fa-check text-success me-2"></i><strong>Vulnerability Detection:</strong> OSV.dev integration for vulnerability scanning</li>
+                            <li><i class="fas fa-check text-success me-2"></i><strong>License Compliance:</strong> Comprehensive license categorization and risk assessment</li>
+                        </ul>
+                    </div>
+                    <div class="col-md-6">
+                        <ul class="list-unstyled">
+                            <li><i class="fas fa-check text-success me-2"></i><strong>Author Analysis:</strong> Author deduplication and funding opportunity detection</li>
+                            <li><i class="fas fa-check text-success me-2"></i><strong>SBOM Quality Assessment:</strong> Quality scoring based on multiple categories</li>
+                            <li><i class="fas fa-check text-success me-2"></i><strong>Multi-Organization Storage:</strong> Persistent storage using IndexedDB</li>
+                            <li><i class="fas fa-check text-success me-2"></i><strong>Export/Import:</strong> Export and import analysis data with checksum validation</li>
+                        </ul>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Privacy & Security -->
+        <div class="card mb-4">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="fas fa-shield-alt me-2"></i>Privacy & Security</h5>
+            </div>
+            <div class="card-body">
+                <div class="alert alert-success">
+                    <i class="fas fa-lock me-2"></i>
+                    <strong>Privacy Assured:</strong> All analysis happens in your browser. No data is sent to any server.
+                </div>
+                <p>
+                    SBOM Play is designed with privacy and security as top priorities:
+                </p>
+                <ul>
+                    <li><strong>Client-Side Processing:</strong> All SBOM analysis, dependency resolution, and vulnerability checking happens entirely in your browser</li>
+                    <li><strong>No Data Transmission:</strong> Your SBOM data never leaves your machine - it's processed locally</li>
+                    <li><strong>Local Storage:</strong> Analysis results are stored in your browser's IndexedDB, giving you full control</li>
+                    <li><strong>API Calls:</strong> Only public registry APIs are queried (npm, PyPI, crates.io, etc.) - no sensitive data is transmitted</li>
+                    <li><strong>GitHub Token:</strong> Optional GitHub Personal Access Token is used only for API rate limits and is never stored</li>
+                </ul>
+            </div>
+        </div>
+
+        <!-- How It Works -->
+        <div class="card mb-4">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="fas fa-cogs me-2"></i>How It Works</h5>
+            </div>
+            <div class="card-body">
+                <ol>
+                    <li class="mb-2">
+                        <strong>Input:</strong> Enter a GitHub organization name, username, repository, or GitHub URL
+                    </li>
+                    <li class="mb-2">
+                        <strong>SBOM Fetching:</strong> The tool queries GitHub's Dependency Graph API to retrieve SBOM data for public repositories
+                    </li>
+                    <li class="mb-2">
+                        <strong>Dependency Resolution:</strong> Full dependency trees are resolved by querying package registries (npm, PyPI, crates.io, etc.)
+                    </li>
+                    <li class="mb-2">
+                        <strong>Analysis:</strong> Dependencies are analyzed for vulnerabilities (OSV.dev), licenses, authors, and quality metrics
+                    </li>
+                    <li class="mb-2">
+                        <strong>Storage:</strong> Results are stored locally in your browser's IndexedDB for future reference
+                    </li>
+                    <li>
+                        <strong>Visualization:</strong> View results across multiple pages: Overview, Licenses, Vulnerabilities, Quality, Dependencies, and Authors
+                    </li>
+                </ol>
+            </div>
+        </div>
+
+        <!-- Version Info -->
+        <div class="card mb-4">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="fas fa-tag me-2"></i>Version Information</h5>
+            </div>
+            <div class="card-body">
+                <p>
+                    <strong>Current Version:</strong> 0.0.3
+                </p>
+                <p>
+                    <a href="CHANGELOG.md" target="_blank" class="btn btn-outline-primary btn-sm">
+                        <i class="fas fa-history me-1"></i>View Changelog
+                    </a>
+                </p>
+            </div>
+        </div>
+
+        <!-- Credits -->
+        <div class="card mb-4">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="fas fa-heart me-2"></i>Credits & Technologies</h5>
+            </div>
+            <div class="card-body">
+                <h6>Technologies Used</h6>
+                <ul>
+                    <li><strong>Bootstrap 5:</strong> UI framework</li>
+                    <li><strong>Font Awesome:</strong> Icons</li>
+                    <li><strong>IndexedDB:</strong> Local storage</li>
+                    <li><strong>GitHub API:</strong> SBOM data source</li>
+                    <li><strong>OSV.dev API:</strong> Vulnerability data</li>
+                    <li><strong>Package Registries:</strong> npm, PyPI, crates.io, RubyGems, Maven, etc.</li>
+                </ul>
+                <h6 class="mt-3">Acknowledgments</h6>
+                <p>
+                    This project was developed with the assistance of AI tools, most notably <strong>Cursor IDE</strong> and <strong>Claude Code</strong>. 
+                    These tools helped accelerate development and improve velocity. All AI-generated code has been carefully reviewed 
+                    and validated through human inspection to ensure it aligns with the project's intended functionality and quality standards.
+                </p>
+            </div>
+        </div>
+
+        <!-- Links -->
+        <div class="card mb-4">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="fas fa-link me-2"></i>Links & Resources</h5>
+            </div>
+            <div class="card-body">
+                <div class="d-flex flex-wrap gap-2">
+                    <a href="https://github.com/cyfinoid/sbomplay" target="_blank" class="btn btn-outline-primary">
+                        <i class="fab fa-github me-1"></i>GitHub Repository
+                    </a>
+                    <a href="https://cyfinoid.com/" target="_blank" class="btn btn-outline-primary">
+                        <i class="fas fa-globe me-1"></i>Cyfinoid Research
+                    </a>
+                    <a href="README.md" target="_blank" class="btn btn-outline-primary">
+                        <i class="fas fa-book me-1"></i>README
+                    </a>
+                    <a href="CHANGELOG.md" target="_blank" class="btn btn-outline-primary">
+                        <i class="fas fa-history me-1"></i>Changelog
+                    </a>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <footer class="mt-5 py-4 bg-light">
+        <div class="container">
+            <div class="text-center">
+                <small class="text-muted">
+                    © 2025 Cyfinoid Research. All rights reserved. | 
+                    <a href="https://github.com/cyfinoid/sbomplay" target="_blank" class="text-muted">
+                        <i class="fab fa-github me-1"></i>View on GitHub
+                    </a>
+                </small>
+            </div>
+        </div>
+    </footer>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>
+

@@ -519,6 +519,20 @@ body {
     background-color: var(--bg-tertiary);
 }
 
+/* Archived Repository Styling */
+.repository-item.archived-repo {
+    opacity: 0.7;
+    background-color: #f8f9fa;
+}
+
+.repository-item.archived-repo .repo-name {
+    color: #6c757d;
+}
+
+.repository-item.archived-repo:hover {
+    opacity: 0.85;
+}
+
 .repo-name {
     font-family: monospace;
     font-weight: 500;

@@ -135,22 +135,24 @@ class AuthorService {
         console.log(`🔍 Fetching authors for ${packageKey} from APIs...`);
         let authors = [];
         let funding = null;
+        let packageWarnings = null;
         
-        // Try native registry first (fastest and most reliable)
-        if (this.registryUrls[ecosystem]) {
-            const result = await this.fetchFromNativeRegistry(ecosystem, packageName);
-            // Handle both old format (array) and new format (object with authors/packageFunding)
-            if (Array.isArray(result)) {
-                authors = result;
-            } else {
-                authors = result.authors || [];
-                funding = result.packageFunding || null;  // Renamed from funding to packageFunding
+            // Try native registry first (fastest and most reliable)
+            if (this.registryUrls[ecosystem]) {
+                const result = await this.fetchFromNativeRegistry(ecosystem, packageName);
+                // Handle both old format (array) and new format (object with authors/packageFunding/packageWarnings)
+                if (Array.isArray(result)) {
+                    authors = result;
+                } else {
+                    authors = result.authors || [];
+                    funding = result.packageFunding || null;  // Renamed from funding to packageFunding
+                    packageWarnings = result.packageWarnings || null;  // Package warnings (maintenance and deprecation)
+                }
+                
+                if (authors.length > 0) {
+                    console.log(`✅ Found ${authors.length} authors for ${packageKey} from native registry`);
+                }
             }
-            
-            if (authors.length > 0) {
-                console.log(`✅ Found ${authors.length} authors for ${packageKey} from native registry`);
-            }
-        }
         
         // Fallback to ecosyste.ms if no authors found
         if (authors.length === 0) {
@@ -178,7 +180,7 @@ class AuthorService {
         
         // Save package and authors to cache immediately (incremental save)
         // This happens for EVERY package discovered, regardless of whether authors were found
-        await this.saveAuthorsToCache(packageKey, ecosystem, authors, funding);
+        await this.saveAuthorsToCache(packageKey, ecosystem, authors, funding, packageWarnings);
         console.log(`💾 Author: Saved package ${packageKey} to cache immediately (${authors.length} authors)`);
         
         // Also save to legacy cache for backward compatibility
@@ -208,8 +210,9 @@ class AuthorService {
      * @param {string} ecosystem - Ecosystem name
      * @param {Array} authors - Array of author objects or strings
      * @param {Object} packageFunding - Package-level funding (from package.json) - stored in package cache, NOT author entity
+     * @param {Object} packageWarnings - Package warnings (maintenance and deprecation) - stored in package cache
      */
-    async saveAuthorsToCache(packageKey, ecosystem, authors, packageFunding = null) {
+    async saveAuthorsToCache(packageKey, ecosystem, authors, packageFunding = null, packageWarnings = null) {
         if (!window.cacheManager) return;
 
         // ALWAYS save package metadata to package cache (even if no funding or no authors)
@@ -226,9 +229,14 @@ class AuthorService {
             packageData.funding = packageFunding;  // Package-level funding
         }
         
+        // Add or update package warnings if available
+        if (packageWarnings) {
+            packageData.warnings = packageWarnings;  // Package warnings (maintenance and deprecation)
+        }
+        
         // Save package to cache immediately (with or without funding, with or without authors)
         await window.cacheManager.savePackage(packageKey, packageData);
-        console.log(`📦 Saved package to cache: ${packageKey}${packageFunding ? ' (with funding)' : ''}${authors.length === 0 ? ' (no authors)' : ''}`);
+        console.log(`📦 Saved package to cache: ${packageKey}${packageFunding ? ' (with funding)' : ''}${packageWarnings ? ' (with warnings)' : ''}${authors.length === 0 ? ' (no authors)' : ''}`);
 
         // Process each author (if any)
         if (!authors || authors.length === 0) {
@@ -313,6 +321,7 @@ class AuthorService {
     async fetchFromNativeRegistry(ecosystem, packageName) {
         try {
             let url, data;
+            let description = null;
             
             switch (ecosystem) {
                 case 'npm':
@@ -321,9 +330,12 @@ class AuthorService {
                     const npmResponse = await fetch(url);
                     if (!npmResponse.ok) return { authors: [], packageFunding: null };
                     data = await npmResponse.json();
+                    description = data.description || null;
                     return {
                         authors: this.extractNpmAuthors(data),
-                        packageFunding: this.extractNpmFunding(data)  // Package-level funding (from package.json)
+                        packageFunding: this.extractNpmFunding(data),  // Package-level funding (from package.json)
+                        description: description,
+                        packageWarnings: this.parsePackageWarnings(description)
                     };
                 
                 case 'pypi':
@@ -332,9 +344,12 @@ class AuthorService {
                     const pypiResponse = await fetch(url);
                     if (!pypiResponse.ok) return { authors: [], packageFunding: null };
                     data = await pypiResponse.json();
+                    description = data.info?.summary || data.info?.description || null;
                     return {
                         authors: this.extractPyPiAuthors(data),
-                        packageFunding: this.extractPyPiFunding(data)  // Package-level funding (from project_urls)
+                        packageFunding: this.extractPyPiFunding(data),  // Package-level funding (from project_urls)
+                        description: description,
+                        packageWarnings: this.parsePackageWarnings(description)
                     };
                 
                 case 'cargo':
@@ -343,9 +358,12 @@ class AuthorService {
                     const cargoResponse = await fetch(url);
                     if (!cargoResponse.ok) return { authors: [], packageFunding: null };
                     data = await cargoResponse.json();
+                    description = data.crate?.description || null;
                     return {
                         authors: this.extractCargoAuthors(data),
-                        packageFunding: null  // Crates.io doesn't have funding field in API
+                        packageFunding: null,  // Crates.io doesn't have funding field in API
+                        description: description,
+                        packageWarnings: this.parsePackageWarnings(description)
                     };
                 
                 case 'gem':
@@ -354,9 +372,12 @@ class AuthorService {
                     const gemResponse = await fetch(url);
                     if (!gemResponse.ok) return { authors: [], packageFunding: null };
                     data = await gemResponse.json();
+                    description = data.info || data.description || null;
                     return {
                         authors: this.extractGemAuthors(data),
-                        packageFunding: this.extractGemFunding(data)  // Package-level funding
+                        packageFunding: this.extractGemFunding(data),  // Package-level funding
+                        description: description,
+                        packageWarnings: this.parsePackageWarnings(description)
                     };
                 
                 default:
@@ -366,6 +387,92 @@ class AuthorService {
             console.warn(`Error fetching from native registry ${ecosystem}:`, error.message);
             return { authors: [], packageFunding: null };
         }
+    }
+    
+    /**
+     * Parse package description for warnings (maintenance and deprecation)
+     * @param {string} description - Package description text
+     * @returns {Object} - {isUnmaintained: bool, warningType: string, isDeprecated: bool, replacement: string|null}
+     */
+    parsePackageWarnings(description) {
+        if (!description || typeof description !== 'string') {
+            return {
+                isUnmaintained: false,
+                warningType: null,
+                isDeprecated: false,
+                replacement: null,
+                deprecationReason: null
+            };
+        }
+        
+        const descLower = description.toLowerCase();
+        const warnings = {
+            isUnmaintained: false,
+            warningType: null,
+            isDeprecated: false,
+            replacement: null,
+            deprecationReason: null
+        };
+        
+        // Check for maintenance warnings
+        const maintenancePatterns = [
+            /out\s+of\s+support/i,
+            /no\s+longer\s+supported/i,
+            /end\s+of\s+life/i,
+            /\beol\b/i,
+            /end-of-life/i,
+            /not\s+maintained/i,
+            /unmaintained/i,
+            /abandoned/i,
+            /archived/i,
+            /no\s+longer\s+maintained/i
+        ];
+        
+        for (const pattern of maintenancePatterns) {
+            if (pattern.test(description)) {
+                warnings.isUnmaintained = true;
+                if (pattern.source.includes('support') || pattern.source.includes('life') || pattern.source.includes('eol')) {
+                    warnings.warningType = 'out-of-support';
+                } else {
+                    warnings.warningType = 'unmaintained';
+                }
+                break;
+            }
+        }
+        
+        // Check for deprecation warnings
+        const deprecationPatterns = [
+            /\bdeprecated\b/i,
+            /\bdeprecation\b/i,
+            /\bdeprecating\b/i
+        ];
+        
+        for (const pattern of deprecationPatterns) {
+            if (pattern.test(description)) {
+                warnings.isDeprecated = true;
+                break;
+            }
+        }
+        
+        // Extract replacement package if mentioned
+        const replacementPatterns = [
+            /superseded\s+by\s+([a-zA-Z0-9@\/\-_\.]+)/i,
+            /replaced\s+by\s+([a-zA-Z0-9@\/\-_\.]+)/i,
+            /use\s+([a-zA-Z0-9@\/\-_\.]+)\s+instead/i,
+            /migrate\s+to\s+([a-zA-Z0-9@\/\-_\.]+)/i,
+            /successor\s+is\s+([a-zA-Z0-9@\/\-_\.]+)/i,
+            /consider\s+using\s+([a-zA-Z0-9@\/\-_\.]+)/i
+        ];
+        
+        for (const pattern of replacementPatterns) {
+            const match = description.match(pattern);
+            if (match && match[1]) {
+                warnings.replacement = match[1].trim();
+                break;
+            }
+        }
+        
+        return warnings;
     }
     
     /**

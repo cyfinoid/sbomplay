@@ -23,6 +23,7 @@
                 <a class="nav-link" href="quality.html">Quality</a>
                 <a class="nav-link active" href="deps.html">Dependencies</a>
                 <a class="nav-link" href="authors.html">Authors</a>
+                <a class="nav-link" href="about.html">About</a>
                 <a class="nav-link" href="settings.html">
                     <i class="fas fa-cog"></i>
                 </a>
@@ -246,6 +247,9 @@
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
     <script src="js/indexeddb-manager.js?v=0.0.2"></script>
     <script src="js/utils.js?v=0.0.2"></script>
+    <script src="js/version-utils.js?v=0.0.2"></script>
+    <script src="js/version-drift-analyzer.js?v=0.0.2"></script>
+    <script src="js/github-client.js?v=0.0.2"></script>
     <script src="js/cache-manager.js?v=0.0.2"></script>
     <script src="js/storage-manager.js?v=0.0.2"></script>
     <script src="js/license-processor.js?v=0.0.2"></script>
@@ -253,6 +257,11 @@
     <script type="module">
         const storageManager = new StorageManager();
         await storageManager.init();
+        
+        // Initialize GitHub client if not already initialized
+        if (!window.githubClient) {
+            window.githubClient = new GitHubClient();
+        }
         
         let allDependencies = [];
         let filteredDependencies = [];
@@ -1086,6 +1095,8 @@
                 const versionDisplay = formatVersionForDisplay(dep.version);
                 const packageNameEscaped = escapeHtml(dep.name);
                 const packageLink = `${packageNameEscaped}@${versionDisplay}`;
+                // Version drift badge placeholder (will be populated asynchronously)
+                const driftBadgeId = `drift-${startIndex + idx}`;
                 tr.innerHTML = `
                     <td>
                         <a href="#" class="package-link text-primary text-decoration-none" 
@@ -1097,6 +1108,7 @@
                            data-package-raw='${JSON.stringify(dep.raw).replace(/'/g, '&apos;')}'>
                             <strong>${packageLink}</strong>
                         </a>
+                        <span id="${driftBadgeId}" class="ms-2"></span>
                     </td>
                     <td><span class="badge badge-${dep.type}">${dep.type}</span></td>
                     <td>${escapeHtml(dep.ecosystem)}</td>
@@ -1151,6 +1163,60 @@
                         await new Promise(resolve => setTimeout(resolve, 10));
                     }
                 }, 50);
+            }
+            
+            // Check version drift for displayed dependencies (lazy loading)
+            if (window.versionDriftAnalyzer && toDisplay.length > 0) {
+                setTimeout(async () => {
+                    const batchSize = 5; // Smaller batches for version checks (more API calls)
+                    
+                    for (let i = 0; i < toDisplay.length; i += batchSize) {
+                        const subBatch = toDisplay.slice(i, i + batchSize);
+                        await Promise.all(subBatch.map(async (dep, batchIdx) => {
+                            if (dep.ecosystem && dep.version && dep.name) {
+                                try {
+                                    const drift = await window.versionDriftAnalyzer.checkVersionDrift(
+                                        dep.name,
+                                        dep.version,
+                                        dep.ecosystem
+                                    );
+                                    
+                                    if (drift.latestVersion) {
+                                        const depIndex = startIndex + i + batchIdx;
+                                        const badgeElement = document.getElementById(`drift-${depIndex}`);
+                                        if (badgeElement) {
+                                            let badgeHtml = '';
+                                            if (drift.hasMajorUpdate) {
+                                                badgeHtml = `<span class="badge bg-danger" title="Major update available: v${escapeHtml(drift.latestVersion)}"><i class="fas fa-arrow-up"></i> Major: v${escapeHtml(drift.latestVersion)}</span>`;
+                                            } else if (drift.hasMinorUpdate) {
+                                                badgeHtml = `<span class="badge bg-warning text-dark" title="Minor update available: v${escapeHtml(drift.latestVersion)}"><i class="fas fa-arrow-up"></i> Minor: v${escapeHtml(drift.latestVersion)}</span>`;
+                                            } else {
+                                                // Check for staleness if no updates available
+                                                try {
+                                                    const staleness = await window.versionDriftAnalyzer.checkStaleness(
+                                                        dep.name,
+                                                        dep.version,
+                                                        dep.ecosystem
+                                                    );
+                                                    if (staleness.isStale) {
+                                                        badgeHtml = `<span class="badge bg-warning" title="Stale: Last release ${staleness.monthsSinceRelease} months ago"><i class="fas fa-clock"></i> Stale (${staleness.monthsSinceRelease}m)</span>`;
+                                                    }
+                                                } catch (e) {
+                                                    // Ignore staleness check errors
+                                                }
+                                            }
+                                            badgeElement.innerHTML = badgeHtml;
+                                        }
+                                    }
+                                } catch (e) {
+                                    console.warn('Failed to check version drift for', dep.name, e);
+                                }
+                            }
+                        }));
+                        // Small delay between batches to avoid overwhelming the API
+                        await new Promise(resolve => setTimeout(resolve, 200));
+                    }
+                }, 500); // Start after funding check
             }
             
             displayedCount = endIndex;
@@ -1262,10 +1328,54 @@
                 }
             }
             
+            // Check if this is a GitHub Action and fetch owner info
+            let githubActionOwner = null;
+            let githubActionRepoInfo = null;
+            if (packageRaw.githubActionInfo) {
+                githubActionOwner = packageRaw.githubActionInfo.owner;
+                const repoKey = packageRaw.githubActionInfo.fullName;
+                
+                // Try to fetch repository info from GitHub API (with caching)
+                if (window.cacheManager && window.githubClient) {
+                    try {
+                        // Check cache first
+                        githubActionRepoInfo = await window.cacheManager.getGitHubRepo(repoKey);
+                        
+                        if (!githubActionRepoInfo) {
+                            // Fetch from GitHub API
+                            const repoData = await window.githubClient.getRepository(
+                                packageRaw.githubActionInfo.owner,
+                                packageRaw.githubActionInfo.repoName
+                            );
+                            if (repoData) {
+                                githubActionRepoInfo = {
+                                    owner: repoData.owner.login,
+                                    ownerUrl: repoData.owner.html_url,
+                                    repoUrl: repoData.html_url,
+                                    description: repoData.description,
+                                    license: repoData.license
+                                };
+                                // Cache it
+                                await window.cacheManager.saveGitHubRepo(repoKey, githubActionRepoInfo);
+                            }
+                        }
+                    } catch (e) {
+                        console.warn('Failed to fetch GitHub Action repository info:', e);
+                    }
+                }
+            }
+            
             // Get license info
             const licenseProcessor = window.LicenseProcessor ? new LicenseProcessor() : null;
             let licenseInfo = { license: 'Unknown', category: 'unknown' };
-            if (packageRaw.originalPackage && licenseProcessor) {
+            
+            // For GitHub Actions, prefer license from repository
+            if (githubActionRepoInfo && githubActionRepoInfo.license) {
+                licenseInfo.license = githubActionRepoInfo.license.spdx_id || githubActionRepoInfo.license.name || 'Unknown';
+                if (licenseProcessor) {
+                    licenseInfo = licenseProcessor.parseLicense({ licenseConcluded: licenseInfo.license });
+                }
+            } else if (packageRaw.originalPackage && licenseProcessor) {
                 licenseInfo = licenseProcessor.parseLicense(packageRaw.originalPackage);
             }
             
@@ -1329,6 +1439,21 @@
                                 <th>Ecosystem:</th>
                                 <td><span class="badge bg-secondary">${escapeHtml(packageEcosystem)}</span></td>
                             </tr>
+                            ${githubActionOwner ? `
+                            <tr>
+                                <th>Hosted by:</th>
+                                <td>
+                                    ${githubActionRepoInfo && githubActionRepoInfo.ownerUrl 
+                                        ? `<a href="${escapeHtml(githubActionRepoInfo.ownerUrl)}" target="_blank" class="text-decoration-none"><i class="fab fa-github me-1"></i>${escapeHtml(githubActionOwner)}</a>`
+                                        : `<i class="fab fa-github me-1"></i>${escapeHtml(githubActionOwner)}`
+                                    }
+                                    ${githubActionRepoInfo && githubActionRepoInfo.repoUrl 
+                                        ? ` <a href="${escapeHtml(githubActionRepoInfo.repoUrl)}" target="_blank" class="text-decoration-none ms-2" title="View repository"><i class="fas fa-external-link-alt"></i></a>`
+                                        : ''
+                                    }
+                                </td>
+                            </tr>
+                            ` : ''}
                             <tr>
                                 <th>License:</th>
                                 <td>
@@ -1352,6 +1477,41 @@
                     </div>
                 </div>
             `;
+            
+            // Package warnings section (maintenance and deprecation)
+            let warningsHtml = '';
+            if (packageData && packageData.warnings) {
+                const warnings = packageData.warnings;
+                warningsHtml = '<div class="row mt-3"><div class="col-12">';
+                
+                // Deprecation warning (highest priority)
+                if (warnings.isDeprecated) {
+                    warningsHtml += `
+                        <div class="alert alert-danger">
+                            <h6><i class="fas fa-exclamation-triangle me-2"></i>🚨 Deprecated Package</h6>
+                            <p class="mb-1">This package has been deprecated and is no longer recommended for use.</p>
+                            ${warnings.replacement ? `<p class="mb-0"><strong>Consider migrating to:</strong> <code>${escapeHtml(warnings.replacement)}</code></p>` : ''}
+                        </div>
+                    `;
+                }
+                
+                // Maintenance warning (if not deprecated)
+                if (warnings.isUnmaintained && !warnings.isDeprecated) {
+                    const warningText = warnings.warningType === 'out-of-support' 
+                        ? '⚠️ This package is out of support'
+                        : '⚠️ This package is no longer maintained';
+                    warningsHtml += `
+                        <div class="alert alert-warning">
+                            <h6><i class="fas fa-exclamation-triangle me-2"></i>${warningText}</h6>
+                            <p class="mb-0">This package may not receive security updates or bug fixes.</p>
+                        </div>
+                    `;
+                }
+                
+                warningsHtml += '</div></div>';
+            }
+            
+            html += warningsHtml;
             
             // Sponsorship section
             if (funding) {

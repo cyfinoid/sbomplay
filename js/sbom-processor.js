@@ -118,8 +118,9 @@ class SBOMProcessor {
      * @param {string} repo - Repository name
      * @param {Object} sbomData - SBOM data from GitHub
      * @param {string} repositoryLicense - Repository's own license (SPDX identifier, e.g., 'GPL-3.0', 'MIT')
+     * @param {boolean} archived - Whether the repository is archived
      */
-    processSBOM(owner, repo, sbomData, repositoryLicense = null) {
+    processSBOM(owner, repo, sbomData, repositoryLicense = null, archived = false) {
         if (!sbomData || !sbomData.sbom || !sbomData.sbom.packages) {
             console.log(`⚠️  Invalid SBOM data for ${owner}/${repo}`);
             return false;
@@ -132,6 +133,7 @@ class SBOMProcessor {
             name: repo,
             owner: owner,
             license: repositoryLicense || null,  // Store repository's own license
+            archived: archived || false,  // Store archived status
             dependencies: new Set(),
             directDependencies: new Set(),  // Track direct dependencies from relationships
             totalDependencies: 0,
@@ -205,6 +207,12 @@ class SBOMProcessor {
                 // Add to appropriate category
                 repoData.dependencyCategories[category.type].add(depKey);
                 
+                // Extract GitHub Actions owner/repo if this is a GitHub Action
+                let githubActionInfo = null;
+                if (category.ecosystem === 'GitHub Actions' || category.isWorkflow) {
+                    githubActionInfo = this.parseGitHubAction(pkg.name);
+                }
+                
                 // Track global dependency usage
                 if (!this.dependencies.has(depKey)) {
                     this.dependencies.set(depKey, {
@@ -216,7 +224,8 @@ class SBOMProcessor {
                         languages: new Set([category.language]),
                         originalPackage: pkg,  // Store original package data for PURL extraction
                         directIn: new Set(),  // Track which repos use this as direct dependency
-                        transitiveIn: new Set()  // Track which repos use this as transitive dependency
+                        transitiveIn: new Set(),  // Track which repos use this as transitive dependency
+                        githubActionInfo: githubActionInfo  // Store parsed GitHub Action info
                     });
                 }
                 
@@ -224,6 +233,11 @@ class SBOMProcessor {
                 dep.repositories.add(repoKey);
                 dep.count++;
                 dep.languages.add(category.language);
+                
+                // Update GitHub Action info if not already set
+                if (githubActionInfo && !dep.githubActionInfo) {
+                    dep.githubActionInfo = githubActionInfo;
+                }
                 
                 // Track if it's direct or transitive in this repo
                 if (isDirect) {
@@ -275,6 +289,33 @@ class SBOMProcessor {
         console.log(`📦 Processed ${repoKey}: ${processedPackages} packages, ${skippedPackages} skipped, ${repoData.totalDependencies} unique dependencies`);
         
         return true;
+    }
+
+    /**
+     * Parse GitHub Action name to extract owner and repo
+     * Formats: "owner/action-name" or "owner/repo@version"
+     * @param {string} actionName - GitHub Action name
+     * @returns {Object|null} - {owner: string, actionName: string, repoName: string} or null
+     */
+    parseGitHubAction(actionName) {
+        if (!actionName) return null;
+        
+        // GitHub Actions format: owner/action-name or owner/repo@version
+        // Examples: "actions/checkout@v3", "docker/setup-buildx-action@v2"
+        const parts = actionName.split('/');
+        if (parts.length < 2) return null;
+        
+        const owner = parts[0];
+        const rest = parts.slice(1).join('/'); // Handle cases with multiple slashes
+        const actionParts = rest.split('@');
+        const repoOrAction = actionParts[0];
+        
+        return {
+            owner: owner,
+            actionName: repoOrAction,
+            repoName: repoOrAction, // For GitHub Actions, repo name is usually the action name
+            fullName: `${owner}/${repoOrAction}`
+        };
     }
 
     /**

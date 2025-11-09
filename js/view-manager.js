@@ -196,11 +196,15 @@ class ViewManager {
     </div>`;
         }
 
-        const repositoriesHTML = data.repositories.map(repo => `
-            <div class="repository-item" onclick="viewManager.showRepositoryDetailsFromAllReposIndex(${repo.index}, '${this.escapeJsString(escapeHtml(repo.organization))}')">
-                <div class="repo-name">${escapeHtml(repo.owner)}/${escapeHtml(repo.name)}</div>
+        const repositoriesHTML = data.repositories.map(repo => {
+            const archivedBadge = repo.archived ? '<span class="badge bg-secondary ms-2" title="Archived Repository"><i class="fas fa-archive"></i> Archived</span>' : '';
+            const archivedClass = repo.archived ? ' archived-repo' : '';
+            return `
+            <div class="repository-item${archivedClass}" onclick="viewManager.showRepositoryDetailsFromAllReposIndex(${repo.index}, '${this.escapeJsString(escapeHtml(repo.organization))}')">
+                <div class="repo-name">${escapeHtml(repo.owner)}/${escapeHtml(repo.name)}${archivedBadge}</div>
                 <div class="repo-deps">${repo.totalDependencies} total deps</div>
-            </div>`).join('');
+            </div>`;
+        }).join('');
 
         let categoryHTML = '';
         if (data.category) {
@@ -856,7 +860,7 @@ class ViewManager {
                 <button class="btn btn-secondary" onclick="viewManager.showOrganizationOverviewFromStorage('${orgData.organization || orgData.name}')">
                     ← Back to Overview
                 </button>
-                <h2>📁 ${repo.owner}/${repo.name}</h2>
+                <h2>📁 ${repo.owner}/${repo.name}${repo.archived ? ' <span class="badge bg-secondary" title="Archived Repository"><i class="fas fa-archive"></i> Archived</span>' : ''}</h2>
                 <p class="text-muted">${repo.totalDependencies} dependencies</p>
             </div>
 
@@ -866,7 +870,7 @@ class ViewManager {
                     <div class="info-grid">
                         <div class="info-item">
                             <label>Repository:</label>
-                            <span>${repo.owner}/${repo.name}</span>
+                            <span>${repo.owner}/${repo.name}${repo.archived ? ' <span class="badge bg-secondary" title="Archived Repository"><i class="fas fa-archive"></i> Archived</span>' : ''}</span>
                         </div>
                         <div class="info-item">
                             <label>Total Dependencies:</label>
@@ -2223,10 +2227,13 @@ class ViewManager {
                 <div class="affected-repositories">
                     <h4>📁 Affected Repositories (${affectedRepos.length})</h4>
                     <div class="repository-list">
-                        ${affectedRepos.map(repo => `
-                            <div class="repository-item">
+                        ${affectedRepos.map(repo => {
+                            const archivedBadge = repo.archived ? ' <span class="badge bg-secondary" title="Archived Repository"><i class="fas fa-archive"></i> Archived</span>' : '';
+                            const archivedClass = repo.archived ? ' archived-repo' : '';
+                            return `
+                            <div class="repository-item${archivedClass}">
                                 <div class="repo-header">
-                                    <h5>${repo.owner}/${repo.name}</h5>
+                                    <h5>${repo.owner}/${repo.name}${archivedBadge}</h5>
                                     <span class="badge bg-primary">${repo.totalDependencies} total deps</span>
                                 </div>
                                 <div class="repo-actions">
@@ -2234,8 +2241,8 @@ class ViewManager {
                                         <i class="fas fa-eye me-1"></i>View Repository
                                     </button>
                                 </div>
-                            </div>
-                        `).join('')}
+                            </div>`;
+                        }).join('')}
                     </div>
                 </div>
 
@@ -2575,12 +2582,16 @@ class ViewManager {
                             ${repositories.map(repo => {
                                 const [owner, name] = repo.split('/');
                                 const repoIndex = orgData.data.allRepositories ? orgData.data.allRepositories.findIndex(r => r.owner === owner && r.name === name) : -1;
+                                const repoData = orgData.data.allRepositories && repoIndex >= 0 ? orgData.data.allRepositories[repoIndex] : null;
+                                const isArchived = repoData && repoData.archived;
+                                const archivedBadge = isArchived ? ' <span class="badge bg-secondary ms-2" title="Archived Repository"><i class="fas fa-archive"></i> Archived</span>' : '';
+                                const archivedClass = isArchived ? ' archived-repo' : '';
                                 const escapedOrg = this.escapeJsString(this.escapeHtml(organization));
                                 const escapedRepo = this.escapeHtml(repo);
                                 return `
-                                    <div class="repository-item" onclick="viewManager.showRepositoryDetailsFromAllReposIndex(${repoIndex}, '${escapedOrg}')" style="cursor: pointer;">
-                                        <div class="repo-name">${escapedRepo}</div>
-                                        <div class="repo-deps">${orgData.data.allRepositories && orgData.data.allRepositories[repoIndex] ? (orgData.data.allRepositories[repoIndex].totalDependencies || 0) : 0} total deps</div>
+                                    <div class="repository-item${archivedClass}" onclick="viewManager.showRepositoryDetailsFromAllReposIndex(${repoIndex}, '${escapedOrg}')" style="cursor: pointer;">
+                                        <div class="repo-name">${escapedRepo}${archivedBadge}</div>
+                                        <div class="repo-deps">${repoData ? (repoData.totalDependencies || 0) : 0} total deps</div>
                                     </div>
                                 `;
                             }).join('')}
@@ -2889,10 +2900,13 @@ class ViewManager {
                             <div class="affected-repositories mb-3">
                                 <h6>📁 Affected Repositories (${affectedRepos.length})</h6>
                                 <div class="repository-list">
-                                    ${affectedRepos.map(repo => `
-                                        <div class="repository-item">
+                                    ${affectedRepos.map(repo => {
+                                        const archivedBadge = repo.archived ? ' <span class="badge bg-secondary" title="Archived Repository"><i class="fas fa-archive"></i> Archived</span>' : '';
+                                        const archivedClass = repo.archived ? ' archived-repo' : '';
+                                        return `
+                                        <div class="repository-item${archivedClass}">
                                             <div class="repo-header">
-                                                <h6>${repo.owner}/${repo.name}</h6>
+                                                <h6>${repo.owner}/${repo.name}${archivedBadge}</h6>
                                                 <span class="badge bg-primary">${repo.totalDependencies} total deps</span>
                                             </div>
                                             <div class="repo-actions">
@@ -2900,8 +2914,8 @@ class ViewManager {
                                                     <i class="fas fa-eye me-1"></i>View Repository
                                                 </button>
                                             </div>
-                                        </div>
-                                    `).join('')}
+                                        </div>`;
+                                    }).join('')}
                                 </div>
                             </div>
 

@@ -278,6 +278,39 @@ class CacheManager {
 
     /**
      * ============================================
+     * GITHUB REPOSITORY CACHE METHODS
+     * ============================================
+     */
+
+    /**
+     * Get GitHub repository info from cache
+     * @param {string} repoKey - Format: owner/repo
+     * @returns {Promise<Object|null>} - Cached repository info or null
+     */
+    async getGitHubRepo(repoKey) {
+        const memoryKey = `github-repo:${repoKey}`;
+        const cached = this.memoryCache.get(memoryKey);
+        if (cached) {
+            return cached.data;
+        }
+        return null;
+    }
+
+    /**
+     * Save GitHub repository info to cache
+     * @param {string} repoKey - Format: owner/repo
+     * @param {Object} repoData - Repository data from GitHub API
+     */
+    async saveGitHubRepo(repoKey, repoData) {
+        const memoryKey = `github-repo:${repoKey}`;
+        this.memoryCache.set(memoryKey, {
+            data: repoData,
+            timestamp: Date.now()
+        });
+    }
+
+    /**
+     * ============================================
      * LEGACY SUPPORT (for backward compatibility)
      * ============================================
      */

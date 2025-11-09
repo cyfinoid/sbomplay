@@ -715,7 +715,9 @@ class SBOMPlayApp {
                     if (sbomData) {
                         // Extract repository license from GitHub API response
                         const repositoryLicense = repo.license?.spdx_id || repo.license?.key || null;
-                        const success = this.sbomProcessor.processSBOM(owner, name, sbomData, repositoryLicense);
+                        // Extract archived status from GitHub API response
+                        const archived = repo.archived || false;
+                        const success = this.sbomProcessor.processSBOM(owner, name, sbomData, repositoryLicense, archived);
                         this.sbomProcessor.updateProgress(success);
                         if (success) {
                             successfulRepos++;

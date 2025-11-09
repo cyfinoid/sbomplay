@@ -196,7 +196,9 @@ h6 { font-size: var(--font-size-body); }
 .badge.bg-primary { color: #ffffff !important; }
 .badge.bg-success { color: #000000 !important; }
 .badge.bg-warning { color: #000000 !important; }
+.badge.bg-danger { color: #ffffff !important; }
 .badge.bg-info { color: #ffffff !important; }
+.badge.bg-secondary { color: #ffffff !important; }
 
 /* Navbar theming */
 .navbar-dark {
