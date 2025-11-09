@@ -1608,6 +1608,12 @@ class SBOMPlayApp {
             return 'danger';
         };
         
+        // Get color class for grade
+        const getGradeColor = (grade) => {
+            const colors = { 'A': 'success', 'B': 'primary', 'C': 'warning', 'D': 'danger', 'F': 'dark' };
+            return colors[grade] || 'secondary';
+        };
+        
         // Convert to 0-10 display scale
         const displayScore = qa.averageDisplayScore || (qa.averageOverallScore / 10).toFixed(1);
         
@@ -1748,7 +1754,7 @@ class SBOMPlayApp {
                     <tr>
                         <td><code>${repo.repository}</code></td>
                         <td><span class="badge bg-${getScoreColor(repo.score)}">${repoDisplayScore}/10</span></td>
-                        <td><span class="badge bg-secondary">${repo.grade}</span></td>
+                        <td><span class="badge bg-${getGradeColor(repo.grade)}">${repo.grade}</span></td>
                         <td><small>${issueCategories}</small></td>
                     </tr>
                 `;
