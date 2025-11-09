@@ -7,7 +7,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+#### New Major Features (Pages)
+- **Repository View**: New repository-focused page (`repos.html`) for viewing repository statistics and analysis
+  - Repository statistics table showing:
+    - SBOM status and grade (combined column, links to quality.html when available)
+    - Vulnerability counts (High/Medium/Low badges, links to vuln.html)
+    - Dependency counts (links to deps.html)
+    - Author counts (links to authors.html)
+    - Repository license (links to licenses.html)
+  - Clickable columns that navigate to respective pages with repository filter applied
+  - Analysis selector supporting "All Projects (Combined)" and individual analyses
+  - Search functionality for repository names
+  - Sortable columns with proper sorting logic (including grade-based sorting)
+  - Statistics summary (Total Repos, With SBOM, With Vulnerabilities, Showing)
+  - CSV export functionality
+  - URL parameter support (`org`, `search`)
+
 ### Changed
+
+#### Navigation & UI Improvements
+- **Concise Navigation Menu**: Streamlined navigation menu across all pages
+  - Changed "Vulnerabilities" → "Vulns" for brevity
+  - Changed "Dependencies" → "Deps" for brevity
+  - Changed "Analysis" → "Home" (icon/brand already links to index.html)
+  - Added "Repos" link to all navigation menus
+  - More compact and scannable navigation bar
 
 #### Code Organization & Optimization
 - **JavaScript Refactoring**: Comprehensive JavaScript code optimization and organization
