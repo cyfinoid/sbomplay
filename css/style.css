@@ -85,7 +85,116 @@ body {
 .progress-bar {
     border-radius: 0.75rem;
     background: var(--primary-color);
-    transition: width 0.5s ease;
+    transition: width 0.6s cubic-bezier(0.4, 0, 0.2, 1), background-color 0.3s ease;
+    position: relative;
+    overflow: hidden;
+}
+
+.progress-bar-initial {
+    width: 0% !important;
+    transition: width 0.3s ease;
+}
+
+.progress-bar-dynamic {
+    width: var(--progress-width, 0%);
+    transition: width 0.6s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* Add subtle shimmer effect during progress */
+.progress-bar-dynamic::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    bottom: 0;
+    right: 0;
+    background: linear-gradient(
+        90deg,
+        transparent,
+        rgba(255, 255, 255, 0.2),
+        transparent
+    );
+    animation: shimmer 2s infinite;
+}
+
+@keyframes shimmer {
+    0% {
+        transform: translateX(-100%);
+    }
+    100% {
+        transform: translateX(100%);
+    }
+}
+
+/* License pie chart styles */
+.license-pie-chart-container {
+    width: 250px;
+    height: 250px;
+    margin: 0 auto;
+    position: relative;
+    cursor: pointer;
+}
+
+.license-pie-chart {
+    width: 250px;
+    height: 250px;
+    border-radius: 50%;
+    background: conic-gradient(var(--pie-gradient));
+    position: relative;
+}
+
+.license-pie-chart-center {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    width: 120px;
+    height: 120px;
+    background: var(--bg-color, #fff);
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-direction: column;
+}
+
+.license-pie-chart-small {
+    width: 200px;
+    height: 200px;
+}
+
+.license-pie-chart-small .license-pie-chart-center {
+    width: 100px;
+    height: 100px;
+}
+
+/* License category link styles */
+.license-category-link {
+    transition: all 0.2s;
+}
+
+.license-category-item {
+    border: 2px solid transparent;
+    transition: border-color 0.2s, background-color 0.2s;
+}
+
+.license-category-item:hover {
+    border-color: var(--category-color, transparent);
+    background-color: var(--category-hover-bg, transparent);
+}
+
+.license-category-badge {
+    width: 20px;
+    height: 20px;
+    display: inline-block;
+    background-color: var(--category-color);
+}
+
+.license-legend-box {
+    width: 20px;
+    height: 20px;
+    border-radius: 4px;
+    background: var(--legend-color);
 }
 
 /* Alerts */

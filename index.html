@@ -32,7 +32,7 @@
                 <a class="nav-link" href="settings.html">
                     <i class="fas fa-cog"></i>
                 </a>
-                <button class="btn btn-outline-secondary btn-sm ms-2 theme-toggle" onclick="themeManager.toggleTheme()" title="Toggle theme">
+                <button class="btn btn-outline-secondary btn-sm ms-2 theme-toggle" title="Toggle theme">
                     <i class="fas fa-sun"></i>
                 </button>
             </div>
@@ -70,10 +70,10 @@
                 <p>You have a pending analysis that was interrupted by a rate limit. You can resume it now.</p>
                 <div id="resumeInfo"></div>
                 <div class="d-flex gap-2">
-                    <button class="btn btn-warning" onclick="app.resumeAnalysis()">
+                    <button class="btn btn-warning" id="resumeBtn">
                         <i class="fas fa-play me-2"></i>Resume Analysis
                     </button>
-                    <button class="btn btn-outline-secondary" onclick="app.clearRateLimitState()">
+                    <button class="btn btn-outline-secondary" id="clearRateLimitBtn">
                         <i class="fas fa-times me-2"></i>Clear State
                     </button>
                 </div>
@@ -96,7 +96,7 @@
                     </div>
                     <div class="col-md-4">
                         <div class="d-flex align-items-end h-100 gap-2">
-                            <button class="btn btn-primary" onclick="startAnalysis()" id="analyzeBtn">
+                            <button class="btn btn-primary" id="analyzeBtn">
                                 <i class="fas fa-play me-2"></i>Start Analysis
                             </button>
                         </div>
@@ -108,7 +108,7 @@
 
         <!-- GitHub Token Input -->
         <div class="card mb-4">
-            <div class="card-header cursor-pointer" onclick="toggleTokenSection()">
+            <div class="card-header cursor-pointer" id="tokenSectionHeader">
                 <h5 class="mb-0 d-flex justify-content-between align-items-center">
                     <span>
                         <i class="fab fa-github me-2"></i>Remove Rate Limit by GitHub Authentication (Optional)
@@ -130,7 +130,7 @@
                     </div>
                     <div class="col-md-4">
                         <div class="d-flex align-items-end h-100">
-                            <button class="btn btn-outline-primary" onclick="saveToken()">
+                            <button class="btn btn-outline-primary" id="saveTokenBtn">
                                 <i class="fas fa-check me-2"></i>Set Token
                             </button>
                         </div>
@@ -148,9 +148,9 @@
                 </h5>
             </div>
             <div class="card-body">
-                <div class="progress mb-3 h-2rem">
-                    <div class="progress-bar progress-bar-striped progress-bar-animated" 
-                         id="progressBar" role="progressbar" style="width: 0%">
+                    <div class="progress mb-3 h-2rem">
+                    <div class="progress-bar progress-bar-striped progress-bar-animated progress-bar-initial" 
+                         id="progressBar" role="progressbar">
                         0%
                     </div>
                 </div>

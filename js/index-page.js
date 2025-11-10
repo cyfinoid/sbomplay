@@ -17,5 +17,56 @@ document.addEventListener('DOMContentLoaded', function() {
     collapseConfigs.forEach(config => {
         setupCollapseIcon(config.collapseId, config.iconId);
     });
+    
+    // Attach event listeners for buttons that previously used onclick handlers
+    // Resume Analysis button
+    const resumeBtn = document.getElementById('resumeBtn');
+    if (resumeBtn) {
+        resumeBtn.addEventListener('click', function() {
+            if (window.app && typeof window.app.resumeAnalysis === 'function') {
+                window.app.resumeAnalysis();
+            }
+        });
+    }
+    
+    // Clear Rate Limit State button
+    const clearRateLimitBtn = document.getElementById('clearRateLimitBtn');
+    if (clearRateLimitBtn) {
+        clearRateLimitBtn.addEventListener('click', function() {
+            if (window.app && typeof window.app.clearRateLimitState === 'function') {
+                window.app.clearRateLimitState();
+            }
+        });
+    }
+    
+    // Start Analysis button
+    const analyzeBtn = document.getElementById('analyzeBtn');
+    if (analyzeBtn) {
+        analyzeBtn.addEventListener('click', function() {
+            if (typeof startAnalysis === 'function') {
+                startAnalysis();
+            }
+        });
+    }
+    
+    // Token section toggle
+    const tokenHeader = document.getElementById('tokenSectionHeader');
+    if (tokenHeader) {
+        tokenHeader.addEventListener('click', function() {
+            if (typeof toggleTokenSection === 'function') {
+                toggleTokenSection();
+            }
+        });
+    }
+    
+    // Save Token button
+    const saveTokenBtn = document.getElementById('saveTokenBtn');
+    if (saveTokenBtn) {
+        saveTokenBtn.addEventListener('click', function() {
+            if (typeof saveToken === 'function') {
+                saveToken();
+            }
+        });
+    }
 });
 

@@ -13,6 +13,28 @@ class SBOMPlayApp {
         this.analysisEndTime = null;
         this.elapsedTimeInterval = null;
         
+        // Time-based progress tracking
+        this.progressTracker = {
+            phases: [],
+            currentPhase: null,
+            phaseStartTime: null,
+            totalEstimatedTime: 0, // milliseconds
+            phaseWeights: {
+                'initialization': 0.02,      // 2%
+                'fetching-repo': 0.05,      // 5%
+                'fetching-sbom': 0.10,      // 10%
+                'processing-sbom': 0.08,    // 8%
+                'resolving-trees': 0.50,    // 50% (often takes longest)
+                'generating-results': 0.05, // 5%
+                'license-analysis': 0.05,   // 5%
+                'saving-initial': 0.02,      // 2%
+                'vulnerability-analysis': 0.08, // 8%
+                'author-analysis': 0.04,    // 4%
+                'saving-final': 0.01         // 1%
+            },
+            phaseTimes: {} // Track actual time spent per phase
+        };
+        
         // Warn user before navigating away during analysis
         window.addEventListener('beforeunload', (e) => {
             if (this.isAnalyzing) {
@@ -509,7 +531,13 @@ class SBOMPlayApp {
             resultsSection.classList.remove('d-block');
         }
         
-        this.updateProgress(0, 'Initializing repository analysis...');
+        // Reset progress tracker
+        this.progressTracker.phaseTimes = {};
+        this.progressTracker.currentPhase = null;
+        this.progressTracker.phaseStartTime = null;
+        
+        // Hide estimated time element initially
+        this.updateProgress(0, 'Initializing repository analysis...', 'initialization');
         this.startTiming();
 
         try {
@@ -518,7 +546,7 @@ class SBOMPlayApp {
             this.updateRateLimitInfo(rateLimitInfo);
 
             // Fetch repository metadata
-            this.updateProgress(10, `Fetching repository ${repoKey}...`);
+            this.updateProgress(10, `Fetching repository ${repoKey}...`, 'fetching-repo');
             const repoData = await this.githubClient.getRepository(owner, repo);
             
             if (!repoData) {
@@ -528,7 +556,7 @@ class SBOMPlayApp {
             }
 
             // Fetch SBOM
-            this.updateProgress(30, 'Fetching SBOM data...');
+            this.updateProgress(30, 'Fetching SBOM data from GitHub...', 'fetching-sbom');
             const sbomData = await this.githubClient.fetchSBOM(owner, repo);
             
             if (!sbomData) {
@@ -538,7 +566,7 @@ class SBOMPlayApp {
             }
 
             // Process SBOM
-            this.updateProgress(50, 'Processing SBOM data...');
+            this.updateProgress(50, 'Processing SBOM data and extracting dependencies...', 'processing-sbom');
             this.sbomProcessor.setTotalRepositories(1);
             // Extract repository license from GitHub API response
             const repositoryLicense = repoData.license?.spdx_id || repoData.license?.key || null;
@@ -551,13 +579,21 @@ class SBOMPlayApp {
             }
 
             // Resolve full dependency trees with API queries
-            this.updateProgress(75, 'Resolving dependency trees...');
+            this.updateProgress(75, 'Resolving full dependency trees...', 'resolving-trees');
             try {
                 console.log('🌲 Resolving full dependency trees with registry APIs...');
                 await this.sbomProcessor.resolveFullDependencyTrees((progress) => {
                     if (progress.phase === 'resolving-tree') {
-                        this.updateProgress(75 + (progress.processed / progress.total) * 5, 
-                            `Resolving ${progress.ecosystem} dependencies...`);
+                        const subProgressPercent = (progress.processed / progress.total) * 100;
+                        this.updateProgress(75, 
+                            `Resolving ${progress.ecosystem} dependencies...`, 
+                            'resolving-trees',
+                            {
+                                processed: progress.processed,
+                                total: progress.total,
+                                ecosystem: progress.ecosystem,
+                                packageName: progress.packageName
+                            });
                     }
                 });
                 console.log('✅ Dependency tree resolution complete');
@@ -567,13 +603,13 @@ class SBOMPlayApp {
             }
             
             // Generate results (use let so we can reload after author analysis)
-            this.updateProgress(80, 'Generating analysis results...');
+            this.updateProgress(80, 'Generating analysis results...', 'generating-results');
             let results = this.sbomProcessor.exportData();
             
             // Run license compliance analysis
             const repoStats = this.sbomProcessor.repositories.get(repoKey);
             if (repoStats && repoStats.totalDependencies > 0) {
-                this.updateProgress(85, 'Analyzing license compliance...');
+                this.updateProgress(85, 'Analyzing license compliance and conflicts...', 'license-analysis');
                 try {
                     const licenseAnalysis = this.sbomProcessor.analyzeLicenseCompliance();
                     if (licenseAnalysis) {
@@ -586,7 +622,7 @@ class SBOMPlayApp {
             }
             
             // Save initial results to storage (required for vulnerability and author analysis)
-            this.updateProgress(87, 'Saving initial results...');
+            this.updateProgress(87, 'Saving initial results to storage...', 'saving-initial');
             let saveSuccess = await this.storageManager.saveAnalysisData(repoKey, results);
             if (!saveSuccess) {
                 console.warn('⚠️ Failed to save initial analysis data to storage');
@@ -595,14 +631,13 @@ class SBOMPlayApp {
             // Run vulnerability and author analysis (these need data in storage)
             if (repoStats && repoStats.totalDependencies > 0) {
                 // Run vulnerability analysis
-                this.updateProgress(90, 'Analyzing vulnerabilities...');
+                this.updateProgress(90, 'Analyzing vulnerabilities using OSV.dev...', 'vulnerability-analysis');
                 try {
                     console.log('🔍 Starting vulnerability analysis...');
                     // Pass progress callback to show real-time updates
                     await this.sbomProcessor.analyzeVulnerabilitiesWithIncrementalSaving(repoKey, (percent, message) => {
-                        // Map vulnerability progress (0-100%) to progress bar range (90-93%)
-                        const mappedProgress = 90 + (percent * 0.03);
-                        this.updateProgress(mappedProgress, message);
+                        // Use sub-progress for vulnerability analysis
+                        this.updateProgress(90, message, 'vulnerability-analysis', percent);
                     });
                     console.log('✅ Vulnerability analysis complete');
                 } catch (error) {
@@ -610,7 +645,7 @@ class SBOMPlayApp {
                 }
                 
                 // Run author analysis
-                this.updateProgress(93, 'Fetching author information...');
+                this.updateProgress(93, 'Fetching package author information...', 'author-analysis');
                 try {
                     console.log('👥 Analyzing package authors...');
                     await this.analyzeAuthors(repoKey);
@@ -632,7 +667,7 @@ class SBOMPlayApp {
             console.log(`   Total dependencies: ${results.statistics.totalDependencies}`);
             
             // Final save to storage (to include vulnerability and author data)
-            this.updateProgress(95, 'Saving final results...');
+            this.updateProgress(95, 'Saving final results to storage...', 'saving-final');
             saveSuccess = await this.storageManager.saveAnalysisData(repoKey, results);
             if (!saveSuccess) {
                 console.warn('⚠️ Failed to save analysis data to storage');
@@ -682,7 +717,12 @@ class SBOMPlayApp {
             resultsSection.classList.remove('d-block');
         }
         
-        this.updateProgress(0, 'Initializing analysis...');
+        // Reset progress tracker
+        this.progressTracker.phaseTimes = {};
+        this.progressTracker.currentPhase = null;
+        this.progressTracker.phaseStartTime = null;
+        
+        this.updateProgress(0, 'Initializing analysis...', 'initialization');
         this.startTiming();
 
         try {
@@ -691,7 +731,7 @@ class SBOMPlayApp {
             this.updateRateLimitInfo(rateLimitInfo);
 
             // Fetch repositories
-            this.updateProgress(10, 'Fetching repositories...');
+            this.updateProgress(10, 'Fetching repositories from GitHub...', 'fetching-repo');
             const repositories = await this.githubClient.getRepositories(ownerName);
             
             if (repositories.length === 0) {
@@ -701,7 +741,7 @@ class SBOMPlayApp {
             }
 
             this.sbomProcessor.setTotalRepositories(repositories.length);
-            this.updateProgress(20, `Found ${repositories.length} repositories. Starting SBOM analysis...`);
+            this.updateProgress(20, `Found ${repositories.length} repositories. Starting SBOM analysis...`, 'fetching-sbom');
 
             // Process repositories in parallel with concurrency limit
             const CONCURRENCY_LIMIT = 8; // Process 8 repositories concurrently
@@ -769,9 +809,15 @@ class SBOMPlayApp {
                     processedCount++;
                 });
                 
-                // Update progress
-                const progress = 20 + (processedCount / repositories.length) * 70;
-                this.updateProgress(progress, `Analyzed ${processedCount}/${repositories.length} repositories...`);
+                // Update progress with sub-progress info
+                const progress = 20 + (processedCount / repositories.length) * 50;
+                this.updateProgress(progress, 
+                    `Analyzing repositories...`, 
+                    'fetching-sbom',
+                    {
+                        processed: processedCount,
+                        total: repositories.length
+                    });
                 
                 // Save incrementally every 10 repositories or at the end
                 if (processedCount % 10 === 0 || processedCount === repositories.length) {
@@ -801,24 +847,25 @@ class SBOMPlayApp {
                 }
             }
 
+            // Process SBOM phase
+            this.updateProgress(70, 'Processing SBOM data and extracting dependencies...', 'processing-sbom');
+            
             // Resolve full dependency trees with API queries
-            this.updateProgress(85, 'Resolving dependency trees...');
+            this.updateProgress(75, 'Resolving full dependency trees...', 'resolving-trees');
             try {
                 console.log('🌲 Resolving full dependency trees with registry APIs...');
                 await this.sbomProcessor.resolveFullDependencyTrees((progress) => {
                     if (progress.phase === 'resolving-tree') {
-                        // Calculate progress percentage
-                        const ecosystemProgress = 85 + (progress.processed / progress.total) * 5;
-                        
-                        // If we have package-level progress, show more detail
-                        if (progress.packageProgress) {
-                            const packageMsg = progress.packageProgress.message || 
-                                `Resolving ${progress.ecosystem} dependencies...`;
-                            this.updateProgress(ecosystemProgress, packageMsg);
-                        } else {
-                            this.updateProgress(ecosystemProgress, 
-                                `Resolving ${progress.ecosystem} dependencies (${progress.processed}/${progress.total} ecosystems)...`);
-                        }
+                        // Use sub-progress for detailed status
+                        this.updateProgress(75, 
+                            `Resolving ${progress.ecosystem} dependencies...`, 
+                            'resolving-trees',
+                            {
+                                processed: progress.processed || (progress.packageProgress?.processed || 0),
+                                total: progress.total || (progress.packageProgress?.total || 1),
+                                ecosystem: progress.ecosystem,
+                                packageName: progress.packageProgress?.packageName
+                            });
                     }
                 });
                 console.log('✅ Dependency tree resolution complete');
@@ -828,12 +875,12 @@ class SBOMPlayApp {
             }
             
             // Generate results (use let so we can reload after author analysis)
-            this.updateProgress(90, 'Generating analysis results...');
+            this.updateProgress(80, 'Generating analysis results...', 'generating-results');
             let results = this.sbomProcessor.exportData();
 
             // Run license compliance analysis
             if (reposWithDeps > 0) {
-                this.updateProgress(92, 'Analyzing license compliance...');
+                this.updateProgress(85, 'Analyzing license compliance and conflicts...', 'license-analysis');
                 try {
                     const licenseAnalysis = this.sbomProcessor.analyzeLicenseCompliance();
                     if (licenseAnalysis) {
@@ -861,7 +908,7 @@ class SBOMPlayApp {
             }
             
             // Save initial results to storage (required for vulnerability and author analysis)
-            this.updateProgress(93, 'Saving initial results...');
+            this.updateProgress(87, 'Saving initial results to storage...', 'saving-initial');
             let saveSuccess = await this.storageManager.saveAnalysisData(ownerName, results);
             if (!saveSuccess) {
                 console.warn('⚠️ Failed to save initial analysis data to storage');
@@ -872,14 +919,13 @@ class SBOMPlayApp {
             // Run vulnerability and author analysis (these need data in storage)
             if (reposWithDeps > 0) {
                 // Run vulnerability analysis
-                this.updateProgress(94, 'Analyzing vulnerabilities...');
+                this.updateProgress(90, 'Analyzing vulnerabilities using OSV.dev...', 'vulnerability-analysis');
                 try {
                     console.log('🔍 Starting vulnerability analysis...');
                     // Pass progress callback to show real-time updates
                     await this.sbomProcessor.analyzeVulnerabilitiesWithIncrementalSaving(ownerName, (percent, message) => {
-                        // Map vulnerability progress (0-100%) to progress bar range (94-96%)
-                        const mappedProgress = 94 + (percent * 0.02);
-                        this.updateProgress(mappedProgress, message);
+                        // Use sub-progress for vulnerability analysis
+                        this.updateProgress(90, message, 'vulnerability-analysis', percent);
                     });
                     console.log('✅ Vulnerability analysis complete');
                 } catch (error) {
@@ -887,7 +933,7 @@ class SBOMPlayApp {
                 }
                 
                 // Run author analysis
-                this.updateProgress(96, 'Fetching author information...');
+                this.updateProgress(93, 'Fetching package author information...', 'author-analysis');
                 try {
                     console.log('👥 Analyzing package authors...');
                     await this.analyzeAuthors(ownerName);
@@ -905,7 +951,7 @@ class SBOMPlayApp {
             }
             
             // Final save to storage (to include vulnerability and author data)
-            this.updateProgress(98, 'Saving final results...');
+            this.updateProgress(95, 'Saving final results to storage...', 'saving-final');
             saveSuccess = await this.storageManager.saveAnalysisData(ownerName, results);
             if (!saveSuccess) {
                 console.warn('⚠️ Failed to save analysis data to storage');
@@ -939,24 +985,119 @@ class SBOMPlayApp {
     }
 
     /**
-     * Update progress display
+     * Start a new progress phase
      */
-    updateProgress(percentage, message) {
+    startPhase(phaseName, estimatedDurationMs = null) {
+        // End previous phase if exists
+        if (this.progressTracker.currentPhase && this.progressTracker.phaseStartTime) {
+            const phaseDuration = Date.now() - this.progressTracker.phaseStartTime;
+            this.progressTracker.phaseTimes[this.progressTracker.currentPhase] = 
+                (this.progressTracker.phaseTimes[this.progressTracker.currentPhase] || 0) + phaseDuration;
+        }
+        
+        // Start new phase
+        this.progressTracker.currentPhase = phaseName;
+        this.progressTracker.phaseStartTime = Date.now();
+        
+        if (estimatedDurationMs) {
+            this.progressTracker.totalEstimatedTime = estimatedDurationMs;
+        }
+    }
+    
+    /**
+     * Update progress display with time-based calculation
+     */
+    updateProgress(percentage, message, phaseName = null, subProgress = null) {
         const progressBar = document.getElementById('progressBar');
         const progressText = document.getElementById('progressText');
         
+        // If phase name provided, track it
+        if (phaseName && phaseName !== this.progressTracker.currentPhase) {
+            this.startPhase(phaseName);
+        }
+        
+        // Calculate time-based progress if we have phase information
+        let calculatedPercentage = percentage;
+        let enhancedMessage = message;
+        
+        if (this.progressTracker.currentPhase && this.analysisStartTime) {
+            const elapsed = Date.now() - this.analysisStartTime;
+            const phaseWeight = this.progressTracker.phaseWeights[this.progressTracker.currentPhase] || 0;
+            
+            // Calculate progress based on completed phases + current phase progress
+            let completedProgress = 0;
+            let currentPhaseProgress = 0;
+            
+            // Sum up completed phases
+            Object.keys(this.progressTracker.phaseWeights).forEach(phase => {
+                if (this.progressTracker.phaseTimes[phase] && phase !== this.progressTracker.currentPhase) {
+                    completedProgress += this.progressTracker.phaseWeights[phase] * 100;
+                }
+            });
+            
+            // Calculate current phase progress
+            if (phaseWeight > 0 && subProgress !== null) {
+                if (typeof subProgress === 'object') {
+                    // Sub-progress object with details (processed/total)
+                    const { processed, total } = subProgress;
+                    if (typeof processed === 'number' && typeof total === 'number' && total > 0) {
+                        const subProgressPercent = (processed / total) * 100;
+                        currentPhaseProgress = phaseWeight * 100 * (subProgressPercent / 100);
+                    } else {
+                        // Fall back to provided percentage if sub-progress is invalid
+                        currentPhaseProgress = phaseWeight * 100 * (percentage / 100);
+                    }
+                } else if (typeof subProgress === 'number') {
+                    // Numeric sub-progress (0-100)
+                    currentPhaseProgress = phaseWeight * 100 * (subProgress / 100);
+                } else {
+                    // Fall back to provided percentage
+                    currentPhaseProgress = phaseWeight * 100 * (percentage / 100);
+                }
+            } else if (phaseWeight > 0) {
+                // Estimate based on time spent vs expected time
+                const phaseElapsed = Date.now() - this.progressTracker.phaseStartTime;
+                const avgPhaseTime = this.progressTracker.phaseTimes[this.progressTracker.currentPhase] || 0;
+                
+                // If we have historical data, use it; otherwise use percentage directly
+                if (avgPhaseTime > 0 && phaseElapsed < avgPhaseTime * 2) {
+                    // Use time-based estimate, but cap at reasonable bounds
+                    const timeBasedProgress = Math.min(95, (phaseElapsed / avgPhaseTime) * 100);
+                    currentPhaseProgress = phaseWeight * 100 * (timeBasedProgress / 100);
+                } else {
+                    // Fall back to provided percentage
+                    currentPhaseProgress = phaseWeight * 100 * (percentage / 100);
+                }
+            }
+            
+            calculatedPercentage = Math.min(99, completedProgress + currentPhaseProgress);
+            
+            // Enhance message with time info
+            if (subProgress !== null && typeof subProgress === 'object') {
+                // Sub-progress object with details
+                const { processed, total, ecosystem, packageName } = subProgress;
+                if (ecosystem && processed !== undefined && total !== undefined) {
+                    enhancedMessage = `Resolving ${ecosystem} dependencies (${processed}/${total} packages)${packageName ? `: ${packageName}` : '...'}`;
+                } else if (processed !== undefined && total !== undefined) {
+                    enhancedMessage = `${message} (${processed}/${total})`;
+                }
+            }
+        }
+        
         if (progressBar) {
-            progressBar.style.width = `${percentage}%`;
-            progressBar.textContent = `${Math.round(percentage)}%`;
+            progressBar.style.setProperty('--progress-width', `${calculatedPercentage}%`);
+            progressBar.classList.add('progress-bar-dynamic');
+            progressBar.classList.remove('progress-bar-initial');
+            progressBar.textContent = `${Math.round(calculatedPercentage)}%`;
         }
         
         if (progressText) {
-            progressText.textContent = message;
+            progressText.textContent = enhancedMessage;
         }
         
         // Log progress for pages without UI elements
         if (!progressBar && !progressText) {
-            console.log(`Progress: ${Math.round(percentage)}% - ${message}`);
+            console.log(`Progress: ${Math.round(calculatedPercentage)}% - ${enhancedMessage}`);
         }
     }
 
@@ -1496,18 +1637,42 @@ class SBOMPlayApp {
         
         // escapeHtml is provided by utils.js
         
+        // Helper function to generate category item HTML
+        const generateCategoryItem = (category, count, percent, color, hoverBg, title, label) => {
+            return `
+                <a href="licenses.html?category=${category}" class="text-decoration-none text-reset license-category-link" data-category="${category}" data-category-color="${color}" data-category-hover-bg="${hoverBg}">
+                    <div class="mb-3 p-2 rounded license-category-item" style="--category-color: ${color}; --category-hover-bg: ${hoverBg};">
+                        <div class="d-flex justify-content-between align-items-center mb-2">
+                            <div>
+                                <span class="badge me-2 license-category-badge" style="--category-color: ${color};"></span>
+                                <strong>${label}</strong>
+                                <i class="fas fa-info-circle ms-2 text-muted small" style="font-size: 0.8em;" title="${title}"></i>
+                            </div>
+                            <div>
+                                <span class="h5 mb-0">${count}</span>
+                                <small class="text-muted"> (${percent}%)</small>
+                            </div>
+                        </div>
+                        <div class="progress h-8px">
+                            <div class="progress-bar progress-bar-dynamic" role="progressbar" style="--progress-width: ${percent}%; background-color: ${color};"></div>
+                        </div>
+                    </div>
+                </a>
+            `;
+        };
+        
         return `
             <div class="col-md-6">
                 <div class="text-center">
-                    <div style="width: 250px; height: 250px; margin: 0 auto; position: relative; cursor: pointer;">
-                        <div style="width: 250px; height: 250px; border-radius: 50%; background: conic-gradient(
+                    <div class="license-pie-chart-container">
+                        <div class="license-pie-chart" style="background: conic-gradient(
                             ${proprietary > 0 ? `${colors.proprietary} ${proprietaryStart}% ${proprietaryEnd}%,` : ''}
                             ${copyleft > 0 ? `${colors.copyleft} ${copyleftStart}% ${copyleftEnd}%,` : ''}
                             ${lgpl > 0 ? `${colors.lgpl} ${lgplStart}% ${lgplEnd}%,` : ''}
                             ${unknown > 0 ? `${colors.unknown} ${unknownStart}% ${unknownEnd}%,` : ''}
                             ${unlicensed > 0 ? `${colors.unlicensed} ${unlicensedStart}% ${unlicensedEnd}%` : ''}
-                        ); position: relative;" id="licensePieChart">
-                            <div style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 120px; height: 120px; background: var(--bg-color, #fff); border-radius: 50%; display: flex; align-items: center; justify-content: center; flex-direction: column;">
+                        );" id="licensePieChart">
+                            <div class="license-pie-chart-center">
                                 <div class="h4 mb-0">${total}</div>
                                 <small class="text-muted">Total</small>
                             </div>
@@ -1517,109 +1682,24 @@ class SBOMPlayApp {
             </div>
             <div class="col-md-6">
                 <div class="d-flex flex-column justify-content-center h-100">
-                    ${proprietary > 0 ? `
-                    <a href="licenses.html?category=proprietary" class="text-decoration-none text-reset license-category-link" data-category="proprietary" style="transition: all 0.2s;">
-                        <div class="mb-3 p-2 rounded" style="border: 2px solid transparent;" onmouseover="this.style.borderColor='${colors.proprietary}'; this.style.backgroundColor='rgba(220, 53, 69, 0.1)';" onmouseout="this.style.borderColor='transparent'; this.style.backgroundColor='transparent';">
-                            <div class="d-flex justify-content-between align-items-center mb-2">
-                                <div>
-                                    <span class="badge me-2" style="width: 20px; height: 20px; background-color: ${colors.proprietary}; display: inline-block;"></span>
-                                    <strong>Proprietary</strong>
-                                    <i class="fas fa-info-circle ms-2 text-muted" style="font-size: 0.8em;" title="Proprietary licenses require special attention"></i>
-                                </div>
-                                <div>
-                                    <span class="h5 mb-0">${proprietary}</span>
-                                    <small class="text-muted"> (${proprietaryPercent}%)</small>
-                                </div>
-                            </div>
-                            <div class="progress" style="height: 8px;">
-                                <div class="progress-bar" role="progressbar" style="width: ${proprietaryPercent}%; background-color: ${colors.proprietary};"></div>
-                            </div>
-                        </div>
-                    </a>
-                    ` : ''}
-                    ${copyleft > 0 ? `
-                    <a href="licenses.html?category=copyleft" class="text-decoration-none text-reset license-category-link" data-category="copyleft" style="transition: all 0.2s;">
-                        <div class="mb-3 p-2 rounded" style="border: 2px solid transparent;" onmouseover="this.style.borderColor='${colors.copyleft}'; this.style.backgroundColor='rgba(255, 193, 7, 0.1)';" onmouseout="this.style.borderColor='transparent'; this.style.backgroundColor='transparent';">
-                            <div class="d-flex justify-content-between align-items-center mb-2">
-                                <div>
-                                    <span class="badge me-2" style="width: 20px; height: 20px; background-color: ${colors.copyleft}; display: inline-block;"></span>
-                                    <strong>Copyleft</strong>
-                                    <i class="fas fa-info-circle ms-2 text-muted" style="font-size: 0.8em;" title="Copyleft licenses (GPL, AGPL, MPL, EPL) require derivative works to be open source"></i>
-                                </div>
-                                <div>
-                                    <span class="h5 mb-0">${copyleft}</span>
-                                    <small class="text-muted"> (${copyleftPercent}%)</small>
-                                </div>
-                            </div>
-                            <div class="progress" style="height: 8px;">
-                                <div class="progress-bar" role="progressbar" style="width: ${copyleftPercent}%; background-color: ${colors.copyleft};"></div>
-                            </div>
-                        </div>
-                    </a>
-                    ` : ''}
-                    ${lgpl > 0 ? `
-                    <a href="licenses.html?category=lgpl" class="text-decoration-none text-reset license-category-link" data-category="lgpl" style="transition: all 0.2s;">
-                        <div class="mb-3 p-2 rounded" style="border: 2px solid transparent;" onmouseover="this.style.borderColor='${colors.lgpl}'; this.style.backgroundColor='rgba(253, 126, 20, 0.1)';" onmouseout="this.style.borderColor='transparent'; this.style.backgroundColor='transparent';">
-                            <div class="d-flex justify-content-between align-items-center mb-2">
-                                <div>
-                                    <span class="badge me-2" style="width: 20px; height: 20px; background-color: ${colors.lgpl}; display: inline-block;"></span>
-                                    <strong>LGPL</strong>
-                                    <i class="fas fa-info-circle ms-2 text-muted" style="font-size: 0.8em;" title="Lesser GPL - allows linking with proprietary software"></i>
-                                </div>
-                                <div>
-                                    <span class="h5 mb-0">${lgpl}</span>
-                                    <small class="text-muted"> (${lgplPercent}%)</small>
-                                </div>
-                            </div>
-                            <div class="progress" style="height: 8px;">
-                                <div class="progress-bar" role="progressbar" style="width: ${lgplPercent}%; background-color: ${colors.lgpl};"></div>
-                            </div>
-                        </div>
-                    </a>
-                    ` : ''}
-                    ${unknown > 0 ? `
-                    <a href="licenses.html?category=unknown" class="text-decoration-none text-reset license-category-link" data-category="unknown" style="transition: all 0.2s;">
-                        <div class="mb-3 p-2 rounded" style="border: 2px solid transparent;" onmouseover="this.style.borderColor='${colors.unknown}'; this.style.backgroundColor='rgba(108, 117, 125, 0.1)';" onmouseout="this.style.borderColor='transparent'; this.style.backgroundColor='transparent';">
-                            <div class="d-flex justify-content-between align-items-center mb-2">
-                                <div>
-                                    <span class="badge me-2" style="width: 20px; height: 20px; background-color: ${colors.unknown}; display: inline-block;"></span>
-                                    <strong>Unknown</strong>
-                                    <i class="fas fa-info-circle ms-2 text-muted" style="font-size: 0.8em;" title="Unknown or unrecognized license types"></i>
-                                </div>
-                                <div>
-                                    <span class="h5 mb-0">${unknown}</span>
-                                    <small class="text-muted"> (${unknownPercent}%)</small>
-                                </div>
-                            </div>
-                            <div class="progress" style="height: 8px;">
-                                <div class="progress-bar" role="progressbar" style="width: ${unknownPercent}%; background-color: ${colors.unknown};"></div>
-                            </div>
-                        </div>
-                    </a>
-                    ` : ''}
-                    ${unlicensed > 0 ? `
-                    <a href="licenses.html?category=unlicensed" class="text-decoration-none text-reset license-category-link" data-category="unlicensed" style="transition: all 0.2s;">
-                        <div class="mb-3 p-2 rounded" style="border: 2px solid transparent;" onmouseover="this.style.borderColor='${colors.unlicensed}'; this.style.backgroundColor='rgba(23, 162, 184, 0.1)';" onmouseout="this.style.borderColor='transparent'; this.style.backgroundColor='transparent';">
-                            <div class="d-flex justify-content-between align-items-center mb-2">
-                                <div>
-                                    <span class="badge me-2" style="width: 20px; height: 20px; background-color: ${colors.unlicensed}; display: inline-block;"></span>
-                                    <strong>Unlicensed</strong>
-                                    <i class="fas fa-info-circle ms-2 text-muted" style="font-size: 0.8em;" title="Dependencies without any license information"></i>
-                                </div>
-                                <div>
-                                    <span class="h5 mb-0">${unlicensed}</span>
-                                    <small class="text-muted"> (${unlicensedPercent}%)</small>
-                                </div>
-                            </div>
-                            <div class="progress" style="height: 8px;">
-                                <div class="progress-bar" role="progressbar" style="width: ${unlicensedPercent}%; background-color: ${colors.unlicensed};"></div>
-                            </div>
-                        </div>
-                    </a>
-                    ` : ''}
+                    ${proprietary > 0 ? generateCategoryItem('proprietary', proprietary, proprietaryPercent, colors.proprietary, 'rgba(220, 53, 69, 0.1)', 'Proprietary licenses require special attention', 'Proprietary') : ''}
+                    ${copyleft > 0 ? generateCategoryItem('copyleft', copyleft, copyleftPercent, colors.copyleft, 'rgba(255, 193, 7, 0.1)', 'Copyleft licenses (GPL, AGPL, MPL, EPL) require derivative works to be open source', 'Copyleft') : ''}
+                    ${lgpl > 0 ? generateCategoryItem('lgpl', lgpl, lgplPercent, colors.lgpl, 'rgba(253, 126, 20, 0.1)', 'Lesser GPL - allows linking with proprietary software', 'LGPL') : ''}
+                    ${unknown > 0 ? generateCategoryItem('unknown', unknown, unknownPercent, colors.unknown, 'rgba(108, 117, 125, 0.1)', 'Unknown or unrecognized license types', 'Unknown') : ''}
+                    ${unlicensed > 0 ? generateCategoryItem('unlicensed', unlicensed, unlicensedPercent, colors.unlicensed, 'rgba(23, 162, 184, 0.1)', 'Dependencies without any license information', 'Unlicensed') : ''}
                 </div>
             </div>
         `;
+    }
+    
+    /**
+     * Setup hover effects for license category items (called after renderLicenseStatus)
+     */
+    setupLicenseCategoryHoversFromRender() {
+        // Use setTimeout to ensure DOM is ready
+        setTimeout(() => {
+            this.setupLicenseCategoryHovers();
+        }, 0);
     }
     
     /**
@@ -1678,9 +1758,9 @@ class SBOMPlayApp {
                         <div class="card-body p-2">
                             <p class="mb-1 small"><strong>Identification (25%)</strong></p>
                             <div class="progress" style="height: 25px;">
-                                <div class="progress-bar bg-${getScoreColor(qa.averageIdentification || 0)}" 
+                                <div class="progress-bar bg-${getScoreColor(qa.averageIdentification || 0)} progress-bar-dynamic" 
                                      role="progressbar" 
-                                     style="width: ${qa.averageIdentification || 0}%">${qa.averageIdentification || 0}/100</div>
+                                     style="--progress-width: ${qa.averageIdentification || 0}%">${qa.averageIdentification || 0}/100</div>
                             </div>
                             <small class="text-muted">Names, versions, PURLs</small>
                         </div>
@@ -1691,9 +1771,9 @@ class SBOMPlayApp {
                         <div class="card-body p-2">
                             <p class="mb-1 small"><strong>Provenance (20%)</strong></p>
                             <div class="progress" style="height: 25px;">
-                                <div class="progress-bar bg-${getScoreColor(qa.averageProvenance || 0)}" 
+                                <div class="progress-bar bg-${getScoreColor(qa.averageProvenance || 0)} progress-bar-dynamic" 
                                      role="progressbar" 
-                                     style="width: ${qa.averageProvenance || 0}%">${qa.averageProvenance || 0}/100</div>
+                                     style="--progress-width: ${qa.averageProvenance || 0}%">${qa.averageProvenance || 0}/100</div>
                             </div>
                             <small class="text-muted">Creator, timestamp, tool</small>
                         </div>
@@ -1704,9 +1784,9 @@ class SBOMPlayApp {
                         <div class="card-body p-2">
                             <p class="mb-1 small"><strong>Dependencies (10%)</strong></p>
                             <div class="progress" style="height: 25px;">
-                                <div class="progress-bar bg-${getScoreColor(qa.averageDependencies || 0)}" 
+                                <div class="progress-bar bg-${getScoreColor(qa.averageDependencies || 0)} progress-bar-dynamic" 
                                      role="progressbar" 
-                                     style="width: ${qa.averageDependencies || 0}%">${qa.averageDependencies || 0}/100</div>
+                                     style="--progress-width: ${qa.averageDependencies || 0}%">${qa.averageDependencies || 0}/100</div>
                             </div>
                             <small class="text-muted">Relationship mapping</small>
                         </div>
@@ -1717,9 +1797,9 @@ class SBOMPlayApp {
                         <div class="card-body p-2">
                             <p class="mb-1 small"><strong>Metadata (10%)</strong></p>
                             <div class="progress" style="height: 25px;">
-                                <div class="progress-bar bg-${getScoreColor(qa.averageMetadata || 0)}" 
+                                <div class="progress-bar bg-${getScoreColor(qa.averageMetadata || 0)} progress-bar-dynamic" 
                                      role="progressbar" 
-                                     style="width: ${qa.averageMetadata || 0}%">${qa.averageMetadata || 0}/100</div>
+                                     style="--progress-width: ${qa.averageMetadata || 0}%">${qa.averageMetadata || 0}/100</div>
                             </div>
                             <small class="text-muted">Copyright, download location</small>
                         </div>
@@ -1730,9 +1810,9 @@ class SBOMPlayApp {
                         <div class="card-body p-2">
                             <p class="mb-1 small"><strong>Licensing (10%)</strong></p>
                             <div class="progress" style="height: 25px;">
-                                <div class="progress-bar bg-${getScoreColor(qa.averageLicensing || 0)}" 
+                                <div class="progress-bar bg-${getScoreColor(qa.averageLicensing || 0)} progress-bar-dynamic" 
                                      role="progressbar" 
-                                     style="width: ${qa.averageLicensing || 0}%">${qa.averageLicensing || 0}/100</div>
+                                     style="--progress-width: ${qa.averageLicensing || 0}%">${qa.averageLicensing || 0}/100</div>
                             </div>
                             <small class="text-muted">License presence, validity</small>
                         </div>
@@ -1743,9 +1823,9 @@ class SBOMPlayApp {
                         <div class="card-body p-2">
                             <p class="mb-1 small"><strong>Vulnerability (15%)</strong></p>
                             <div class="progress" style="height: 25px;">
-                                <div class="progress-bar bg-${getScoreColor(qa.averageVulnerability || 0)}" 
+                                <div class="progress-bar bg-${getScoreColor(qa.averageVulnerability || 0)} progress-bar-dynamic" 
                                      role="progressbar" 
-                                     style="width: ${qa.averageVulnerability || 0}%">${qa.averageVulnerability || 0}/100</div>
+                                     style="--progress-width: ${qa.averageVulnerability || 0}%">${qa.averageVulnerability || 0}/100</div>
                             </div>
                             <small class="text-muted">PURL, CPE identifiers</small>
                         </div>
@@ -2169,14 +2249,14 @@ class SBOMPlayApp {
                 <div class="col-md-6">
                     <h6 class="mb-3">License Distribution</h6>
                     <div class="d-flex justify-content-center align-items-center">
-                        <div style="width: 200px; height: 200px; border-radius: 50%; background: conic-gradient(
+                        <div class="license-pie-chart license-pie-chart-small" style="background: conic-gradient(
                             #28a745 ${permissivePercent}%,
                             #ffc107 ${parseFloat(permissivePercent)}% ${parseFloat(permissivePercent) + parseFloat(copyleftPercent)}%,
                             #dc3545 ${parseFloat(permissivePercent) + parseFloat(copyleftPercent)}% ${parseFloat(permissivePercent) + parseFloat(copyleftPercent) + parseFloat(proprietaryPercent)}%,
                             #6c757d ${parseFloat(permissivePercent) + parseFloat(copyleftPercent) + parseFloat(proprietaryPercent)}% ${parseFloat(permissivePercent) + parseFloat(copyleftPercent) + parseFloat(proprietaryPercent) + parseFloat(unknownPercent)}%,
                             #17a2b8 ${parseFloat(permissivePercent) + parseFloat(copyleftPercent) + parseFloat(proprietaryPercent) + parseFloat(unknownPercent)}%
-                        ); position: relative;">
-                            <div style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 100px; height: 100px; background: var(--bg-color, #fff); border-radius: 50%; display: flex; align-items: center; justify-content: center;">
+                        );">
+                            <div class="license-pie-chart-center">
                                 <strong>${total}</strong>
                             </div>
                         </div>
@@ -2189,23 +2269,23 @@ class SBOMPlayApp {
                     <h6 class="mb-3">Legend</h6>
                     <div class="d-flex flex-column gap-2">
                         <div class="d-flex align-items-center gap-2">
-                            <div style="width: 20px; height: 20px; background: #28a745; border-radius: 4px;"></div>
+                            <div class="license-legend-box" style="--legend-color: #28a745;"></div>
                             <span>Permissive (${permissivePercent}%)</span>
                         </div>
                         <div class="d-flex align-items-center gap-2">
-                            <div style="width: 20px; height: 20px; background: #ffc107; border-radius: 4px;"></div>
+                            <div class="license-legend-box" style="--legend-color: #ffc107;"></div>
                             <span>Copyleft (${copyleftPercent}%)</span>
                         </div>
                         <div class="d-flex align-items-center gap-2">
-                            <div style="width: 20px; height: 20px; background: #dc3545; border-radius: 4px;"></div>
+                            <div class="license-legend-box" style="--legend-color: #dc3545;"></div>
                             <span>Proprietary (${proprietaryPercent}%)</span>
                         </div>
                         <div class="d-flex align-items-center gap-2">
-                            <div style="width: 20px; height: 20px; background: #6c757d; border-radius: 4px;"></div>
+                            <div class="license-legend-box" style="--legend-color: #6c757d;"></div>
                             <span>Unknown (${unknownPercent}%)</span>
                         </div>
                         <div class="d-flex align-items-center gap-2">
-                            <div style="width: 20px; height: 20px; background: #17a2b8; border-radius: 4px;"></div>
+                            <div class="license-legend-box" style="--legend-color: #17a2b8;"></div>
                             <span>Unlicensed (${unlicensedPercent}%)</span>
                         </div>
                     </div>
@@ -2270,6 +2350,36 @@ class SBOMPlayApp {
         `;
         
         licenseContent.innerHTML = pieChartHtml + licenseCardsHtml;
+        
+        // Attach event listeners for license category hover effects
+        this.setupLicenseCategoryHovers();
+    }
+    
+    /**
+     * Setup hover effects for license category items using event delegation
+     */
+    setupLicenseCategoryHovers() {
+        document.querySelectorAll('.license-category-link').forEach(link => {
+            const item = link.querySelector('.license-category-item');
+            if (!item) return;
+            
+            const color = link.getAttribute('data-category-color');
+            const hoverBg = link.getAttribute('data-category-hover-bg');
+            
+            link.addEventListener('mouseenter', () => {
+                if (item && color && hoverBg) {
+                    item.style.borderColor = color;
+                    item.style.backgroundColor = hoverBg;
+                }
+            });
+            
+            link.addEventListener('mouseleave', () => {
+                if (item) {
+                    item.style.borderColor = 'transparent';
+                    item.style.backgroundColor = 'transparent';
+                }
+            });
+        });
     }
     
     /**

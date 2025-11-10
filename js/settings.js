@@ -39,6 +39,113 @@ class SettingsApp {
                 }
             });
         }
+        
+        // Attach event listeners for buttons that previously used onclick handlers
+        this.attachButtonListeners();
+    }
+    
+    /**
+     * Attach event listeners to all buttons
+     */
+    attachButtonListeners() {
+        // Use event delegation for all buttons with data-action attributes
+        document.addEventListener('click', (e) => {
+            const button = e.target.closest('[data-action]');
+            if (!button) return;
+            
+            const action = button.getAttribute('data-action');
+            const cache = button.getAttribute('data-cache');
+            
+            switch (action) {
+                case 'showStorageStatus':
+                    this.showStorageStatus();
+                    break;
+                case 'testStorageQuota':
+                    this.testStorageQuota();
+                    break;
+                case 'migrateOldData':
+                    this.migrateOldData();
+                    break;
+                case 'clearOldData':
+                    this.clearOldData();
+                    break;
+                case 'clearAllData':
+                    this.clearAllData();
+                    break;
+                case 'exportAllData':
+                    this.exportAllData();
+                    break;
+                case 'exportCachedDatabases':
+                    this.exportCachedDatabases();
+                    break;
+                case 'exportAnalysisData':
+                    this.exportAnalysisData();
+                    break;
+                case 'importAllData':
+                    this.importAllData();
+                    break;
+                case 'importCachedDatabases':
+                    this.importCachedDatabases();
+                    break;
+                case 'importAnalysisData':
+                    this.importAnalysisData();
+                    break;
+                case 'exportAuthorsCache':
+                    this.exportAuthorsCache();
+                    break;
+                case 'exportPackagesCache':
+                    this.exportPackagesCache();
+                    break;
+                case 'exportVulnerabilitiesCache':
+                    this.exportVulnerabilitiesCache();
+                    break;
+                case 'importAuthorsCache':
+                    this.importAuthorsCache();
+                    break;
+                case 'importPackagesCache':
+                    this.importPackagesCache();
+                    break;
+                case 'importVulnerabilitiesCache':
+                    this.importVulnerabilitiesCache();
+                    break;
+                case 'clearCache':
+                    if (cache) {
+                        this.clearCache(cache);
+                    }
+                    break;
+                case 'clearAnalysisData':
+                    this.clearAnalysisData();
+                    break;
+            }
+        });
+        
+        // Token section toggle
+        const tokenHeader = document.getElementById('tokenSectionHeader');
+        if (tokenHeader) {
+            tokenHeader.addEventListener('click', () => this.toggleTokenSection());
+        }
+        
+        // Save token button
+        const saveTokenBtn = document.getElementById('saveTokenBtn');
+        if (saveTokenBtn) {
+            saveTokenBtn.addEventListener('click', () => this.saveToken());
+        }
+        
+        // File input for imports
+        const importFileInput = document.getElementById('importFileInput');
+        if (importFileInput) {
+            importFileInput.addEventListener('change', (e) => this.handleFileImport(e));
+        }
+        
+        // Theme select (already handled by theme-manager.js, but keeping for completeness)
+        const themeSelect = document.getElementById('themeSelect');
+        if (themeSelect) {
+            themeSelect.addEventListener('change', (e) => {
+                if (window.themeManager) {
+                    window.themeManager.applyTheme(e.target.value);
+                }
+            });
+        }
     }
 
     /**
@@ -155,8 +262,8 @@ class SettingsApp {
                 <div class="col-md-6">
                     <h6>Storage Usage</h6>
                     <div class="progress mb-2" style="height: 1.5rem;">
-                        <div class="progress-bar bg-${statusClass}" role="progressbar" 
-                             style="width: ${usagePercentage}%" 
+                        <div class="progress-bar bg-${statusClass} progress-bar-dynamic" role="progressbar" 
+                             style="--progress-width: ${usagePercentage}%" 
                              aria-valuenow="${usagePercentage}" aria-valuemin="0" aria-valuemax="100">
                             ${usagePercentage.toFixed(1)}%
                         </div>

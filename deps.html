@@ -28,7 +28,7 @@
                 <a class="nav-link" href="settings.html">
                     <i class="fas fa-cog"></i>
                 </a>
-                <button class="btn btn-outline-secondary btn-sm ms-2 theme-toggle" onclick="themeManager.toggleTheme()" title="Toggle theme">
+                <button class="btn btn-outline-secondary btn-sm ms-2 theme-toggle" title="Toggle theme">
                     <i class="fas fa-sun"></i>
                 </button>
             </div>
@@ -255,6 +255,7 @@
     <script src="js/storage-manager.js?v=0.0.2"></script>
     <script src="js/license-processor.js?v=0.0.2"></script>
     <script src="js/osv-service.js?v=0.0.2"></script>
+    <script src="js/deps-page.js?v=0.0.2"></script>
     <script type="module">
         const storageManager = new StorageManager();
         await storageManager.init();
@@ -470,7 +471,13 @@
         document.getElementById('repoFilter').addEventListener('change', () => filterTable());
         document.getElementById('vulnerableFilter').addEventListener('change', () => filterTable());
         document.getElementById('sponsorshipFilter').addEventListener('change', () => filterTable());
-        document.getElementById('exportBtn').addEventListener('click', exportCSV);
+        document.getElementById('exportBtn').addEventListener('click', () => {
+            if (typeof window.exportDepsCSV === 'function') {
+                window.exportDepsCSV(allDependencies, searchFromURL, searchPackageName, searchPackageVersion);
+            } else {
+                exportCSV(); // Fallback to local function
+            }
+        });
         document.getElementById('loadMoreBtn').addEventListener('click', loadMoreEntries);
         
         // Sort handlers
@@ -1783,7 +1790,7 @@
                                         data-bs-toggle="collapse" data-bs-target="#chainCollapse${index}" 
                                         aria-expanded="${index === 0 ? 'true' : 'false'}" aria-controls="chainCollapse${index}">
                                     <i class="fas fa-code-branch me-2 text-primary"></i>
-                                    <a href="${createRepoLink(repoName)}" class="text-decoration-none text-dark" onclick="event.stopPropagation();">
+                                    <a href="${createRepoLink(repoName)}" class="text-decoration-none text-dark" data-stop-propagation>
                                         <strong>${escapeHtml(repoName)}</strong>
                                     </a>
                                     <span class="badge bg-primary text-white ms-2">${repoParents.length} ${repoParents.length === 1 ? 'path' : 'paths'}</span>
@@ -2051,7 +2058,7 @@
                                         data-bs-toggle="collapse" data-bs-target="#collapse${index}" 
                                         aria-expanded="${index === 0 ? 'true' : 'false'}" aria-controls="collapse${index}">
                                     <i class="fas fa-code-branch me-2 text-primary"></i>
-                                    <a href="${createRepoLink(repoName)}" class="text-decoration-none text-dark" onclick="event.stopPropagation();">
+                                    <a href="${createRepoLink(repoName)}" class="text-decoration-none text-dark" data-stop-propagation>
                                         <strong>${escapeHtml(repoName)}</strong>
                                     </a>
                                     <span class="badge bg-primary text-white ms-2">${repoParents.length} ${repoParents.length === 1 ? 'parent' : 'parents'}</span>

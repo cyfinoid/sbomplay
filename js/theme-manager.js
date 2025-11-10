@@ -47,3 +47,19 @@ class ThemeManager {
 // Global instance
 window.themeManager = new ThemeManager();
 
+// Attach event listeners to all theme toggle buttons after DOM is ready
+document.addEventListener('DOMContentLoaded', function() {
+    document.querySelectorAll('.theme-toggle').forEach(button => {
+        button.addEventListener('click', function() {
+            window.themeManager.toggleTheme();
+        });
+    });
+    
+    // Handle theme select dropdowns
+    document.querySelectorAll('#themeSelect').forEach(select => {
+        select.addEventListener('change', function() {
+            window.themeManager.applyTheme(this.value);
+        });
+    });
+});
+
