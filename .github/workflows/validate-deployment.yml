@@ -34,6 +34,8 @@ jobs:
             "settings.html"
             "authors.html"
             "quality.html"
+            "repos.html"
+            "about.html"
           )
           
           MISSING=0
@@ -80,19 +82,26 @@ jobs:
             "js/author-service.js"
             "js/cache-manager.js"
             "js/dependency-tree-resolver.js"
+            "js/deps-page.js"
             "js/ecosystem-utils.js"
             "js/github-client.js"
+            "js/index-page.js"
             "js/indexeddb-manager.js"
             "js/license-processor.js"
             "js/osv-service.js"
+            "js/quality-page.js"
             "js/registry-utils.js"
+            "js/request-queue-manager.js"
             "js/sbom-processor.js"
             "js/sbom-quality-processor.js"
             "js/settings.js"
             "js/storage-manager.js"
             "js/theme-manager.js"
+            "js/utils.js"
+            "js/version-drift-analyzer.js"
             "js/version-utils.js"
             "js/view-manager.js"
+            "js/vuln-page.js"
           )
           
           MISSING=0

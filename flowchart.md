@@ -80,7 +80,7 @@ flowchart TD
 
 ## Single Repository Analysis Flow
 
-When a user analyzes a single repository, the application fetches and processes its SBOM data.
+When a user analyzes a single repository, the application fetches and processes its SBOM data with phase-based progress tracking.
 
 ```mermaid
 flowchart TD
@@ -92,108 +92,151 @@ flowchart TD
     D --> G[Set isAnalyzing = true]
     E --> G
     G --> H[Reset SBOMProcessor]
-    H --> I[Update UI: Show progress]
-    I --> J[Get rate limit info]
-    J --> K[Fetch repository metadata]
-    K --> L{Repository found?}
-    L -->|No| M[Show error alert]
-    L -->|Yes| N[Fetch SBOM data]
-    N --> O{SBOM available?}
-    O -->|No| P[Show warning: Dependency Graph not enabled]
-    O -->|Yes| Q[Process SBOM data]
-    Q --> R[Extract packages]
-    R --> S[Categorize dependencies]
-    S --> T[Extract relationships]
-    T --> U[Resolve dependency trees]
-    U --> V[Run license analysis]
-    V --> W[Save initial results]
-    W --> X[Run vulnerability analysis]
-    X --> Y[Run author analysis]
-    Y --> Z[Save final results]
-    Z --> AA[Display single repo results]
-    AA --> AB[Show stats dashboard]
-    AB --> AC[Analysis complete]
+    H --> I[Reset progress tracker]
+    I --> J[Update UI: Show progress]
+    J --> K[Phase: initialization 2%]
+    K --> L[Get rate limit info]
+    L --> M[Phase: fetching-repo 5%]
+    M --> N[Fetch repository metadata]
+    N --> O{Repository found?}
+    O -->|No| P[Show error alert]
+    O -->|Yes| Q[Phase: fetching-sbom 10%]
+    Q --> R[Fetch SBOM data]
+    R --> S{SBOM available?}
+    S -->|No| T[Show warning: Dependency Graph not enabled]
+    S -->|Yes| U[Phase: processing-sbom 8%]
+    U --> V[Process SBOM data]
+    V --> W[Extract packages]
+    W --> X[Categorize dependencies]
+    X --> Y[Extract relationships]
+    Y --> Z[Phase: resolving-trees 50%]
+    Z --> AA[Resolve dependency trees]
+    AA --> AB[Update progress with ecosystem/package details]
+    AB --> AC[Phase: generating-results 5%]
+    AC --> AD[Generate analysis results]
+    AD --> AE[Phase: license-analysis 5%]
+    AE --> AF[Run license compliance analysis]
+    AF --> AG[Phase: saving-initial 2%]
+    AG --> AH[Save initial results]
+    AH --> AI[Phase: vulnerability-analysis 8%]
+    AI --> AJ[Run vulnerability analysis]
+    AJ --> AK[Phase: author-analysis 4%]
+    AK --> AL[Run author analysis]
+    AL --> AM[Phase: saving-final 1%]
+    AM --> AN[Save final results]
+    AN --> AO[Display single repo results]
+    AO --> AP[Show stats dashboard]
+    AP --> AQ[Analysis complete]
     
-    M --> AD[Finish analysis]
-    P --> AD
-    AC --> AD
+    P --> AR[Finish analysis]
+    T --> AR
+    AQ --> AR
     
     style A fill:#e1f5ff
-    style AC fill:#c8e6c9
-    style M fill:#ffcdd2
-    style P fill:#fff9c4
+    style AQ fill:#c8e6c9
+    style P fill:#ffcdd2
+    style T fill:#fff9c4
+    style Z fill:#e1bee7
+    style AB fill:#fff9c4
 ```
 
 **Key Steps:**
 1. Parse user input (supports URLs, owner/repo format, or username)
-2. Fetch repository metadata from GitHub API
-3. Fetch SBOM data using Dependency Graph API
-4. Process and categorize dependencies
-5. Resolve full dependency trees with registry APIs
-6. Run license compliance analysis
-7. Save initial results to storage
-8. Run vulnerability analysis with incremental saving
-9. Run author analysis
-10. Save final results and display using `displaySingleRepoResults`
+2. Initialize progress tracker with phase weights
+3. **Phase: initialization (2%)** - Set up analysis environment
+4. **Phase: fetching-repo (5%)** - Fetch repository metadata from GitHub API
+5. **Phase: fetching-sbom (10%)** - Fetch SBOM data using Dependency Graph API
+6. **Phase: processing-sbom (8%)** - Process and categorize dependencies
+7. **Phase: resolving-trees (50%)** - Resolve full dependency trees with registry APIs
+   - Progress updates show ecosystem and package counts (e.g., "Resolving github actions dependencies (3/4 packages)...")
+8. **Phase: generating-results (5%)** - Generate analysis results
+9. **Phase: license-analysis (5%)** - Run license compliance analysis
+10. **Phase: saving-initial (2%)** - Save initial results to storage
+11. **Phase: vulnerability-analysis (8%)** - Run vulnerability analysis with incremental saving
+12. **Phase: author-analysis (4%)** - Run author analysis
+13. **Phase: saving-final (1%)** - Save final results and display using `displaySingleRepoResults`
+
+**Progress Tracking Features:**
+- Phase-based progress calculation using weighted phases
+- Enhanced status messages with detailed information (ecosystem, package counts)
+- Progress bar reflects actual work progress based on analysis phases
+- Elapsed time tracking (estimated remaining time removed as not useful for variable-duration operations)
 
 ---
 
 ## Organization/User Analysis Flow
 
-When analyzing an organization or user, the application processes multiple repositories with incremental saving.
+When analyzing an organization or user, the application processes multiple repositories with incremental saving and phase-based progress tracking.
 
 ```mermaid
 flowchart TD
     A[User enters org/user name] --> B[Parse input]
     B --> C[Set isAnalyzing = true]
     C --> D[Reset SBOMProcessor]
-    D --> E[Update UI: Show progress]
-    E --> F[Get rate limit info]
-    F --> G[Fetch repositories list]
-    G --> H{Repositories found?}
-    H -->|No| I[Show info: No public repos]
-    H -->|Yes| J[Set total repositories count]
-    J --> K[Loop: For each repository]
-    K --> L[Update progress]
-    L --> M[Fetch SBOM data]
-    M --> N{SBOM available?}
-    N -->|No| O[Mark as failed]
-    N -->|Yes| P[Process SBOM data]
-    P --> Q[Update processor progress]
-    Q --> R{Every 10 repos?}
-    R -->|Yes| S[Export partial data]
-    R -->|No| T[Continue]
-    S --> U[Save incremental data]
-    U --> V[Clear memory after save]
-    V --> T
-    T --> W{More repos?}
-    W -->|Yes| K
-    W -->|No| X[Resolve dependency trees]
-    X --> Y[Generate results]
-    Y --> Z[Run license compliance analysis]
-    Z --> AA[Save initial results]
-    AA --> AB[Run vulnerability analysis with incremental saving]
-    AB --> AC[Run author analysis]
-    AC --> AD[Reload data with author info]
-    AD --> AE[Save final results]
-    AE --> AF[Display results]
-    AF --> AG[Show stats dashboard]
-    AG --> AH[Analysis complete]
+    D --> E[Reset progress tracker]
+    E --> F[Update UI: Show progress]
+    F --> G[Phase: initialization 2%]
+    G --> H[Get rate limit info]
+    H --> I[Phase: fetching-repo 5%]
+    I --> J[Fetch repositories list]
+    J --> K{Repositories found?}
+    K -->|No| L[Show info: No public repos]
+    K -->|Yes| M[Set total repositories count]
+    M --> N[Phase: fetching-sbom 10%]
+    N --> O[Loop: For each repository]
+    O --> P[Update progress with repo count]
+    P --> Q[Fetch SBOM data]
+    Q --> R{SBOM available?}
+    R -->|No| S[Mark as failed]
+    R -->|Yes| T[Process SBOM data]
+    T --> U[Update processor progress]
+    U --> V{Every 10 repos?}
+    V -->|Yes| W[Export partial data]
+    V -->|No| X[Continue]
+    W --> Y[Save incremental data]
+    Y --> Z[Clear memory after save]
+    Z --> X
+    X --> AA{More repos?}
+    AA -->|Yes| O
+    AA -->|No| AB[Phase: processing-sbom 8%]
+    AB --> AC[Process all SBOM data]
+    AC --> AD[Phase: resolving-trees 50%]
+    AD --> AE[Resolve dependency trees]
+    AE --> AF[Update progress with ecosystem/package details]
+    AF --> AG[Phase: generating-results 5%]
+    AG --> AH[Generate results]
+    AH --> AI[Phase: license-analysis 5%]
+    AI --> AJ[Run license compliance analysis]
+    AJ --> AK[Phase: saving-initial 2%]
+    AK --> AL[Save initial results]
+    AL --> AM[Phase: vulnerability-analysis 8%]
+    AM --> AN[Run vulnerability analysis with incremental saving]
+    AN --> AO[Phase: author-analysis 4%]
+    AO --> AP[Run author analysis]
+    AP --> AQ[Reload data with author info]
+    AQ --> AR[Phase: saving-final 1%]
+    AR --> AS[Save final results]
+    AS --> AT[Display results]
+    AT --> AU[Show stats dashboard]
+    AU --> AV[Analysis complete]
     
-    I --> AI[Finish analysis]
-    O --> W
-    AH --> AI
+    L --> AW[Finish analysis]
+    S --> AA
+    AV --> AW
     
     style A fill:#e1f5ff
-    style AH fill:#c8e6c9
-    style I fill:#fff9c4
-    style S fill:#e1bee7
+    style AV fill:#c8e6c9
+    style L fill:#fff9c4
+    style W fill:#e1bee7
+    style AD fill:#e1bee7
+    style AF fill:#fff9c4
 ```
 
 **Key Features:**
+- **Phase-Based Progress Tracking**: Progress calculated using weighted phases for accurate representation
 - **Incremental Saving**: Data is saved every 10 repositories to prevent data loss
 - **Memory Management**: Memory is cleared after incremental saves to prevent DOM issues
-- **Progress Tracking**: Real-time progress updates for each repository
+- **Enhanced Progress Updates**: Real-time progress updates with detailed status messages showing repository counts and ecosystem information
 - **Error Handling**: Failed repositories are tracked but don't stop the analysis
 
 ---
@@ -694,11 +737,13 @@ flowchart LR
 ## Key Design Patterns
 
 1. **Incremental Processing**: Large analyses are broken into chunks with incremental saves
-2. **Caching Strategy**: Multi-layer caching (unified cache, IndexedDB, in-memory)
-3. **Error Resilience**: Failed operations don't stop entire analysis
-4. **State Persistence**: Rate limit and analysis state saved for recovery
-5. **Modular Architecture**: Separate processors for different analysis types
-6. **Client-Side Only**: All processing happens in the browser for privacy
+2. **Phase-Based Progress Tracking**: Progress calculated using weighted phases (initialization 2%, fetching-repo 5%, fetching-sbom 10%, processing-sbom 8%, resolving-trees 50%, generating-results 5%, license-analysis 5%, saving-initial 2%, vulnerability-analysis 8%, author-analysis 4%, saving-final 1%)
+3. **Enhanced Status Messages**: Detailed progress messages showing ecosystem, package counts, and current operation (e.g., "Resolving github actions dependencies (3/4 packages)...")
+4. **Caching Strategy**: Multi-layer caching (unified cache, IndexedDB, in-memory)
+5. **Error Resilience**: Failed operations don't stop entire analysis
+6. **State Persistence**: Rate limit and analysis state saved for recovery
+7. **Modular Architecture**: Separate processors for different analysis types
+8. **Client-Side Only**: All processing happens in the browser for privacy
 
 ---
 
@@ -709,4 +754,9 @@ flowchart LR
 - Cache is checked before making external API calls
 - Storage operations are asynchronous and non-blocking
 - UI updates happen progressively as data becomes available
+- Progress tracking uses phase weights to accurately reflect actual work progress
+- Status messages provide detailed information about current operation (ecosystem, package counts)
+- Elapsed time is tracked and displayed, but estimated remaining time is not shown (not useful for variable-duration operations)
+- Progress bar animations use cubic-bezier transitions and shimmer effects for better visual feedback
 
+> Note: This is generated with the help of Cursor + Composer 1. This note will be removed once full manual inspection is done or product has reached a mature state and flows are finalized.
