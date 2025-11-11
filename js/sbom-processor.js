@@ -185,8 +185,12 @@ class SBOMProcessor {
             }
             
             // Skip the main repository package (it's not a dependency)
+            // GitHub SBOM includes the repository itself as a package (e.g., "com.github.owner/repo")
+            // This is filtered out because it's not an external dependency
+            // This explains why GitHub SBOM may show N packages but we display N-1 dependencies
             if (pkg.name === `com.github.${owner}/${repo}` || pkg.name === `${owner}/${repo}`) {
-                console.log(`  ⏭️  Skipping main repository package: ${pkg.name}`);
+                console.log(`  ⏭️  Skipping main repository package: ${pkg.name} (not an external dependency)`);
+                skippedPackages++;
                 return;
             }
             

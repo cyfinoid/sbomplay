@@ -10,7 +10,7 @@ class QualityApp {
         this.filteredRepositories = [];
         this.currentSort = { column: 'repository', direction: 'asc' };
         this.qualityModal = null;
-        this.storageManager = new StorageManager();
+        this.storageManager = window.storageManager || new StorageManager();
     }
 
     async init() {
@@ -26,8 +26,15 @@ class QualityApp {
             const repoParam = urlParams.get('repo');
             
             // Load data
+            console.log('📋 Quality page - Loading combined data...');
             const data = await this.storageManager.getCombinedData();
+            console.log('📋 Quality page - Data loaded:', data ? 'yes' : 'no');
+            if (data && data.data) {
+                console.log(`📋 Quality page - Repositories: ${data.data.allRepositories?.length || 0}`);
+            }
+            
             if (!data || !data.data || !data.data.allRepositories) {
+                console.warn('⚠️ Quality page - No repository data found');
                 this.showError('No repository data found. Please run an analysis first.');
                 return;
             }

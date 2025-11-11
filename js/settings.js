@@ -4,7 +4,7 @@
 class SettingsApp {
     constructor() {
         this.githubClient = new GitHubClient();
-        this.storageManager = new StorageManager();
+        this.storageManager = window.storageManager || new StorageManager();
         this.initializeSettings();
     }
 

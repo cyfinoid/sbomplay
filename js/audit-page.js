@@ -12,144 +12,90 @@ document.addEventListener('DOMContentLoaded', async function() {
     }
     
     // Use the global storageManager instance from storage-manager.js
-    const storageManager = new StorageManager();
+    const storageManager = window.storageManager;
+    if (!storageManager) {
+        console.error('StorageManager is not available. Please ensure storage-manager.js is loaded.');
+        return;
+    }
     await storageManager.init();
-    
-    // Make storageManager available globally
-    window.storageManager = storageManager;
     
     // Initialize cache manager if available
     if (typeof CacheManager !== 'undefined' && !window.cacheManager) {
         window.cacheManager = new CacheManager();
     }
     
-    // Load analysis list into selector
-    await loadAnalysesList();
-    
     // Check for filters in URL and pre-select
-    const urlParams = new URLSearchParams(window.location.search);
-    const severityParam = urlParams.get('severity');
-    const sectionParam = urlParams.get('section');
-    if (severityParam) {
+    const urlParamsObj = getUrlParams(['severity', 'section']);
+    if (urlParamsObj.severity) {
         const severityFilter = document.getElementById('severityFilter');
         if (severityFilter) {
-            severityFilter.value = severityParam.toLowerCase();
+            severityFilter.value = urlParamsObj.severity;
         }
     }
-    if (sectionParam) {
+    if (urlParamsObj.section) {
         const sectionFilter = document.getElementById('sectionFilter');
         if (sectionFilter) {
-            sectionFilter.value = sectionParam.toLowerCase();
+            sectionFilter.value = urlParamsObj.section;
         }
     }
     
-    // Load entry data for audit analysis
-    window.loadOrganizationData = async function(name, severityFilter = null, sectionFilter = null) {
-        let data;
+    // Load analysis list into selector
+    await loadAnalysesList('analysisSelector', storageManager, true, document.getElementById('noDataSection'));
+    
+    async function loadAuditData() {
+        const analysisSelector = document.getElementById('analysisSelector');
+        const severityFilterEl = document.getElementById('severityFilter');
+        const sectionFilterEl = document.getElementById('sectionFilter');
         
-        // If name is '__ALL__' or null/undefined, load combined data
-        if (!name || name === '__ALL__') {
-            data = await storageManager.getCombinedData();
-            if (!data) {
-                data = {
-                    name: 'All Projects (Combined)',
-                    organization: 'All Projects (Combined)',
-                    data: {}
-                };
+        if (!analysisSelector || !analysisSelector.value) {
+            const container = document.getElementById('audit-analysis-page');
+            if (container) {
+                container.innerHTML = '<div class="alert alert-info">Please select an analysis to view audit findings.</div>';
             }
-        } else {
-            data = await storageManager.loadAnalysisDataForOrganization(name);
-        }
-        
-        const container = document.getElementById('audit-analysis-page');
-        const noDataSection = document.getElementById('noDataSection');
-        
-        if (!data || !data.data) {
-            container.innerHTML = '<div class="alert alert-warning">No data found for this entry.</div>';
-            noDataSection.classList.remove('d-none');
             return;
         }
         
-        // Use filters from parameters or URL or form
-        if (!severityFilter) {
-            const severityEl = document.getElementById('severityFilter');
-            severityFilter = severityEl ? severityEl.value : urlParams.get('severity')?.toLowerCase() || 'all';
-        }
-        if (!sectionFilter) {
-            const sectionEl = document.getElementById('sectionFilter');
-            sectionFilter = sectionEl ? sectionEl.value : urlParams.get('section')?.toLowerCase() || 'all';
-        }
+        // Use filters from form or URL
+        const severityFilter = severityFilterEl ? severityFilterEl.value : (urlParamsObj.severity || 'all');
+        const sectionFilter = sectionFilterEl ? sectionFilterEl.value : (urlParamsObj.section || 'all');
         
-        // Render audit findings with all sections
-        const html = await generateAllAuditSectionsHTML(data, severityFilter, sectionFilter);
-        safeSetHTML(container, html);
-        
-        // Hide no data section if we have data
-        noDataSection.classList.add('d-none');
-    };
+        await loadOrganizationData(analysisSelector.value, storageManager, {
+            severityFilter: severityFilter === 'all' ? null : severityFilter,
+            sectionFilter: sectionFilter === 'all' ? null : sectionFilter,
+            containerId: 'audit-analysis-page',
+            noDataSection: document.getElementById('noDataSection'),
+            renderFunction: async (data, severityFilter, sectionFilter, repoFilter, categoryFilter) => {
+                const container = document.getElementById('audit-analysis-page');
+                // Render audit findings with all sections
+                const html = await generateAllAuditSectionsHTML(data, severityFilter || 'all', sectionFilter || 'all');
+                safeSetHTML(container, html);
+            }
+        });
+    }
     
     // Load initial data (default to all projects combined)
     const analysisSelector = document.getElementById('analysisSelector');
     if (analysisSelector && analysisSelector.value) {
-        await loadOrganizationData(analysisSelector.value);
+        await loadAuditData();
     }
     
     // Handle analysis selector change
-    analysisSelector.addEventListener('change', async function() {
-        await loadOrganizationData(this.value);
-    });
+    if (analysisSelector) {
+        analysisSelector.addEventListener('change', loadAuditData);
+    }
     
     // Handle severity filter change
     const severityFilter = document.getElementById('severityFilter');
     if (severityFilter) {
-        severityFilter.addEventListener('change', async function() {
-            const analysisSelector = document.getElementById('analysisSelector');
-            const sectionFilter = document.getElementById('sectionFilter');
-            if (analysisSelector && analysisSelector.value) {
-                await loadOrganizationData(analysisSelector.value, this.value, sectionFilter?.value || 'all');
-            }
-        });
+        severityFilter.addEventListener('change', loadAuditData);
     }
     
     // Handle section filter change
     const sectionFilter = document.getElementById('sectionFilter');
     if (sectionFilter) {
-        sectionFilter.addEventListener('change', async function() {
-            const analysisSelector = document.getElementById('analysisSelector');
-            const severityFilter = document.getElementById('severityFilter');
-            if (analysisSelector && analysisSelector.value) {
-                await loadOrganizationData(analysisSelector.value, severityFilter?.value || 'all', this.value);
-            }
-        });
+        sectionFilter.addEventListener('change', loadAuditData);
     }
     
-    // Load analyses list
-    async function loadAnalysesList() {
-        const analysisSelector = document.getElementById('analysisSelector');
-        if (!analysisSelector) return;
-        
-        try {
-            const storageInfo = await storageManager.getStorageInfo();
-            const allEntries = [...storageInfo.organizations, ...storageInfo.repositories];
-            
-            analysisSelector.innerHTML = '<option value="__ALL__">All Projects (Combined)</option>';
-            
-            if (allEntries.length === 0) {
-                // No data available
-                return;
-            }
-            
-            // Add individual entries
-            allEntries.forEach(entry => {
-                const option = document.createElement('option');
-                option.value = entry.name;
-                option.textContent = `${entry.name} (${entry.dependencies || 0} deps)`;
-                analysisSelector.appendChild(option);
-            });
-        } catch (error) {
-            console.error('Error loading analyses list:', error);
-        }
-    }
     
     /**
      * Generate all audit sections HTML
@@ -195,10 +141,8 @@ document.addEventListener('DOMContentLoaded', async function() {
      * Generate GitHub Actions audit findings HTML
      */
     function generateGitHubActionsAuditHTML(orgData, severityFilter = 'all') {
-        // Try multiple possible data structure paths
-        const githubActionsAnalysis = orgData?.data?.githubActionsAnalysis || 
-                                     orgData?.githubActionsAnalysis ||
-                                     (orgData?.data && orgData.data.githubActionsAnalysis);
+        // Standardized access pattern: githubActionsAnalysis is always at orgData.data.githubActionsAnalysis
+        const githubActionsAnalysis = orgData?.data?.githubActionsAnalysis;
         
         if (!githubActionsAnalysis || !githubActionsAnalysis.findings || githubActionsAnalysis.findings.length === 0) {
             return '';
@@ -248,34 +192,34 @@ document.addEventListener('DOMContentLoaded', async function() {
         // Statistics cards
         html += '<div class="row mb-3">';
         html += `<div class="col-md-3">
-            <div class="card text-center bg-light">
+            <div class="card text-center bg-primary bg-opacity-10">
                 <div class="card-body">
-                    <h3 class="text-primary">${stats.total}</h3>
-                    <p class="text-muted mb-0">Total Findings</p>
+                    <h3>${stats.total}</h3>
+                    <p class="stats-card-label mb-0">Total Findings</p>
                 </div>
             </div>
         </div>`;
         html += `<div class="col-md-3">
-            <div class="card text-center bg-light">
+            <div class="card text-center bg-danger bg-opacity-10">
                 <div class="card-body">
-                    <h3 class="text-danger">${stats.high}</h3>
-                    <p class="text-muted mb-0">High Severity</p>
+                    <h3>${stats.high}</h3>
+                    <p class="stats-card-label mb-0">High Severity</p>
                 </div>
             </div>
         </div>`;
         html += `<div class="col-md-3">
-            <div class="card text-center bg-light">
+            <div class="card text-center bg-warning bg-opacity-10">
                 <div class="card-body">
-                    <h3 class="text-warning">${stats.medium}</h3>
-                    <p class="text-muted mb-0">Medium Severity</p>
+                    <h3>${stats.medium}</h3>
+                    <p class="stats-card-label mb-0">Medium Severity</p>
                 </div>
             </div>
         </div>`;
         html += `<div class="col-md-3">
-            <div class="card text-center bg-light">
+            <div class="card text-center bg-info bg-opacity-10">
                 <div class="card-body">
-                    <h3 class="text-info">${stats.warning}</h3>
-                    <p class="text-muted mb-0">Warnings</p>
+                    <h3>${stats.warning}</h3>
+                    <p class="stats-card-label mb-0">Warnings</p>
                 </div>
             </div>
         </div>`;
@@ -395,24 +339,24 @@ document.addEventListener('DOMContentLoaded', async function() {
         html += `<div class="col-md-4">
             <div class="card text-center bg-danger bg-opacity-10">
                 <div class="card-body">
-                    <h3 class="text-danger">${deprecatedPackages.length}</h3>
-                    <p class="text-muted mb-0">Deprecated Packages</p>
+                    <h3>${deprecatedPackages.length}</h3>
+                    <p class="stats-card-label mb-0">Deprecated Packages</p>
                 </div>
             </div>
         </div>`;
         html += `<div class="col-md-4">
             <div class="card text-center bg-light">
                 <div class="card-body">
-                    <h3 class="text-primary">${new Set(deprecatedPackages.map(p => p.ecosystem)).size}</h3>
-                    <p class="text-muted mb-0">Ecosystems Affected</p>
+                    <h3>${new Set(deprecatedPackages.map(p => p.ecosystem)).size}</h3>
+                    <p class="stats-card-label mb-0">Ecosystems Affected</p>
                 </div>
             </div>
         </div>`;
         html += `<div class="col-md-4">
             <div class="card text-center bg-light">
                 <div class="card-body">
-                    <h3 class="text-primary">${new Set(deprecatedPackages.flatMap(p => p.repositories)).size}</h3>
-                    <p class="text-muted mb-0">Repositories Affected</p>
+                    <h3>${new Set(deprecatedPackages.flatMap(p => p.repositories)).size}</h3>
+                    <p class="stats-card-label mb-0">Repositories Affected</p>
                 </div>
             </div>
         </div>`;
@@ -506,17 +450,5 @@ document.addEventListener('DOMContentLoaded', async function() {
         } else {
             element.innerHTML = html;
         }
-    }
-    
-    /**
-     * Escape HTML (using utils if available)
-     */
-    function escapeHtml(text) {
-        if (typeof window.escapeHtml === 'function') {
-            return window.escapeHtml(text);
-        }
-        const div = document.createElement('div');
-        div.textContent = text;
-        return div.innerHTML;
     }
 });

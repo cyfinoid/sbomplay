@@ -6,9 +6,9 @@
     <title>SBOM Play - License Compliance</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
-    <link href="css/style.css?v=0.0.4" rel="stylesheet">
-    <link href="css/themes.css?v=0.0.4" rel="stylesheet">
-    <script src="js/theme-manager.js?v=0.0.4"></script>
+    <link href="css/style.css?v=0.0.9" rel="stylesheet">
+    <link href="css/themes.css?v=0.0.9" rel="stylesheet">
+    <script src="js/theme-manager.js?v=0.0.9"></script>
 </head>
 <body>
     <!-- Navigation -->
@@ -172,19 +172,20 @@
             </div>
         </div>
     </footer>
-    <script src="js/indexeddb-manager.js?v=0.0.4"></script>
-    <script src="js/utils.js?v=0.0.4"></script>
-    <script src="js/registry-utils.js?v=0.0.4"></script>
-    <script src="js/version-utils.js?v=0.0.4"></script>
-    <script src="js/ecosystem-utils.js?v=0.0.4"></script>
-    <script src="js/cache-manager.js?v=0.0.4"></script>
-    <script src="js/view-manager.js?v=0.0.4"></script>
-    <script src="js/license-processor.js?v=0.0.4"></script>
-    <script src="js/osv-service.js?v=0.0.4"></script>
-    <script src="js/sbom-processor.js?v=0.0.4"></script>
-    <script src="js/storage-manager.js?v=0.0.4"></script>
-    <script src="js/github-client.js?v=0.0.4"></script>
-    <script src="js/app.js?v=0.0.4"></script>
+    <script src="js/indexeddb-manager.js?v=0.0.9"></script>
+    <script src="js/utils.js?v=0.0.9"></script>
+    <script src="js/registry-utils.js?v=0.0.9"></script>
+    <script src="js/version-utils.js?v=0.0.9"></script>
+    <script src="js/ecosystem-utils.js?v=0.0.9"></script>
+    <script src="js/cache-manager.js?v=0.0.9"></script>
+    <script src="js/view-manager.js?v=0.0.9"></script>
+    <script src="js/license-processor.js?v=0.0.9"></script>
+    <script src="js/osv-service.js?v=0.0.9"></script>
+    <script src="js/sbom-processor.js?v=0.0.9"></script>
+    <script src="js/storage-manager.js?v=0.0.9"></script>
+    <script src="js/github-client.js?v=0.0.9"></script>
+    <script src="js/app.js?v=0.0.9"></script>
+    <script src="js/page-common.js?v=0.0.9"></script>
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
     <script type="module">
     document.addEventListener('DOMContentLoaded', async function() {
@@ -197,7 +198,7 @@
         window.storageManager = storageManager;
         
         // Load analysis list into selector
-        await loadAnalysesList();
+        await loadAnalysesList('analysisSelector', storageManager, true, document.getElementById('noDataSection'));
         
         // Check for category and repo filters in URL and pre-select
         const urlParams = new URLSearchParams(window.location.search);
@@ -210,102 +211,80 @@
             }
         }
         
-        // Load entry data for license compliance (define before use)
-        window.loadOrganizationData = async function(name, categoryFilter = null) {
-            let data;
-            
-            // If name is '__ALL__' or null/undefined, load combined data
-            if (!name || name === '__ALL__') {
-                data = await storageManager.getCombinedData();
-                if (!data) {
-                    data = {
-                        name: 'All Projects (Combined)',
-                        organization: 'All Projects (Combined)',
-                        data: {}
-                    };
-                }
-            } else {
-                data = await storageManager.loadAnalysisDataForOrganization(name);
-            }
-            
-            const container = document.getElementById('license-compliance-page');
-            
-            if (!data || !data.data) {
-                container.innerHTML = '<div class="alert alert-warning">No data found for this entry.</div>';
-                return;
-            }
-            
-            // Filter by repository if repo parameter is present
-            if (repoParam && data.data.allDependencies) {
-                // Filter dependencies to only those used in the specified repository
-                const filteredDeps = data.data.allDependencies.filter(dep => {
-                    return dep.repositories && dep.repositories.includes(repoParam);
-                });
-                // Create a copy of data and filter dependencies
-                data = JSON.parse(JSON.stringify(data)); // Deep copy
-                data.data.allDependencies = filteredDeps;
-            }
-            
-            // Use category filter from parameter or URL
-            if (!categoryFilter) {
-                const urlParams = new URLSearchParams(window.location.search);
-                categoryFilter = urlParams.get('category');
-            }
-            
-            // Render license compliance dashboard (await the async method)
-            if (typeof viewManager.generateLicenseComplianceHTML === 'function' && data.data.licenseAnalysis) {
-                viewManager.safeSetHTML(container, await viewManager.generateLicenseComplianceHTML(data, categoryFilter));
-                if (typeof viewManager.addOverviewEventListeners === 'function') {
-                    viewManager.addOverviewEventListeners();
+        async function loadLicenseData() {
+            try {
+                const analysisName = document.getElementById('analysisSelector')?.value;
+                const categoryFilter = document.getElementById('categoryFilter')?.value || 'all';
+                const container = document.getElementById('license-compliance-page');
+                
+                if (!analysisName) {
+                    if (container) {
+                        container.innerHTML = '<div class="alert alert-info">Please select an analysis to view license compliance data.</div>';
+                    }
+                    return;
                 }
                 
-                // If category filter is present, automatically expand that section
-                if (categoryFilter) {
-                    // Wait a bit for DOM to be ready, then trigger the click
-                    setTimeout(() => {
-                        const categoryCard = document.querySelector(`.license-card.${categoryFilter}`);
-                        if (categoryCard) {
-                            categoryCard.click();
+                console.log(`📋 Loading license data for: ${analysisName}, filter: ${categoryFilter}`);
+                
+                const filterValue = categoryFilter === 'all' ? null : categoryFilter;
+                
+                const data = await loadOrganizationData(analysisName, storageManager, {
+                    categoryFilter: filterValue,
+                    containerId: 'license-compliance-page',
+                    noDataSection: document.getElementById('noDataSection'),
+                    renderFunction: async (orgData, severityFilter, sectionFilter, repoFilter, categoryFilter) => {
+                        if (!orgData || !orgData.data) {
+                            console.warn('⚠️ No organization data found');
+                            return;
                         }
-                    }, 100);
+                        
+                        // Check if license analysis exists
+                        if (!orgData.data.licenseAnalysis) {
+                            console.warn('⚠️ No license analysis found in data');
+                            const container = document.getElementById('license-compliance-page');
+                            if (container) {
+                                container.innerHTML = '<div class="alert alert-warning">No license compliance analysis found. Please run a license compliance check in the main app.</div>';
+                            }
+                            return;
+                        }
+                        
+                        console.log('✅ License analysis found, rendering...');
+                        // Render license compliance HTML with the filter value
+                        if (window.viewManager && typeof window.viewManager.generateLicenseComplianceHTML === 'function') {
+                            const html = await window.viewManager.generateLicenseComplianceHTML(orgData, categoryFilter);
+                            const container = document.getElementById('license-compliance-page');
+                            if (container) {
+                                window.viewManager.safeSetHTML(container, html);
+                                
+                                // If category filter is present, automatically expand that section
+                                if (categoryFilter && typeof categoryFilter === 'string') {
+                                    // Wait a bit for DOM to be ready, then trigger the click
+                                    setTimeout(() => {
+                                        const categoryCard = document.querySelector(`.license-card.${categoryFilter}`);
+                                        if (categoryCard) {
+                                            categoryCard.click();
+                                        }
+                                    }, 100);
+                                }
+                            }
+                        }
+                    }
+                });
+                
+                if (!data || !data.data || !data.data.licenseAnalysis) {
+                    console.warn('⚠️ License analysis data not found');
+                    if (container) {
+                        container.innerHTML = '<div class="alert alert-warning">No license compliance analysis found. Please run a license compliance check in the main app.</div>';
+                    }
                 }
-            } else if (data.data.licenseAnalysis) {
-                container.innerHTML = '<div class="alert alert-warning">This version does not support direct license compliance rendering. Please update your ViewManager.js or use the main app.</div>';
-            } else {
-                container.innerHTML = '<div class="alert alert-warning">No license compliance analysis found. Please run a license compliance check in the main app.</div>';
+            } catch (error) {
+                console.error('❌ Error loading license data:', error);
+                console.error('   Error details:', error.stack);
+                const container = document.getElementById('license-compliance-page');
+                if (container) {
+                    container.innerHTML = '<div class="alert alert-danger">Error loading license data. Please try again.</div>';
+                }
             }
-        };
-        
-        async function loadAnalysesList() {
-            const storageInfo = await storageManager.getStorageInfo();
-            const selector = document.getElementById('analysisSelector');
-            const allEntries = [...storageInfo.organizations, ...storageInfo.repositories];
-            
-            if (allEntries.length === 0) {
-                document.getElementById('noDataSection').style.display = 'block';
-                selector.disabled = true;
-                return;
-            }
-            
-            // Add individual entries
-            allEntries.forEach(entry => {
-                const option = document.createElement('option');
-                option.value = entry.name;
-                option.textContent = `${entry.name} (${entry.dependencies} deps)`;
-                selector.appendChild(option);
-            });
-        }
-        
-        async function loadLicenseData() {
-            const analysisName = document.getElementById('analysisSelector').value;
-            const categoryFilter = document.getElementById('categoryFilter').value;
-            
-            if (!analysisName) {
-                document.getElementById('license-compliance-page').innerHTML = '<div class="alert alert-info">Please select an analysis to view license compliance data.</div>';
-                return;
-            }
-            
-            await loadOrganizationData(analysisName, categoryFilter === 'all' ? null : categoryFilter);
         }
         
         async function updateCountsOnly() {

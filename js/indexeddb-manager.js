@@ -106,17 +106,38 @@ class IndexedDBManager {
             const transaction = this.db.transaction(['organizations'], 'readwrite');
             const store = transaction.objectStore('organizations');
             
+            // Ensure data structure is consistent - data should be the analysis data object
+            // If data already has a 'data' property, use it; otherwise use data directly
+            const analysisData = data.data || data;
+            
             const entry = {
                 name: name,
                 organization: name,
                 timestamp: data.timestamp || new Date().toISOString(),
-                data: data.data || data,
+                data: analysisData,
                 type: 'organization',
-                statistics: data.data?.statistics || data.statistics
+                // Note: statistics should only be accessed via entry.data.statistics
+                // Removed duplicate statistics field to avoid inconsistency
             };
 
+            // Save the entry and wait for transaction to complete
             await this._promisifyRequest(store.put(entry));
-            console.log(`✅ Saved organization: ${name}`);
+            
+            // Wait for transaction to complete before returning
+            await new Promise((resolve, reject) => {
+                transaction.oncomplete = () => {
+                    console.log(`✅ Saved organization: ${name} (transaction completed)`);
+                    console.log(`   - Repositories: ${analysisData?.statistics?.totalRepositories || 0}`);
+                    console.log(`   - Dependencies: ${analysisData?.statistics?.totalDependencies || 0}`);
+                    console.log(`   - Timestamp: ${entry.timestamp}`);
+                    resolve(true);
+                };
+                transaction.onerror = () => {
+                    console.error(`❌ Transaction failed for organization: ${name}`, transaction.error);
+                    reject(transaction.error);
+                };
+            });
+            
             return true;
         } catch (error) {
             console.error('❌ Failed to save organization:', error);
@@ -136,16 +157,36 @@ class IndexedDBManager {
             const transaction = this.db.transaction(['repositories'], 'readwrite');
             const store = transaction.objectStore('repositories');
             
+            // Ensure data structure is consistent - data should be the analysis data object
+            // If data already has a 'data' property, use it; otherwise use data directly
+            const analysisData = data.data || data;
+            
             const entry = {
                 fullName: fullName,
                 timestamp: data.timestamp || new Date().toISOString(),
-                data: data.data || data,
+                data: analysisData,
                 type: 'repository',
-                statistics: data.data?.statistics || data.statistics
+                // Note: statistics should only be accessed via entry.data.statistics
+                // Removed duplicate statistics field to avoid inconsistency
             };
 
+            // Save the entry and wait for transaction to complete
             await this._promisifyRequest(store.put(entry));
-            console.log(`✅ Saved repository: ${fullName}`);
+            
+            // Wait for transaction to complete before returning
+            await new Promise((resolve, reject) => {
+                transaction.oncomplete = () => {
+                    console.log(`✅ Saved repository: ${fullName} (transaction completed)`);
+                    console.log(`   - Dependencies: ${analysisData?.statistics?.totalDependencies || 0}`);
+                    console.log(`   - Timestamp: ${entry.timestamp}`);
+                    resolve(true);
+                };
+                transaction.onerror = () => {
+                    console.error(`❌ Transaction failed for repository: ${fullName}`, transaction.error);
+                    reject(transaction.error);
+                };
+            });
+            
             return true;
         } catch (error) {
             console.error('❌ Failed to save repository:', error);
@@ -203,7 +244,15 @@ class IndexedDBManager {
             const transaction = this.db.transaction(['organizations'], 'readonly');
             const store = transaction.objectStore('organizations');
             const result = await this._promisifyRequest(store.getAll());
-            return result || [];
+            const orgs = result || [];
+            console.log(`🏢 Retrieved ${orgs.length} organizations from IndexedDB`);
+            if (orgs.length > 0) {
+                orgs.forEach(org => {
+                    const name = org.organization || org.name;
+                    console.log(`   - ${name} (${org.data?.statistics?.totalRepositories || 0} repos, ${org.data?.statistics?.totalDependencies || 0} deps)`);
+                });
+            }
+            return orgs;
         } catch (error) {
             console.error('❌ Failed to get all organizations:', error);
             return [];
@@ -222,7 +271,14 @@ class IndexedDBManager {
             const transaction = this.db.transaction(['repositories'], 'readonly');
             const store = transaction.objectStore('repositories');
             const result = await this._promisifyRequest(store.getAll());
-            return result || [];
+            const repos = result || [];
+            console.log(`📦 Retrieved ${repos.length} repositories from IndexedDB`);
+            if (repos.length > 0) {
+                repos.forEach(repo => {
+                    console.log(`   - ${repo.fullName} (${repo.data?.statistics?.totalDependencies || 0} deps)`);
+                });
+            }
+            return repos;
         } catch (error) {
             console.error('❌ Failed to get all repositories:', error);
             return [];

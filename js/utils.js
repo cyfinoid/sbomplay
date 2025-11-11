@@ -97,3 +97,37 @@ function setupCollapseIcon(collapseId, iconId) {
     }
 }
 
+/**
+ * Generate a statistics card HTML
+ * @param {string} title - Card title
+ * @param {string|number} value - Card value
+ * @param {string} colorClass - Bootstrap color class (primary, danger, warning, info, etc.)
+ * @param {string} iconClass - Font Awesome icon class (optional)
+ * @returns {string} - HTML string for the card
+ */
+function generateStatsCard(title, value, colorClass = 'primary', iconClass = '') {
+    const iconHtml = iconClass ? `<i class="${iconClass} me-2"></i>` : '';
+    return `<div class="col-md-3">
+        <div class="card text-center bg-light">
+            <div class="card-body">
+                <h3 class="text-${colorClass}">${escapeHtml(String(value))}</h3>
+                <p class="text-muted mb-0">${iconHtml}${escapeHtml(title)}</p>
+            </div>
+        </div>
+    </div>`;
+}
+
+/**
+ * Generate an alert HTML
+ * @param {string} message - Alert message
+ * @param {string} type - Alert type (info, warning, danger, success)
+ * @param {string} iconClass - Font Awesome icon class (optional)
+ * @returns {string} - HTML string for the alert
+ */
+function generateAlert(message, type = 'info', iconClass = '') {
+    const iconHtml = iconClass ? `<i class="${iconClass} me-2"></i>` : '';
+    return `<div class="alert alert-${type}">
+        ${iconHtml}${escapeHtml(message)}
+    </div>`;
+}
+

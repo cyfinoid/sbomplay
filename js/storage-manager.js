@@ -33,28 +33,56 @@ class StorageManager {
             const isRepo = name.includes('/') && name.split('/').length === 2;
             const timestamp = new Date().toISOString();
             
+            console.log(`💾 Saving analysis data for: ${name} (${isRepo ? 'repository' : 'organization'})`);
+            console.log(`   - Dependencies: ${data?.statistics?.totalDependencies || 0}`);
+            if (isRepo) {
+                console.log(`   - Repositories: 1`);
+            } else {
+                console.log(`   - Repositories: ${data?.statistics?.totalRepositories || 0}`);
+            }
+            
             const analysisData = {
                 timestamp: timestamp,
                 data: data
             };
 
+            let saveResult;
             if (isRepo) {
-                return await this.indexedDB.saveRepository(name, {
+                saveResult = await this.indexedDB.saveRepository(name, {
                     fullName: name,
                     timestamp: timestamp,
                     data: data,
                     type: 'repository'
                 });
             } else {
-                return await this.indexedDB.saveOrganization(name, {
+                saveResult = await this.indexedDB.saveOrganization(name, {
                     organization: name,
                     timestamp: timestamp,
                     data: data,
                     type: 'organization'
                 });
             }
+            
+            if (saveResult) {
+                console.log(`✅ Successfully saved analysis data for: ${name}`);
+                // Verify the data was saved by immediately checking storage info
+                const verifyInfo = await this.getStorageInfo();
+                const found = isRepo 
+                    ? verifyInfo.repositories.some(r => r.name === name)
+                    : verifyInfo.organizations.some(o => o.name === name);
+                if (found) {
+                    console.log(`✅ Verified: ${name} is now in storage`);
+                } else {
+                    console.warn(`⚠️ Warning: ${name} not found in storage immediately after save`);
+                }
+            } else {
+                console.error(`❌ Failed to save analysis data for: ${name}`);
+            }
+            
+            return saveResult;
         } catch (error) {
             console.error('❌ Failed to save analysis data:', error);
+            console.error('   Error details:', error.stack);
             return false;
         }
     }
@@ -242,24 +270,52 @@ class StorageManager {
     }
 
     /**
-     * Export all data
+     * Generic export function for different data types
+     * @param {string} type - Export type: 'all', 'cached', 'authors', 'packages', 'vulnerabilities', 'analysis'
+     * @param {string} filename - Output filename
+     * @returns {Promise<boolean>} - Success status
      */
-    async exportAllData(filename = 'sbom-all-analyses.json') {
+    async _exportDataByType(type, filename) {
         try {
-            const entries = await this.indexedDB.getAllEntries();
-            const vulnerabilities = await this.indexedDB.getAllVulnerabilities();
-            const authorEntities = await this.indexedDB.getAllAuthorEntities();
-            const packageAuthors = await this.indexedDB.getAllPackageAuthors();
-            const packages = await this.indexedDB.getAllPackages();
+            const dataGetters = {
+                'all': async () => ({
+                    entries: await this.indexedDB.getAllEntries(),
+                    vulnerabilities: await this.indexedDB.getAllVulnerabilities(),
+                    authorEntities: await this.indexedDB.getAllAuthorEntities(),
+                    packageAuthors: await this.indexedDB.getAllPackageAuthors(),
+                    packages: await this.indexedDB.getAllPackages()
+                }),
+                'cached': async () => ({
+                    authorEntities: await this.indexedDB.getAllAuthorEntities(),
+                    packageAuthors: await this.indexedDB.getAllPackageAuthors(),
+                    packages: await this.indexedDB.getAllPackages(),
+                    vulnerabilities: await this.indexedDB.getAllVulnerabilities()
+                }),
+                'authors': async () => ({
+                    authorEntities: await this.indexedDB.getAllAuthorEntities(),
+                    packageAuthors: await this.indexedDB.getAllPackageAuthors()
+                }),
+                'packages': async () => ({
+                    packages: await this.indexedDB.getAllPackages()
+                }),
+                'vulnerabilities': async () => ({
+                    vulnerabilities: await this.indexedDB.getAllVulnerabilities()
+                }),
+                'analysis': async () => ({
+                    entries: await this.indexedDB.getAllEntries()
+                })
+            };
             
+            const getData = dataGetters[type];
+            if (!getData) {
+                throw new Error(`Unknown export type: ${type}`);
+            }
+            
+            const data = await getData();
             const exportData = {
                 version: '1.0',
-                type: 'all',
-                entries: entries,
-                vulnerabilities: vulnerabilities,
-                authorEntities: authorEntities,
-                packageAuthors: packageAuthors,
-                packages: packages,
+                type: type,
+                ...data,
                 exportTimestamp: new Date().toISOString()
             };
             
@@ -269,142 +325,51 @@ class StorageManager {
             
             return this.exportData(exportData, filename);
         } catch (error) {
-            console.error('❌ Failed to export all data:', error);
+            console.error(`❌ Failed to export ${type} data:`, error);
             return false;
         }
+    }
+
+    /**
+     * Export all data
+     */
+    async exportAllData(filename = 'sbom-all-analyses.json') {
+        return this._exportDataByType('all', filename);
     }
 
     /**
      * Export cached databases (authors, packages, vulnerabilities)
      */
     async exportCachedDatabases(filename = 'sbom-cached-databases.json') {
-        try {
-            const authorEntities = await this.indexedDB.getAllAuthorEntities();
-            const packageAuthors = await this.indexedDB.getAllPackageAuthors();
-            const packages = await this.indexedDB.getAllPackages();
-            const vulnerabilities = await this.indexedDB.getAllVulnerabilities();
-            
-            const exportData = {
-                version: '1.0',
-                type: 'cached',
-                authorEntities: authorEntities,
-                packageAuthors: packageAuthors,
-                packages: packages,
-                vulnerabilities: vulnerabilities,
-                exportTimestamp: new Date().toISOString()
-            };
-            
-            // Generate checksum (before adding checksum field)
-            const checksum = await this.generateChecksum(exportData);
-            exportData.checksum = checksum;
-            
-            return this.exportData(exportData, filename);
-        } catch (error) {
-            console.error('❌ Failed to export cached databases:', error);
-            return false;
-        }
+        return this._exportDataByType('cached', filename);
     }
 
     /**
      * Export authors cache
      */
     async exportAuthorsCache(filename = 'sbom-authors-cache.json') {
-        try {
-            const authorEntities = await this.indexedDB.getAllAuthorEntities();
-            const packageAuthors = await this.indexedDB.getAllPackageAuthors();
-            
-            const exportData = {
-                version: '1.0',
-                type: 'authors',
-                authorEntities: authorEntities,
-                packageAuthors: packageAuthors,
-                exportTimestamp: new Date().toISOString()
-            };
-            
-            // Generate checksum (before adding checksum field)
-            const checksum = await this.generateChecksum(exportData);
-            exportData.checksum = checksum;
-            
-            return this.exportData(exportData, filename);
-        } catch (error) {
-            console.error('❌ Failed to export authors cache:', error);
-            return false;
-        }
+        return this._exportDataByType('authors', filename);
     }
 
     /**
      * Export packages cache
      */
     async exportPackagesCache(filename = 'sbom-packages-cache.json') {
-        try {
-            const packages = await this.indexedDB.getAllPackages();
-            
-            const exportData = {
-                version: '1.0',
-                type: 'packages',
-                packages: packages,
-                exportTimestamp: new Date().toISOString()
-            };
-            
-            // Generate checksum (before adding checksum field)
-            const checksum = await this.generateChecksum(exportData);
-            exportData.checksum = checksum;
-            
-            return this.exportData(exportData, filename);
-        } catch (error) {
-            console.error('❌ Failed to export packages cache:', error);
-            return false;
-        }
+        return this._exportDataByType('packages', filename);
     }
 
     /**
      * Export vulnerabilities cache
      */
     async exportVulnerabilitiesCache(filename = 'sbom-vulnerabilities-cache.json') {
-        try {
-            const vulnerabilities = await this.indexedDB.getAllVulnerabilities();
-            
-            const exportData = {
-                version: '1.0',
-                type: 'vulnerabilities',
-                vulnerabilities: vulnerabilities,
-                exportTimestamp: new Date().toISOString()
-            };
-            
-            // Generate checksum (before adding checksum field)
-            const checksum = await this.generateChecksum(exportData);
-            exportData.checksum = checksum;
-            
-            return this.exportData(exportData, filename);
-        } catch (error) {
-            console.error('❌ Failed to export vulnerabilities cache:', error);
-            return false;
-        }
+        return this._exportDataByType('vulnerabilities', filename);
     }
 
     /**
      * Export analysis data only (organizations and repositories)
      */
     async exportAnalysisData(filename = 'sbom-analysis-data.json') {
-        try {
-            const entries = await this.indexedDB.getAllEntries();
-            
-            const exportData = {
-                version: '1.0',
-                type: 'analysis',
-                entries: entries,
-                exportTimestamp: new Date().toISOString()
-            };
-            
-            // Generate checksum (before adding checksum field)
-            const checksum = await this.generateChecksum(exportData);
-            exportData.checksum = checksum;
-            
-            return this.exportData(exportData, filename);
-        } catch (error) {
-            console.error('❌ Failed to export analysis data:', error);
-            return false;
-        }
+        return this._exportDataByType('analysis', filename);
     }
 
     /**
@@ -480,379 +445,186 @@ class StorageManager {
     }
 
     /**
-     * Import all data (legacy and new format)
+     * Generic import handler for different data types
+     * @param {string} type - Import type
+     * @param {Object} jsonData - Data to import
+     * @returns {Promise<Object>} - Import result
      */
-    async _importAllData(jsonData) {
-        try {
-            // Verify checksum if present
-            if (jsonData.checksum) {
-                const checksumResult = await this.verifyChecksum(jsonData);
-                if (!checksumResult.valid) {
-                    throw new Error(checksumResult.error);
+    async _importDataByType(type, jsonData) {
+        // Verify checksum if present
+        if (jsonData.checksum) {
+            const checksumResult = await this.verifyChecksum(jsonData);
+            if (!checksumResult.valid) {
+                throw new Error(checksumResult.error);
+            }
+        }
+
+        const result = {
+            success: true,
+            errors: []
+        };
+
+        // Import handlers for different data types
+        const importHandlers = {
+            entries: async (entries) => {
+                if (!Array.isArray(entries)) {
+                    throw new Error('Invalid data format: Missing or invalid entries array');
                 }
-            }
-
-            if (!Array.isArray(jsonData.entries)) {
-                throw new Error('Invalid data format: Missing or invalid entries array');
-            }
-
-            let importedEntries = 0;
-            let importedVulnerabilities = 0;
-            let importedAuthors = 0;
-            let importedPackages = 0;
-            let skippedEntries = 0;
-            let errors = [];
-
-            // Import entries (organizations and repositories)
-            for (const entry of jsonData.entries) {
-                try {
-                    if (!entry.name && !entry.fullName) {
-                        skippedEntries++;
-                        continue;
-                    }
-
-                    if (entry.type === 'organization' || entry.organization) {
-                        const success = await this.indexedDB.saveOrganization(entry.name || entry.organization, entry);
-                        if (success) {
-                            importedEntries++;
-                        } else {
-                            errors.push(`Failed to import organization: ${entry.name || entry.organization}`);
+                let importedEntries = 0;
+                let skippedEntries = 0;
+                for (const entry of entries) {
+                    try {
+                        if (!entry.name && !entry.fullName) {
+                            skippedEntries++;
+                            continue;
                         }
-                    } else if (entry.type === 'repository' || entry.fullName) {
-                        const success = await this.indexedDB.saveRepository(entry.fullName, entry);
-                        if (success) {
-                            importedEntries++;
+                        if (entry.type === 'organization' || entry.organization) {
+                            const success = await this.indexedDB.saveOrganization(entry.name || entry.organization, entry);
+                            if (success) importedEntries++;
+                            else result.errors.push(`Failed to import organization: ${entry.name || entry.organization}`);
+                        } else if (entry.type === 'repository' || entry.fullName) {
+                            const success = await this.indexedDB.saveRepository(entry.fullName, entry);
+                            if (success) importedEntries++;
+                            else result.errors.push(`Failed to import repository: ${entry.fullName}`);
                         } else {
-                            errors.push(`Failed to import repository: ${entry.fullName}`);
+                            skippedEntries++;
                         }
-                    } else {
-                        skippedEntries++;
+                    } catch (error) {
+                        result.errors.push(`Error importing entry ${entry.name || entry.fullName}: ${error.message}`);
                     }
-                } catch (error) {
-                    errors.push(`Error importing entry ${entry.name || entry.fullName}: ${error.message}`);
                 }
-            }
-
-            // Import vulnerabilities if present
-            if (Array.isArray(jsonData.vulnerabilities)) {
-                for (const vuln of jsonData.vulnerabilities) {
+                result.importedEntries = importedEntries;
+                result.skippedEntries = skippedEntries;
+            },
+            vulnerabilities: async (vulnerabilities) => {
+                if (!Array.isArray(vulnerabilities)) return;
+                let count = 0;
+                for (const vuln of vulnerabilities) {
                     try {
                         if (!vuln.packageKey) continue;
                         const success = await this.indexedDB.saveVulnerability(vuln.packageKey, vuln.data || vuln);
-                        if (success) importedVulnerabilities++;
+                        if (success) count++;
                     } catch (error) {
-                        errors.push(`Error importing vulnerability ${vuln.packageKey}: ${error.message}`);
+                        result.errors.push(`Error importing vulnerability ${vuln.packageKey}: ${error.message}`);
                     }
                 }
-            }
-
-            // Import author entities if present
-            if (Array.isArray(jsonData.authorEntities)) {
-                for (const author of jsonData.authorEntities) {
+                result.importedVulnerabilities = count;
+            },
+            authorEntities: async (authors) => {
+                if (!Array.isArray(authors)) return;
+                let count = 0;
+                for (const author of authors) {
                     try {
                         if (!author.authorKey) continue;
                         const success = await this.indexedDB.saveAuthorEntity(author.authorKey, author);
-                        if (success) importedAuthors++;
+                        if (success) count++;
                     } catch (error) {
-                        errors.push(`Error importing author ${author.authorKey}: ${error.message}`);
+                        result.errors.push(`Error importing author ${author.authorKey}: ${error.message}`);
                     }
                 }
-            }
-
-            // Import package-author relationships if present
-            if (Array.isArray(jsonData.packageAuthors)) {
-                for (const rel of jsonData.packageAuthors) {
+                result.importedAuthors = count;
+            },
+            packageAuthors: async (relationships) => {
+                if (!Array.isArray(relationships)) return;
+                let count = 0;
+                for (const rel of relationships) {
                     try {
                         if (!rel.packageAuthorKey) continue;
                         const success = await this.indexedDB.savePackageAuthor(rel.packageKey, rel.authorKey);
-                        if (success) importedPackages++;
+                        if (success) count++;
                     } catch (error) {
-                        errors.push(`Error importing package-author relationship: ${error.message}`);
+                        result.errors.push(`Error importing package-author relationship: ${error.message}`);
                     }
                 }
-            }
-
-            // Import packages if present
-            if (Array.isArray(jsonData.packages)) {
-                for (const pkg of jsonData.packages) {
+                if (type === 'authors') {
+                    result.importedRelationships = count;
+                } else {
+                    result.importedPackages = (result.importedPackages || 0) + count;
+                }
+            },
+            packages: async (packages) => {
+                if (!Array.isArray(packages)) return;
+                let count = 0;
+                for (const pkg of packages) {
                     try {
                         if (!pkg.packageKey) continue;
                         const success = await this.indexedDB.savePackage(pkg.packageKey, pkg);
-                        if (success) importedPackages++;
+                        if (success) count++;
                     } catch (error) {
-                        errors.push(`Error importing package ${pkg.packageKey}: ${error.message}`);
+                        result.errors.push(`Error importing package ${pkg.packageKey}: ${error.message}`);
                     }
                 }
+                result.importedPackages = (result.importedPackages || 0) + count;
             }
+        };
 
-            return {
-                success: true,
-                importedEntries,
-                importedVulnerabilities,
-                importedAuthors,
-                importedPackages,
-                skippedEntries,
-                errors: errors.length > 0 ? errors : null
-            };
-        } catch (error) {
-            throw error;
+        // Import based on type
+        if (type === 'all') {
+            await importHandlers.entries(jsonData.entries);
+            await importHandlers.vulnerabilities(jsonData.vulnerabilities);
+            await importHandlers.authorEntities(jsonData.authorEntities);
+            await importHandlers.packageAuthors(jsonData.packageAuthors);
+            await importHandlers.packages(jsonData.packages);
+        } else if (type === 'cached') {
+            await importHandlers.authorEntities(jsonData.authorEntities);
+            await importHandlers.packageAuthors(jsonData.packageAuthors);
+            await importHandlers.packages(jsonData.packages);
+            await importHandlers.vulnerabilities(jsonData.vulnerabilities);
+        } else if (type === 'authors') {
+            await importHandlers.authorEntities(jsonData.authorEntities);
+            await importHandlers.packageAuthors(jsonData.packageAuthors);
+        } else if (type === 'packages') {
+            await importHandlers.packages(jsonData.packages);
+        } else if (type === 'vulnerabilities') {
+            await importHandlers.vulnerabilities(jsonData.vulnerabilities);
+        } else if (type === 'analysis') {
+            await importHandlers.entries(jsonData.entries);
         }
+
+        result.errors = result.errors.length > 0 ? result.errors : null;
+        return result;
+    }
+
+    /**
+     * Import all data (legacy and new format)
+     */
+    async _importAllData(jsonData) {
+        return this._importDataByType('all', jsonData);
     }
 
     /**
      * Import cached databases (authors, packages, vulnerabilities)
      */
     async _importCachedDatabases(jsonData) {
-        try {
-            const checksumResult = await this.verifyChecksum(jsonData);
-            if (!checksumResult.valid) {
-                throw new Error(checksumResult.error);
-            }
-
-            let importedAuthors = 0;
-            let importedPackages = 0;
-            let importedVulnerabilities = 0;
-            let errors = [];
-
-            // Import author entities
-            if (Array.isArray(jsonData.authorEntities)) {
-                for (const author of jsonData.authorEntities) {
-                    try {
-                        if (!author.authorKey) continue;
-                        const success = await this.indexedDB.saveAuthorEntity(author.authorKey, author);
-                        if (success) importedAuthors++;
-                    } catch (error) {
-                        errors.push(`Error importing author ${author.authorKey}: ${error.message}`);
-                    }
-                }
-            }
-
-            // Import package-author relationships
-            if (Array.isArray(jsonData.packageAuthors)) {
-                for (const rel of jsonData.packageAuthors) {
-                    try {
-                        if (!rel.packageAuthorKey) continue;
-                        const success = await this.indexedDB.savePackageAuthor(rel.packageKey, rel.authorKey);
-                        if (success) importedPackages++;
-                    } catch (error) {
-                        errors.push(`Error importing package-author relationship: ${error.message}`);
-                    }
-                }
-            }
-
-            // Import packages
-            if (Array.isArray(jsonData.packages)) {
-                for (const pkg of jsonData.packages) {
-                    try {
-                        if (!pkg.packageKey) continue;
-                        const success = await this.indexedDB.savePackage(pkg.packageKey, pkg);
-                        if (success) importedPackages++;
-                    } catch (error) {
-                        errors.push(`Error importing package ${pkg.packageKey}: ${error.message}`);
-                    }
-                }
-            }
-
-            // Import vulnerabilities
-            if (Array.isArray(jsonData.vulnerabilities)) {
-                for (const vuln of jsonData.vulnerabilities) {
-                    try {
-                        if (!vuln.packageKey) continue;
-                        const success = await this.indexedDB.saveVulnerability(vuln.packageKey, vuln.data || vuln);
-                        if (success) importedVulnerabilities++;
-                    } catch (error) {
-                        errors.push(`Error importing vulnerability ${vuln.packageKey}: ${error.message}`);
-                    }
-                }
-            }
-
-            return {
-                success: true,
-                importedAuthors,
-                importedPackages,
-                importedVulnerabilities,
-                errors: errors.length > 0 ? errors : null
-            };
-        } catch (error) {
-            throw error;
-        }
+        return this._importDataByType('cached', jsonData);
     }
 
     /**
      * Import authors cache
      */
     async _importAuthorsCache(jsonData) {
-        try {
-            const checksumResult = await this.verifyChecksum(jsonData);
-            if (!checksumResult.valid) {
-                throw new Error(checksumResult.error);
-            }
-
-            let importedAuthors = 0;
-            let importedRelationships = 0;
-            let errors = [];
-
-            if (Array.isArray(jsonData.authorEntities)) {
-                for (const author of jsonData.authorEntities) {
-                    try {
-                        if (!author.authorKey) continue;
-                        const success = await this.indexedDB.saveAuthorEntity(author.authorKey, author);
-                        if (success) importedAuthors++;
-                    } catch (error) {
-                        errors.push(`Error importing author ${author.authorKey}: ${error.message}`);
-                    }
-                }
-            }
-
-            if (Array.isArray(jsonData.packageAuthors)) {
-                for (const rel of jsonData.packageAuthors) {
-                    try {
-                        if (!rel.packageAuthorKey) continue;
-                        const success = await this.indexedDB.savePackageAuthor(rel.packageKey, rel.authorKey);
-                        if (success) importedRelationships++;
-                    } catch (error) {
-                        errors.push(`Error importing package-author relationship: ${error.message}`);
-                    }
-                }
-            }
-
-            return {
-                success: true,
-                importedAuthors,
-                importedRelationships,
-                errors: errors.length > 0 ? errors : null
-            };
-        } catch (error) {
-            throw error;
-        }
+        return this._importDataByType('authors', jsonData);
     }
 
     /**
      * Import packages cache
      */
     async _importPackagesCache(jsonData) {
-        try {
-            const checksumResult = await this.verifyChecksum(jsonData);
-            if (!checksumResult.valid) {
-                throw new Error(checksumResult.error);
-            }
-
-            let importedPackages = 0;
-            let errors = [];
-
-            if (Array.isArray(jsonData.packages)) {
-                for (const pkg of jsonData.packages) {
-                    try {
-                        if (!pkg.packageKey) continue;
-                        const success = await this.indexedDB.savePackage(pkg.packageKey, pkg);
-                        if (success) importedPackages++;
-                    } catch (error) {
-                        errors.push(`Error importing package ${pkg.packageKey}: ${error.message}`);
-                    }
-                }
-            }
-
-            return {
-                success: true,
-                importedPackages,
-                errors: errors.length > 0 ? errors : null
-            };
-        } catch (error) {
-            throw error;
-        }
+        return this._importDataByType('packages', jsonData);
     }
 
     /**
      * Import vulnerabilities cache
      */
     async _importVulnerabilitiesCache(jsonData) {
-        try {
-            const checksumResult = await this.verifyChecksum(jsonData);
-            if (!checksumResult.valid) {
-                throw new Error(checksumResult.error);
-            }
-
-            let importedVulnerabilities = 0;
-            let errors = [];
-
-            if (Array.isArray(jsonData.vulnerabilities)) {
-                for (const vuln of jsonData.vulnerabilities) {
-                    try {
-                        if (!vuln.packageKey) continue;
-                        const success = await this.indexedDB.saveVulnerability(vuln.packageKey, vuln.data || vuln);
-                        if (success) importedVulnerabilities++;
-                    } catch (error) {
-                        errors.push(`Error importing vulnerability ${vuln.packageKey}: ${error.message}`);
-                    }
-                }
-            }
-
-            return {
-                success: true,
-                importedVulnerabilities,
-                errors: errors.length > 0 ? errors : null
-            };
-        } catch (error) {
-            throw error;
-        }
+        return this._importDataByType('vulnerabilities', jsonData);
     }
 
     /**
      * Import analysis data only
      */
     async _importAnalysisData(jsonData) {
-        try {
-            const checksumResult = await this.verifyChecksum(jsonData);
-            if (!checksumResult.valid) {
-                throw new Error(checksumResult.error);
-            }
-
-            if (!Array.isArray(jsonData.entries)) {
-                throw new Error('Invalid data format: Missing or invalid entries array');
-            }
-
-            let importedEntries = 0;
-            let skippedEntries = 0;
-            let errors = [];
-
-            for (const entry of jsonData.entries) {
-                try {
-                    if (!entry.name && !entry.fullName) {
-                        skippedEntries++;
-                        continue;
-                    }
-
-                    if (entry.type === 'organization' || entry.organization) {
-                        const success = await this.indexedDB.saveOrganization(entry.name || entry.organization, entry);
-                        if (success) {
-                            importedEntries++;
-                        } else {
-                            errors.push(`Failed to import organization: ${entry.name || entry.organization}`);
-                        }
-                    } else if (entry.type === 'repository' || entry.fullName) {
-                        const success = await this.indexedDB.saveRepository(entry.fullName, entry);
-                        if (success) {
-                            importedEntries++;
-                        } else {
-                            errors.push(`Failed to import repository: ${entry.fullName}`);
-                        }
-                    } else {
-                        skippedEntries++;
-                    }
-                } catch (error) {
-                    errors.push(`Error importing entry ${entry.name || entry.fullName}: ${error.message}`);
-                }
-            }
-
-            return {
-                success: true,
-                importedEntries,
-                skippedEntries,
-                errors: errors.length > 0 ? errors : null
-            };
-        } catch (error) {
-            throw error;
-        }
+        return this._importDataByType('analysis', jsonData);
     }
 
     /**
@@ -865,13 +637,16 @@ class StorageManager {
                 await this.init();
             }
             
+            console.log('📊 Getting storage info...');
             const orgs = await this.indexedDB.getAllOrganizations();
             const repos = await this.indexedDB.getAllRepositories();
             const estimate = await this.indexedDB.getStorageEstimate();
             
             const totalEntries = orgs.length + repos.length;
             
-            return {
+            console.log(`📊 Storage info summary: ${orgs.length} orgs, ${repos.length} repos, ${totalEntries} total entries`);
+            
+            const storageInfo = {
                 totalSize: estimate ? estimate.usage : 0,
                 maxStorageSize: estimate ? estimate.quota : 0,
                 availableSpace: estimate ? (estimate.quota - estimate.usage) : 0,
@@ -879,24 +654,38 @@ class StorageManager {
                 organizationsCount: orgs.length,
                 repositoriesCount: repos.length,
                 totalEntries: totalEntries,
-                organizations: orgs.map(org => ({
-                    name: org.organization || org.name,
-                    timestamp: org.timestamp,
-                    repositories: org.statistics?.totalRepositories || 0,
-                    dependencies: org.statistics?.totalDependencies || 0,
-                    type: 'organization'
-                })),
-                repositories: repos.map(repo => ({
-                    name: repo.fullName,
-                    timestamp: repo.timestamp,
-                    repositories: 1,
-                    dependencies: repo.statistics?.totalDependencies || 0,
-                    type: 'repository'
-                })),
+                organizations: orgs.map(org => {
+                    const name = org.organization || org.name;
+                    const deps = org.data?.statistics?.totalDependencies || 0;
+                    const repos = org.data?.statistics?.totalRepositories || 0;
+                    console.log(`   📋 Org: ${name} - ${repos} repos, ${deps} deps`);
+                    return {
+                        name: name,
+                        timestamp: org.timestamp,
+                        repositories: repos,
+                        dependencies: deps,
+                        type: 'organization'
+                    };
+                }),
+                repositories: repos.map(repo => {
+                    const deps = repo.data?.statistics?.totalDependencies || 0;
+                    console.log(`   📋 Repo: ${repo.fullName} - ${deps} deps`);
+                    return {
+                        name: repo.fullName,
+                        timestamp: repo.timestamp,
+                        repositories: 1,
+                        dependencies: deps,
+                        type: 'repository'
+                    };
+                }),
                 usagePercent: estimate ? parseFloat(estimate.usagePercent) : 0
             };
+            
+            console.log(`✅ Storage info retrieved: ${storageInfo.organizations.length} orgs, ${storageInfo.repositories.length} repos`);
+            return storageInfo;
         } catch (error) {
             console.error('❌ Failed to get storage info:', error);
+            console.error('   Error details:', error.stack);
             return {
                 totalSize: 0,
                 maxStorageSize: 0,

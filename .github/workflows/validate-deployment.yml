@@ -92,6 +92,7 @@ jobs:
             "js/indexeddb-manager.js"
             "js/license-processor.js"
             "js/osv-service.js"
+            "js/page-common.js"
             "js/quality-page.js"
             "js/registry-utils.js"
             "js/request-queue-manager.js"
