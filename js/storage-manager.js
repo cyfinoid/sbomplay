@@ -1076,7 +1076,8 @@ class StorageManager {
             licenses: [],
             vulnerabilityAnalysis: null,
             licenseAnalysis: null,
-            qualityAnalysis: null
+            qualityAnalysis: null,
+            githubActionsAnalysis: null
         };
 
         // Aggregate statistics
@@ -1327,6 +1328,78 @@ class StorageManager {
                     }
                 }
             }
+        }
+
+        // Combine GitHub Actions analysis from all organizations
+        const allGARepositories = [];
+        const allGAFindings = [];
+        const allGAFindingsByType = {};
+        let totalGAActions = 0;
+        let uniqueGAActions = 0;
+        const uniqueActionsSet = new Set();
+
+        for (const entry of entriesData) {
+            if (entry.data.githubActionsAnalysis) {
+                const gaAnalysis = entry.data.githubActionsAnalysis;
+                
+                // Aggregate repositories
+                if (gaAnalysis.repositories && Array.isArray(gaAnalysis.repositories)) {
+                    allGARepositories.push(...gaAnalysis.repositories);
+                }
+                
+                // Aggregate findings
+                if (gaAnalysis.findings && Array.isArray(gaAnalysis.findings)) {
+                    allGAFindings.push(...gaAnalysis.findings);
+                }
+                
+                // Aggregate findings by type
+                if (gaAnalysis.findingsByType) {
+                    for (const [type, count] of Object.entries(gaAnalysis.findingsByType)) {
+                        allGAFindingsByType[type] = (allGAFindingsByType[type] || 0) + count;
+                    }
+                }
+                
+                // Aggregate action counts
+                totalGAActions += gaAnalysis.totalActions || 0;
+                
+                // Count unique actions across all repositories
+                if (gaAnalysis.repositories && Array.isArray(gaAnalysis.repositories)) {
+                    for (const repoData of gaAnalysis.repositories) {
+                        if (repoData.actions && Array.isArray(repoData.actions)) {
+                            for (const action of repoData.actions) {
+                                const actionKey = `${action.owner}/${action.repo}${action.path ? '/' + action.path : ''}@${action.ref}`;
+                                uniqueActionsSet.add(actionKey);
+                                
+                                // Also count nested actions
+                                if (action.nested && Array.isArray(action.nested)) {
+                                    const checkNested = (nestedAction) => {
+                                        if (nestedAction.owner && nestedAction.repo) {
+                                            const nestedKey = `${nestedAction.owner}/${nestedAction.repo}${nestedAction.path ? '/' + nestedAction.path : ''}@${nestedAction.ref}`;
+                                            uniqueActionsSet.add(nestedKey);
+                                            if (nestedAction.nested && Array.isArray(nestedAction.nested)) {
+                                                nestedAction.nested.forEach(checkNested);
+                                            }
+                                        }
+                                    };
+                                    action.nested.forEach(checkNested);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        uniqueGAActions = uniqueActionsSet.size;
+
+        if (allGARepositories.length > 0 || allGAFindings.length > 0) {
+            combined.githubActionsAnalysis = {
+                repositories: allGARepositories,
+                totalActions: totalGAActions,
+                uniqueActions: uniqueGAActions,
+                findings: allGAFindings,
+                findingsByType: allGAFindingsByType
+            };
         }
 
         // Create combined license analysis

@@ -16,6 +16,9 @@ class SBOMProcessor {
         // Initialize quality processor
         this.qualityProcessor = window.SBOMQualityProcessor ? new window.SBOMQualityProcessor() : null;
         
+        // GitHub Actions analysis results
+        this.githubActionsAnalysis = null;
+        
         // Categorization mappings
         this.purlTypeMap = {
             'pypi': { type: 'code', language: 'Python', ecosystem: 'PyPI' },
@@ -696,8 +699,91 @@ class SBOMProcessor {
             languageStats: this.getLanguageStats(),
             vulnerabilityAnalysis: this.vulnerabilityAnalysis || null,
             licenseAnalysis: this.licenseAnalysis || null,
-            qualityAnalysis: qualityAnalysis  // Add aggregate quality analysis
+            qualityAnalysis: qualityAnalysis,  // Add aggregate quality analysis
+            githubActionsAnalysis: this.githubActionsAnalysis || null  // Add GitHub Actions analysis
         };
+    }
+
+    /**
+     * Analyze GitHub Actions for all repositories
+     * @param {GitHubClient} githubClient - GitHub client instance
+     * @param {AuthorService} authorService - Author service instance
+     * @param {Function} onProgress - Optional progress callback
+     * @returns {Promise<Object>} GitHub Actions analysis results
+     */
+    async analyzeGitHubActions(githubClient, authorService, onProgress = null) {
+        if (!window.GitHubActionsAnalyzer) {
+            console.warn('⚠️ GitHub Actions Analyzer not available');
+            return null;
+        }
+
+        try {
+            console.log('🔍 SBOM Processor: Starting GitHub Actions analysis...');
+            
+            const analyzer = new window.GitHubActionsAnalyzer(githubClient, authorService);
+            const allResults = {
+                repositories: [],
+                totalActions: 0,
+                uniqueActions: 0,
+                allFindings: [],
+                findingsByType: new Map()
+            };
+
+            // Analyze each repository
+            for (const [repoKey, repoData] of this.repositories) {
+                const [owner, repo] = repoKey.split('/');
+                
+                if (onProgress) {
+                    onProgress({ 
+                        phase: 'github-actions-analysis',
+                        message: `Analyzing GitHub Actions for ${repoKey}...`,
+                        repository: repoKey
+                    });
+                }
+
+                try {
+                    const result = await analyzer.analyzeRepository(owner, repo, 'HEAD', onProgress);
+                    
+                    if (result && result.findings) {
+                        allResults.repositories.push({
+                            repository: repoKey,
+                            ...result
+                        });
+                        allResults.totalActions += result.totalActions || 0;
+                        allResults.uniqueActions += result.uniqueActions || 0;
+                        allResults.allFindings.push(...result.findings);
+                        
+                        // Aggregate findings by type
+                        if (result.findingsByType) {
+                            Object.entries(result.findingsByType).forEach(([ruleId, count]) => {
+                                const current = allResults.findingsByType.get(ruleId) || 0;
+                                allResults.findingsByType.set(ruleId, current + count);
+                            });
+                        }
+                    }
+                } catch (error) {
+                    console.warn(`Failed to analyze GitHub Actions for ${repoKey}:`, error);
+                }
+            }
+
+            // Convert Map to object for storage
+            const findingsByTypeObj = Object.fromEntries(allResults.findingsByType);
+
+            this.githubActionsAnalysis = {
+                totalActions: allResults.totalActions,
+                uniqueActions: allResults.uniqueActions,
+                repositories: allResults.repositories,
+                findings: allResults.allFindings,
+                findingsByType: findingsByTypeObj,
+                timestamp: new Date().toISOString()
+            };
+
+            console.log(`✅ SBOM Processor: GitHub Actions analysis complete: ${allResults.allFindings.length} findings`);
+            return this.githubActionsAnalysis;
+        } catch (error) {
+            console.error('❌ SBOM Processor: GitHub Actions analysis failed:', error);
+            return null;
+        }
     }
 
     /**
@@ -710,6 +796,7 @@ class SBOMProcessor {
         this.processedRepos = 0;
         this.successfulRepos = 0;
         this.failedRepos = 0;
+        this.githubActionsAnalysis = null;
     }
 
     /**

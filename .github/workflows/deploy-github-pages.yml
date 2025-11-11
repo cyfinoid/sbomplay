@@ -48,6 +48,7 @@ jobs:
           cp index.html _site/
           cp licenses.html _site/
           cp vuln.html _site/
+          cp audit.html _site/
           cp quality.html _site/
           cp deps.html _site/
           cp settings.html _site/
@@ -55,7 +56,7 @@ jobs:
           cp repos.html _site/
           cp about.html _site/
           
-          echo "✅ Copied 9 HTML files"
+          echo "✅ Copied 10 HTML files"
           
           # Copy JavaScript and CSS directories (matching update-prod.sh)
           cp -r js _site/

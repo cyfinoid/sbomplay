@@ -30,6 +30,7 @@ class SBOMPlayApp {
                 'saving-initial': 0.02,      // 2%
                 'vulnerability-analysis': 0.08, // 8%
                 'author-analysis': 0.04,    // 4%
+                'github-actions-analysis': 0.05, // 5%
                 'saving-final': 0.01         // 1%
             },
             phaseTimes: {} // Track actual time spent per phase
@@ -660,6 +661,30 @@ class SBOMPlayApp {
                 } catch (error) {
                     console.error('❌ Author analysis failed:', error);
                 }
+
+                // Run GitHub Actions analysis
+                this.updateProgress(94, 'Analyzing GitHub Actions workflows...', 'github-actions-analysis');
+                try {
+                    console.log('⚙️ Analyzing GitHub Actions...');
+                    const authorService = window.authorService || new AuthorService();
+                    await this.sbomProcessor.analyzeGitHubActions(this.githubClient, authorService, (progress) => {
+                        if (progress.message) {
+                            this.updateProgress(94, progress.message, 'github-actions-analysis');
+                        }
+                    });
+                    console.log('✅ GitHub Actions analysis complete');
+                    
+                    // Update results with GitHub Actions analysis
+                    const exportData = this.sbomProcessor.exportData();
+                    if (exportData) {
+                        results = exportData;
+                        // Save updated results
+                        await this.storageManager.saveAnalysisData(repoKey, results);
+                        console.log('✅ Saved data with GitHub Actions analysis');
+                    }
+                } catch (error) {
+                    console.error('❌ GitHub Actions analysis failed:', error);
+                }
             }
             
             // Log summary
@@ -947,6 +972,30 @@ class SBOMPlayApp {
                     }
                 } catch (error) {
                     console.error('❌ Author analysis failed:', error);
+                }
+
+                // Run GitHub Actions analysis
+                this.updateProgress(94, 'Analyzing GitHub Actions workflows...', 'github-actions-analysis');
+                try {
+                    console.log('⚙️ Analyzing GitHub Actions...');
+                    const authorService = window.authorService || new AuthorService();
+                    await this.sbomProcessor.analyzeGitHubActions(this.githubClient, authorService, (progress) => {
+                        if (progress.message) {
+                            this.updateProgress(94, progress.message, 'github-actions-analysis');
+                        }
+                    });
+                    console.log('✅ GitHub Actions analysis complete');
+                    
+                    // Update results with GitHub Actions analysis
+                    const exportData = this.sbomProcessor.exportData();
+                    if (exportData) {
+                        results = exportData;
+                        // Save updated results
+                        await this.storageManager.saveAnalysisData(ownerName, results);
+                        console.log('✅ Saved data with GitHub Actions analysis');
+                    }
+                } catch (error) {
+                    console.error('❌ GitHub Actions analysis failed:', error);
                 }
             }
             

@@ -195,10 +195,19 @@ class AuthorService {
         
         // If still no authors, try to extract from repository URL (fallback)
         if (authors.length === 0) {
-            const repoAuthors = await this.fetchAuthorsFromRepository(ecosystem, packageName);
-            if (repoAuthors.length > 0) {
-                console.log(`✅ Found ${repoAuthors.length} repository owners for ${packageKey}`);
-                authors = repoAuthors;
+            // Special handling for GitHub Actions - extract owner/repo from package name
+            if (ecosystem === 'githubactions' || ecosystem === 'GitHub Actions') {
+                const gaAuthors = await this.fetchAuthorsFromGitHubAction(packageName);
+                if (gaAuthors.length > 0) {
+                    console.log(`✅ Found ${gaAuthors.length} repository owners for ${packageKey}`);
+                    authors = gaAuthors;
+                }
+            } else {
+                const repoAuthors = await this.fetchAuthorsFromRepository(ecosystem, packageName);
+                if (repoAuthors.length > 0) {
+                    console.log(`✅ Found ${repoAuthors.length} repository owners for ${packageKey}`);
+                    authors = repoAuthors;
+                }
             }
         }
         
@@ -955,6 +964,104 @@ class AuthorService {
             return null;
         } catch (error) {
             return null;
+        }
+    }
+
+    /**
+     * Fetch authors for GitHub Actions by extracting owner/repo from package name
+     * Package name format: owner/repo@ref or owner/repo/path@ref
+     */
+    async fetchAuthorsFromGitHubAction(packageName) {
+        try {
+            // Parse GitHub Action name: owner/repo@ref or owner/repo/path@ref
+            const match = packageName.match(/^([^/@]+)\/([^/@]+)(?:\/(.+))?@(.+)$/);
+            if (!match) {
+                // Try without @ref: owner/repo or owner/repo/path
+                const simpleMatch = packageName.match(/^([^/@]+)\/([^/@]+)(?:\/(.+))?$/);
+                if (simpleMatch) {
+                    const [, owner, repo] = simpleMatch;
+                    // Use GitHub API to get repository owner info
+                    if (window.GitHubClient) {
+                        try {
+                            // Get GitHub token from sessionStorage if available
+                            const token = sessionStorage.getItem('github_token') || null;
+                            const githubClient = new window.GitHubClient();
+                            if (token) {
+                                githubClient.setToken(token);
+                            }
+                            const repoInfo = await githubClient.getRepository(owner, repo);
+                            if (repoInfo && repoInfo.owner) {
+                                return [{
+                                    name: repoInfo.owner.login || repoInfo.owner.name || owner,
+                                    email: null,
+                                    metadata: {
+                                        github: repoInfo.owner.login || owner,
+                                        type: repoInfo.owner.type || 'User',
+                                        url: repoInfo.owner.html_url || `https://github.com/${owner}`
+                                    },
+                                    isMaintainer: true
+                                }];
+                            }
+                        } catch (error) {
+                            console.warn(`Failed to fetch GitHub repo info for ${owner}/${repo}:`, error);
+                        }
+                    }
+                    // Fallback: return owner as author
+                    return [{
+                        name: owner,
+                        email: null,
+                        metadata: {
+                            github: owner,
+                            url: `https://github.com/${owner}`
+                        },
+                        isMaintainer: true
+                    }];
+                }
+                return [];
+            }
+            
+            const [, owner, repo] = match;
+            
+            // Use GitHub API to get repository owner info
+            if (window.GitHubClient) {
+                try {
+                    // Get GitHub token from sessionStorage if available
+                    const token = sessionStorage.getItem('github_token') || null;
+                    const githubClient = new window.GitHubClient();
+                    if (token) {
+                        githubClient.setToken(token);
+                    }
+                    const repoInfo = await githubClient.getRepository(owner, repo);
+                    if (repoInfo && repoInfo.owner) {
+                        return [{
+                            name: repoInfo.owner.login || repoInfo.owner.name || owner,
+                            email: null,
+                            metadata: {
+                                github: repoInfo.owner.login || owner,
+                                type: repoInfo.owner.type || 'User',
+                                url: repoInfo.owner.html_url || `https://github.com/${owner}`
+                            },
+                            isMaintainer: true
+                        }];
+                    }
+                } catch (error) {
+                    console.warn(`Failed to fetch GitHub repo info for ${owner}/${repo}:`, error);
+                }
+            }
+            
+            // Fallback: return owner as author
+            return [{
+                name: owner,
+                email: null,
+                metadata: {
+                    github: owner,
+                    url: `https://github.com/${owner}`
+                },
+                isMaintainer: true
+            }];
+        } catch (error) {
+            console.warn(`Error extracting authors from GitHub Action ${packageName}:`, error);
+            return [];
         }
     }
 

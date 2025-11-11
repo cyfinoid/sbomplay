@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>SBOM Play - Vulnerability Analysis</title>
+    <title>SBOM Play - GitHub Actions Audit</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
     <link href="css/style.css?v=0.0.4" rel="stylesheet">
@@ -22,8 +22,8 @@
             <div class="navbar-nav ms-auto">
                 <a class="nav-link" href="index.html">Home</a>
                 <a class="nav-link" href="licenses.html">License</a>
-                <a class="nav-link active" href="vuln.html">Vulns</a>
-                <a class="nav-link" href="audit.html">Audit</a>
+                <a class="nav-link" href="vuln.html">Vulns</a>
+                <a class="nav-link active" href="audit.html">Audit</a>
                 <a class="nav-link" href="quality.html">Quality</a>
                 <a class="nav-link" href="deps.html">Deps</a>
                 <a class="nav-link" href="repos.html">Repos</a>
@@ -44,8 +44,8 @@
             <div class="col-12">
                 <div class="d-flex justify-content-between align-items-center">
                     <div>
-                        <h1><i class="fas fa-bug me-2"></i>Vulnerability Analysis</h1>
-                        <p class="text-muted">Check for known vulnerabilities in your dependencies using OSV database</p>
+                        <h1><i class="fas fa-search me-2"></i>Audit Findings</h1>
+                        <p class="text-muted">Security audit findings including GitHub Actions, package deprecation, and repository-level audits</p>
                     </div>
                     <div>
                         <a href="index.html" class="btn btn-outline-primary">
@@ -56,13 +56,13 @@
             </div>
         </div>
 
-        <!-- Tool Description and Assurance -->
+        <!-- Tool Description -->
         <div class="row mb-4">
             <div class="col-12">
-                <div class="alert alert-warning text-center" role="alert">
-                    <i class="fas fa-exclamation-triangle me-2"></i>
-                    <strong>Vulnerability Analysis:</strong> This tool checks for known vulnerabilities in your dependencies using the OSV database. 
-                    All processing happens in your browser for maximum privacy and security.
+                <div class="alert alert-info" role="alert">
+                    <i class="fas fa-info-circle me-2"></i>
+                    <strong>Audit Findings:</strong> This page shows security audit findings including GitHub Actions security issues, 
+                    deprecated packages, and repository-level audit findings. All processing happens in your browser for maximum privacy and security.
                 </div>
             </div>
         </div>
@@ -77,22 +77,30 @@
                             <option value="__ALL__">All Projects (Combined)</option>
                         </select>
                     </div>
-                    <div class="col-md-6">
+                    <div class="col-md-3">
                         <label class="form-label">Filter by Severity</label>
                         <select class="form-select" id="severityFilter">
                             <option value="all">All Severities</option>
-                            <option value="critical">Critical</option>
                             <option value="high">High</option>
                             <option value="medium">Medium</option>
-                            <option value="low">Low</option>
+                            <option value="warning">Warning</option>
+                        </select>
+                    </div>
+                    <div class="col-md-3">
+                        <label class="form-label">Filter by Section</label>
+                        <select class="form-select" id="sectionFilter">
+                            <option value="all">All Sections</option>
+                            <option value="github-actions">GitHub Actions</option>
+                            <option value="package-deprecation">Package Deprecation</option>
+                            <option value="repository-audit">Repository Audit</option>
                         </select>
                     </div>
                 </div>
             </div>
         </div>
         
-        <div id="vulnerability-analysis-page">
-            <!-- Vulnerability Analysis content will be rendered here by JS -->
+        <div id="audit-analysis-page">
+            <!-- Audit Analysis content will be rendered here by JS -->
         </div>
 
         <!-- No Data Section -->
@@ -103,8 +111,8 @@
                 </h5>
             </div>
             <div class="card-body text-center">
-                <i class="fas fa-bug fa-3x text-muted mb-3"></i>
-                <h5>No Vulnerability Analysis Data Found</h5>
+                <i class="fas fa-search fa-3x text-muted mb-3"></i>
+                <h5>No Audit Analysis Data Found</h5>
                 <p class="text-muted">
                     You haven't analyzed any organizations yet, or all data has been cleared.
                 </p>
@@ -174,9 +182,6 @@
             </div>
         </div>
     </footer>
-    <!-- Markdown rendering libraries (for safe vulnerability description rendering) -->
-    <script src="https://cdn.jsdelivr.net/npm/marked@11.1.1/marked.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/dompurify@3.0.6/dist/purify.min.js"></script>
     
     <script src="js/indexeddb-manager.js?v=0.0.4"></script>
     <script src="js/utils.js?v=0.0.4"></script>
@@ -186,12 +191,12 @@
     <script src="js/cache-manager.js?v=0.0.4"></script>
     <script src="js/view-manager.js?v=0.0.4"></script>
     <script src="js/license-processor.js?v=0.0.4"></script>
-    <script src="js/osv-service.js?v=0.0.4"></script>
     <script src="js/sbom-processor.js?v=0.0.4"></script>
     <script src="js/storage-manager.js?v=0.0.4"></script>
     <script src="js/github-client.js?v=0.0.4"></script>
     <script src="js/app.js?v=0.0.4"></script>
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
-    <script src="js/vuln-page.js?v=0.0.4"></script>
+    <script src="js/audit-page.js?v=0.0.4"></script>
 </body>
-</html> 
+</html>
+

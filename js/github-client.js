@@ -320,6 +320,50 @@ class GitHubClient {
         }
         return false;
     }
+
+    /**
+     * Get file content from repository
+     */
+    async getFileContent(owner, repo, path, ref = 'HEAD') {
+        try {
+            const url = `${this.baseUrl}/repos/${owner}/${repo}/contents/${encodeURIComponent(path)}?ref=${encodeURIComponent(ref)}`;
+            const response = await this.makeRequest(url);
+            
+            if (!response.ok) {
+                if (response.status === 404) {
+                    return null;
+                }
+                throw new Error(`Failed to fetch file: ${response.status}`);
+            }
+            
+            const data = await response.json();
+            
+            if (data.encoding === 'base64' && data.content) {
+                // Decode base64 and handle UTF-8 properly
+                const base64Content = data.content.replace(/\s/g, '');
+                try {
+                    // Use TextDecoder for proper UTF-8 handling
+                    const binaryString = atob(base64Content);
+                    const bytes = new Uint8Array(binaryString.length);
+                    for (let i = 0; i < binaryString.length; i++) {
+                        bytes[i] = binaryString.charCodeAt(i);
+                    }
+                    const decoder = new TextDecoder('utf-8', { fatal: false });
+                    return decoder.decode(bytes);
+                } catch (decodeError) {
+                    // Fallback to simple atob if TextDecoder fails
+                    return atob(base64Content);
+                }
+            }
+            
+            return data.content || '';
+        } catch (error) {
+            if (error.message && error.message.includes('404')) {
+                return null;
+            }
+            throw error;
+        }
+    }
 }
 
 // Export for use in other modules

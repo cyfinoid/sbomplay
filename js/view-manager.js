@@ -5016,11 +5016,6 @@ class ViewManager {
                 <div class="vuln-number">${vulnAnalysis.vulnerablePackages || 0}</div>
                 <div class="vuln-detail">vulnerable packages</div>
             </div>
-            <div class="vuln-stat-card rate">
-                <h4>📈 Rate</h4>
-                <div class="vuln-number">${vulnAnalysis.vulnerabilityRate || 0}%</div>
-                <div class="vuln-detail">vulnerability rate</div>
-            </div>
         </div>
         ${vulnerableDepsHTML}
     </div>
@@ -5047,6 +5042,178 @@ class ViewManager {
         </div>
     </div>
 </div>`;
+        }
+    }
+
+    /**
+     * Generate audit findings card HTML
+     */
+    generateAuditFindingsCard(orgData) {
+        // Try multiple possible data structure paths
+        const githubActionsAnalysis = orgData?.data?.githubActionsAnalysis || 
+                                     orgData?.githubActionsAnalysis ||
+                                     (orgData?.data && orgData.data.githubActionsAnalysis);
+        
+        if (!githubActionsAnalysis || !githubActionsAnalysis.findings || githubActionsAnalysis.findings.length === 0) {
+            return `<div class="vuln-stat-card audit-findings">
+                <h4>🔍 Audit Findings</h4>
+                <div class="vuln-number">0</div>
+                <div class="vuln-detail">findings</div>
+            </div>`;
+        }
+
+        const findings = githubActionsAnalysis.findings;
+        const findingsBySeverity = {
+            high: findings.filter(f => f.severity === 'high' || f.severity === 'error').length,
+            medium: findings.filter(f => f.severity === 'medium').length,
+            warning: findings.filter(f => f.severity === 'warning').length
+        };
+        const totalFindings = findings.length;
+
+        return `<div class="vuln-stat-card audit-findings" style="cursor: pointer;" onclick="viewManager.scrollToAuditFindings()">
+            <h4>🔍 Audit Findings</h4>
+            <div class="vuln-number">${totalFindings}</div>
+            <div class="vuln-detail">total findings</div>
+            <div class="mt-2" style="font-size: 0.75rem; color: var(--text-secondary, #6c757d);">
+                <div>High: ${findingsBySeverity.high}</div>
+                <div>Medium: ${findingsBySeverity.medium}</div>
+                <div>Warning: ${findingsBySeverity.warning}</div>
+            </div>
+        </div>`;
+    }
+
+    /**
+     * Generate audit findings section HTML
+     */
+    generateAuditFindingsSection(orgData) {
+        // Try multiple possible data structure paths
+        const githubActionsAnalysis = orgData?.data?.githubActionsAnalysis || 
+                                     orgData?.githubActionsAnalysis ||
+                                     (orgData?.data && orgData.data.githubActionsAnalysis);
+        
+        if (!githubActionsAnalysis || !githubActionsAnalysis.findings || githubActionsAnalysis.findings.length === 0) {
+            return '';
+        }
+
+        const findings = githubActionsAnalysis.findings;
+        const findingsByType = githubActionsAnalysis.findingsByType || {};
+        
+        // Group findings by type
+        const findingsByTypeMap = new Map();
+        findings.forEach(finding => {
+            const ruleId = finding.rule_id;
+            if (!findingsByTypeMap.has(ruleId)) {
+                findingsByTypeMap.set(ruleId, []);
+            }
+            findingsByTypeMap.get(ruleId).push(finding);
+        });
+
+        // Sort by count (descending)
+        const sortedTypes = Array.from(findingsByTypeMap.entries())
+            .sort((a, b) => b[1].length - a[1].length)
+            .slice(0, 10); // Top 10
+
+        // Generate findings HTML
+        let findingsHTML = '<div id="audit-findings-section" class="mt-4">';
+        findingsHTML += '<h3 class="mb-3">🔍 GitHub Actions Audit Findings</h3>';
+        
+        // Summary
+        findingsHTML += `<div class="card mb-3">
+            <div class="card-body">
+                <h5>Summary</h5>
+                <p>Found <strong>${findings.length}</strong> audit findings across <strong>${githubActionsAnalysis.uniqueActions || 0}</strong> GitHub Actions.</p>
+                <div class="row">
+                    <div class="col-md-4">
+                        <strong>High Severity:</strong> ${findings.filter(f => f.severity === 'high' || f.severity === 'error').length}
+                    </div>
+                    <div class="col-md-4">
+                        <strong>Medium Severity:</strong> ${findings.filter(f => f.severity === 'medium').length}
+                    </div>
+                    <div class="col-md-4">
+                        <strong>Warning:</strong> ${findings.filter(f => f.severity === 'warning').length}
+                    </div>
+                </div>
+            </div>
+        </div>`;
+
+        // Findings by type
+        findingsHTML += '<div class="card mb-3"><div class="card-body"><h5>Findings by Type</h5><ul class="list-group">';
+        sortedTypes.forEach(([ruleId, typeFindings]) => {
+            const severity = typeFindings[0].severity;
+            const severityClass = severity === 'high' || severity === 'error' ? 'danger' : 
+                                 severity === 'medium' ? 'warning' : 'info';
+            findingsHTML += `<li class="list-group-item d-flex justify-content-between align-items-center">
+                <span><span class="badge bg-${severityClass} me-2">${severity}</span>${this.getFindingName(ruleId)}</span>
+                <span class="badge bg-primary rounded-pill">${typeFindings.length}</span>
+            </li>`;
+        });
+        findingsHTML += '</ul></div></div>';
+
+        // Detailed findings
+        findingsHTML += '<div class="card"><div class="card-body"><h5>Detailed Findings</h5>';
+        findingsHTML += '<div class="table-responsive"><table class="table table-sm table-hover">';
+        findingsHTML += '<thead><tr><th>Severity</th><th>Rule</th><th>Action</th><th>Message</th><th>Details</th></tr></thead><tbody>';
+        
+        findings.slice(0, 50).forEach(finding => {
+            const severity = finding.severity || 'warning';
+            const severityClass = severity === 'high' || severity === 'error' ? 'danger' : 
+                                 severity === 'medium' ? 'warning' : 'info';
+            const actionLink = finding.action ? 
+                `<a href="https://github.com/${finding.action.split('@')[0]}" target="_blank" rel="noreferrer noopener">${escapeHtml(finding.action)}</a>` : 
+                'N/A';
+            
+            findingsHTML += `<tr>
+                <td><span class="badge bg-${severityClass}">${severity}</span></td>
+                <td><code>${escapeHtml(finding.rule_id || 'N/A')}</code></td>
+                <td>${actionLink}</td>
+                <td>${escapeHtml(finding.message || 'N/A')}</td>
+                <td>${finding.details ? escapeHtml(finding.details) : ''}</td>
+            </tr>`;
+        });
+        
+        if (findings.length > 50) {
+            findingsHTML += `<tr><td colspan="5" class="text-center text-muted">... and ${findings.length - 50} more findings</td></tr>`;
+        }
+        
+        findingsHTML += '</tbody></table></div></div></div>';
+        findingsHTML += '</div>';
+
+        return findingsHTML;
+    }
+
+    /**
+     * Get finding name from rule ID
+     */
+    getFindingName(ruleId) {
+        const findingNames = {
+            'UNPINNED_ACTION_REFERENCE': 'Unpinned Action Reference',
+            'MUTABLE_TAG_REFERENCE': 'Mutable Tag Reference',
+            'DOCKER_FLOATING_TAG': 'Docker Floating Tag',
+            'DOCKER_IMPLICIT_LATEST': 'Docker Implicit Latest Tag',
+            'DOCKERFILE_FLOATING_BASE_IMAGE': 'Dockerfile Floating Base Image',
+            'DOCKER_UNPINNED_DEPENDENCIES': 'Docker Unpinned Dependencies',
+            'DOCKER_REMOTE_CODE_NO_INTEGRITY': 'Docker Remote Code Without Integrity',
+            'COMPOSITE_NESTED_UNPINNED_ACTION': 'Composite Nested Unpinned Action',
+            'COMPOSITE_UNPINNED_DEPENDENCIES': 'Composite Unpinned Dependencies',
+            'COMPOSITE_REMOTE_CODE_NO_INTEGRITY': 'Composite Remote Code Without Integrity',
+            'JS_REMOTE_CODE_NO_INTEGRITY': 'JavaScript Remote Code Without Integrity',
+            'JS_RUNTIME_UNPINNED_DEPENDENCIES': 'JavaScript Runtime Unpinned Dependencies',
+            'INDIRECT_UNPINNABLE_ACTION': 'Indirect Unpinnable Action',
+            'REMOTE_CODE_NO_INTEGRITY': 'Remote Code Without Integrity',
+            'UNPINNED_PACKAGE_INSTALL': 'Unpinned Package Installation',
+            'ACTION_METADATA_UNAVAILABLE': 'Action Metadata Unavailable',
+            'ANALYSIS_ERROR': 'Analysis Error'
+        };
+        return findingNames[ruleId] || ruleId;
+    }
+
+    /**
+     * Scroll to audit findings section
+     */
+    scrollToAuditFindings() {
+        const section = document.getElementById('audit-findings-section');
+        if (section) {
+            section.scrollIntoView({ behavior: 'smooth', block: 'start' });
         }
     }
 
