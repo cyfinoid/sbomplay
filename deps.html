@@ -2377,6 +2377,50 @@
             const depInfo = allDependencies.find(d => `${d.name}@${d.version}` === targetPkgKey);
             const isDirect = depInfo ? depInfo.type === 'direct' : false;
             
+            // Fetch version drift data
+            let driftData = null;
+            let staleness = null;
+            if (packageEcosystem && packageVersion && packageName && window.versionDriftAnalyzer) {
+                try {
+                    // Normalize ecosystem for packageKey
+                    let ecosystem = packageEcosystem.toLowerCase();
+                    if (ecosystem === 'rubygems' || ecosystem === 'gem') {
+                        ecosystem = 'gem';
+                    } else if (ecosystem === 'go' || ecosystem === 'golang') {
+                        ecosystem = 'golang';
+                    } else if (ecosystem === 'packagist' || ecosystem === 'composer') {
+                        ecosystem = 'composer';
+                    }
+                    const driftPackageKey = `${ecosystem}:${packageName}`;
+                    
+                    // Get version drift from cache
+                    driftData = await window.versionDriftAnalyzer.getVersionDriftFromCache(driftPackageKey, packageVersion);
+                    
+                    // If not in cache, try to fetch
+                    if (!driftData) {
+                        driftData = await window.versionDriftAnalyzer.checkVersionDrift(
+                            packageName,
+                            packageVersion,
+                            packageEcosystem
+                        );
+                    }
+                    
+                    // Get staleness if available
+                    if (driftData && driftData.staleness) {
+                        staleness = driftData.staleness;
+                    } else if (driftData && !driftData.hasMajorUpdate && !driftData.hasMinorUpdate) {
+                        // Only check staleness if no updates available
+                        staleness = await window.versionDriftAnalyzer.checkStaleness(
+                            packageName,
+                            packageVersion,
+                            packageEcosystem
+                        );
+                    }
+                } catch (e) {
+                    console.warn('Failed to fetch version drift data:', e);
+                }
+            }
+            
             // Get current organization context for the link
             const currentOrg = document.getElementById('analysisSelector')?.value || '__ALL__';
             const orgParamForLink = (currentOrg === '__ALL__' || currentOrg === 'All Projects (Combined)') ? '__ALL__' : currentOrg;
@@ -2391,181 +2435,161 @@
                 return `deps.html?${params.toString()}`;
             };
             
-            // Build HTML - Section 1: Basic Information
+            // Build HTML - Compact layout with two columns
             let html = `
-                <div class="row">
-                    <div class="col-12">
-                        <h6><i class="fas fa-info-circle me-2"></i>Basic Information</h6>
-                        <table class="table table-sm">
-                            <tr>
-                                <th width="20%">Package:</th>
-                                <td><code>${escapeHtml(packageName)}@${escapeHtml(packageVersion)}</code></td>
-                            </tr>
-                            <tr>
-                                <th>Ecosystem:</th>
-                                <td><span class="badge ${isDirect ? 'bg-primary' : 'bg-secondary'} text-white">${escapeHtml(packageEcosystem)}</span></td>
-                            </tr>
-                            <tr>
-                                <th>Type:</th>
-                                <td>${isDirect ? '<span class="badge bg-primary text-white">Direct</span>' : '<span class="badge bg-secondary text-white">Transitive</span>'}</td>
-                            </tr>
-                            ${githubActionOwner ? `
-                            <tr>
-                                <th>Hosted by:</th>
-                                <td>
-                                    ${githubActionRepoInfo && githubActionRepoInfo.ownerUrl 
-                                        ? `<a href="${escapeHtml(githubActionRepoInfo.ownerUrl)}" target="_blank" rel="noreferrer noopener" class="text-decoration-none"><i class="fab fa-github me-1"></i>${escapeHtml(githubActionOwner)}</a>`
-                                        : `<i class="fab fa-github me-1"></i>${escapeHtml(githubActionOwner)}`
-                                    }
-                                    ${githubActionRepoInfo && githubActionRepoInfo.repoUrl 
-                                        ? ` <a href="${escapeHtml(githubActionRepoInfo.repoUrl)}" target="_blank" rel="noreferrer noopener" class="text-decoration-none ms-2" title="View repository"><i class="fas fa-external-link-alt"></i></a>`
-                                        : ''
-                                    }
-                                </td>
-                            </tr>
-                            ` : ''}
-                            <tr>
-                                <th>License:</th>
-                                <td>
-                                    <span title="${escapeHtml(licenseInfo.license || 'Unknown')}">
-                                        ${escapeHtml(licenseInfo.license || 'Unknown')}
-                                    </span>
-                                    ${licenseInfo.category !== 'unknown' ? `<span class="badge bg-info ms-2">${licenseInfo.category}</span>` : ''}
-                                </td>
-                            </tr>
-                        </table>
+                <div class="row g-3">
+                    <!-- Left Column: Basic Info & Version Status -->
+                    <div class="col-md-6">
+                        <div class="card h-100">
+                            <div class="card-body">
+                                <h6 class="card-title"><i class="fas fa-info-circle me-2"></i>Package Info</h6>
+                                <div class="mb-2">
+                                    <strong>${escapeHtml(packageName)}</strong>
+                                    <code class="ms-2 small">v${escapeHtml(packageVersion)}</code>
+                                </div>
+                                <div class="d-flex flex-wrap gap-2 mb-2">
+                                    <span class="badge ${isDirect ? 'bg-primary' : 'bg-secondary'} text-white">${escapeHtml(packageEcosystem)}</span>
+                                    <span class="badge ${isDirect ? 'bg-primary' : 'bg-secondary'} text-white">${isDirect ? 'Direct' : 'Transitive'}</span>
+                                    <span class="badge bg-info" title="${escapeHtml(licenseInfo.license || 'Unknown')}">${escapeHtml(licenseInfo.license || 'Unknown')}</span>
+                                </div>
+                                ${driftData && driftData.latestVersion ? `
+                                    <div class="mt-2">
+                                        ${driftData.hasMajorUpdate ? `
+                                            <div class="alert alert-danger py-2 mb-0">
+                                                <i class="fas fa-arrow-up me-1"></i><strong>Major update available:</strong> v${escapeHtml(driftData.latestVersion)}
+                                            </div>
+                                        ` : driftData.hasMinorUpdate ? `
+                                            <div class="alert alert-warning py-2 mb-0">
+                                                <i class="fas fa-arrow-up me-1"></i><strong>Minor update available:</strong> v${escapeHtml(driftData.latestVersion)}
+                                            </div>
+                                        ` : staleness && staleness.isStale ? `
+                                            <div class="alert alert-warning py-2 mb-0">
+                                                <i class="fas fa-clock me-1"></i><strong>Stale:</strong> Last release ${staleness.monthsSinceRelease} months ago
+                                            </div>
+                                        ` : `
+                                            <div class="alert alert-success py-2 mb-0">
+                                                <i class="fas fa-check me-1"></i>Up to date (v${escapeHtml(driftData.latestVersion)})
+                                            </div>
+                                        `}
+                                    </div>
+                                ` : ''}
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Right Column: Links & Quick Actions -->
+                    <div class="col-md-6">
+                        <div class="card h-100">
+                            <div class="card-body">
+                                <h6 class="card-title"><i class="fas fa-link me-2"></i>Links</h6>
+                                <div class="d-grid gap-2">
+                                    ${githubRepoUrl ? `
+                                        <a href="${escapeHtml(githubRepoUrl)}" target="_blank" rel="noreferrer noopener" class="btn btn-outline-dark btn-sm">
+                                            <i class="fab fa-github me-1"></i>GitHub Source
+                                        </a>
+                                    ` : ''}
+                                    ${registryUrl ? `
+                                        <a href="${escapeHtml(registryUrl)}" target="_blank" rel="noreferrer noopener" class="btn btn-outline-primary btn-sm">
+                                            <i class="fas fa-box me-1"></i>Package Registry
+                                        </a>
+                                    ` : ''}
+                                    ${githubActionOwner && githubActionRepoInfo && githubActionRepoInfo.repoUrl ? `
+                                        <a href="${escapeHtml(githubActionRepoInfo.repoUrl)}" target="_blank" rel="noreferrer noopener" class="btn btn-outline-secondary btn-sm">
+                                            <i class="fab fa-github me-1"></i>Action Repository
+                                        </a>
+                                    ` : ''}
+                                </div>
+                                ${packageRepos && packageRepos.length > 0 ? `
+                                    <div class="mt-3">
+                                        <small class="text-muted d-block mb-1">Used in ${packageRepos.length} ${packageRepos.length === 1 ? 'repository' : 'repositories'}</small>
+                                        <div class="d-flex flex-wrap gap-1">
+                                            ${packageRepos.slice(0, 3).map(repo => `
+                                                <a href="${createRepoLink(repo)}" class="badge bg-primary text-decoration-none">${escapeHtml(repo)}</a>
+                                            `).join('')}
+                                            ${packageRepos.length > 3 ? `<span class="badge bg-secondary">+${packageRepos.length - 3} more</span>` : ''}
+                                        </div>
+                                    </div>
+                                ` : ''}
+                            </div>
+                        </div>
                     </div>
                 </div>
             `;
             
-            // Section 2: Repository Links
-            if (githubRepoUrl || registryUrl) {
-                html += `
-                    <div class="row mt-3">
-                        <div class="col-12">
-                            <h6><i class="fas fa-link me-2"></i>Repository Links</h6>
-                            <div class="d-flex flex-wrap gap-2">
-                                ${githubRepoUrl ? `
-                                    <a href="${escapeHtml(githubRepoUrl)}" target="_blank" rel="noreferrer noopener" class="btn btn-outline-dark btn-sm">
-                                        <i class="fab fa-github me-1"></i>GitHub Source
-                                    </a>
-                                ` : ''}
-                                ${registryUrl ? `
-                                    <a href="${escapeHtml(registryUrl)}" target="_blank" rel="noreferrer noopener" class="btn btn-outline-primary btn-sm">
-                                        <i class="fas fa-box me-1"></i>Package Registry
-                                    </a>
-                                ` : ''}
-                            </div>
-                        </div>
-                    </div>
-                `;
-            }
+            // Additional sections in compact layout
+            html += `<div class="row g-3 mt-2">`;
             
-            // Package warnings section (maintenance and deprecation) - Section 3
-            let warningsHtml = '';
+            // Warnings section (if any)
             if (packageData && packageData.warnings) {
                 const warnings = packageData.warnings;
-                warningsHtml = '<div class="row mt-3"><div class="col-12">';
-                
-                // Deprecation warning (highest priority)
+                html += `<div class="col-12">`;
                 if (warnings.isDeprecated) {
-                    warningsHtml += `
-                        <div class="alert alert-danger">
-                            <h6><i class="fas fa-exclamation-triangle me-2"></i>🚨 Deprecated Package</h6>
-                            <p class="mb-1">This package has been deprecated and is no longer recommended for use.</p>
-                            ${warnings.replacement ? `<p class="mb-0"><strong>Consider migrating to:</strong> <code>${escapeHtml(warnings.replacement)}</code></p>` : ''}
+                    html += `
+                        <div class="alert alert-danger py-2 mb-0">
+                            <i class="fas fa-exclamation-triangle me-1"></i><strong>Deprecated</strong>
+                            ${warnings.replacement ? ` - Consider migrating to: <code>${escapeHtml(warnings.replacement)}</code>` : ''}
+                        </div>
+                    `;
+                } else if (warnings.isUnmaintained) {
+                    const warningText = warnings.warningType === 'out-of-support' ? 'Out of support' : 'Unmaintained';
+                    html += `
+                        <div class="alert alert-warning py-2 mb-0">
+                            <i class="fas fa-exclamation-triangle me-1"></i><strong>${warningText}</strong> - May not receive security updates
                         </div>
                     `;
                 }
-                
-                // Maintenance warning (if not deprecated)
-                if (warnings.isUnmaintained && !warnings.isDeprecated) {
-                    const warningText = warnings.warningType === 'out-of-support' 
-                        ? '⚠️ This package is out of support'
-                        : '⚠️ This package is no longer maintained';
-                    warningsHtml += `
-                        <div class="alert alert-warning">
-                            <h6><i class="fas fa-exclamation-triangle me-2"></i>${warningText}</h6>
-                            <p class="mb-0">This package may not receive security updates or bug fixes.</p>
-                        </div>
-                    `;
-                }
-                
-                warningsHtml += '</div></div>';
+                html += `</div>`;
             }
             
-            html += warningsHtml;
-            
-            // Sponsorship section - Section 4
+            // Sponsorship section (compact)
             if (funding) {
                 const platforms = [];
                 if (funding.github) {
                     const githubUrl = funding.githubUrl || funding.url || `https://github.com/sponsors/${encodeURIComponent(packageName)}`;
-                    platforms.push(`<a href="${githubUrl}" target="_blank" class="btn btn-outline-dark btn-sm me-2"><i class="fab fa-github me-1"></i>GitHub Sponsors</a>`);
+                    platforms.push(`<a href="${githubUrl}" target="_blank" rel="noreferrer noopener" class="btn btn-outline-dark btn-sm"><i class="fab fa-github me-1"></i>GitHub</a>`);
                 }
                 if (funding.opencollective) {
                     const ocUrl = funding.opencollectiveUrl || funding.url;
                     if (ocUrl) {
-                        platforms.push(`<a href="${ocUrl}" target="_blank" class="btn btn-outline-primary btn-sm me-2"><i class="fas fa-hand-holding-usd me-1"></i>Open Collective</a>`);
+                        platforms.push(`<a href="${ocUrl}" target="_blank" rel="noreferrer noopener" class="btn btn-outline-primary btn-sm"><i class="fas fa-hand-holding-usd me-1"></i>Open Collective</a>`);
                     }
                 }
                 if (funding.patreon) {
                     const patreonUrl = funding.patreonUrl || funding.url || `https://patreon.com/${encodeURIComponent(packageName)}`;
-                    platforms.push(`<a href="${patreonUrl}" target="_blank" class="btn btn-outline-danger btn-sm me-2"><i class="fab fa-patreon me-1"></i>Patreon</a>`);
+                    platforms.push(`<a href="${patreonUrl}" target="_blank" rel="noreferrer noopener" class="btn btn-outline-danger btn-sm"><i class="fab fa-patreon me-1"></i>Patreon</a>`);
                 }
                 if (funding.tidelift) {
                     const tideliftUrl = funding.tideliftUrl || funding.url;
                     if (tideliftUrl) {
-                        platforms.push(`<a href="${tideliftUrl}" target="_blank" class="btn btn-outline-warning btn-sm me-2"><i class="fas fa-gift me-1"></i>Tidelift</a>`);
+                        platforms.push(`<a href="${tideliftUrl}" target="_blank" rel="noreferrer noopener" class="btn btn-outline-warning btn-sm"><i class="fas fa-gift me-1"></i>Tidelift</a>`);
                     }
                 }
                 if (platforms.length > 0) {
                     html += `
-                        <div class="mt-3">
-                            <h6><i class="fas fa-heart text-danger me-2"></i>Sponsorship Opportunities</h6>
-                            <p class="mb-2">This package accepts donations/sponsorships:</p>
-                            <div>${platforms.join('')}</div>
+                        <div class="col-12">
+                            <div class="card">
+                                <div class="card-body py-2">
+                                    <small class="text-muted d-block mb-1"><i class="fas fa-heart text-danger me-1"></i>Sponsorship</small>
+                                    <div class="d-flex flex-wrap gap-1">${platforms.join('')}</div>
+                                </div>
+                            </div>
                         </div>
                     `;
                 } else if (funding.url) {
                     html += `
-                        <div class="mt-3">
-                            <h6><i class="fas fa-heart text-danger me-2"></i>Sponsorship Opportunities</h6>
-                            <p class="mb-2">This package accepts donations/sponsorships:</p>
-                            <a href="${funding.url}" target="_blank" class="btn btn-outline-success btn-sm"><i class="fas fa-donate me-1"></i>Support</a>
+                        <div class="col-12">
+                            <div class="card">
+                                <div class="card-body py-2">
+                                    <small class="text-muted d-block mb-1"><i class="fas fa-heart text-danger me-1"></i>Sponsorship</small>
+                                    <a href="${funding.url}" target="_blank" rel="noreferrer noopener" class="btn btn-outline-success btn-sm"><i class="fas fa-donate me-1"></i>Support</a>
+                                </div>
+                            </div>
                         </div>
                     `;
                 }
-            } else {
-                html += `
-                    <div class="mt-3">
-                        <h6><i class="fas fa-heart me-2"></i>Sponsorship</h6>
-                        <p class="text-muted mb-0">No sponsorship information available for this package.</p>
-                    </div>
-                `;
             }
             
-            // Section 5: Usage (where dependency is used)
-            if (packageRepos && packageRepos.length > 0) {
-                html += `
-                    <div class="row mt-3">
-                        <div class="col-12">
-                            <h6><i class="fas fa-code-branch me-2"></i>Usage</h6>
-                            <p class="mb-2">This dependency is used in <strong>${packageRepos.length}</strong> ${packageRepos.length === 1 ? 'repository' : 'repositories'}:</p>
-                            <div class="list-group">
-                                ${packageRepos.map(repo => `
-                                    <div class="list-group-item">
-                                        <i class="fas fa-code-branch me-2 text-primary"></i>
-                                        <a href="${createRepoLink(repo)}" class="text-decoration-none">
-                                            <strong>${escapeHtml(repo)}</strong>
-                                        </a>
-                                    </div>
-                                `).join('')}
-                            </div>
-                        </div>
-                    </div>
-                `;
-            }
+            html += `</div>`;
             
             // Authors section - Section 6
             // SIMPLIFIED: For GitHub Actions, match on owner/repo/path only (ignore ref)
@@ -2618,34 +2642,30 @@
             
             if (displayAuthors && displayAuthors.length > 0) {
                 html += `
-                    <div class="mt-3">
-                        <h6><i class="fas fa-users me-2"></i>Authors & Maintainers${enrichedAuthors ? ' <span class="badge bg-success bg-opacity-25 ms-1" title="Enriched author data from GitHub Actions analysis">✓</span>' : ''}</h6>
-                        <div class="list-group">
-                            ${displayAuthors.map(author => {
-                                const authorName = author.name || author.author || author.login || 'Unknown';
-                                const authorEmail = author.email || '';
-                                const authorUrl = author.html_url || author.url || '';
-                                const isMaintainer = author.isMaintainer || false;
-                                return `
-                                    <div class="list-group-item">
-                                        <div class="d-flex justify-content-between align-items-center">
-                                            <div>
-                                                ${authorUrl ? `<a href="${escapeHtml(authorUrl)}" target="_blank" rel="noreferrer noopener" class="text-decoration-none"><strong>${escapeHtml(authorName)}</strong></a>` : `<strong>${escapeHtml(authorName)}</strong>`}
-                                                ${isMaintainer ? '<span class="badge bg-primary ms-2">Maintainer</span>' : ''}
-                                                ${authorEmail ? `<br><small class="text-muted">${escapeHtml(authorEmail)}</small>` : ''}
-                                            </div>
-                                        </div>
+                    <div class="row mt-2">
+                        <div class="col-12">
+                            <div class="card">
+                                <div class="card-body py-2">
+                                    <small class="text-muted d-block mb-2">
+                                        <i class="fas fa-users me-1"></i>Authors & Maintainers
+                                        ${enrichedAuthors ? ' <span class="badge bg-success bg-opacity-25" title="Enriched data">✓</span>' : ''}
+                                    </small>
+                                    <div class="d-flex flex-wrap gap-2">
+                                        ${displayAuthors.map(author => {
+                                            const authorName = author.name || author.author || author.login || 'Unknown';
+                                            const authorUrl = author.html_url || author.url || '';
+                                            const isMaintainer = author.isMaintainer || false;
+                                            return `
+                                                <div class="d-flex align-items-center">
+                                                    ${authorUrl ? `<a href="${escapeHtml(authorUrl)}" target="_blank" rel="noreferrer noopener" class="text-decoration-none">${escapeHtml(authorName)}</a>` : `<span>${escapeHtml(authorName)}</span>`}
+                                                    ${isMaintainer ? '<span class="badge bg-primary ms-1 small">M</span>' : ''}
+                                                </div>
+                                            `;
+                                        }).join('')}
                                     </div>
-                                `;
-                            }).join('')}
+                                </div>
+                            </div>
                         </div>
-                    </div>
-                `;
-            } else {
-                html += `
-                    <div class="mt-3">
-                        <h6><i class="fas fa-users me-2"></i>Authors</h6>
-                        <p class="text-muted mb-0">No author information available for this package.</p>
                     </div>
                 `;
             }
