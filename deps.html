@@ -178,11 +178,7 @@
                     <thead>
                         <tr>
                             <th class="sortable" data-sort="name">
-                                Package
-                                <i class="fas fa-sort sort-icon"></i>
-                            </th>
-                            <th class="sortable" data-sort="type">
-                                Type
+                                Dependency
                                 <i class="fas fa-sort sort-icon"></i>
                             </th>
                             <th class="sortable" data-sort="ecosystem">
@@ -190,13 +186,13 @@
                                 <i class="fas fa-sort sort-icon"></i>
                             </th>
                             <th class="sortable" data-sort="repoCount">
-                                Used In
+                                Repos
                                 <i class="fas fa-sort sort-icon"></i>
                             </th>
-                            <th class="text-center">Vulnerabilities</th>
+                            <th class="text-center">Vulns</th>
                             <th>License</th>
-                            <th class="text-center">Sponsorship</th>
-                            <th>Brought In By</th>
+                            <th class="text-center">Sponsor</th>
+                            <th>Parent</th>
                         </tr>
                     </thead>
                     <tbody id="tableBody">
@@ -2018,6 +2014,8 @@
                 const packageLink = versionInName ? packageNameEscaped : `${packageNameEscaped}@${versionDisplay}`;
                 // Version drift badge placeholder (will be populated asynchronously)
                 const driftBadgeId = `drift-${startIndex + idx}`;
+                // Ecosystem-Type badge: blue (bg-primary) for direct, grey (bg-secondary) for transitive
+                const ecosystemBadgeClass = dep.type === 'direct' ? 'bg-primary' : 'bg-secondary';
                 tr.innerHTML = `
                     <td>
                         <a href="#" class="package-link text-primary text-decoration-none" 
@@ -2031,8 +2029,7 @@
                         </a>
                         <span id="${driftBadgeId}" class="ms-2"></span>
                     </td>
-                    <td><span class="badge badge-${dep.type}">${dep.type}</span></td>
-                    <td>${escapeHtml(dep.ecosystem)}</td>
+                    <td><span class="badge ${ecosystemBadgeClass} text-white">${escapeHtml(dep.ecosystem)}</span></td>
                     <td>
                         <span class="clickable-cell" data-repos='${JSON.stringify(dep.repositories)}' data-package='${escapeHtml(dep.name)}'>
                             ${dep.repoCount} ${dep.repoCount === 1 ? 'repo' : 'repos'}
@@ -2043,7 +2040,7 @@
                     ${sponsorshipCell}
                     <td>
                         ${dep.type === 'direct' 
-                            ? '<span class="text-muted">Direct dependency</span>' 
+                            ? 'Direct' 
                             : dep.parents.length > 0 
                                 ? `<span class="clickable-cell" data-parents='${JSON.stringify(dep.parents)}' data-parents-by-repo='${JSON.stringify(dep.parentsByRepo).replace(/'/g, '&apos;')}' data-package='${escapeHtml(dep.name)}' data-package-version='${escapeHtml(dep.version)}'>${dep.parents.length} ${dep.parents.length === 1 ? 'parent' : 'parents'}</span>`
                                 : '<span class="text-muted">Unknown</span>'
@@ -2319,8 +2316,9 @@
                 licenseInfo = licenseProcessor.parseLicense(packageRaw.originalPackage);
             }
             
-            // Extract GitHub repository URL from package metadata
+            // Extract GitHub repository URL and package registry URLs from package metadata
             let githubRepoUrl = null;
+            let registryUrl = null;
             if (packageRaw && packageRaw.originalPackage && packageRaw.originalPackage.externalRefs) {
                 // Check externalRefs for repository URLs
                 for (const ref of packageRaw.originalPackage.externalRefs) {
@@ -2344,12 +2342,40 @@
                             const match = purl.match(/github\.com[\/:]([^\/]+)\/([^\/\s]+)/i);
                             if (match) {
                                 githubRepoUrl = `https://github.com/${match[1]}/${match[2]}`;
-                                break;
                             }
                         }
                     }
                 }
             }
+            
+            // Build package registry URL based on ecosystem
+            const ecosystemLower = packageEcosystem.toLowerCase();
+            if (ecosystemLower === 'npm' || ecosystemLower === 'nodejs') {
+                registryUrl = `https://www.npmjs.com/package/${encodeURIComponent(packageName)}`;
+            } else if (ecosystemLower === 'pypi' || ecosystemLower === 'python') {
+                registryUrl = `https://pypi.org/project/${encodeURIComponent(packageName)}/`;
+            } else if (ecosystemLower === 'rubygems' || ecosystemLower === 'gem') {
+                registryUrl = `https://rubygems.org/gems/${encodeURIComponent(packageName)}`;
+            } else if (ecosystemLower === 'cargo' || ecosystemLower === 'rust') {
+                registryUrl = `https://crates.io/crates/${encodeURIComponent(packageName)}`;
+            } else if (ecosystemLower === 'maven' || ecosystemLower === 'java') {
+                // Maven coordinates format: groupId:artifactId
+                const parts = packageName.split(':');
+                if (parts.length >= 2) {
+                    const groupId = parts[0].replace(/\./g, '/');
+                    const artifactId = parts[1];
+                    registryUrl = `https://mvnrepository.com/artifact/${groupId}/${artifactId}`;
+                }
+            } else if (ecosystemLower === 'composer' || ecosystemLower === 'packagist' || ecosystemLower === 'php') {
+                registryUrl = `https://packagist.org/packages/${encodeURIComponent(packageName)}`;
+            } else if (ecosystemLower === 'go' || ecosystemLower === 'golang') {
+                registryUrl = `https://pkg.go.dev/${encodeURIComponent(packageName)}`;
+            }
+            
+            // Determine dependency type (direct or transitive)
+            const targetPkgKey = `${packageName}@${packageVersion}`;
+            const depInfo = allDependencies.find(d => `${d.name}@${d.version}` === targetPkgKey);
+            const isDirect = depInfo ? depInfo.type === 'direct' : false;
             
             // Get current organization context for the link
             const currentOrg = document.getElementById('analysisSelector')?.value || '__ALL__';
@@ -2365,7 +2391,7 @@
                 return `deps.html?${params.toString()}`;
             };
             
-            // Build HTML
+            // Build HTML - Section 1: Basic Information
             let html = `
                 <div class="row">
                     <div class="col-12">
@@ -2377,18 +2403,22 @@
                             </tr>
                             <tr>
                                 <th>Ecosystem:</th>
-                                <td><span class="badge bg-secondary">${escapeHtml(packageEcosystem)}</span></td>
+                                <td><span class="badge ${isDirect ? 'bg-primary' : 'bg-secondary'} text-white">${escapeHtml(packageEcosystem)}</span></td>
+                            </tr>
+                            <tr>
+                                <th>Type:</th>
+                                <td>${isDirect ? '<span class="badge bg-primary text-white">Direct</span>' : '<span class="badge bg-secondary text-white">Transitive</span>'}</td>
                             </tr>
                             ${githubActionOwner ? `
                             <tr>
                                 <th>Hosted by:</th>
                                 <td>
                                     ${githubActionRepoInfo && githubActionRepoInfo.ownerUrl 
-                                        ? `<a href="${escapeHtml(githubActionRepoInfo.ownerUrl)}" target="_blank" class="text-decoration-none"><i class="fab fa-github me-1"></i>${escapeHtml(githubActionOwner)}</a>`
+                                        ? `<a href="${escapeHtml(githubActionRepoInfo.ownerUrl)}" target="_blank" rel="noreferrer noopener" class="text-decoration-none"><i class="fab fa-github me-1"></i>${escapeHtml(githubActionOwner)}</a>`
                                         : `<i class="fab fa-github me-1"></i>${escapeHtml(githubActionOwner)}`
                                     }
                                     ${githubActionRepoInfo && githubActionRepoInfo.repoUrl 
-                                        ? ` <a href="${escapeHtml(githubActionRepoInfo.repoUrl)}" target="_blank" class="text-decoration-none ms-2" title="View repository"><i class="fas fa-external-link-alt"></i></a>`
+                                        ? ` <a href="${escapeHtml(githubActionRepoInfo.repoUrl)}" target="_blank" rel="noreferrer noopener" class="text-decoration-none ms-2" title="View repository"><i class="fas fa-external-link-alt"></i></a>`
                                         : ''
                                     }
                                 </td>
@@ -2403,22 +2433,35 @@
                                     ${licenseInfo.category !== 'unknown' ? `<span class="badge bg-info ms-2">${licenseInfo.category}</span>` : ''}
                                 </td>
                             </tr>
-                            ${githubRepoUrl ? `
-                            <tr>
-                                <th>Repository:</th>
-                                <td>
-                                    <a href="${escapeHtml(githubRepoUrl)}" target="_blank" class="text-decoration-none">
-                                        <i class="fab fa-github me-1"></i>${escapeHtml(githubRepoUrl)}
-                                    </a>
-                                </td>
-                            </tr>
-                            ` : ''}
                         </table>
                     </div>
                 </div>
             `;
             
-            // Package warnings section (maintenance and deprecation)
+            // Section 2: Repository Links
+            if (githubRepoUrl || registryUrl) {
+                html += `
+                    <div class="row mt-3">
+                        <div class="col-12">
+                            <h6><i class="fas fa-link me-2"></i>Repository Links</h6>
+                            <div class="d-flex flex-wrap gap-2">
+                                ${githubRepoUrl ? `
+                                    <a href="${escapeHtml(githubRepoUrl)}" target="_blank" rel="noreferrer noopener" class="btn btn-outline-dark btn-sm">
+                                        <i class="fab fa-github me-1"></i>GitHub Source
+                                    </a>
+                                ` : ''}
+                                ${registryUrl ? `
+                                    <a href="${escapeHtml(registryUrl)}" target="_blank" rel="noreferrer noopener" class="btn btn-outline-primary btn-sm">
+                                        <i class="fas fa-box me-1"></i>Package Registry
+                                    </a>
+                                ` : ''}
+                            </div>
+                        </div>
+                    </div>
+                `;
+            }
+            
+            // Package warnings section (maintenance and deprecation) - Section 3
             let warningsHtml = '';
             if (packageData && packageData.warnings) {
                 const warnings = packageData.warnings;
@@ -2453,7 +2496,7 @@
             
             html += warningsHtml;
             
-            // Sponsorship section
+            // Sponsorship section - Section 4
             if (funding) {
                 const platforms = [];
                 if (funding.github) {
@@ -2502,7 +2545,29 @@
                 `;
             }
             
-            // Authors section
+            // Section 5: Usage (where dependency is used)
+            if (packageRepos && packageRepos.length > 0) {
+                html += `
+                    <div class="row mt-3">
+                        <div class="col-12">
+                            <h6><i class="fas fa-code-branch me-2"></i>Usage</h6>
+                            <p class="mb-2">This dependency is used in <strong>${packageRepos.length}</strong> ${packageRepos.length === 1 ? 'repository' : 'repositories'}:</p>
+                            <div class="list-group">
+                                ${packageRepos.map(repo => `
+                                    <div class="list-group-item">
+                                        <i class="fas fa-code-branch me-2 text-primary"></i>
+                                        <a href="${createRepoLink(repo)}" class="text-decoration-none">
+                                            <strong>${escapeHtml(repo)}</strong>
+                                        </a>
+                                    </div>
+                                `).join('')}
+                            </div>
+                        </div>
+                    </div>
+                `;
+            }
+            
+            // Authors section - Section 6
             // SIMPLIFIED: For GitHub Actions, match on owner/repo/path only (ignore ref)
             let enrichedAuthors = null;
             if (packageEcosystem === 'GitHub Actions' && packageRaw._gaMetadata && packageRaw._gaMetadata.authors) {
@@ -2585,9 +2650,7 @@
                 `;
             }
             
-            // Dependency Chain section (for transitive dependencies)
-            const targetPkgKey = `${packageName}@${packageVersion}`;
-            const depInfo = allDependencies.find(d => `${d.name}@${d.version}` === targetPkgKey);
+            // Dependency Chain section (for transitive dependencies) - Section 7
             
             if (depInfo && depInfo.type === 'transitive' && depInfo.parentsByRepo && Object.keys(depInfo.parentsByRepo).length > 0) {
                 // Helper function to parse package name and version
@@ -3103,15 +3166,15 @@
             }
             
             const csv = [
-                ['Package', 'Type', 'Ecosystem', 'Repositories', 'Vulnerabilities (H/M/L)', 'License', 'Brought In By'].join(','),
+                ['Dependency', 'Ecosystem - Type', 'Repos', 'Vulns (H/M/L)', 'License', 'Sponsor', 'Parent'].join(','),
                 ...filtered.map(dep => [
                     `"${dep.name}@${dep.version}"`,
-                    dep.type,
-                    dep.ecosystem,
+                    `"${dep.ecosystem} - ${dep.type}"`,
                     `"${dep.repositories.join(', ')}"`,
                     `"H:${dep.vulnHigh} M:${dep.vulnMedium} L:${dep.vulnLow}"`,
                     `"${getLicenseInfoForCSV(dep)}"`,
-                    dep.type === 'direct' ? 'N/A' : `"${dep.parents.join(', ')}"`
+                    dep.funding ? 'Yes' : 'No',
+                    dep.type === 'direct' ? 'Direct' : (dep.parents.length > 0 ? `"${dep.parents.join(', ')}"` : 'Unknown')
                 ].join(','))
             ].join('\n');
             
