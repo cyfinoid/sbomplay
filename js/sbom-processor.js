@@ -194,76 +194,83 @@ class SBOMProcessor {
                 return;
             }
             
-            if (pkg.name && version) {
-                const depKey = `${pkg.name}@${version}`;
-                repoData.dependencies.add(depKey);
-                processedPackages++;
-                
-                // Check if this is a direct dependency (directly from main package)
-                const isDirect = repoData.relationships.some(rel => 
-                    rel.to === pkg.SPDXID && rel.isDirectFromMain
-                );
-                if (isDirect) {
-                    repoData.directDependencies.add(depKey);
-                }
-                
-                // Categorize the dependency
-                const category = this.categorizeDependency(pkg);
-                repoData.languages.add(category.language);
-                
-                // Add to appropriate category
-                repoData.dependencyCategories[category.type].add(depKey);
-                
-                // Extract GitHub Actions owner/repo if this is a GitHub Action
-                let githubActionInfo = null;
-                if (category.ecosystem === 'GitHub Actions' || category.isWorkflow) {
-                    githubActionInfo = this.parseGitHubAction(pkg.name);
-                }
-                
-                // Track global dependency usage
-                if (!this.dependencies.has(depKey)) {
-                    this.dependencies.set(depKey, {
-                        name: pkg.name,
-                        version: version,
-                        repositories: new Set(),
-                        count: 0,
-                        category: category,
-                        languages: new Set([category.language]),
-                        originalPackage: pkg,  // Store original package data for PURL extraction
-                        directIn: new Set(),  // Track which repos use this as direct dependency
-                        transitiveIn: new Set(),  // Track which repos use this as transitive dependency
-                        githubActionInfo: githubActionInfo  // Store parsed GitHub Action info
-                    });
-                }
-                
-                const dep = this.dependencies.get(depKey);
-                dep.repositories.add(repoKey);
-                dep.count++;
-                dep.languages.add(category.language);
-                
-                // Update GitHub Action info if not already set
-                if (githubActionInfo && !dep.githubActionInfo) {
-                    dep.githubActionInfo = githubActionInfo;
-                }
-                
-                // Track if it's direct or transitive in this repo
-                if (isDirect) {
-                    dep.directIn.add(repoKey);
-                } else {
-                    dep.transitiveIn.add(repoKey);
-                }
-                
-                // Log first few packages for debugging
-                if (index < 3) {
-                    console.log(`  📦 Package ${index + 1}: ${pkg.name}@${version} (${category.type}/${category.language})`);
-                }
-            } else {
+            // Skip packages without names (cannot identify dependency)
+            if (!pkg.name) {
                 skippedPackages++;
-                if (!pkg.name) {
-                    console.log(`⚠️  Package missing name in ${owner}/${repo}`);
-                } else if (!version) {
-                    console.log(`⚠️  Package missing version in ${owner}/${repo}: ${pkg.name}`);
-                }
+                console.log(`⚠️  Package missing name in ${owner}/${repo}`);
+                return;
+            }
+            
+            // Use "version unknown" as placeholder when version is missing
+            // This ensures dependencies without versions are still tracked and displayed
+            const displayVersion = version || 'version unknown';
+            const depKey = `${pkg.name}@${displayVersion}`;
+            repoData.dependencies.add(depKey);
+            processedPackages++;
+            
+            // Log warning if version is missing
+            if (!version) {
+                console.log(`⚠️  Package missing version in ${owner}/${repo}: ${pkg.name} (using "version unknown")`);
+            }
+            
+            // Check if this is a direct dependency (directly from main package)
+            const isDirect = repoData.relationships.some(rel => 
+                rel.to === pkg.SPDXID && rel.isDirectFromMain
+            );
+            if (isDirect) {
+                repoData.directDependencies.add(depKey);
+            }
+            
+            // Categorize the dependency
+            const category = this.categorizeDependency(pkg);
+            repoData.languages.add(category.language);
+            
+            // Add to appropriate category
+            repoData.dependencyCategories[category.type].add(depKey);
+            
+            // Extract GitHub Actions owner/repo if this is a GitHub Action
+            let githubActionInfo = null;
+            if (category.ecosystem === 'GitHub Actions' || category.isWorkflow) {
+                githubActionInfo = this.parseGitHubAction(pkg.name);
+            }
+            
+            // Track global dependency usage
+            if (!this.dependencies.has(depKey)) {
+                this.dependencies.set(depKey, {
+                    name: pkg.name,
+                    version: displayVersion,
+                    repositories: new Set(),
+                    count: 0,
+                    category: category,
+                    languages: new Set([category.language]),
+                    originalPackage: pkg,  // Store original package data for PURL extraction
+                    directIn: new Set(),  // Track which repos use this as direct dependency
+                    transitiveIn: new Set(),  // Track which repos use this as transitive dependency
+                    githubActionInfo: githubActionInfo,  // Store parsed GitHub Action info
+                    versionUnknown: !version  // Flag to indicate version was missing
+                });
+            }
+            
+            const dep = this.dependencies.get(depKey);
+            dep.repositories.add(repoKey);
+            dep.count++;
+            dep.languages.add(category.language);
+            
+            // Update GitHub Action info if not already set
+            if (githubActionInfo && !dep.githubActionInfo) {
+                dep.githubActionInfo = githubActionInfo;
+            }
+            
+            // Track if it's direct or transitive in this repo
+            if (isDirect) {
+                dep.directIn.add(repoKey);
+            } else {
+                dep.transitiveIn.add(repoKey);
+            }
+            
+            // Log first few packages for debugging
+            if (index < 3) {
+                console.log(`  📦 Package ${index + 1}: ${pkg.name}@${displayVersion} (${category.type}/${category.language})`);
             }
         });
 

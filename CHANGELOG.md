@@ -9,6 +9,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+#### Audit Findings Enhancements
+- **Unified Audit Findings View**: Consolidated GitHub Actions and SBOM Deficiencies into a single, unified audit findings section
+  - Collapsible accordion sections for each finding type (default expanded)
+  - Finding type descriptions shown once per type (eliminates redundant copy-pasted data)
+  - Cleaner instance tables without redundant "Description" and "Additional Details" columns
+  - Findings grouped by type and sorted by severity (high → low) then by instance count
+  - Category badges (GitHub Actions vs SBOM) for easy identification
+  - Instance count badges showing number of occurrences per finding type
+
+- **GitHub Actions Finding Links**: Direct links to GitHub files with line numbers for audit findings
+  - File and line number information extracted from workflow analysis
+  - Clickable links format: `filename:line` (e.g., `workflow.yml:42`)
+  - Links open directly to the specific line in GitHub's web interface
+  - URL format: `https://github.com/owner/repo/blob/ref/path/to/file#L123`
+  - Falls back to message display when file/line info unavailable
+
+- **SBOM Finding Navigation**: Repository links in SBOM deficiency findings now redirect to dependency view
+  - SBOM finding repository links navigate to `deps.html` with repository filter applied
+  - Preserves organization context in URL parameters
+  - Enables quick navigation from audit findings to affected dependencies
+  - URL format: `deps.html?org=organization&repo=owner/repo` or `deps.html?repo=owner/repo`
+
 #### URL Parameter Support
 - **Repository Filter Parameter**: Added `repo` URL parameter support across multiple pages
   - `deps.html` - Filters dependencies by repository
@@ -35,6 +57,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - URL parameter support (`org`, `search`)
 
 ### Changed
+
+#### Audit Findings UI/UX Improvements
+- **Streamlined Audit Findings Display**: Refactored audit findings to eliminate redundant information
+  - Removed redundant "Description" and "Additional Details" columns from instance tables
+  - Finding descriptions now shown once per type in collapsible accordion headers
+  - Instance tables focus on actionable information (Action/Repository + Location/Context)
+  - Reduced visual clutter and improved information density
+  - Better organization with collapsible sections for easier navigation
+
+- **Consolidated Audit Sections**: Unified GitHub Actions and SBOM Deficiencies into single flow
+  - Both finding types now displayed in unified "Security & SBOM Audit Findings" section
+  - Consistent presentation and interaction patterns across all audit finding types
+  - Removed separate `generateSBOMAuditHTML` function (now handled by unified approach)
+  - Improved maintainability with single code path for audit findings display
 
 #### Theme & Visual Improvements
 - **Enhanced Dark Mode Support**: Comprehensive theme fixes for better readability

@@ -24,7 +24,6 @@
                 <a class="nav-link" href="licenses.html">License</a>
                 <a class="nav-link" href="vuln.html">Vulns</a>
                 <a class="nav-link active" href="audit.html">Audit</a>
-                <a class="nav-link" href="quality.html">Quality</a>
                 <a class="nav-link" href="deps.html">Deps</a>
                 <a class="nav-link" href="repos.html">Repos</a>
                 <a class="nav-link" href="authors.html">Authors</a>
@@ -71,13 +70,13 @@
         <div class="card mb-4">
             <div class="card-body">
                 <div class="row">
-                    <div class="col-md-6">
+                    <div class="col-md-4">
                         <label class="form-label">Select Analysis</label>
                         <select class="form-select" id="analysisSelector">
                             <option value="__ALL__">All Projects (Combined)</option>
                         </select>
                     </div>
-                    <div class="col-md-3">
+                    <div class="col-md-2">
                         <label class="form-label">Filter by Severity</label>
                         <select class="form-select" id="severityFilter">
                             <option value="all">All Severities</option>
@@ -92,7 +91,17 @@
                             <option value="all">All Sections</option>
                             <option value="github-actions">GitHub Actions</option>
                             <option value="package-deprecation">Package Deprecation</option>
+                            <option value="sbom-deficiencies">SBOM Deficiencies</option>
+                            <option value="version-drift">Version Drift</option>
+                            <option value="stale-dependencies">Stale Dependencies</option>
+                            <option value="license-compatibility">License Compatibility</option>
                             <option value="repository-audit">Repository Audit</option>
+                        </select>
+                    </div>
+                    <div class="col-md-3">
+                        <label class="form-label">Filter by Repository</label>
+                        <select class="form-select" id="repoFilter">
+                            <option value="all">All Repositories</option>
                         </select>
                     </div>
                 </div>
@@ -192,6 +201,8 @@
     <script src="js/view-manager.js?v=0.0.14"></script>
     <script src="js/license-processor.js?v=0.0.14"></script>
     <script src="js/sbom-processor.js?v=0.0.14"></script>
+    <script src="js/sbom-quality-processor.js?v=0.0.14"></script>
+    <script src="js/version-drift-analyzer.js?v=0.0.14"></script>
     <script src="js/storage-manager.js?v=0.0.14"></script>
     <script src="js/github-client.js?v=0.0.14"></script>
     <script src="js/app.js?v=0.0.14"></script>

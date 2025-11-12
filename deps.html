@@ -21,7 +21,6 @@
                 <a class="nav-link" href="licenses.html">License</a>
                 <a class="nav-link" href="vuln.html">Vulns</a>
                 <a class="nav-link" href="audit.html">Audit</a>
-                <a class="nav-link" href="quality.html">Quality</a>
                 <a class="nav-link active" href="deps.html">Deps</a>
                 <a class="nav-link" href="repos.html">Repos</a>
                 <a class="nav-link" href="authors.html">Authors</a>
@@ -1137,7 +1136,8 @@
             
             // If still no license and this is a PyPI package, check if license is already stored
             // If not stored, mark for async fetch
-            if (!isEnriched && licenseFull === 'Unknown' && dep.ecosystem === 'PyPI' && dep.name && dep.version) {
+            // Skip if version is unknown (cannot query PyPI API without version)
+            if (!isEnriched && licenseFull === 'Unknown' && dep.ecosystem === 'PyPI' && dep.name && dep.version && dep.version !== 'version unknown') {
                 // Check if license was already fetched and stored in the raw dependency data
                 if (dep.raw && dep.raw.licenseFull && dep.raw.licenseFull !== 'Unknown') {
                     // Use stored license from raw data
@@ -1420,7 +1420,8 @@
                         }
                         
                         // Check staleness if not already found an issue
-                        if (!hasStatusIssue && dep.ecosystem && dep.version && dep.name && window.versionDriftAnalyzer) {
+                        // Skip if version is unknown (cannot check staleness without version)
+                        if (!hasStatusIssue && dep.ecosystem && dep.version && dep.version !== 'version unknown' && dep.name && window.versionDriftAnalyzer) {
                             try {
                                 // Normalize ecosystem for packageKey (same as renderTable)
                                 let ecosystem = dep.ecosystem.toLowerCase();
@@ -1479,7 +1480,8 @@
                 const driftResults = [];
                 for (const batch of batches) {
                     const batchChecks = await Promise.all(batch.map(async (dep) => {
-                        if (!dep.ecosystem || !dep.version || !dep.name) {
+                        // Skip dependencies with unknown versions (cannot check drift)
+                        if (!dep.ecosystem || !dep.version || dep.version === 'version unknown' || !dep.name) {
                             return false; // Can't check drift without required data
                         }
                         
@@ -1908,9 +1910,12 @@
         
         /**
          * Format version for display - truncate hash to 5 chars with tooltip
+         * Shows "version unknown" badge when version is missing
          */
         function formatVersionForDisplay(version) {
-            if (!version) return '';
+            if (!version || version === 'version unknown') {
+                return '<span class="badge bg-warning text-dark" title="Version information not available in SBOM">version unknown</span>';
+            }
             const escaped = escapeHtml(version);
             if (isHashVersion(version)) {
                 const truncated = escaped.substring(0, 5);
@@ -2088,7 +2093,8 @@
                 setTimeout(async () => {
                     // Process all displayed dependencies (no batching needed since we're reading from cache)
                     await Promise.all(toDisplay.map(async (dep, idx) => {
-                        if (dep.ecosystem && dep.version && dep.name) {
+                        // Skip dependencies with unknown versions (cannot check drift)
+                        if (dep.ecosystem && dep.version && dep.version !== 'version unknown' && dep.name) {
                             try {
                                 // Normalize ecosystem for packageKey
                                 let ecosystem = dep.ecosystem.toLowerCase();
@@ -2380,7 +2386,8 @@
             // Fetch version drift data
             let driftData = null;
             let staleness = null;
-            if (packageEcosystem && packageVersion && packageName && window.versionDriftAnalyzer) {
+            // Skip if version is unknown (cannot check drift without version)
+            if (packageEcosystem && packageVersion && packageVersion !== 'version unknown' && packageName && window.versionDriftAnalyzer) {
                 try {
                     // Normalize ecosystem for packageKey
                     let ecosystem = packageEcosystem.toLowerCase();

@@ -25,7 +25,12 @@ document.addEventListener('DOMContentLoaded', async function() {
     }
     
     // Check for filters in URL and pre-select
+    // Note: getUrlParams lowercases values, so we need to get repo separately to preserve case
     const urlParamsObj = getUrlParams(['severity', 'section']);
+    const urlParams = new URLSearchParams(window.location.search);
+    if (urlParams.get('repo')) {
+        urlParamsObj.repo = urlParams.get('repo'); // Preserve case for repository names
+    }
     if (urlParamsObj.severity) {
         const severityFilter = document.getElementById('severityFilter');
         if (severityFilter) {
@@ -38,6 +43,7 @@ document.addEventListener('DOMContentLoaded', async function() {
             sectionFilter.value = urlParamsObj.section;
         }
     }
+    // Note: repo filter will be set after repositories are loaded
     
     // Load analysis list into selector
     await loadAnalysesList('analysisSelector', storageManager, true, document.getElementById('noDataSection'));
@@ -46,6 +52,7 @@ document.addEventListener('DOMContentLoaded', async function() {
         const analysisSelector = document.getElementById('analysisSelector');
         const severityFilterEl = document.getElementById('severityFilter');
         const sectionFilterEl = document.getElementById('sectionFilter');
+        const repoFilterEl = document.getElementById('repoFilter');
         
         if (!analysisSelector || !analysisSelector.value) {
             const container = document.getElementById('audit-analysis-page');
@@ -58,19 +65,64 @@ document.addEventListener('DOMContentLoaded', async function() {
         // Use filters from form or URL
         const severityFilter = severityFilterEl ? severityFilterEl.value : (urlParamsObj.severity || 'all');
         const sectionFilter = sectionFilterEl ? sectionFilterEl.value : (urlParamsObj.section || 'all');
+        const repoFilter = repoFilterEl ? repoFilterEl.value : (urlParamsObj.repo || 'all');
         
         await loadOrganizationData(analysisSelector.value, storageManager, {
             severityFilter: severityFilter === 'all' ? null : severityFilter,
             sectionFilter: sectionFilter === 'all' ? null : sectionFilter,
+            repoFilter: repoFilter === 'all' ? null : repoFilter,
             containerId: 'audit-analysis-page',
             noDataSection: document.getElementById('noDataSection'),
             renderFunction: async (data, severityFilter, sectionFilter, repoFilter, categoryFilter) => {
+                // Populate repository filter dropdown
+                populateRepoFilter(data);
+                
+                // Set repo filter from URL if present (after populating dropdown)
+                // Use the repoFilter passed from loadOrganizationData which already handles URL params
+                if (repoFilter && repoFilterEl) {
+                    const option = repoFilterEl.querySelector(`option[value="${repoFilter}"]`);
+                    if (option) {
+                        repoFilterEl.value = repoFilter;
+                    }
+                }
+                
                 const container = document.getElementById('audit-analysis-page');
                 // Render audit findings with all sections
-                const html = await generateAllAuditSectionsHTML(data, severityFilter || 'all', sectionFilter || 'all');
+                const html = await generateAllAuditSectionsHTML(data, severityFilter || 'all', sectionFilter || 'all', repoFilter || 'all');
                 safeSetHTML(container, html);
             }
         });
+    }
+    
+    /**
+     * Populate repository filter dropdown
+     */
+    function populateRepoFilter(orgData) {
+        const repoFilter = document.getElementById('repoFilter');
+        if (!repoFilter) return;
+        
+        const repositories = orgData?.data?.allRepositories || [];
+        const repoKeys = repositories.map(r => `${r.owner}/${r.name}`).sort();
+        
+        // Store current selection
+        const currentValue = repoFilter.value;
+        
+        // Clear and repopulate
+        repoFilter.innerHTML = '<option value="all">All Repositories</option>';
+        
+        repoKeys.forEach(repoKey => {
+            const option = document.createElement('option');
+            option.value = repoKey;
+            option.textContent = repoKey;
+            repoFilter.appendChild(option);
+        });
+        
+        // Restore selection if it still exists
+        if (currentValue && repoKeys.includes(currentValue)) {
+            repoFilter.value = currentValue;
+        } else if (urlParamsObj.repo && repoKeys.includes(urlParamsObj.repo)) {
+            repoFilter.value = urlParamsObj.repo;
+        }
     }
     
     // Load initial data (default to all projects combined)
@@ -96,26 +148,56 @@ document.addEventListener('DOMContentLoaded', async function() {
         sectionFilter.addEventListener('change', loadAuditData);
     }
     
+    // Handle repository filter change
+    const repoFilter = document.getElementById('repoFilter');
+    if (repoFilter) {
+        repoFilter.addEventListener('change', loadAuditData);
+    }
+    
     
     /**
      * Generate all audit sections HTML
      */
-    async function generateAllAuditSectionsHTML(orgData, severityFilter = 'all', sectionFilter = 'all') {
+    async function generateAllAuditSectionsHTML(orgData, severityFilter = 'all', sectionFilter = 'all', repoFilter = 'all') {
         let html = '';
         
-        // GitHub Actions Audit Section
-        if (sectionFilter === 'all' || sectionFilter === 'github-actions') {
-            const githubActionsHTML = generateGitHubActionsAuditHTML(orgData, severityFilter);
-            if (githubActionsHTML) {
-                html += `<div id="github-actions-section" class="audit-section mb-4">${githubActionsHTML}</div>`;
+        // Unified Security & SBOM Audit Findings (combines GitHub Actions and SBOM Deficiencies)
+        if (sectionFilter === 'all' || sectionFilter === 'github-actions' || sectionFilter === 'sbom-deficiencies') {
+            const unifiedHTML = generateUnifiedAuditFindingsHTML(orgData, severityFilter, repoFilter);
+            if (unifiedHTML) {
+                html += `<div id="unified-audit-findings-section" class="audit-section mb-4">${unifiedHTML}</div>`;
             }
         }
         
         // Package Deprecation Section
         if (sectionFilter === 'all' || sectionFilter === 'package-deprecation') {
-            const deprecationHTML = await generatePackageDeprecationHTML(orgData, severityFilter);
+            const deprecationHTML = await generatePackageDeprecationHTML(orgData, severityFilter, repoFilter);
             if (deprecationHTML) {
                 html += `<div id="package-deprecation-section" class="audit-section mb-4">${deprecationHTML}</div>`;
+            }
+        }
+        
+        // Version Drift Section
+        if (sectionFilter === 'all' || sectionFilter === 'version-drift') {
+            const versionDriftHTML = await generateVersionDriftHTML(orgData, severityFilter, repoFilter);
+            if (versionDriftHTML) {
+                html += `<div id="version-drift-section" class="audit-section mb-4">${versionDriftHTML}</div>`;
+            }
+        }
+        
+        // Stale Dependencies Section
+        if (sectionFilter === 'all' || sectionFilter === 'stale-dependencies') {
+            const staleHTML = await generateStaleDependenciesHTML(orgData, severityFilter, repoFilter);
+            if (staleHTML) {
+                html += `<div id="stale-dependencies-section" class="audit-section mb-4">${staleHTML}</div>`;
+            }
+        }
+        
+        // License Compatibility Section
+        if (sectionFilter === 'all' || sectionFilter === 'license-compatibility') {
+            const licenseHTML = await generateLicenseCompatibilityHTML(orgData, severityFilter, repoFilter);
+            if (licenseHTML) {
+                html += `<div id="license-compatibility-section" class="audit-section mb-4">${licenseHTML}</div>`;
             }
         }
         
@@ -138,55 +220,220 @@ document.addEventListener('DOMContentLoaded', async function() {
     }
     
     /**
-     * Generate GitHub Actions audit findings HTML
+     * Get finding description from rule ID
      */
-    function generateGitHubActionsAuditHTML(orgData, severityFilter = 'all') {
-        // Standardized access pattern: githubActionsAnalysis is always at orgData.data.githubActionsAnalysis
+    function getFindingDescription(ruleId) {
+        const descriptions = {
+            'UNPINNED_ACTION_REFERENCE': 'Actions referenced without a commit SHA are mutable and can change, posing security risks. Always pin actions to a full 40-character commit SHA.',
+            'MUTABLE_TAG_REFERENCE': 'Tags like "latest", "main", or version ranges can change over time. Use immutable commit SHAs instead.',
+            'DOCKER_FLOATING_TAG': 'Docker images using floating tags (e.g., "latest", version ranges) are not immutable and can introduce unexpected changes.',
+            'DOCKER_IMPLICIT_LATEST': 'Docker images without explicit tags default to "latest", which is mutable and insecure.',
+            'DOCKERFILE_FLOATING_BASE_IMAGE': 'Dockerfile base images using floating tags can change, affecting build reproducibility and security.',
+            'DOCKER_UNPINNED_DEPENDENCIES': 'Docker container dependencies should be pinned to specific versions for security and reproducibility.',
+            'DOCKER_REMOTE_CODE_NO_INTEGRITY': 'Remote code execution in Docker without integrity checks can lead to supply chain attacks.',
+            'COMPOSITE_NESTED_UNPINNED_ACTION': 'Composite actions calling other actions without pinning create nested security risks.',
+            'COMPOSITE_UNPINNED_DEPENDENCIES': 'Composite actions with unpinned dependencies can introduce vulnerabilities.',
+            'COMPOSITE_REMOTE_CODE_NO_INTEGRITY': 'Composite actions executing remote code without integrity verification pose security risks.',
+            'JS_REMOTE_CODE_NO_INTEGRITY': 'JavaScript actions executing remote code without integrity checks can be compromised.',
+            'JS_RUNTIME_UNPINNED_DEPENDENCIES': 'JavaScript actions with unpinned runtime dependencies may include vulnerable packages.',
+            'INDIRECT_UNPINNABLE_ACTION': 'Actions that cannot be pinned due to indirect references create security blind spots.'
+        };
+        return descriptions[ruleId] || 'Security issue detected in GitHub Actions workflow.';
+    }
+    
+    /**
+     * Generate unified audit findings HTML with collapsible sections
+     * Combines GitHub Actions and SBOM Deficiencies
+     */
+    function generateUnifiedAuditFindingsHTML(orgData, severityFilter = 'all', repoFilter = 'all') {
+        const allFindings = [];
+        
+        // Collect GitHub Actions findings
         const githubActionsAnalysis = orgData?.data?.githubActionsAnalysis;
-        
-        if (!githubActionsAnalysis || !githubActionsAnalysis.findings || githubActionsAnalysis.findings.length === 0) {
-            return '';
-        }
-
-        let findings = githubActionsAnalysis.findings;
-        
-        // Filter by severity if specified
-        if (severityFilter && severityFilter !== 'all') {
-            findings = findings.filter(f => {
-                const severity = f.severity || 'warning';
-                return severity.toLowerCase() === severityFilter.toLowerCase();
+        if (githubActionsAnalysis) {
+            let gaFindings = [];
+            
+            // Collect findings from repositories (they have repository context)
+            if (githubActionsAnalysis.repositories && Array.isArray(githubActionsAnalysis.repositories)) {
+                githubActionsAnalysis.repositories.forEach(repoResult => {
+                    if (repoResult.findings && Array.isArray(repoResult.findings)) {
+                        // Add repository info to each finding if not already present
+                        repoResult.findings.forEach(finding => {
+                            gaFindings.push({
+                                ...finding,
+                                repository: finding.repository || repoResult.repository || null
+                            });
+                        });
+                    }
+                });
+            }
+            
+            // Fallback: use top-level findings if repositories structure not available
+            if (gaFindings.length === 0 && githubActionsAnalysis.findings && githubActionsAnalysis.findings.length > 0) {
+                gaFindings = githubActionsAnalysis.findings;
+            }
+            
+            // Filter by repository if specified
+            if (repoFilter && repoFilter !== 'all') {
+                gaFindings = gaFindings.filter(f => f.repository === repoFilter);
+            }
+            
+            // Filter by severity
+            if (severityFilter && severityFilter !== 'all') {
+                gaFindings = gaFindings.filter(f => {
+                    const severity = f.severity || 'warning';
+                    return severity.toLowerCase() === severityFilter.toLowerCase();
+                });
+            }
+            
+            gaFindings.forEach(finding => {
+                allFindings.push({
+                    category: 'github-actions',
+                    type: finding.rule_id || 'UNKNOWN',
+                    typeName: getFindingName(finding.rule_id || 'UNKNOWN'),
+                    description: getFindingDescription(finding.rule_id || 'UNKNOWN'),
+                    severity: finding.severity || 'warning',
+                    action: finding.action,
+                    repository: finding.repository || null,
+                    file: finding.file || null,
+                    line: finding.line || null,
+                    message: finding.message || '',
+                    details: finding.details || ''
+                });
             });
         }
         
-        if (findings.length === 0) {
+        // Collect SBOM Deficiencies findings
+        const repositories = orgData?.data?.allRepositories || [];
+        let filteredRepos = repositories;
+        if (repoFilter && repoFilter !== 'all') {
+            filteredRepos = repositories.filter(r => `${r.owner}/${r.name}` === repoFilter);
+        }
+        
+        if (typeof SBOMQualityProcessor !== 'undefined') {
+            filteredRepos.forEach(repo => {
+                if (!repo.qualityAssessment) return;
+                
+                const repoKey = `${repo.owner}/${repo.name}`;
+                const qa = repo.qualityAssessment;
+                
+                // Collect issues from all categories
+                const categories = ['identification', 'licensing', 'metadata', 'dependencies'];
+                categories.forEach(category => {
+                    if (qa.categories?.[category]?.issues) {
+                        qa.categories[category].issues.forEach(issue => {
+                            let type = null;
+                            let typeName = null;
+                            let description = null;
+                            let severity = 'medium';
+                            
+                            if (issue.includes('missing version')) {
+                                type = 'SBOM_MISSING_VERSION';
+                                typeName = 'Missing Version Information';
+                                description = 'SBOM packages without version information cannot be properly tracked or scanned for vulnerabilities.';
+                                severity = 'high';
+                            } else if (issue.includes('Missing component name')) {
+                                type = 'SBOM_MISSING_COMPONENT_NAME';
+                                typeName = 'Missing Component Name';
+                                description = 'SBOM packages without component names cannot be properly identified.';
+                                severity = 'high';
+                            } else if (issue.includes('missing SPDXID')) {
+                                type = 'SBOM_MISSING_SPDXID';
+                                typeName = 'Missing SPDXID';
+                                description = 'SPDXID is required for proper SBOM structure and package identification.';
+                                severity = 'medium';
+                            } else if (issue.includes('missing or invalid PURL') || issue.includes('no external references')) {
+                                type = 'SBOM_MISSING_PURL';
+                                typeName = 'Missing PURL Identifier';
+                                description = 'PURL (Package URL) identifiers are critical for vulnerability scanning and package tracking.';
+                                severity = 'high';
+                            } else if (issue.includes('NOASSERTION') || issue.includes('missing license')) {
+                                type = 'SBOM_MISSING_LICENSE';
+                                typeName = 'Missing License Information';
+                                description = 'Packages without license information create compliance and legal risks.';
+                                severity = 'medium';
+                            } else if (issue.includes('Missing copyright')) {
+                                type = 'SBOM_MISSING_COPYRIGHT';
+                                typeName = 'Missing Copyright Information';
+                                description = 'Copyright information helps identify package ownership and licensing terms.';
+                                severity = 'low';
+                            } else if (issue.includes('Missing download location')) {
+                                type = 'SBOM_MISSING_DOWNLOAD_LOCATION';
+                                typeName = 'Missing Download Location';
+                                description = 'Download locations help verify package authenticity and enable reproducible builds.';
+                                severity = 'low';
+                            } else if (issue.includes('Missing relationships')) {
+                                type = 'SBOM_MISSING_RELATIONSHIPS';
+                                typeName = 'Missing Relationship Data';
+                                description = 'Dependency relationships are essential for understanding the dependency graph.';
+                                severity = 'medium';
+                            }
+                            
+                            if (type) {
+                                // Filter by severity
+                                if (severityFilter && severityFilter !== 'all' && severity !== severityFilter) {
+                                    return;
+                                }
+                                
+                                allFindings.push({
+                                    category: 'sbom-deficiencies',
+                                    type: type,
+                                    typeName: typeName,
+                                    description: description,
+                                    severity: severity,
+                                    repository: repoKey,
+                                    message: issue,
+                                    details: issue
+                                });
+                            }
+                        });
+                    }
+                });
+            });
+        }
+        
+        if (allFindings.length === 0) {
             return '';
         }
         
         // Group findings by type
-        const findingsByTypeMap = new Map();
-        findings.forEach(finding => {
-            const ruleId = finding.rule_id;
-            if (!findingsByTypeMap.has(ruleId)) {
-                findingsByTypeMap.set(ruleId, []);
+        const findingsByType = new Map();
+        allFindings.forEach(finding => {
+            const key = `${finding.category}:${finding.type}`;
+            if (!findingsByType.has(key)) {
+                findingsByType.set(key, {
+                    category: finding.category,
+                    type: finding.type,
+                    typeName: finding.typeName,
+                    description: finding.description,
+                    severity: finding.severity,
+                    instances: []
+                });
             }
-            findingsByTypeMap.get(ruleId).push(finding);
+            findingsByType.get(key).instances.push(finding);
         });
-
-        // Sort by count (descending)
-        const sortedTypes = Array.from(findingsByTypeMap.entries())
-            .sort((a, b) => b[1].length - a[1].length);
-
+        
+        // Sort by severity (high first) then by count
+        const sortedTypes = Array.from(findingsByType.entries()).sort((a, b) => {
+            const severityOrder = { 'high': 3, 'medium': 2, 'warning': 1, 'low': 0 };
+            const aSev = severityOrder[a[1].severity] || 0;
+            const bSev = severityOrder[b[1].severity] || 0;
+            if (aSev !== bSev) return bSev - aSev;
+            return b[1].instances.length - a[1].instances.length;
+        });
+        
         // Calculate statistics
         const stats = {
-            total: findings.length,
-            high: findings.filter(f => f.severity === 'high' || f.severity === 'error').length,
-            medium: findings.filter(f => f.severity === 'medium').length,
-            warning: findings.filter(f => f.severity === 'warning').length,
-            uniqueActions: githubActionsAnalysis.uniqueActions || 0
+            total: allFindings.length,
+            high: allFindings.filter(f => f.severity === 'high' || f.severity === 'error').length,
+            medium: allFindings.filter(f => f.severity === 'medium').length,
+            warning: allFindings.filter(f => f.severity === 'warning').length,
+            low: allFindings.filter(f => f.severity === 'low').length,
+            uniqueTypes: sortedTypes.length
         };
-
+        
         let html = '<div class="card">';
-        html += '<div class="card-header"><h5 class="mb-0"><i class="fab fa-github me-2"></i>GitHub Actions Audit</h5></div>';
+        html += '<div class="card-header"><h5 class="mb-0"><i class="fas fa-shield-alt me-2"></i>Security & SBOM Audit Findings</h5></div>';
         html += '<div class="card-body">';
         
         // Statistics cards
@@ -218,8 +465,8 @@ document.addEventListener('DOMContentLoaded', async function() {
         html += `<div class="col-md-3">
             <div class="card text-center bg-info bg-opacity-10">
                 <div class="card-body">
-                    <h3>${stats.warning}</h3>
-                    <p class="stats-card-label mb-0">Warnings</p>
+                    <h3>${stats.uniqueTypes}</h3>
+                    <p class="stats-card-label mb-0">Finding Types</p>
                 </div>
             </div>
         </div>`;
@@ -227,59 +474,153 @@ document.addEventListener('DOMContentLoaded', async function() {
         
         // Summary
         html += `<div class="alert alert-info mb-3">
-            <strong>Summary:</strong> Found <strong>${stats.total}</strong> audit findings across <strong>${stats.uniqueActions}</strong> GitHub Actions.
+            <strong>Summary:</strong> Found <strong>${stats.total}</strong> audit findings across <strong>${stats.uniqueTypes}</strong> different types.
         </div>`;
-
-        // Findings by type
-        html += '<h6 class="mb-2">Findings by Type</h6>';
-        html += '<ul class="list-group mb-3">';
-        sortedTypes.forEach(([ruleId, typeFindings]) => {
-            const severity = typeFindings[0].severity || 'warning';
-            const severityClass = severity === 'high' || severity === 'error' ? 'danger' : 
-                                 severity === 'medium' ? 'warning' : 'info';
-            html += `<li class="list-group-item d-flex justify-content-between align-items-center">
-                <span><span class="badge bg-${severityClass} me-2">${severity}</span>${getFindingName(ruleId)}</span>
-                <span class="badge bg-primary rounded-pill">${typeFindings.length}</span>
-            </li>`;
-        });
-        html += '</ul>';
-
-        // Detailed findings
-        html += '<h6 class="mb-2">Detailed Findings</h6>';
-        html += '<div class="table-responsive"><table class="table table-sm table-hover">';
-        html += '<thead><tr><th>Severity</th><th>Rule</th><th>Action</th><th>Message</th><th>Details</th></tr></thead><tbody>';
         
-        findings.slice(0, 100).forEach(finding => {
-            const severity = finding.severity || 'warning';
-            const severityClass = severity === 'high' || severity === 'error' ? 'danger' : 
-                                 severity === 'medium' ? 'warning' : 'info';
-            const actionLink = finding.action ? 
-                `<a href="https://github.com/${finding.action.split('@')[0]}" target="_blank" rel="noreferrer noopener">${escapeHtml(finding.action)}</a>` : 
-                'N/A';
+        // Collapsible findings sections
+        html += '<div class="accordion" id="auditFindingsAccordion">';
+        
+        sortedTypes.forEach(([key, typeData], index) => {
+            const severityClass = typeData.severity === 'high' || typeData.severity === 'error' ? 'danger' : 
+                                 typeData.severity === 'medium' ? 'warning' : 
+                                 typeData.severity === 'low' ? 'info' : 'secondary';
+            const accordionId = `finding-${index}`;
+            const categoryBadge = typeData.category === 'github-actions' 
+                ? '<span class="badge bg-dark me-2"><i class="fab fa-github"></i> Actions</span>'
+                : '<span class="badge bg-secondary me-2"><i class="fas fa-file-code"></i> SBOM</span>';
             
-            html += `<tr>
-                <td><span class="badge bg-${severityClass}">${severity}</span></td>
-                <td><code>${escapeHtml(finding.rule_id || 'N/A')}</code></td>
-                <td>${actionLink}</td>
-                <td>${escapeHtml(finding.message || 'N/A')}</td>
-                <td>${finding.details ? escapeHtml(finding.details) : ''}</td>
-            </tr>`;
+            html += `<div class="accordion-item">`;
+            html += `<h2 class="accordion-header" id="heading-${index}">`;
+            html += `<button class="accordion-button" type="button" data-bs-toggle="collapse" data-bs-target="#${accordionId}" aria-expanded="true" aria-controls="${accordionId}">`;
+            html += `<span class="badge bg-${severityClass} me-2">${typeData.severity.toUpperCase()}</span>`;
+            html += `${categoryBadge}`;
+            html += `<strong>${escapeHtml(typeData.typeName)}</strong>`;
+            html += `<span class="badge bg-primary rounded-pill ms-auto me-2">${typeData.instances.length} instances</span>`;
+            html += `</button>`;
+            html += `</h2>`;
+            html += `<div id="${accordionId}" class="accordion-collapse collapse show" aria-labelledby="heading-${index}" data-bs-parent="#auditFindingsAccordion">`;
+            html += `<div class="accordion-body">`;
+            
+            // Description
+            html += `<div class="alert alert-${severityClass} mb-3">`;
+            html += `<strong>${escapeHtml(typeData.typeName)}:</strong> ${escapeHtml(typeData.description)}`;
+            html += `</div>`;
+            
+            // Instances table
+            html += '<div class="table-responsive"><table class="table table-sm table-hover align-middle mb-0">';
+            html += '<thead class="table-light"><tr>';
+            if (typeData.category === 'github-actions') {
+                html += '<th style="width: 250px;">Action</th>';
+                html += '<th>Location</th>';
+            } else {
+                html += '<th style="width: 250px;">Repository</th>';
+                html += '<th>Affected Component</th>';
+            }
+            html += '</tr></thead><tbody>';
+            
+            typeData.instances.slice(0, 100).forEach(instance => {
+                if (typeData.category === 'github-actions') {
+                    const actionLink = instance.action ? 
+                        `<a href="https://github.com/${instance.action.split('@')[0]}" target="_blank" rel="noreferrer noopener" class="text-decoration-none">
+                            <i class="fab fa-github me-1"></i>${escapeHtml(instance.action)}
+                        </a>` : 
+                        '<span class="text-muted">N/A</span>';
+                    
+                    // Build location cell with file and line link if available
+                    let locationCell = '<small class="text-muted">—</small>';
+                    if (instance.repository && instance.file) {
+                        // Parse repository to get owner/repo
+                        const repoParts = instance.repository.split('/');
+                        if (repoParts.length === 2) {
+                            const [owner, repo] = repoParts;
+                            // Get ref from action if available, otherwise use 'HEAD'
+                            // Try to get ref from action (format: owner/repo@ref or owner/repo/path@ref)
+                            let ref = 'HEAD';
+                            if (instance.action && instance.action.includes('@')) {
+                                const actionParts = instance.action.split('@');
+                                if (actionParts.length > 1) {
+                                    ref = actionParts[actionParts.length - 1]; // Get last part after @
+                                }
+                            }
+                            
+                            // Build GitHub URL with line number
+                            // GitHub URL format: https://github.com/owner/repo/blob/ref/path/to/file#L123
+                            let githubUrl = `https://github.com/${owner}/${repo}/blob/${ref}/${instance.file}`;
+                            if (instance.line) {
+                                githubUrl += `#L${instance.line}`;
+                            }
+                            
+                            const fileDisplay = instance.file.split('/').pop(); // Show just filename
+                            const lineDisplay = instance.line ? `:${instance.line}` : '';
+                            locationCell = `<a href="${githubUrl}" target="_blank" rel="noreferrer noopener" class="text-decoration-none">
+                                <i class="fas fa-code me-1"></i><code class="small">${escapeHtml(fileDisplay)}${lineDisplay}</code>
+                            </a>`;
+                        } else {
+                            locationCell = `<small class="text-muted"><code>${escapeHtml(instance.file)}${instance.line ? ':' + instance.line : ''}</code></small>`;
+                        }
+                    } else if (instance.message) {
+                        locationCell = `<small class="text-muted">${escapeHtml(instance.message)}</small>`;
+                    }
+                    
+                    html += `<tr>
+                        <td>${actionLink}</td>
+                        <td>${locationCell}</td>
+                    </tr>`;
+                } else {
+                    // SBOM Deficiencies - link to deps.html with repository filter
+                    let repoLink = '<span class="text-muted">N/A</span>';
+                    if (instance.repository) {
+                        // Get current organization context for the link
+                        const currentOrg = document.getElementById('analysisSelector')?.value || '__ALL__';
+                        const orgParam = (currentOrg === '__ALL__' || currentOrg === 'All Projects (Combined)') ? '__ALL__' : currentOrg;
+                        
+                        // Build deps.html URL with repository filter
+                        const params = new URLSearchParams();
+                        if (orgParam && orgParam !== '__ALL__') {
+                            params.set('org', orgParam);
+                        }
+                        params.set('repo', instance.repository);
+                        const depsUrl = `deps.html?${params.toString()}`;
+                        
+                        repoLink = `<a href="${depsUrl}" class="text-decoration-none">
+                            <i class="fab fa-github me-1"></i>${escapeHtml(instance.repository)}
+                        </a>`;
+                    }
+                    html += `<tr>
+                        <td>${repoLink}</td>
+                        <td><small class="text-muted">${escapeHtml(instance.message || '—')}</small></td>
+                    </tr>`;
+                }
+            });
+            
+            if (typeData.instances.length > 100) {
+                html += `<tr><td colspan="2" class="text-center text-muted py-2"><em>... and ${typeData.instances.length - 100} more instances</em></td></tr>`;
+            }
+            
+            html += '</tbody></table></div>';
+            html += `</div></div></div>`;
         });
         
-        if (findings.length > 100) {
-            html += `<tr><td colspan="5" class="text-center text-muted">... and ${findings.length - 100} more findings</td></tr>`;
-        }
+        html += '</div>'; // End accordion
+        html += '</div></div>'; // End card-body and card
         
-        html += '</tbody></table></div>';
-        html += '</div></div>';
-
         return html;
+    }
+    
+    /**
+     * Generate GitHub Actions audit findings HTML (legacy - kept for backward compatibility)
+     * Now redirects to unified view
+     */
+    function generateGitHubActionsAuditHTML(orgData, severityFilter = 'all', repoFilter = 'all') {
+        // Use unified view if both GitHub Actions and SBOM sections are requested
+        // Otherwise, generate standalone GitHub Actions view
+        return generateUnifiedAuditFindingsHTML(orgData, severityFilter, repoFilter);
     }
     
     /**
      * Generate Package Deprecation audit findings HTML
      */
-    async function generatePackageDeprecationHTML(orgData, severityFilter = 'all') {
+    async function generatePackageDeprecationHTML(orgData, severityFilter = 'all', repoFilter = 'all') {
         // Get dependencies from the analysis data
         const allDependencies = orgData?.data?.allDependencies || [];
         
@@ -291,12 +632,20 @@ document.addEventListener('DOMContentLoaded', async function() {
             return '<div class="alert alert-warning">Cache manager not available. Cannot load package deprecation data.</div>';
         }
         
+        // Filter dependencies by repository if specified
+        let filteredDependencies = allDependencies;
+        if (repoFilter && repoFilter !== 'all') {
+            filteredDependencies = allDependencies.filter(dep => 
+                dep.repositories && dep.repositories.includes(repoFilter)
+            );
+        }
+        
         // Check each dependency for deprecation warnings
         const deprecatedPackages = [];
         const batchSize = 50;
         
-        for (let i = 0; i < allDependencies.length; i += batchSize) {
-            const batch = allDependencies.slice(i, i + batchSize);
+        for (let i = 0; i < filteredDependencies.length; i += batchSize) {
+            const batch = filteredDependencies.slice(i, i + batchSize);
             const batchChecks = await Promise.all(batch.map(async (dep) => {
                 if (dep.packageKey) {
                     try {
@@ -369,20 +718,27 @@ document.addEventListener('DOMContentLoaded', async function() {
         
         // Detailed list
         html += '<h6 class="mb-2">Deprecated Packages</h6>';
-        html += '<div class="table-responsive"><table class="table table-sm table-hover">';
-        html += '<thead><tr><th>Package</th><th>Version</th><th>Ecosystem</th><th>Repositories</th><th>Replacement</th></tr></thead><tbody>';
+        html += '<div class="table-responsive"><table class="table table-sm table-hover align-middle">';
+        html += '<thead class="table-light"><tr>';
+        html += '<th style="width: 250px;">Package</th>';
+        html += '<th style="width: 150px;">Version</th>';
+        html += '<th style="width: 120px;">Ecosystem</th>';
+        html += '<th>Affected Repositories</th>';
+        html += '<th style="width: 200px;">Replacement</th>';
+        html += '</tr></thead><tbody>';
         
         deprecatedPackages.forEach(pkg => {
-            const repoList = pkg.repositories.length > 3 
-                ? `${pkg.repositories.slice(0, 3).join(', ')} and ${pkg.repositories.length - 3} more`
-                : pkg.repositories.join(', ');
+            const repoCount = pkg.repositories.length;
+            const repoList = repoCount > 3 
+                ? `${pkg.repositories.slice(0, 3).map(r => `<a href="https://github.com/${r}" target="_blank" rel="noreferrer noopener" class="text-decoration-none"><i class="fab fa-github me-1"></i>${escapeHtml(r)}</a>`).join(', ')} and ${repoCount - 3} more`
+                : pkg.repositories.map(r => `<a href="https://github.com/${r}" target="_blank" rel="noreferrer noopener" class="text-decoration-none"><i class="fab fa-github me-1"></i>${escapeHtml(r)}</a>`).join(', ');
             
             html += `<tr>
-                <td><code>${escapeHtml(pkg.name)}</code></td>
-                <td>${escapeHtml(pkg.version)}</td>
+                <td><code class="small">${escapeHtml(pkg.name)}</code></td>
+                <td><span class="text-muted">${escapeHtml(pkg.version)}</span></td>
                 <td><span class="badge bg-secondary">${escapeHtml(pkg.ecosystem)}</span></td>
-                <td><small>${escapeHtml(repoList)}</small></td>
-                <td>${pkg.replacement ? `<code>${escapeHtml(pkg.replacement)}</code>` : '<span class="text-muted">None specified</span>'}</td>
+                <td><small>${repoList}</small></td>
+                <td>${pkg.replacement ? `<code class="small text-success">${escapeHtml(pkg.replacement)}</code>` : '<span class="text-muted"><em>None specified</em></span>'}</td>
             </tr>`;
         });
         
@@ -414,6 +770,528 @@ document.addEventListener('DOMContentLoaded', async function() {
         html += '<strong>Coming Soon:</strong> Repository-level audit findings including inactivity detection, ';
         html += 'signed commits verification, and other repository security checks will be displayed here.';
         html += '</div>';
+        html += '</div></div>';
+        
+        return html;
+    }
+    
+    
+    /**
+     * Generate Version Drift audit findings HTML
+     * Checks for major and minor version updates available
+     */
+    async function generateVersionDriftHTML(orgData, severityFilter = 'all', repoFilter = 'all') {
+        let allDependencies = orgData?.data?.allDependencies || [];
+        
+        if (!allDependencies || allDependencies.length === 0) {
+            return '';
+        }
+        
+        // Filter dependencies by repository if specified
+        if (repoFilter && repoFilter !== 'all') {
+            allDependencies = allDependencies.filter(dep => 
+                dep.repositories && dep.repositories.includes(repoFilter)
+            );
+        }
+        
+        if (!window.versionDriftAnalyzer) {
+            return '';
+        }
+        
+        const majorDrift = [];
+        const minorDrift = [];
+        const batchSize = 50;
+        
+        // Check version drift for dependencies
+        for (let i = 0; i < allDependencies.length; i += batchSize) {
+            const batch = allDependencies.slice(i, i + batchSize);
+            const batchChecks = await Promise.all(batch.map(async (dep) => {
+                if (!dep.name || !dep.version || !dep.ecosystem) {
+                    return null;
+                }
+                
+                try {
+                    // Normalize ecosystem
+                    let ecosystem = dep.ecosystem.toLowerCase();
+                    if (ecosystem === 'rubygems' || ecosystem === 'gem') {
+                        ecosystem = 'gem';
+                    } else if (ecosystem === 'go' || ecosystem === 'golang') {
+                        ecosystem = 'golang';
+                    } else if (ecosystem === 'packagist' || ecosystem === 'composer') {
+                        ecosystem = 'composer';
+                    }
+                    
+                    const packageKey = `${ecosystem}:${dep.name}`;
+                    let driftData = await window.versionDriftAnalyzer.getVersionDriftFromCache(packageKey, dep.version);
+                    
+                    if (!driftData) {
+                        driftData = await window.versionDriftAnalyzer.checkVersionDrift(
+                            dep.name,
+                            dep.version,
+                            dep.ecosystem
+                        );
+                    }
+                    
+                    if (driftData && driftData.hasMajorUpdate) {
+                        return {
+                            name: dep.name,
+                            version: dep.version,
+                            latestVersion: driftData.latestVersion,
+                            ecosystem: dep.ecosystem || 'unknown',
+                            repositories: dep.repositories || [],
+                            driftType: 'major'
+                        };
+                    } else if (driftData && driftData.hasMinorUpdate) {
+                        return {
+                            name: dep.name,
+                            version: dep.version,
+                            latestVersion: driftData.latestVersion,
+                            ecosystem: dep.ecosystem || 'unknown',
+                            repositories: dep.repositories || [],
+                            driftType: 'minor'
+                        };
+                    }
+                } catch (e) {
+                    // Ignore errors
+                }
+                return null;
+            }));
+            
+            batchChecks.forEach(result => {
+                if (result) {
+                    if (result.driftType === 'major') {
+                        majorDrift.push(result);
+                    } else if (result.driftType === 'minor') {
+                        minorDrift.push(result);
+                    }
+                }
+            });
+        }
+        
+        // Filter by severity (major = high, minor = medium)
+        let filteredMajor = majorDrift;
+        let filteredMinor = minorDrift;
+        
+        if (severityFilter === 'high') {
+            filteredMinor = [];
+        } else if (severityFilter === 'medium') {
+            filteredMajor = [];
+        } else if (severityFilter === 'warning' || severityFilter === 'low') {
+            return '';
+        }
+        
+        const allDrift = [...filteredMajor, ...filteredMinor];
+        
+        if (allDrift.length === 0) {
+            return '';
+        }
+        
+        let html = '<div class="card">';
+        html += '<div class="card-header"><h5 class="mb-0"><i class="fas fa-arrow-up me-2"></i>Version Drift</h5></div>';
+        html += '<div class="card-body">';
+        
+        // Statistics
+        html += '<div class="row mb-3">';
+        html += `<div class="col-md-4">
+            <div class="card text-center bg-danger bg-opacity-10">
+                <div class="card-body">
+                    <h3>${filteredMajor.length}</h3>
+                    <p class="stats-card-label mb-0">Major Updates Available</p>
+                </div>
+            </div>
+        </div>`;
+        html += `<div class="col-md-4">
+            <div class="card text-center bg-warning bg-opacity-10">
+                <div class="card-body">
+                    <h3>${filteredMinor.length}</h3>
+                    <p class="stats-card-label mb-0">Minor Updates Available</p>
+                </div>
+            </div>
+        </div>`;
+        html += `<div class="col-md-4">
+            <div class="card text-center bg-light">
+                <div class="card-body">
+                    <h3>${new Set(allDrift.flatMap(d => d.repositories)).size}</h3>
+                    <p class="stats-card-label mb-0">Repositories Affected</p>
+                </div>
+            </div>
+        </div>`;
+        html += '</div>';
+        
+        // Summary
+        html += `<div class="alert alert-info mb-3">
+            <strong>Summary:</strong> Found <strong>${allDrift.length}</strong> packages with version drift 
+            (<strong>${filteredMajor.length}</strong> major, <strong>${filteredMinor.length}</strong> minor updates available).
+        </div>`;
+        
+        // Detailed list
+        html += '<h6 class="mb-2">Packages with Version Drift</h6>';
+        html += '<div class="table-responsive"><table class="table table-sm table-hover align-middle">';
+        html += '<thead class="table-light"><tr>';
+        html += '<th style="width: 100px;">Severity</th>';
+        html += '<th style="width: 250px;">Package</th>';
+        html += '<th style="width: 150px;">Current Version</th>';
+        html += '<th style="width: 150px;">Latest Version</th>';
+        html += '<th style="width: 120px;">Ecosystem</th>';
+        html += '<th>Affected Repositories</th>';
+        html += '</tr></thead><tbody>';
+        
+        // Show major drift first
+        filteredMajor.slice(0, 100).forEach(pkg => {
+            const repoCount = pkg.repositories.length;
+            const repoList = repoCount > 3 
+                ? `${pkg.repositories.slice(0, 3).map(r => `<a href="https://github.com/${r}" target="_blank" rel="noreferrer noopener" class="text-decoration-none"><i class="fab fa-github me-1"></i>${escapeHtml(r)}</a>`).join(', ')} and ${repoCount - 3} more`
+                : pkg.repositories.map(r => `<a href="https://github.com/${r}" target="_blank" rel="noreferrer noopener" class="text-decoration-none"><i class="fab fa-github me-1"></i>${escapeHtml(r)}</a>`).join(', ');
+            
+            html += `<tr>
+                <td><span class="badge bg-danger">HIGH</span></td>
+                <td><code class="small">${escapeHtml(pkg.name)}</code></td>
+                <td><span class="text-muted">${escapeHtml(pkg.version)}</span></td>
+                <td><strong class="text-success">${escapeHtml(pkg.latestVersion)}</strong></td>
+                <td><span class="badge bg-secondary">${escapeHtml(pkg.ecosystem)}</span></td>
+                <td><small>${repoList}</small></td>
+            </tr>`;
+        });
+        
+        // Then minor drift
+        filteredMinor.slice(0, Math.max(0, 100 - filteredMajor.length)).forEach(pkg => {
+            const repoCount = pkg.repositories.length;
+            const repoList = repoCount > 3 
+                ? `${pkg.repositories.slice(0, 3).map(r => `<a href="https://github.com/${r}" target="_blank" rel="noreferrer noopener" class="text-decoration-none"><i class="fab fa-github me-1"></i>${escapeHtml(r)}</a>`).join(', ')} and ${repoCount - 3} more`
+                : pkg.repositories.map(r => `<a href="https://github.com/${r}" target="_blank" rel="noreferrer noopener" class="text-decoration-none"><i class="fab fa-github me-1"></i>${escapeHtml(r)}</a>`).join(', ');
+            
+            html += `<tr>
+                <td><span class="badge bg-warning text-dark">MEDIUM</span></td>
+                <td><code class="small">${escapeHtml(pkg.name)}</code></td>
+                <td><span class="text-muted">${escapeHtml(pkg.version)}</span></td>
+                <td><strong class="text-success">${escapeHtml(pkg.latestVersion)}</strong></td>
+                <td><span class="badge bg-secondary">${escapeHtml(pkg.ecosystem)}</span></td>
+                <td><small>${repoList}</small></td>
+            </tr>`;
+        });
+        
+        if (allDrift.length > 100) {
+            html += `<tr><td colspan="6" class="text-center text-muted py-3"><em>... and ${allDrift.length - 100} more packages</em></td></tr>`;
+        }
+        
+        html += '</tbody></table></div>';
+        html += '</div></div>';
+        
+        return html;
+    }
+    
+    /**
+     * Generate Stale Dependencies audit findings HTML
+     * Checks for dependencies that are 6+ months old with no newer version
+     */
+    async function generateStaleDependenciesHTML(orgData, severityFilter = 'all', repoFilter = 'all') {
+        let allDependencies = orgData?.data?.allDependencies || [];
+        
+        if (!allDependencies || allDependencies.length === 0) {
+            return '';
+        }
+        
+        // Filter dependencies by repository if specified
+        if (repoFilter && repoFilter !== 'all') {
+            allDependencies = allDependencies.filter(dep => 
+                dep.repositories && dep.repositories.includes(repoFilter)
+            );
+        }
+        
+        if (!window.versionDriftAnalyzer) {
+            return '';
+        }
+        
+        // Filter by severity (stale dependencies are low severity)
+        if (severityFilter && severityFilter !== 'all' && severityFilter !== 'low' && severityFilter !== 'warning') {
+            return '';
+        }
+        
+        const staleDeps = [];
+        const batchSize = 50;
+        
+        // Check staleness for dependencies
+        for (let i = 0; i < allDependencies.length; i += batchSize) {
+            const batch = allDependencies.slice(i, i + batchSize);
+            const batchChecks = await Promise.all(batch.map(async (dep) => {
+                if (!dep.name || !dep.version || !dep.ecosystem) {
+                    return null;
+                }
+                
+                try {
+                    const staleness = await window.versionDriftAnalyzer.checkStaleness(
+                        dep.name,
+                        dep.version,
+                        dep.ecosystem
+                    );
+                    
+                    if (staleness && staleness.isStale) {
+                        return {
+                            name: dep.name,
+                            version: dep.version,
+                            ecosystem: dep.ecosystem || 'unknown',
+                            repositories: dep.repositories || [],
+                            monthsSinceRelease: staleness.monthsSinceRelease,
+                            lastReleaseDate: staleness.lastReleaseDate
+                        };
+                    }
+                } catch (e) {
+                    // Ignore errors
+                }
+                return null;
+            }));
+            
+            staleDeps.push(...batchChecks.filter(d => d !== null));
+        }
+        
+        if (staleDeps.length === 0) {
+            return '';
+        }
+        
+        let html = '<div class="card">';
+        html += '<div class="card-header"><h5 class="mb-0"><i class="fas fa-clock me-2"></i>Stale Dependencies</h5></div>';
+        html += '<div class="card-body">';
+        
+        // Statistics
+        html += '<div class="row mb-3">';
+        html += `<div class="col-md-4">
+            <div class="card text-center bg-warning bg-opacity-10">
+                <div class="card-body">
+                    <h3>${staleDeps.length}</h3>
+                    <p class="stats-card-label mb-0">Stale Packages</p>
+                </div>
+            </div>
+        </div>`;
+        html += `<div class="col-md-4">
+            <div class="card text-center bg-light">
+                <div class="card-body">
+                    <h3>${new Set(staleDeps.map(d => d.ecosystem)).size}</h3>
+                    <p class="stats-card-label mb-0">Ecosystems Affected</p>
+                </div>
+            </div>
+        </div>`;
+        html += `<div class="col-md-4">
+            <div class="card text-center bg-light">
+                <div class="card-body">
+                    <h3>${new Set(staleDeps.flatMap(d => d.repositories)).size}</h3>
+                    <p class="stats-card-label mb-0">Repositories Affected</p>
+                </div>
+            </div>
+        </div>`;
+        html += '</div>';
+        
+        // Summary
+        html += `<div class="alert alert-warning mb-3">
+            <strong>Summary:</strong> Found <strong>${staleDeps.length}</strong> stale dependencies 
+            (6+ months old with no newer version available).
+        </div>`;
+        
+        // Detailed list
+        html += '<h6 class="mb-2">Stale Dependencies</h6>';
+        html += '<div class="table-responsive"><table class="table table-sm table-hover align-middle">';
+        html += '<thead class="table-light"><tr>';
+        html += '<th style="width: 250px;">Package</th>';
+        html += '<th style="width: 150px;">Version</th>';
+        html += '<th style="width: 120px;">Ecosystem</th>';
+        html += '<th style="width: 180px;">Age</th>';
+        html += '<th>Affected Repositories</th>';
+        html += '</tr></thead><tbody>';
+        
+        staleDeps.slice(0, 100).sort((a, b) => b.monthsSinceRelease - a.monthsSinceRelease).forEach(pkg => {
+            const repoCount = pkg.repositories.length;
+            const repoList = repoCount > 3 
+                ? `${pkg.repositories.slice(0, 3).map(r => `<a href="https://github.com/${r}" target="_blank" rel="noreferrer noopener" class="text-decoration-none"><i class="fab fa-github me-1"></i>${escapeHtml(r)}</a>`).join(', ')} and ${repoCount - 3} more`
+                : pkg.repositories.map(r => `<a href="https://github.com/${r}" target="_blank" rel="noreferrer noopener" class="text-decoration-none"><i class="fab fa-github me-1"></i>${escapeHtml(r)}</a>`).join(', ');
+            
+            const ageBadgeClass = pkg.monthsSinceRelease >= 12 ? 'bg-danger' : 
+                                 pkg.monthsSinceRelease >= 9 ? 'bg-warning' : 'bg-warning text-dark';
+            
+            html += `<tr>
+                <td><code class="small">${escapeHtml(pkg.name)}</code></td>
+                <td><span class="text-muted">${escapeHtml(pkg.version)}</span></td>
+                <td><span class="badge bg-secondary">${escapeHtml(pkg.ecosystem)}</span></td>
+                <td><span class="badge ${ageBadgeClass}"><i class="fas fa-clock me-1"></i>${pkg.monthsSinceRelease} months</span></td>
+                <td><small>${repoList}</small></td>
+            </tr>`;
+        });
+        
+        if (staleDeps.length > 100) {
+            html += `<tr><td colspan="5" class="text-center text-muted py-3"><em>... and ${staleDeps.length - 100} more stale packages</em></td></tr>`;
+        }
+        
+        html += '</tbody></table></div>';
+        html += '</div></div>';
+        
+        return html;
+    }
+    
+    /**
+     * Generate License Compatibility audit findings HTML
+     * Checks for incompatible license chains
+     */
+    async function generateLicenseCompatibilityHTML(orgData, severityFilter = 'all', repoFilter = 'all') {
+        const allDependencies = orgData?.data?.allDependencies || [];
+        const allRepositories = orgData?.data?.allRepositories || [];
+        
+        if (!allDependencies || allDependencies.length === 0) {
+            return '';
+        }
+        
+        if (typeof LicenseProcessor === 'undefined') {
+            return '';
+        }
+        
+        const licenseProcessor = new LicenseProcessor();
+        const conflicts = [];
+        
+        // Filter dependencies by repository if specified
+        let filteredDependencies = allDependencies;
+        if (repoFilter && repoFilter !== 'all') {
+            filteredDependencies = allDependencies.filter(dep => 
+                dep.repositories && dep.repositories.includes(repoFilter)
+            );
+        }
+        
+        // Check license conflicts for each dependency
+        filteredDependencies.forEach(dep => {
+            if (!dep.originalPackage) {
+                return;
+            }
+            
+            const licenseInfo = licenseProcessor.parseLicense(dep.originalPackage);
+            const depRepos = dep.repositories || [];
+            
+            // Filter repositories if repo filter is specified
+            const reposToCheck = repoFilter && repoFilter !== 'all' 
+                ? depRepos.filter(r => r === repoFilter)
+                : depRepos;
+            
+            // Check compatibility with repository licenses
+            reposToCheck.forEach(repoKey => {
+                const repo = allRepositories.find(r => `${r.owner}/${r.name}` === repoKey);
+                if (repo && repo.license) {
+                    const compatibility = licenseProcessor.isDependencyCompatibleWithRepository(
+                        licenseInfo.license,
+                        repo.license
+                    );
+                    
+                    if (compatibility === false) {
+                        conflicts.push({
+                            dependency: dep.name,
+                            dependencyVersion: dep.version,
+                            dependencyLicense: licenseInfo.license,
+                            repository: repoKey,
+                            repositoryLicense: repo.license,
+                            ecosystem: dep.ecosystem || 'unknown',
+                            severity: licenseInfo.category === 'copyleft' ? 'high' : 'medium'
+                        });
+                    }
+                }
+            });
+        });
+        
+        if (conflicts.length === 0) {
+            return '';
+        }
+        
+        // Filter by severity if specified
+        let filteredConflicts = conflicts;
+        if (severityFilter && severityFilter !== 'all') {
+            filteredConflicts = conflicts.filter(c => c.severity === severityFilter);
+        }
+        
+        if (filteredConflicts.length === 0) {
+            return '';
+        }
+        
+        // Calculate statistics
+        const stats = {
+            total: filteredConflicts.length,
+            high: filteredConflicts.filter(c => c.severity === 'high').length,
+            medium: filteredConflicts.filter(c => c.severity === 'medium').length,
+            uniqueRepos: new Set(filteredConflicts.map(c => c.repository)).size,
+            uniqueDeps: new Set(filteredConflicts.map(c => `${c.dependency}@${c.dependencyVersion}`)).size
+        };
+        
+        let html = '<div class="card">';
+        html += '<div class="card-header"><h5 class="mb-0"><i class="fas fa-balance-scale me-2"></i>License Compatibility</h5></div>';
+        html += '<div class="card-body">';
+        
+        // Statistics
+        html += '<div class="row mb-3">';
+        html += `<div class="col-md-3">
+            <div class="card text-center bg-primary bg-opacity-10">
+                <div class="card-body">
+                    <h3>${stats.total}</h3>
+                    <p class="stats-card-label mb-0">Total Conflicts</p>
+                </div>
+            </div>
+        </div>`;
+        html += `<div class="col-md-3">
+            <div class="card text-center bg-danger bg-opacity-10">
+                <div class="card-body">
+                    <h3>${stats.high}</h3>
+                    <p class="stats-card-label mb-0">High Severity</p>
+                </div>
+            </div>
+        </div>`;
+        html += `<div class="col-md-3">
+            <div class="card text-center bg-warning bg-opacity-10">
+                <div class="card-body">
+                    <h3>${stats.medium}</h3>
+                    <p class="stats-card-label mb-0">Medium Severity</p>
+                </div>
+            </div>
+        </div>`;
+        html += `<div class="col-md-3">
+            <div class="card text-center bg-light">
+                <div class="card-body">
+                    <h3>${stats.uniqueRepos}</h3>
+                    <p class="stats-card-label mb-0">Repositories Affected</p>
+                </div>
+            </div>
+        </div>`;
+        html += '</div>';
+        
+        // Summary
+        html += `<div class="alert alert-danger mb-3">
+            <strong>Warning:</strong> Found <strong>${stats.total}</strong> incompatible license combinations 
+            across <strong>${stats.uniqueRepos}</strong> repositories and <strong>${stats.uniqueDeps}</strong> dependencies.
+        </div>`;
+        
+        // Detailed list
+        html += '<h6 class="mb-2">Incompatible License Chains</h6>';
+        html += '<div class="table-responsive"><table class="table table-sm table-hover align-middle">';
+        html += '<thead class="table-light"><tr>';
+        html += '<th style="width: 100px;">Severity</th>';
+        html += '<th style="width: 250px;">Dependency</th>';
+        html += '<th style="width: 180px;">Dependency License</th>';
+        html += '<th style="width: 250px;">Repository</th>';
+        html += '<th style="width: 180px;">Repository License</th>';
+        html += '<th style="width: 120px;">Ecosystem</th>';
+        html += '</tr></thead><tbody>';
+        
+        filteredConflicts.slice(0, 100).forEach(conflict => {
+            const severityClass = conflict.severity === 'high' ? 'danger' : 'warning';
+            const repoLink = `<a href="https://github.com/${conflict.repository}" target="_blank" rel="noreferrer noopener" class="text-decoration-none">
+                <i class="fab fa-github me-1"></i>${escapeHtml(conflict.repository)}
+            </a>`;
+            
+            html += `<tr>
+                <td><span class="badge bg-${severityClass}">${conflict.severity.toUpperCase()}</span></td>
+                <td><code class="small">${escapeHtml(conflict.dependency)}@${escapeHtml(conflict.dependencyVersion)}</code></td>
+                <td><span class="badge bg-secondary">${escapeHtml(conflict.dependencyLicense)}</span></td>
+                <td>${repoLink}</td>
+                <td><span class="badge bg-info">${escapeHtml(conflict.repositoryLicense)}</span></td>
+                <td><span class="badge bg-secondary">${escapeHtml(conflict.ecosystem)}</span></td>
+            </tr>`;
+        });
+        
+        if (filteredConflicts.length > 100) {
+            html += `<tr><td colspan="6" class="text-center text-muted py-3"><em>... and ${filteredConflicts.length - 100} more conflicts</em></td></tr>`;
+        }
+        
+        html += '</tbody></table></div>';
         html += '</div></div>';
         
         return html;
