@@ -122,7 +122,14 @@ class SettingsApp {
         // Token section toggle
         const tokenHeader = document.getElementById('tokenSectionHeader');
         if (tokenHeader) {
-            tokenHeader.addEventListener('click', () => this.toggleTokenSection());
+            tokenHeader.addEventListener('click', () => {
+                console.log('🔽 Token section header clicked');
+                this.toggleTokenSection();
+            });
+            // Also add cursor pointer style if not already applied
+            tokenHeader.style.cursor = 'pointer';
+        } else {
+            console.warn('⚠️ Token section header not found');
         }
         
         // Save token button
@@ -276,58 +283,280 @@ class SettingsApp {
      * Redo author detection for specific organization/repository
      */
     async redoAuthorDetection() {
+        console.log('🔄 Redo author detection started');
         const orgSelect = document.getElementById('redoOrgSelect');
         const orgName = orgSelect?.value?.trim();
         
         if (!orgName) {
+            console.warn('⚠️ No organization selected');
             this.showAlert('Please select an organization or repository', 'warning');
             return;
         }
 
+        console.log(`📋 Selected organization: ${orgName}`);
+
         if (!confirm(`This will clear cached author data for "${orgName}" and re-fetch from APIs. Continue?`)) {
+            console.log('❌ User cancelled');
             return;
         }
 
-        try {
-            // Clear author cache for this organization/repository
-            if (window.cacheManager) {
-                // Get all packages for this org/repo
-                const storageInfo = await this.storageManager.getStorageInfo();
-                const allEntries = [...storageInfo.organizations, ...storageInfo.repositories];
-                const matchingEntry = allEntries.find(e => 
-                    e.name.toLowerCase() === orgName.toLowerCase() ||
-                    e.name.toLowerCase().includes(orgName.toLowerCase())
-                );
-
-                if (!matchingEntry) {
-                    this.showAlert(`No analysis found for "${orgName}"`, 'warning');
-                    return;
-                }
-
-                // Load the analysis data to get package keys
-                const analysisData = await this.storageManager.loadAnalysisDataForOrganization(matchingEntry.name);
-                if (!analysisData || !analysisData.packages) {
-                    this.showAlert(`No package data found for "${orgName}"`, 'warning');
-                    return;
-                }
-
-                // Clear author entities and relationships for packages in this analysis
-                let clearedCount = 0;
-                for (const pkg of analysisData.packages) {
-                    const packageKey = `${pkg.ecosystem}:${pkg.name}`;
-                    // Clear package-author relationships
-                    await window.cacheManager.clearPackageAuthors(packageKey);
-                    clearedCount++;
-                }
-
-                this.showAlert(`Cleared author cache for ${clearedCount} packages. Re-run analysis to re-detect authors.`, 'success');
-            } else {
-                this.showAlert('Cache manager not available', 'warning');
-            }
-        } catch (error) {
-            console.error('Redo author detection failed:', error);
-            this.showAlert(`Failed to redo author detection: ${error.message}`, 'danger');
+        // Show progress bar
+        const progressContainer = document.getElementById('authorDetectionProgress');
+        const progressBar = document.getElementById('authorDetectionProgressBar');
+        const statusText = document.getElementById('authorDetectionStatus');
+        const detailsText = document.getElementById('authorDetectionDetails');
+        const redoBtn = document.getElementById('redoAuthorDetectionBtn');
+        
+        if (!progressContainer || !progressBar || !statusText || !detailsText || !redoBtn) {
+            console.error('❌ Progress bar elements not found');
+            this.showAlert('Progress bar elements not found. Please refresh the page.', 'danger');
+            return;
         }
+        
+        console.log('📊 Showing progress bar');
+        progressContainer.classList.remove('d-none');
+        redoBtn.disabled = true;
+        
+        const updateProgress = (percent, status, details = '') => {
+            progressBar.style.width = `${percent}%`;
+            progressBar.setAttribute('aria-valuenow', percent);
+            progressBar.textContent = `${Math.round(percent)}%`;
+            statusText.textContent = status;
+            if (details) {
+                detailsText.textContent = details;
+            }
+        };
+
+        try {
+            updateProgress(5, 'Loading analysis data...', '');
+            
+            // Get all packages for this org/repo
+            const storageInfo = await this.storageManager.getStorageInfo();
+            const allEntries = [...storageInfo.organizations, ...storageInfo.repositories];
+            const matchingEntry = allEntries.find(e => 
+                e.name.toLowerCase() === orgName.toLowerCase() ||
+                e.name.toLowerCase().includes(orgName.toLowerCase())
+            );
+
+            if (!matchingEntry) {
+                this.showAlert(`No analysis found for "${orgName}"`, 'warning');
+                progressContainer.classList.add('d-none');
+                redoBtn.disabled = false;
+                return;
+            }
+
+            updateProgress(10, 'Loading package data...', '');
+            
+            // Load the analysis data
+            const analysisData = await this.storageManager.loadAnalysisDataForOrganization(matchingEntry.name);
+            if (!analysisData || !analysisData.data || !analysisData.data.allDependencies) {
+                this.showAlert(`No dependency data found for "${orgName}"`, 'warning');
+                progressContainer.classList.add('d-none');
+                redoBtn.disabled = false;
+                return;
+            }
+
+            updateProgress(15, 'Clearing cached author data...', '');
+            
+            // Clear author cache for packages in this analysis
+            const dbManager = window.indexedDBManager;
+            if (dbManager && dbManager.db) {
+                const dependencies = analysisData.data.allDependencies || [];
+                const packageKeys = new Set();
+                
+                dependencies.forEach(dep => {
+                    if (dep.purl) {
+                        const ecosystem = this.getEcosystemFromPurl(dep.purl);
+                        const name = this.getPackageNameFromPurl(dep.purl);
+                        if (ecosystem && name) {
+                            packageKeys.add(`${ecosystem}:${name}`);
+                        }
+                    }
+                });
+                
+                let clearedCount = 0;
+                let totalRelationships = 0;
+                const totalPackages = packageKeys.size;
+                
+                // First, count total relationships to clear
+                for (const packageKey of packageKeys) {
+                    const relationships = await dbManager.getPackageAuthors(packageKey);
+                    totalRelationships += relationships.length;
+                }
+                
+                // Now delete relationships for each package
+                for (const packageKey of packageKeys) {
+                    const relationships = await dbManager.getPackageAuthors(packageKey);
+                    
+                    // Delete each relationship in a single transaction per package
+                    if (relationships.length > 0) {
+                        const transaction = dbManager.db.transaction(['packageAuthors'], 'readwrite');
+                        const store = transaction.objectStore('packageAuthors');
+                        
+                        // Delete all relationships for this package
+                        const deletePromises = relationships.map(rel => 
+                            dbManager._promisifyRequest(store.delete(rel.packageAuthorKey))
+                        );
+                        await Promise.all(deletePromises);
+                        clearedCount += relationships.length;
+                    }
+                    
+                    const progressPercent = 15 + (clearedCount / Math.max(totalRelationships, 1) * 10);
+                    updateProgress(progressPercent, 
+                        `Clearing cache: ${clearedCount} relationships...`,
+                        `Cleared ${clearedCount} package-author relationships`);
+                }
+                
+                updateProgress(25, 'Cache cleared. Starting author detection...', `Cleared ${clearedCount} package-author relationships`);
+            } else {
+                updateProgress(25, 'Database not available, proceeding without clearing cache...', '');
+            }
+
+            // Now actually re-run author detection
+            if (!window.AuthorService) {
+                console.error('❌ AuthorService not available. Make sure author-service.js is loaded.');
+                this.showAlert('AuthorService not available. Please refresh the page.', 'warning');
+                progressContainer.classList.add('d-none');
+                redoBtn.disabled = false;
+                return;
+            }
+
+            console.log('✅ AuthorService available, initializing...');
+            updateProgress(30, 'Initializing author service...', '');
+            
+            const authorService = new window.AuthorService();
+            console.log('✅ AuthorService initialized');
+            
+            // Extract unique packages with ecosystem info (similar to analyzeAuthors)
+            updateProgress(35, 'Extracting packages from dependencies...', '');
+            
+            const packageMap = new Map();
+            analysisData.data.allDependencies
+                .filter(dep => dep.purl)
+                .forEach(dep => {
+                    const ecosystem = this.getEcosystemFromPurl(dep.purl);
+                    const name = this.getPackageNameFromPurl(dep.purl);
+                    
+                    if (!ecosystem || !name) return;
+                    
+                    const key = `${ecosystem}:${name}`;
+                    const repositories = dep.repositories || [];
+                    
+                    if (packageMap.has(key)) {
+                        const existing = packageMap.get(key);
+                        const existingRepos = new Set(existing.repositories || []);
+                        repositories.forEach(repo => existingRepos.add(repo));
+                        existing.repositories = Array.from(existingRepos);
+                    } else {
+                        packageMap.set(key, {
+                            ecosystem: ecosystem,
+                            name: name,
+                            purl: dep.purl,
+                            repositories: Array.from(new Set(repositories))
+                        });
+                    }
+                });
+            
+            const packages = Array.from(packageMap.values());
+            updateProgress(40, `Found ${packages.length} unique packages`, `Processing ${packages.length} packages for author detection`);
+            
+            // Fetch authors with progress callback
+            updateProgress(45, 'Fetching author information from APIs...', 'This may take a while...');
+            
+            const authorResults = await authorService.fetchAuthorsForPackages(
+                packages,
+                (processed, total) => {
+                    const percent = 45 + (processed / total * 50);
+                    updateProgress(percent, 
+                        `Fetching authors: ${processed}/${total} packages`,
+                        `Processing ${processed} of ${total} packages...`);
+                }
+            );
+            
+            updateProgress(95, 'Saving author analysis results...', '');
+            
+            // Convert Map to array and sort by repository count
+            const authorsList = Array.from(authorResults.values())
+                .sort((a, b) => {
+                    if (b.repositoryCount !== a.repositoryCount) {
+                        return b.repositoryCount - a.repositoryCount;
+                    }
+                    const aPackageCount = [...new Set(a.packages)].length;
+                    const bPackageCount = [...new Set(b.packages)].length;
+                    if (bPackageCount !== aPackageCount) {
+                        return bPackageCount - aPackageCount;
+                    }
+                    return b.count - a.count;
+                });
+            
+            // Store only references (author keys) instead of full author data
+            const authorReferences = authorsList.map(author => {
+                let authorKey;
+                if (author.author.includes(':')) {
+                    authorKey = author.author;
+                } else {
+                    authorKey = `${author.ecosystem}:${author.author}`;
+                }
+                
+                return {
+                    authorKey: authorKey,
+                    ecosystem: author.ecosystem,
+                    packages: [...new Set(author.packages)],
+                    packageRepositories: author.packageRepositories,
+                    repositories: author.repositories,
+                    repositoryCount: author.repositoryCount,
+                    count: author.count
+                };
+            });
+            
+            // Save to analysis data
+            analysisData.data.authorAnalysis = {
+                timestamp: Date.now(),
+                totalAuthors: authorReferences.length,
+                totalPackages: packages.length,
+                authors: authorReferences,
+                _cacheVersion: 3
+            };
+            
+            await this.storageManager.saveAnalysisData(matchingEntry.name, analysisData.data);
+            
+            updateProgress(100, 'Author detection complete!', `Detected ${authorsList.length} unique authors for ${packages.length} packages`);
+            console.log(`✅ Author detection complete! Found ${authorsList.length} unique authors for ${packages.length} packages`);
+            
+            // Show success message
+            setTimeout(() => {
+                this.showAlert(`Author detection complete! Found ${authorsList.length} unique authors for ${packages.length} packages.`, 'success');
+                progressContainer.classList.add('d-none');
+                redoBtn.disabled = false;
+                console.log('✅ Progress bar hidden, button re-enabled');
+            }, 2000);
+            
+        } catch (error) {
+            console.error('❌ Redo author detection failed:', error);
+            console.error('Error stack:', error.stack);
+            updateProgress(0, 'Error occurred', error.message);
+            this.showAlert(`Failed to redo author detection: ${error.message}`, 'danger');
+            progressContainer.classList.add('d-none');
+            redoBtn.disabled = false;
+        }
+    }
+
+    /**
+     * Extract ecosystem from PURL
+     */
+    getEcosystemFromPurl(purl) {
+        if (!purl) return null;
+        const match = purl.match(/^pkg:([^/]+)/);
+        return match ? match[1] : null;
+    }
+
+    /**
+     * Extract package name from PURL
+     */
+    getPackageNameFromPurl(purl) {
+        if (!purl) return null;
+        const match = purl.match(/^pkg:[^/]+\/([^@?]+)/);
+        return match ? match[1] : null;
     }
 
     /**
@@ -337,12 +566,23 @@ class SettingsApp {
         const tokenSection = document.getElementById('tokenSectionBody');
         const toggleIcon = document.getElementById('tokenToggleIcon');
         
-        if (tokenSection.style.display === 'none') {
-            tokenSection.style.display = 'block';
+        if (!tokenSection || !toggleIcon) {
+            console.warn('⚠️ Token section elements not found');
+            return;
+        }
+        
+        // Toggle Bootstrap d-none class
+        const isHidden = tokenSection.classList.contains('d-none');
+        console.log(`🔄 Toggling token section: ${isHidden ? 'showing' : 'hiding'}`);
+        
+        if (isHidden) {
+            tokenSection.classList.remove('d-none');
             toggleIcon.className = 'fas fa-chevron-up';
+            console.log('✅ Token section shown');
         } else {
-            tokenSection.style.display = 'none';
+            tokenSection.classList.add('d-none');
             toggleIcon.className = 'fas fa-chevron-down';
+            console.log('✅ Token section hidden');
         }
     }
 
