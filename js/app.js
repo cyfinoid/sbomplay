@@ -4,6 +4,14 @@
 class SBOMPlayApp {
     constructor() {
         this.githubClient = new GitHubClient();
+        
+        // Load GitHub token from sessionStorage if available
+        const savedToken = sessionStorage.getItem('github_token');
+        if (savedToken) {
+            this.githubClient.setToken(savedToken);
+            console.log('🔑 Loaded GitHub token from sessionStorage');
+        }
+        
         this.sbomProcessor = new SBOMProcessor();
         this.storageManager = window.storageManager || new StorageManager();
         this.isAnalyzing = false;
@@ -407,10 +415,17 @@ class SBOMPlayApp {
             return;
         }
 
+        // Save to sessionStorage so it persists across page reloads
+        if (token) {
+            sessionStorage.setItem('github_token', token);
+        } else {
+            sessionStorage.removeItem('github_token');
+        }
+        
         this.githubClient.setToken(token);
         
         if (token) {
-            this.updateTokenStatus('Token set successfully (not saved)', 'success');
+            this.updateTokenStatus('Token saved to session (not persistent)', 'success');
         } else {
             this.updateTokenStatus('Token cleared', 'info');
         }
@@ -1017,13 +1032,16 @@ class SBOMPlayApp {
                 }
             }
             
-            // Fetch licenses for PyPI packages and version drift data in background
+            // Fetch licenses for PyPI and Go packages and version drift data in background
             // These are non-blocking and will save to IndexedDB for future use
             if (reposWithDeps > 0 && results.allDependencies) {
                 this.updateProgress(96, 'Fetching package licenses and version drift data...', 'fetching-metadata');
                 try {
                     // Fetch licenses for PyPI packages missing license info
                     await this.fetchPyPILicenses(results.allDependencies, ownerName);
+                    
+                    // Fetch licenses for Go packages missing license info
+                    await this.fetchGoLicenses(results.allDependencies, ownerName);
                     
                     // Fetch version drift for all packages (already saves to cache/IndexedDB)
                     await this.fetchVersionDriftData(results.allDependencies);
@@ -1508,7 +1526,7 @@ class SBOMPlayApp {
     }
     
     /**
-     * Get dependency count per ecosystem (including both direct and transitive dependencies)
+     * Get dependency count per ecosystem (counting unique dependencies only)
      */
     getEcosystemDependencyCounts(data) {
         if (!data.data.allDependencies) {
@@ -1516,9 +1534,10 @@ class SBOMPlayApp {
         }
         
         const ecosystemDeps = {};
+        const seenDependencies = new Map(); // Track unique dependencies per ecosystem
         
         // Iterate through all dependencies (includes both direct and transitive)
-        // Count each dependency occurrence weighted by how many repositories use it
+        // Count each unique dependency only once per ecosystem
         data.data.allDependencies.forEach(dep => {
             // Get ecosystem from category.ecosystem or extract from PURL
             let ecosystem = dep.category?.ecosystem;
@@ -1538,13 +1557,21 @@ class SBOMPlayApp {
             // Normalize ecosystem name (capitalize first letter)
             ecosystem = ecosystem.charAt(0).toUpperCase() + ecosystem.slice(1).toLowerCase();
             
+            // Create unique key for this dependency (ecosystem:name@version)
+            const depKey = `${ecosystem}:${dep.name}@${dep.version || 'unknown'}`;
+            
+            // Initialize ecosystem counter if needed
             if (!ecosystemDeps[ecosystem]) {
                 ecosystemDeps[ecosystem] = 0;
+                seenDependencies.set(ecosystem, new Set());
             }
-            // Count occurrences: dep.count represents the number of repositories 
-            // using this dependency (whether direct or transitive)
-            // This ensures transitive dependencies are included in the count
-            ecosystemDeps[ecosystem] += dep.count || 1;
+            
+            // Count unique dependencies only (each dependency counted once per ecosystem)
+            const ecosystemSeen = seenDependencies.get(ecosystem);
+            if (!ecosystemSeen.has(depKey)) {
+                ecosystemSeen.add(depKey);
+                ecosystemDeps[ecosystem]++;
+            }
         });
         
         return ecosystemDeps;
@@ -3085,12 +3112,19 @@ class SBOMPlayApp {
                 try {
                     // Fetch license from deps.dev API
                     const url = `https://api.deps.dev/v3alpha/systems/pypi/packages/${encodeURIComponent(dep.name)}/versions/${encodeURIComponent(dep.version)}`;
+                    console.log(`🌐 [DEBUG] Fetching URL: ${url}`);
+                    console.log(`   Reason: Fetching deps.dev API for PyPI package ${dep.name}@${dep.version} to extract license information`);
+                    
                     const response = await fetch(url);
                     if (!response.ok) {
+                        console.log(`   ❌ Response: Status ${response.status} ${response.statusText}`);
                         return;
                     }
                     
                     const data = await response.json();
+                    const licenseCount = data.licenses?.length || 0;
+                    console.log(`   ✅ Response: Status ${response.status}, Extracted: ${licenseCount} license/licenses`);
+                    
                     if (data.licenses && data.licenses.length > 0) {
                         const licenseFull = data.licenses.join(' AND ');
                         let licenseText = licenseFull;
@@ -3105,10 +3139,16 @@ class SBOMPlayApp {
                             licenseText = licenseFull.length > 8 ? licenseFull.substring(0, 8) + '...' : licenseFull;
                         }
                         
-                        // Update dependency object
+                        // Update dependency object (both top-level and in originalPackage for persistence)
                         dep.license = licenseText;
                         dep.licenseFull = licenseFull;
                         dep._licenseEnriched = true;
+                        
+                        // Also update originalPackage to ensure license persists when saved to IndexedDB
+                        if (dep.originalPackage) {
+                            dep.originalPackage.licenseConcluded = licenseFull;
+                            dep.originalPackage.licenseDeclared = licenseFull;
+                        }
                         
                         fetched++;
                         
@@ -3128,6 +3168,128 @@ class SBOMPlayApp {
         // Note: Licenses are updated in-place in the dependencies array
         // The caller should save the updated results to IndexedDB after this function completes
         console.log(`✅ License fetching complete: ${fetched} licenses fetched`);
+    }
+    
+    /**
+     * Fetch licenses for Go packages from deps.dev API
+     */
+    async fetchGoLicenses(dependencies, identifier) {
+        if (!dependencies || dependencies.length === 0) return;
+        
+        // Filter Go packages that need licenses
+        const goDeps = dependencies.filter(dep => 
+            (dep.category?.ecosystem === 'Go' || dep.category?.ecosystem === 'golang') && 
+            dep.name && 
+            dep.version &&
+            (!dep.licenseFull || dep.licenseFull === 'Unknown' || dep.licenseFull === 'NOASSERTION')
+        );
+        
+        if (goDeps.length === 0) {
+            console.log('ℹ️ No Go packages need license fetching');
+            return;
+        }
+        
+        console.log(`📄 Fetching licenses for ${goDeps.length} Go packages...`);
+        
+        // Process in batches to avoid overwhelming the API
+        const batchSize = 20;
+        let fetched = 0;
+        let saved = 0;
+        
+        for (let i = 0; i < goDeps.length; i += batchSize) {
+            const batch = goDeps.slice(i, i + batchSize);
+            await Promise.all(batch.map(async (dep) => {
+                try {
+                    // Fetch license from deps.dev API
+                    const url = `https://api.deps.dev/v3alpha/systems/go/packages/${encodeURIComponent(dep.name)}/versions/${encodeURIComponent(dep.version)}`;
+                    console.log(`🌐 [DEBUG] Fetching URL: ${url}`);
+                    console.log(`   Reason: Fetching deps.dev API for Go package ${dep.name}@${dep.version} to extract license information`);
+                    
+                    const response = await fetch(url);
+                    if (!response.ok) {
+                        console.log(`   ❌ Response: Status ${response.status} ${response.statusText}`);
+                        return;
+                    }
+                    
+                    const data = await response.json();
+                    const licenseCount = data.licenses?.length || 0;
+                    console.log(`   ✅ Response: Status ${response.status}, Extracted: ${licenseCount} license/licenses`);
+                    
+                    if (data.licenses && data.licenses.length > 0) {
+                        const licenseFull = data.licenses.join(' AND ');
+                        let licenseText = licenseFull;
+                        
+                        // Format license text
+                        if (licenseFull.includes(' AND ')) {
+                            const firstLicense = licenseFull.split(' AND ')[0];
+                            licenseText = firstLicense.startsWith('Apache') ? 'Apache' : (firstLicense.length > 8 ? firstLicense.substring(0, 8) + '...' : firstLicense);
+                        } else if (licenseFull.startsWith('Apache')) {
+                            licenseText = 'Apache';
+                        } else {
+                            licenseText = licenseFull.length > 8 ? licenseFull.substring(0, 8) + '...' : licenseFull;
+                        }
+                        
+                        // Update dependency object (both top-level and in originalPackage for persistence)
+                        dep.license = licenseText;
+                        dep.licenseFull = licenseFull;
+                        dep._licenseEnriched = true;
+                        
+                        // Also update originalPackage to ensure license persists when saved to IndexedDB
+                        if (dep.originalPackage) {
+                            dep.originalPackage.licenseConcluded = licenseFull;
+                            dep.originalPackage.licenseDeclared = licenseFull;
+                        }
+                        
+                        // Save to cache via cacheManager if available
+                        if (window.cacheManager && dep.name && dep.category?.ecosystem) {
+                            try {
+                                let ecosystem = dep.category.ecosystem.toLowerCase();
+                                // Normalize ecosystem aliases
+                                if (ecosystem === 'go' || ecosystem === 'golang') {
+                                    ecosystem = 'golang';
+                                }
+                                const packageKey = `${ecosystem}:${dep.name}`;
+                                const packageData = await window.cacheManager.getPackage(packageKey) || {
+                                    packageKey: packageKey,
+                                    name: dep.name,
+                                    ecosystem: ecosystem
+                                };
+                                
+                                // Update license info in package data
+                                if (!packageData.licenses) {
+                                    packageData.licenses = {};
+                                }
+                                packageData.licenses[dep.version] = {
+                                    license: licenseText,
+                                    licenseFull: licenseFull,
+                                    _licenseEnriched: true
+                                };
+                                
+                                await window.cacheManager.savePackage(packageKey, packageData);
+                                saved++;
+                            } catch (cacheError) {
+                                console.debug(`Failed to save license to cache for ${dep.name}@${dep.version}:`, cacheError);
+                            }
+                        }
+                        
+                        fetched++;
+                        
+                        if (fetched % 10 === 0) {
+                            console.log(`📄 Licenses: ${fetched}/${goDeps.length} fetched`);
+                        }
+                    }
+                } catch (e) {
+                    console.debug(`Failed to fetch license for ${dep.name}@${dep.version}:`, e);
+                }
+            }));
+            
+            // Small delay between batches
+            await new Promise(resolve => setTimeout(resolve, 50));
+        }
+        
+        // Note: Licenses are updated in-place in the dependencies array
+        // The caller should save the updated results to IndexedDB after this function completes
+        console.log(`✅ Go license fetching complete: ${fetched} licenses fetched${saved > 0 ? `, ${saved} saved to cache` : ''}`);
     }
     
     /**

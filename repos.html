@@ -63,9 +63,20 @@
                             <!-- Options populated dynamically, defaults to "All Projects (Combined)" -->
                         </select>
                     </div>
-                    <div class="col-md-6">
+                    <div class="col-md-4">
                         <label class="form-label">Search</label>
                         <input type="text" class="form-control" id="searchInput" placeholder="Search repository name...">
+                    </div>
+                    <div class="col-md-2">
+                        <label class="form-label">Page Size</label>
+                        <select class="form-select" id="pageSizeSelect">
+                            <option value="10">10 per page</option>
+                            <option value="25" selected>25 per page</option>
+                            <option value="50">50 per page</option>
+                            <option value="100">100 per page</option>
+                            <option value="250">250 per page</option>
+                            <option value="500">500 per page</option>
+                        </select>
                     </div>
                 </div>
             </div>
@@ -143,6 +154,25 @@
                     </tbody>
                 </table>
             </div>
+            <div class="card-footer">
+                <div class="d-flex justify-content-between align-items-center">
+                    <div>
+                        <span class="text-muted" id="paginationInfo">Showing 0-0 of 0</span>
+                    </div>
+                    <div>
+                        <nav aria-label="Page navigation">
+                            <ul class="pagination pagination-sm mb-0" id="paginationControls">
+                                <li class="page-item disabled" id="prevPageBtn">
+                                    <a class="page-link" href="#" tabindex="-1">Previous</a>
+                                </li>
+                                <li class="page-item disabled" id="nextPageBtn">
+                                    <a class="page-link" href="#">Next</a>
+                                </li>
+                            </ul>
+                        </nav>
+                    </div>
+                </div>
+            </div>
         </div>
 
         <div class="alert alert-info d-none" id="noDataMessage">
@@ -163,9 +193,51 @@
         
         let allRepositories = [];
         let filteredRepositories = [];
+        let currentPage = 1;
+        let pageSize = parseInt(localStorage.getItem('reposPageSize') || '25', 10);
         let currentData = null;
         let sortColumn = 'name';
         let sortDirection = 'asc';
+        
+        // Sanitize search input to prevent injection attacks
+        function sanitizeSearchInput(input) {
+            if (!input || typeof input !== 'string') return '';
+            // Remove any potentially dangerous characters, limit length
+            return input
+                .trim()
+                .substring(0, 200) // Limit length
+                .replace(/[<>\"'&]/g, ''); // Remove HTML/script injection chars
+        }
+        
+        // Function to update pagination controls
+        function updatePaginationControls(totalItems, totalPages) {
+            const paginationInfo = document.getElementById('paginationInfo');
+            const prevBtn = document.getElementById('prevPageBtn');
+            const nextBtn = document.getElementById('nextPageBtn');
+            
+            if (!paginationInfo || !prevBtn || !nextBtn) return;
+            
+            const startItem = totalItems === 0 ? 0 : (currentPage - 1) * pageSize + 1;
+            const endItem = Math.min(currentPage * pageSize, totalItems);
+            
+            paginationInfo.textContent = `Showing ${startItem}-${endItem} of ${totalItems}`;
+            
+            // Update Previous button
+            if (currentPage > 1) {
+                prevBtn.classList.remove('disabled');
+                prevBtn.querySelector('a').removeAttribute('tabindex');
+            } else {
+                prevBtn.classList.add('disabled');
+                prevBtn.querySelector('a').setAttribute('tabindex', '-1');
+            }
+            
+            // Update Next button
+            if (currentPage < totalPages && totalPages > 0) {
+                nextBtn.classList.remove('disabled');
+            } else {
+                nextBtn.classList.add('disabled');
+            }
+        }
         
         // Check for URL parameters
         const urlParams = new URLSearchParams(window.location.search);
@@ -256,6 +328,43 @@
                     noDataMessage.classList.remove('d-none');
                 }
             }
+        }
+        
+        // Page size selector
+        const pageSizeSelect = document.getElementById('pageSizeSelect');
+        if (pageSizeSelect) {
+            pageSizeSelect.value = pageSize.toString();
+            pageSizeSelect.addEventListener('change', (e) => {
+                pageSize = parseInt(e.target.value, 10);
+                localStorage.setItem('reposPageSize', pageSize.toString());
+                currentPage = 1;
+                filterTable();
+            });
+        }
+        
+        // Pagination controls
+        const prevPageBtn = document.getElementById('prevPageBtn');
+        const nextPageBtn = document.getElementById('nextPageBtn');
+        
+        if (prevPageBtn) {
+            prevPageBtn.addEventListener('click', (e) => {
+                e.preventDefault();
+                if (currentPage > 1) {
+                    currentPage--;
+                    renderTable(filteredRepositories);
+                }
+            });
+        }
+        
+        if (nextPageBtn) {
+            nextPageBtn.addEventListener('click', (e) => {
+                e.preventDefault();
+                const totalPages = Math.ceil(filteredRepositories.length / pageSize);
+                if (currentPage < totalPages) {
+                    currentPage++;
+                    renderTable(filteredRepositories);
+                }
+            });
         }
         
         document.getElementById('analysisSelector').addEventListener('change', () => {
@@ -469,7 +578,8 @@
                 return;
             }
             
-            const search = document.getElementById('searchInput').value.toLowerCase();
+            const searchInput = document.getElementById('searchInput').value;
+            const search = sanitizeSearchInput(searchInput).toLowerCase();
             
             let filtered = allRepositories;
             
@@ -508,6 +618,7 @@
             });
             
             filteredRepositories = filtered;
+            currentPage = 1; // Reset to first page when filtering
             
             updateStats(filtered);
             renderTable(filtered);
@@ -541,7 +652,17 @@
                 return `${page}?${params.toString()}`;
             };
             
-            repos.forEach(repo => {
+            // Calculate pagination
+            const totalPages = Math.ceil(repos.length / pageSize);
+            if (currentPage > totalPages && totalPages > 0) {
+                currentPage = totalPages;
+            }
+            
+            const startIndex = (currentPage - 1) * pageSize;
+            const endIndex = Math.min(startIndex + pageSize, repos.length);
+            const reposToDisplay = repos.slice(startIndex, endIndex);
+            
+            reposToDisplay.forEach(repo => {
                 // Build SBOM Grade cell (combined status and grade, clickable if available)
                 const qualityLink = createRepoLink('audit.html', repo.name);
                 let sbomGradeCell = '<td>';
@@ -620,6 +741,9 @@
                 `;
                 tbody.appendChild(tr);
             });
+            
+            // Update pagination controls
+            updatePaginationControls(repos.length, totalPages);
         }
         
         function exportCSV() {

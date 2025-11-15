@@ -146,6 +146,188 @@ class SettingsApp {
                 }
             });
         }
+
+        // Analysis settings
+        const maxDepthInput = document.getElementById('maxDepth');
+        if (maxDepthInput) {
+            // Load saved max depth
+            const savedMaxDepth = localStorage.getItem('maxDepth') || '10';
+            maxDepthInput.value = savedMaxDepth;
+            document.getElementById('currentMaxDepth').textContent = savedMaxDepth;
+            
+            maxDepthInput.addEventListener('input', (e) => {
+                document.getElementById('currentMaxDepth').textContent = e.target.value;
+            });
+        }
+
+        const saveAnalysisSettingsBtn = document.getElementById('saveAnalysisSettingsBtn');
+        if (saveAnalysisSettingsBtn) {
+            saveAnalysisSettingsBtn.addEventListener('click', () => this.saveAnalysisSettings());
+        }
+
+        const resetAnalysisSettingsBtn = document.getElementById('resetAnalysisSettingsBtn');
+        if (resetAnalysisSettingsBtn) {
+            resetAnalysisSettingsBtn.addEventListener('click', () => this.resetAnalysisSettings());
+        }
+
+        // Redo author detection
+        const redoOrgSelect = document.getElementById('redoOrgSelect');
+        const redoAuthorDetectionBtn = document.getElementById('redoAuthorDetectionBtn');
+        
+        if (redoOrgSelect) {
+            // Populate dropdown with saved organizations/repositories
+            this.populateRedoOrgDropdown();
+            
+            // Enable/disable button based on selection
+            redoOrgSelect.addEventListener('change', (e) => {
+                redoAuthorDetectionBtn.disabled = !e.target.value;
+            });
+        }
+        
+        if (redoAuthorDetectionBtn) {
+            redoAuthorDetectionBtn.addEventListener('click', () => this.redoAuthorDetection());
+        }
+    }
+
+    /**
+     * Populate the redo organization dropdown with saved entries
+     */
+    async populateRedoOrgDropdown() {
+        const select = document.getElementById('redoOrgSelect');
+        if (!select) return;
+
+        try {
+            const storageInfo = await this.storageManager.getStorageInfo();
+            const allEntries = [...storageInfo.organizations, ...storageInfo.repositories];
+            
+            // Clear existing options except the first placeholder
+            select.innerHTML = '<option value="">-- Select an organization or repository --</option>';
+            
+            if (allEntries.length === 0) {
+                const option = document.createElement('option');
+                option.value = '';
+                option.textContent = 'No saved analyses found';
+                option.disabled = true;
+                select.appendChild(option);
+                return;
+            }
+            
+            // Sort entries by name
+            allEntries.sort((a, b) => a.name.localeCompare(b.name));
+            
+            // Add each entry to dropdown
+            allEntries.forEach(entry => {
+                const option = document.createElement('option');
+                option.value = entry.name;
+                option.textContent = `${entry.name} (${entry.repositories} repos, ${entry.dependencies} deps)`;
+                select.appendChild(option);
+            });
+        } catch (error) {
+            console.error('Failed to populate redo org dropdown:', error);
+            const option = document.createElement('option');
+            option.value = '';
+            option.textContent = 'Error loading entries';
+            option.disabled = true;
+            select.appendChild(option);
+        }
+    }
+
+    /**
+     * Save analysis settings
+     */
+    saveAnalysisSettings() {
+        const maxDepth = document.getElementById('maxDepth').value;
+        const depth = parseInt(maxDepth, 10);
+        
+        if (isNaN(depth) || depth < 1 || depth > 50) {
+            this.showAlert('Maximum depth must be between 1 and 50', 'warning');
+            return;
+        }
+
+        localStorage.setItem('maxDepth', depth.toString());
+        
+        // Update dependency tree resolver if available
+        if (window.dependencyTreeResolver) {
+            window.dependencyTreeResolver.maxDepth = depth;
+        }
+        
+        this.showAlert(`Settings saved! Maximum depth set to ${depth}`, 'success');
+        document.getElementById('currentMaxDepth').textContent = depth.toString();
+    }
+
+    /**
+     * Reset analysis settings to defaults
+     */
+    resetAnalysisSettings() {
+        if (confirm('Reset all analysis settings to defaults?')) {
+            localStorage.removeItem('maxDepth');
+            document.getElementById('maxDepth').value = '10';
+            document.getElementById('currentMaxDepth').textContent = '10';
+            
+            if (window.dependencyTreeResolver) {
+                window.dependencyTreeResolver.maxDepth = 10;
+            }
+            
+            this.showAlert('Settings reset to defaults', 'success');
+        }
+    }
+
+    /**
+     * Redo author detection for specific organization/repository
+     */
+    async redoAuthorDetection() {
+        const orgSelect = document.getElementById('redoOrgSelect');
+        const orgName = orgSelect?.value?.trim();
+        
+        if (!orgName) {
+            this.showAlert('Please select an organization or repository', 'warning');
+            return;
+        }
+
+        if (!confirm(`This will clear cached author data for "${orgName}" and re-fetch from APIs. Continue?`)) {
+            return;
+        }
+
+        try {
+            // Clear author cache for this organization/repository
+            if (window.cacheManager) {
+                // Get all packages for this org/repo
+                const storageInfo = await this.storageManager.getStorageInfo();
+                const allEntries = [...storageInfo.organizations, ...storageInfo.repositories];
+                const matchingEntry = allEntries.find(e => 
+                    e.name.toLowerCase() === orgName.toLowerCase() ||
+                    e.name.toLowerCase().includes(orgName.toLowerCase())
+                );
+
+                if (!matchingEntry) {
+                    this.showAlert(`No analysis found for "${orgName}"`, 'warning');
+                    return;
+                }
+
+                // Load the analysis data to get package keys
+                const analysisData = await this.storageManager.loadAnalysisDataForOrganization(matchingEntry.name);
+                if (!analysisData || !analysisData.packages) {
+                    this.showAlert(`No package data found for "${orgName}"`, 'warning');
+                    return;
+                }
+
+                // Clear author entities and relationships for packages in this analysis
+                let clearedCount = 0;
+                for (const pkg of analysisData.packages) {
+                    const packageKey = `${pkg.ecosystem}:${pkg.name}`;
+                    // Clear package-author relationships
+                    await window.cacheManager.clearPackageAuthors(packageKey);
+                    clearedCount++;
+                }
+
+                this.showAlert(`Cleared author cache for ${clearedCount} packages. Re-run analysis to re-detect authors.`, 'success');
+            } else {
+                this.showAlert('Cache manager not available', 'warning');
+            }
+        } catch (error) {
+            console.error('Redo author detection failed:', error);
+            this.showAlert(`Failed to redo author detection: ${error.message}`, 'danger');
+        }
     }
 
     /**
@@ -646,6 +828,9 @@ class SettingsApp {
      */
     async displayOrganizationsOverview() {
         const storageInfo = await this.storageManager.getStorageInfo();
+        
+        // Refresh the redo org dropdown when organizations list is updated
+        await this.populateRedoOrgDropdown();
         
         if (storageInfo.totalEntries === 0) {
             document.getElementById('organizationsSection').style.display = 'none';

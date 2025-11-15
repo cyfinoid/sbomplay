@@ -109,27 +109,58 @@ class CacheManager {
         }
 
         try {
-            // Get all author entities
-            // Note: This is a simple implementation - in production you might want an email index
-            const allAuthors = await dbManager.getAllAuthorEntities();
-            
-            if (!allAuthors || !Array.isArray(allAuthors)) {
+            // Use email index if available for faster lookup
+            const transaction = dbManager.db.transaction(['authorEntities'], 'readonly');
+            const store = transaction.objectStore('authorEntities');
+            let index;
+            try {
+                index = store.index('email');
+            } catch (e) {
+                // Index might not exist, fall back to getAll
+                const allAuthors = await dbManager.getAllAuthorEntities();
+                if (!allAuthors || !Array.isArray(allAuthors)) {
+                    return null;
+                }
+                
+                for (const authorData of allAuthors) {
+                    if (!authorData || !authorData.authorKey) {
+                        continue;
+                    }
+                    
+                    const authorKey = authorData.authorKey;
+                    const [authorEcosystem] = authorKey.split(':');
+                    
+                    if (authorEcosystem === ecosystem && authorData.email === email) {
+                        return {
+                            authorKey: authorKey,
+                            entity: authorData
+                        };
+                    }
+                }
                 return null;
             }
             
-            // Find author with matching email in same ecosystem
-            // IndexedDB getAll() returns array of objects with keyPath as property
-            // Since authorEntities uses 'authorKey' as keyPath, each entry has authorKey property
-            for (const authorData of allAuthors) {
+            // Use index for faster lookup
+            const request = index.getAll(email);
+            const results = await new Promise((resolve, reject) => {
+                request.onsuccess = () => resolve(request.result);
+                request.onerror = () => reject(request.error);
+            });
+            
+            if (!results || results.length === 0) {
+                return null;
+            }
+            
+            // Find matching ecosystem
+            for (const authorData of results) {
                 if (!authorData || !authorData.authorKey) {
                     continue;
                 }
                 
                 const authorKey = authorData.authorKey;
-                // authorKey format: "ecosystem:authorName"
                 const [authorEcosystem] = authorKey.split(':');
                 
-                if (authorEcosystem === ecosystem && authorData.email === email) {
+                if (authorEcosystem === ecosystem) {
                     return {
                         authorKey: authorKey,
                         entity: authorData
@@ -140,6 +171,97 @@ class CacheManager {
             return null;
         } catch (error) {
             console.warn('⚠️ Cache: Failed to find author by email:', error);
+            return null;
+        }
+    }
+
+    /**
+     * Find author entity by GitHub username (across all ecosystems)
+     * Used for correlating authors with same GitHub profile (e.g., same person across npm, pypi, etc.)
+     * @param {string} githubUsername - GitHub username to search for
+     * @returns {Promise<{authorKey: string, entity: Object}|null>} - Found author or null
+     */
+    async findAuthorByGitHub(githubUsername) {
+        if (!githubUsername) return null;
+        
+        const dbManager = window.indexedDBManager;
+        if (!dbManager || !dbManager.db) {
+            return null;
+        }
+
+        try {
+            // Use github index if available for faster lookup
+            const transaction = dbManager.db.transaction(['authorEntities'], 'readonly');
+            const store = transaction.objectStore('authorEntities');
+            let index;
+            try {
+                index = store.index('github');
+            } catch (e) {
+                // Index might not exist, fall back to getAll
+                const allAuthors = await dbManager.getAllAuthorEntities();
+                if (!allAuthors || !Array.isArray(allAuthors)) {
+                    return null;
+                }
+                
+                for (const authorData of allAuthors) {
+                    if (!authorData || !authorData.authorKey || !authorData.metadata) {
+                        continue;
+                    }
+                    
+                    if (authorData.metadata.github === githubUsername) {
+                        return {
+                            authorKey: authorData.authorKey,
+                            entity: authorData
+                        };
+                    }
+                }
+                return null;
+            }
+            
+            // Use index for faster lookup
+            const request = index.getAll(githubUsername);
+            const results = await new Promise((resolve, reject) => {
+                request.onsuccess = () => resolve(request.result);
+                request.onerror = () => reject(request.error);
+            });
+            
+            if (!results || results.length === 0) {
+                return null;
+            }
+            
+            // Return first match (GitHub username should be unique)
+            // Prefer author with more complete data (location, email, etc.)
+            let bestMatch = null;
+            let bestScore = 0;
+            
+            for (const authorData of results) {
+                if (!authorData || !authorData.authorKey) {
+                    continue;
+                }
+                
+                // Score based on data completeness
+                let score = 0;
+                if (authorData.email) score += 2;
+                if (authorData.metadata?.location) score += 1;
+                if (authorData.metadata?.company) score += 1;
+                if (authorData.metadata && Object.keys(authorData.metadata).length > 1) score += 1;
+                
+                if (score > bestScore) {
+                    bestScore = score;
+                    bestMatch = authorData;
+                }
+            }
+            
+            if (bestMatch) {
+                return {
+                    authorKey: bestMatch.authorKey,
+                    entity: bestMatch
+                };
+            }
+            
+            return null;
+        } catch (error) {
+            console.warn('⚠️ Cache: Failed to find author by GitHub:', error);
             return null;
         }
     }

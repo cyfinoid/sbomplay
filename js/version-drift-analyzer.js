@@ -549,11 +549,41 @@ class VersionDriftAnalyzer {
         const timeoutId = setTimeout(() => controller.abort(), timeout);
         
         try {
+            // Debug: Log URL call with context
+            console.log(`🌐 [DEBUG] Fetching URL: ${url}`);
+            const caller = new Error().stack.split('\n')[2]?.trim() || 'unknown';
+            if (url.includes('rubygems.org')) {
+                console.log(`   Reason: Fetching RubyGems package metadata for latest version information (called from: ${caller})`);
+            } else if (url.includes('registry.npmjs.org')) {
+                console.log(`   Reason: Fetching npm package metadata for latest version information (called from: ${caller})`);
+            } else if (url.includes('pypi.org')) {
+                console.log(`   Reason: Fetching PyPI package metadata for latest version information (called from: ${caller})`);
+            } else if (url.includes('crates.io')) {
+                console.log(`   Reason: Fetching crates.io package metadata for latest version information (called from: ${caller})`);
+            } else {
+                console.log(`   Reason: Fetching package metadata for version information (called from: ${caller})`);
+            }
+            
             const response = await fetch(url, {
                 ...options,
                 signal: controller.signal
             });
             clearTimeout(timeoutId);
+            
+            // Debug: Log response and extract information
+            if (response.ok) {
+                try {
+                    const data = await response.clone().json(); // Clone to avoid consuming the stream
+                    const version = data.version || data.info?.version || data.crate?.max_version || null;
+                    console.log(`   ✅ Response: Status ${response.status}, Extracted: Latest version: ${version || 'unknown'}`);
+                } catch (e) {
+                    // If JSON parsing fails, just log status
+                    console.log(`   ✅ Response: Status ${response.status}`);
+                }
+            } else {
+                console.log(`   ❌ Response: Status ${response.status} ${response.statusText}`);
+            }
+            
             return response;
         } catch (error) {
             clearTimeout(timeoutId);

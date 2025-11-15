@@ -671,6 +671,8 @@ class SBOMProcessor {
         const allRepos = Array.from(this.repositories.values()).map(repo => ({
             name: repo.name,
             owner: repo.owner,
+            license: repo.license || null,  // Include repository license
+            archived: repo.archived || false,  // Include archived status
             totalDependencies: repo.totalDependencies,
             dependencies: Array.from(repo.dependencies),
             directDependencies: Array.from(repo.directDependencies || []),  // Direct dependencies

@@ -6,9 +6,11 @@
     <title>Author Analysis (Experimental) - SBOM Play</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin=""/>
     <link rel="stylesheet" href="css/style.css?v=0.0.6">
     <link rel="stylesheet" href="css/themes.css?v=0.0.6">
     <script src="js/theme-manager.js?v=0.0.6"></script>
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
 </head>
 <body>
     <!-- Navigation -->
@@ -72,13 +74,13 @@
         <div class="card mb-4">
             <div class="card-body">
                 <div class="row">
-                    <div class="col-md-6">
+                    <div class="col-md-4">
                         <label class="form-label">Select Analysis</label>
                         <select class="form-select" id="analysisSelector">
                             <option value="combined">Combined (All Scans)</option>
                         </select>
                     </div>
-                    <div class="col-md-6">
+                    <div class="col-md-4">
                         <label class="form-label">Filter by Ecosystem</label>
                         <select class="form-select" id="ecosystemFilter">
                             <option value="all">All Ecosystems</option>
@@ -92,9 +94,15 @@
                             <option value="rubygems">RubyGems</option>
                         </select>
                     </div>
+                    <div class="col-md-4">
+                        <label class="form-label">Filter by Location</label>
+                        <select class="form-select" id="locationFilter">
+                            <option value="all">All Locations</option>
+                        </select>
+                    </div>
                 </div>
                 <div class="row mt-3">
-                    <div class="col-12">
+                    <div class="col-md-6">
                         <div class="form-check">
                             <input class="form-check-input" type="checkbox" id="fundingFilter" value="funding">
                             <label class="form-check-label" for="fundingFilter">
@@ -102,14 +110,46 @@
                             </label>
                         </div>
                     </div>
+                    <div class="col-md-6">
+                        <label class="form-label">Page Size</label>
+                        <select class="form-select" id="pageSizeSelect">
+                            <option value="10">10 per page</option>
+                            <option value="25" selected>25 per page</option>
+                            <option value="50">50 per page</option>
+                            <option value="100">100 per page</option>
+                            <option value="250">250 per page</option>
+                            <option value="500">500 per page</option>
+                        </select>
+                    </div>
                 </div>
+            </div>
+        </div>
+
+        <!-- Author Map -->
+        <div class="card mb-4" id="authorMapCard" style="display: none;">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5><i class="fas fa-globe me-2"></i>Author Locations Map</h5>
+                <button type="button" class="btn btn-sm btn-outline-secondary" id="toggleMapBtn">
+                    <i class="fas fa-eye-slash me-1"></i>Hide Map
+                </button>
+            </div>
+            <div class="card-body">
+                <div class="alert alert-warning alert-dismissible fade show mb-3" role="alert">
+                    <i class="fas fa-exclamation-triangle me-2"></i>
+                    <strong>Location Data Disclaimer:</strong> Author locations shown on this map are based on voluntarily provided information from authors themselves (typically from their GitHub profiles, package registry profiles, or other public sources). This information may be incomplete, outdated, or inaccurate. Locations are geocoded automatically and may not reflect the actual current location of authors.
+                    <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+                </div>
+                <div id="authorMap" style="height: 400px; width: 100%;"></div>
             </div>
         </div>
 
         <!-- Author List -->
         <div class="card">
-            <div class="card-header">
+            <div class="card-header d-flex justify-content-between align-items-center">
                 <h5><i class="fas fa-list me-2"></i>Authors by Contribution</h5>
+                <button type="button" class="btn btn-sm btn-outline-primary" id="showMapBtn">
+                    <i class="fas fa-map me-1"></i>Show Map
+                </button>
             </div>
             <div class="card-body">
                 <div id="authorContent">
@@ -163,6 +203,7 @@
     <script src="js/ecosystem-utils.js?v=0.0.6"></script>
     <script src="js/cache-manager.js?v=0.0.6"></script>
     <script src="js/storage-manager.js?v=0.0.6"></script>
+    <script src="js/location-service.js?v=0.0.6"></script>
     <script src="js/author-service.js?v=0.0.6"></script>
     <script type="module">
         document.addEventListener('DOMContentLoaded', async function() {
@@ -170,9 +211,60 @@
             
             // Store authors globally for event handlers (must be at top of scope)
             let currentAuthors = [];
+            let filteredAuthors = [];
+            let allFilteredAuthors = []; // All authors after filters (including single-package-single-repo) - used for map
+            let currentPage = 1;
+            let pageSize = parseInt(localStorage.getItem('authorsPageSize') || '25', 10);
+            let authorMap = null; // Leaflet map instance
+            let locationService = null; // LocationService instance
+            
+            // Sanitize search input to prevent injection attacks
+            function sanitizeSearchInput(input) {
+                if (!input || typeof input !== 'string') return '';
+                // Remove any potentially dangerous characters, limit length
+                return input
+                    .trim()
+                    .substring(0, 200) // Limit length
+                    .replace(/[<>\"'&]/g, ''); // Remove HTML/script injection chars
+            }
+            
+            // Function to update pagination controls
+            function updatePaginationControls(totalItems, totalPages) {
+                const paginationInfo = document.getElementById('paginationInfo');
+                const prevBtn = document.getElementById('prevPageBtn');
+                const nextBtn = document.getElementById('nextPageBtn');
+                
+                if (!paginationInfo || !prevBtn || !nextBtn) return;
+                
+                const startItem = totalItems === 0 ? 0 : (currentPage - 1) * pageSize + 1;
+                const endItem = Math.min(currentPage * pageSize, totalItems);
+                
+                paginationInfo.textContent = `Showing ${startItem}-${endItem} of ${totalItems}`;
+                
+                // Update Previous button
+                if (currentPage > 1) {
+                    prevBtn.classList.remove('disabled');
+                    prevBtn.querySelector('a').removeAttribute('tabindex');
+                } else {
+                    prevBtn.classList.add('disabled');
+                    prevBtn.querySelector('a').setAttribute('tabindex', '-1');
+                }
+                
+                // Update Next button
+                if (currentPage < totalPages && totalPages > 0) {
+                    nextBtn.classList.remove('disabled');
+                } else {
+                    nextBtn.classList.add('disabled');
+                }
+            }
             
             // Create AuthorService instance for secure URL validation
             const authorService = new AuthorService();
+            
+            // Initialize LocationService
+            if (window.LocationService) {
+                locationService = new LocationService();
+            }
             
             // escapeHtml is now provided by utils.js
             
@@ -209,7 +301,292 @@
             // Setup event listeners
             document.getElementById('analysisSelector').addEventListener('change', loadAuthorData);
             document.getElementById('ecosystemFilter').addEventListener('change', loadAuthorData);
+            document.getElementById('locationFilter').addEventListener('change', loadAuthorData);
             document.getElementById('fundingFilter').addEventListener('change', loadAuthorData);
+            
+            // Page size selector
+            const pageSizeSelect = document.getElementById('pageSizeSelect');
+            if (pageSizeSelect) {
+                pageSizeSelect.value = pageSize.toString();
+                pageSizeSelect.addEventListener('change', (e) => {
+                    pageSize = parseInt(e.target.value, 10);
+                    localStorage.setItem('authorsPageSize', pageSize.toString());
+                    currentPage = 1;
+                    loadAuthorData();
+                });
+            }
+            
+            // Pagination controls
+            const prevPageBtn = document.getElementById('prevPageBtn');
+            const nextPageBtn = document.getElementById('nextPageBtn');
+            
+            if (prevPageBtn) {
+                prevPageBtn.addEventListener('click', (e) => {
+                    e.preventDefault();
+                    if (currentPage > 1) {
+                        currentPage--;
+                        renderAuthorsTable();
+                    }
+                });
+            }
+            
+            if (nextPageBtn) {
+                nextPageBtn.addEventListener('click', (e) => {
+                    e.preventDefault();
+                    const totalPages = Math.ceil(filteredAuthors.length / pageSize);
+                    if (currentPage < totalPages) {
+                        currentPage++;
+                        renderAuthorsTable();
+                    }
+                });
+            }
+            
+            // Map toggle buttons
+            const showMapBtn = document.getElementById('showMapBtn');
+            const toggleMapBtn = document.getElementById('toggleMapBtn');
+            const authorMapCard = document.getElementById('authorMapCard');
+            
+            if (showMapBtn) {
+                showMapBtn.addEventListener('click', function() {
+                    authorMapCard.style.display = 'block';
+                    showMapBtn.style.display = 'none';
+                    // Initialize map if not already initialized
+                    if (!authorMap && typeof L !== 'undefined') {
+                        initializeMap();
+                    }
+                    // Populate map with all filtered authors (including single-package-single-repo) and invalidate size
+                    setTimeout(() => {
+                        if (authorMap && allFilteredAuthors && allFilteredAuthors.length > 0) {
+                            displayAuthorMap(allFilteredAuthors).catch(err => 
+                                console.warn('Failed to update author map:', err)
+                            );
+                            // Invalidate map size to ensure it renders correctly
+                            authorMap.invalidateSize();
+                        }
+                    }, 100);
+                });
+            }
+            
+            if (toggleMapBtn) {
+                toggleMapBtn.addEventListener('click', function() {
+                    authorMapCard.style.display = 'none';
+                    if (showMapBtn) {
+                        showMapBtn.style.display = 'block';
+                    }
+                });
+            }
+            
+            // Initialize map function
+            function initializeMap() {
+                if (!authorMap && typeof L !== 'undefined') {
+                    authorMap = L.map('authorMap').setView([20, 0], 2);
+                    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                        attribution: '© OpenStreetMap contributors',
+                        maxZoom: 19
+                    }).addTo(authorMap);
+                }
+            }
+            
+            // Display author locations on map
+            async function displayAuthorMap(authors) {
+                if (!locationService || typeof L === 'undefined') {
+                    console.warn('⚠️ LocationService or Leaflet not available');
+                    return;
+                }
+                
+                // Ensure map container is visible
+                const mapContainer = document.getElementById('authorMap');
+                if (!mapContainer || mapContainer.offsetParent === null) {
+                    console.warn('⚠️ Map container is not visible, skipping marker display');
+                    return;
+                }
+                
+                // Initialize map if not already done
+                if (!authorMap) {
+                    initializeMap();
+                    // Wait a bit for map to initialize
+                    await new Promise(resolve => setTimeout(resolve, 200));
+                }
+                
+                // Ensure map is properly sized
+                if (authorMap) {
+                    authorMap.invalidateSize();
+                }
+                
+                // Clear existing markers
+                if (authorMap) {
+                    authorMap.eachLayer(function(layer) {
+                        if (layer instanceof L.Marker) {
+                            authorMap.removeLayer(layer);
+                        }
+                    });
+                }
+                
+                // Get unique locations from authors
+                const locationMap = new Map(); // location -> array of authors
+                const originalToNormalized = new Map(); // original location -> normalized location
+                
+                authors.forEach(author => {
+                    const location = author.metadata?.location || author.metadata?.company || null;
+                    if (location && location.trim()) {
+                        const originalLoc = location.trim();
+                        // Normalize the location to match what batchGeocode will use
+                        const normalizedLoc = locationService.normalizeLocationString(originalLoc);
+                        
+                        if (normalizedLoc) {
+                            // Map original to normalized for lookup
+                            originalToNormalized.set(originalLoc, normalizedLoc);
+                            
+                            // Use normalized location as key in locationMap
+                            if (!locationMap.has(normalizedLoc)) {
+                                locationMap.set(normalizedLoc, []);
+                            }
+                            locationMap.get(normalizedLoc).push(author);
+                        }
+                    }
+                });
+                
+                if (locationMap.size === 0) {
+                    console.log('ℹ️ No locations found for authors');
+                    return;
+                }
+                
+                console.log(`🗺️ Processing ${locationMap.size} unique locations...`);
+                console.log(`   Locations: ${Array.from(locationMap.keys()).join(', ')}`);
+                
+                // Helper function to add a marker to the map
+                const addMarkerToMap = (location, geocoded) => {
+                    // Validate geocoded data
+                    if (!geocoded || typeof geocoded.lat !== 'number' || typeof geocoded.lng !== 'number') {
+                        console.warn(`⚠️ Invalid geocoding data for location: ${location}`, geocoded);
+                        return null;
+                    }
+                    
+                    // Validate coordinates are within valid ranges
+                    if (geocoded.lat < -90 || geocoded.lat > 90 || geocoded.lng < -180 || geocoded.lng > 180) {
+                        console.warn(`⚠️ Invalid coordinates for location: ${location}`, geocoded);
+                        return null;
+                    }
+                    
+                    const authorsAtLocation = locationMap.get(location);
+                    if (!authorsAtLocation || !Array.isArray(authorsAtLocation)) {
+                        console.warn(`⚠️ No authors found for normalized location: "${location}"`);
+                        return null;
+                    }
+                    
+                    const authorCount = authorsAtLocation.length;
+                    
+                    // Create popup content
+                    const authorNames = authorsAtLocation.slice(0, 5).map(a => escapeHtml(a.author)).join('<br>');
+                    const moreText = authorCount > 5 ? `<br><strong>+ ${authorCount - 5} more</strong>` : '';
+                    const popupContent = `
+                        <div style="max-width: 250px;">
+                            <strong>${escapeHtml(location)}</strong><br>
+                            <small>${authorCount} author${authorCount !== 1 ? 's' : ''}</small>
+                            <hr style="margin: 5px 0;">
+                            ${authorNames}${moreText}
+                        </div>
+                    `;
+                    
+                    try {
+                        // Create marker with default icon
+                        const marker = L.marker([geocoded.lat, geocoded.lng], {
+                            icon: L.icon({
+                                iconUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-icon.png',
+                                iconRetinaUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-icon-2x.png',
+                                shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-shadow.png',
+                                iconSize: [25, 41],
+                                iconAnchor: [12, 41],
+                                popupAnchor: [1, -34],
+                                shadowSize: [41, 41]
+                            })
+                        }).addTo(authorMap);
+                        marker.bindPopup(popupContent);
+                        return marker;
+                    } catch (error) {
+                        console.warn(`⚠️ Failed to create marker for location: ${location}`, error);
+                        return null;
+                    }
+                };
+                
+                // Geocode locations (loads from cache first, then fetches missing ones incrementally)
+                const locations = Array.from(locationMap.keys());
+                let markerCount = 0;
+                const markers = []; // Store all markers for bounds calculation
+                
+                // Helper to update map bounds
+                const updateMapBounds = () => {
+                    if (markers.length > 0 && authorMap) {
+                        const group = new L.featureGroup(markers);
+                        const bounds = group.getBounds();
+                        if (bounds.isValid()) {
+                            if (markers.length === 1) {
+                                authorMap.setView(bounds.getCenter(), 10);
+                            } else {
+                                authorMap.fitBounds(bounds.pad(0.1));
+                            }
+                        }
+                    }
+                };
+                
+                // Start geocoding with callback for incremental updates
+                const geocodePromise = locationService.batchGeocode(
+                    locations,
+                    (processed, total) => {
+                        console.log(`📍 Geocoding progress: ${processed}/${total}`);
+                    },
+                    // Callback when a new location is geocoded from API (for incremental map updates)
+                    (location, geocoded) => {
+                        const marker = addMarkerToMap(location, geocoded);
+                        if (marker) {
+                            markers.push(marker);
+                            markerCount++;
+                            console.log(`📍 Added marker for ${location} at [${geocoded.lat}, ${geocoded.lng}]`);
+                            updateMapBounds();
+                        }
+                    }
+                );
+                
+                // Wait for geocoding to complete
+                // batchGeocode loads from cache first (fast, markers added immediately via callback)
+                // Then fetches missing locations incrementally (markers added as they're fetched)
+                // The onNewLocation callback handles all marker additions (cached + new)
+                await geocodePromise;
+                
+                // Final fit map bounds to show all markers (if not already done incrementally)
+                if (markerCount > 0 && authorMap && markers.length > 0) {
+                    // Collect all markers from map (in case some were added outside our tracking)
+                    const allMarkers = [];
+                    authorMap.eachLayer(function(layer) {
+                        if (layer instanceof L.Marker) {
+                            allMarkers.push(layer);
+                        }
+                    });
+                    
+                    if (allMarkers.length > 0) {
+                        const group = new L.featureGroup(allMarkers);
+                        const bounds = group.getBounds();
+                        if (bounds.isValid()) {
+                            if (allMarkers.length === 1) {
+                                // Single marker - zoom to reasonable level
+                                authorMap.setView(bounds.getCenter(), 10);
+                            } else {
+                                // Multiple markers - fit bounds with padding
+                                authorMap.fitBounds(bounds.pad(0.1));
+                            }
+                        }
+                    }
+                }
+                
+                console.log(`✅ Added ${markerCount} markers to map`);
+                
+                // If markers were added, ensure map is visible and properly sized
+                if (markerCount > 0 && authorMap) {
+                    authorMap.invalidateSize();
+                } else if (markerCount === 0) {
+                    console.warn('⚠️ No markers were added to the map. Check geocoding results.');
+                }
+            }
             
             // Load analysis list first
             await loadAnalysisList();
@@ -277,8 +654,9 @@
             async function loadAuthorData() {
                 const analysisId = document.getElementById('analysisSelector').value;
                 const ecosystem = document.getElementById('ecosystemFilter').value;
+                const location = document.getElementById('locationFilter').value;
                 
-                console.log(`📊 Authors Page - Loading data for: ${analysisId}, ecosystem: ${ecosystem}`);
+                console.log(`📊 Authors Page - Loading data for: ${analysisId}, ecosystem: ${ecosystem}, location: ${location}`);
                 
                 let authorData;
                 
@@ -310,7 +688,44 @@
                     console.log(`📊 Authors Page - Filtered to ${authorData.length} authors for repo ${window.repoParam}`);
                 }
                 
-                displayAuthors(authorData, ecosystem);
+                displayAuthors(authorData, ecosystem, location);
+            }
+            
+            // Update location filter dropdown with unique locations from authors
+            function updateLocationFilter(authors) {
+                const locationFilter = document.getElementById('locationFilter');
+                if (!locationFilter) return;
+                
+                // Get all unique locations from authors
+                const locations = new Set();
+                authors.forEach(author => {
+                    const location = author.metadata?.location || author.metadata?.company || null;
+                    if (location && location.trim()) {
+                        locations.add(location.trim());
+                    }
+                });
+                
+                // Get current selected value
+                const currentValue = locationFilter.value;
+                
+                // Clear existing options except "All Locations"
+                locationFilter.innerHTML = '<option value="all">All Locations</option>';
+                
+                // Add location options sorted alphabetically
+                const sortedLocations = Array.from(locations).sort();
+                sortedLocations.forEach(loc => {
+                    const option = document.createElement('option');
+                    option.value = loc;
+                    option.textContent = loc;
+                    locationFilter.appendChild(option);
+                });
+                
+                // Restore selection if it still exists
+                if (currentValue && Array.from(locations).includes(currentValue)) {
+                    locationFilter.value = currentValue;
+                } else {
+                    locationFilter.value = 'all';
+                }
             }
             
             // Normalize author name for deduplication (remove case, spaces, special chars)
@@ -740,6 +1155,14 @@
                 modal.show();
             }
             
+        // Normalize GitHub username for URL generation (replace [bot] with -bot)
+        function normalizeGitHubUsername(username) {
+            if (!username || typeof username !== 'string') return username;
+            // Replace [bot] suffix with -bot for GitHub URLs
+            // e.g., "dependabot[bot]" -> "dependabot-bot"
+            return username.replace(/\[bot\]$/i, '-bot');
+        }
+        
         // Generate registry profile URLs only if we have verified data
         function getVerifiedProfileLinks(author) {
             const links = [];
@@ -852,7 +1275,7 @@
             
             // GitHub profile (only if we extracted from repo or it's a github: prefixed author)
             if (author.ecosystem === 'github' || author.metadata?.github) {
-                const githubUsername = author.metadata?.github || author.author;
+                const githubUsername = normalizeGitHubUsername(author.metadata?.github || author.author);
                 links.push({
                     url: `https://github.com/${encodeURIComponent(githubUsername)}`,
                     icon: 'fab fa-github',
@@ -862,6 +1285,103 @@
             }
             
             return links;
+        }
+
+        // Generate social profile icons for table display
+        function getSocialProfileIcons(author) {
+            const icons = [];
+            
+            // GitHub profile (always check metadata.github, regardless of ecosystem)
+            if (author.metadata?.github) {
+                const githubUsername = normalizeGitHubUsername(author.metadata.github);
+                icons.push({
+                    url: `https://github.com/${encodeURIComponent(githubUsername)}`,
+                    icon: 'fab fa-github',
+                    title: 'GitHub Profile',
+                    color: 'text-dark'
+                });
+            }
+            
+            // npm profile
+            if (author.ecosystem === 'npm' && author.author) {
+                const npmUsername = author.metadata?.npm_username || author.author;
+                if (npmUsername && !npmUsername.includes(' ')) {
+                    icons.push({
+                        url: `https://www.npmjs.com/~${encodeURIComponent(npmUsername)}`,
+                        icon: 'fab fa-npm',
+                        title: 'npm Profile',
+                        color: 'text-danger'
+                    });
+                }
+            }
+            
+            // PyPI profile
+            if (author.ecosystem === 'pypi' && author.author) {
+                if (author.metadata?.pypi_organization) {
+                    icons.push({
+                        url: `https://pypi.org/org/${encodeURIComponent(author.metadata.pypi_organization)}/`,
+                        icon: 'fas fa-cube',
+                        title: 'PyPI Organization',
+                        color: 'text-primary'
+                    });
+                } else if (author.metadata?.pypi_username) {
+                    icons.push({
+                        url: `https://pypi.org/user/${encodeURIComponent(author.metadata.pypi_username)}/`,
+                        icon: 'fas fa-cube',
+                        title: 'PyPI Profile',
+                        color: 'text-primary'
+                    });
+                } else {
+                    // Fallback: try to infer from author name/email patterns
+                    const authorName = author.author.trim();
+                    const isLikelyOrg = !authorName.includes(' ') && !authorName.includes(',') && 
+                                       authorName.length > 0;
+                    
+                    if (isLikelyOrg) {
+                        icons.push({
+                            url: `https://pypi.org/org/${encodeURIComponent(authorName.toLowerCase())}/`,
+                            icon: 'fas fa-cube',
+                            title: 'PyPI Organization',
+                            color: 'text-primary'
+                        });
+                    } else {
+                        const emailMatch = author.author.match(/<([^>]+)>/);
+                        if (emailMatch) {
+                            const username = emailMatch[1].split('@')[0];
+                            icons.push({
+                                url: `https://pypi.org/user/${encodeURIComponent(username)}/`,
+                                icon: 'fas fa-cube',
+                                title: 'PyPI Profile',
+                                color: 'text-primary'
+                            });
+                        } else if (author.author.includes('@')) {
+                            const username = author.author.split('@')[0];
+                            icons.push({
+                                url: `https://pypi.org/user/${encodeURIComponent(username)}/`,
+                                icon: 'fas fa-cube',
+                                title: 'PyPI Profile',
+                                color: 'text-primary'
+                            });
+                        }
+                    }
+                }
+            }
+            
+            // RubyGems profile
+            if (author.ecosystem === 'gem' && author.author) {
+                let rubygemsUsername = author.metadata?.rubygems_username;
+                if (!rubygemsUsername) {
+                    rubygemsUsername = author.author.toLowerCase().trim().replace(/\s+/g, '');
+                }
+                icons.push({
+                    url: `https://rubygems.org/profiles/${encodeURIComponent(rubygemsUsername)}`,
+                    icon: 'fas fa-gem',
+                    title: 'RubyGems Profile',
+                    color: 'text-danger'
+                });
+            }
+            
+            return icons;
         }
 
             async function showAuthorDetailsModal(author) {
@@ -979,11 +1499,12 @@
                     }
                     
                     if (author.metadata.github) {
+                        const githubUsername = normalizeGitHubUsername(author.metadata.github);
                         html += `
                             <tr>
                                 <td><strong>GitHub:</strong></td>
-                                <td><a href="https://github.com/${author.metadata.github}" target="_blank">
-                                    <i class="fab fa-github me-1"></i>${author.metadata.github}
+                                <td><a href="https://github.com/${escapeHtml(githubUsername)}" target="_blank">
+                                    <i class="fab fa-github me-1"></i>${escapeHtml(author.metadata.github)}
                                 </a></td>
                             </tr>
                         `;
@@ -994,6 +1515,43 @@
                             <tr>
                                 <td><strong>Website:</strong></td>
                                 <td><a href="${author.metadata.url}" target="_blank">${author.metadata.url}</a></td>
+                            </tr>
+                        `;
+                    }
+                    
+                    if (author.metadata.location) {
+                        html += `
+                            <tr>
+                                <td><strong>Location:</strong></td>
+                                <td><i class="fas fa-map-marker-alt me-1 text-muted"></i>${escapeHtml(author.metadata.location)}</td>
+                            </tr>
+                        `;
+                    }
+                    
+                    if (author.metadata.company) {
+                        html += `
+                            <tr>
+                                <td><strong>Company:</strong></td>
+                                <td><i class="fas fa-building me-1 text-muted"></i>${escapeHtml(author.metadata.company)}</td>
+                            </tr>
+                        `;
+                    }
+                    
+                    // Show tentative correlation warning if present
+                    if (author.metadata.tentative_correlation) {
+                        html += `
+                            <tr>
+                                <td><strong>Correlation:</strong></td>
+                                <td>
+                                    <span class="badge bg-warning text-dark">
+                                        <i class="fas fa-exclamation-triangle me-1"></i>Tentative
+                                    </span>
+                                    <small class="text-muted ms-2">
+                                        ${author.metadata.correlation_source === 'github_contributor' 
+                                            ? 'Correlated via GitHub contributor (same user ID)' 
+                                            : 'Tentative correlation'}
+                                    </small>
+                                </td>
                             </tr>
                         `;
                     }
@@ -1018,8 +1576,9 @@
                     
                     // Show platform-specific links if available (using secure URL validation)
                     if (author.funding.github || (author.funding.url && authorService.isUrlFromHostname(author.funding.url, 'github.com', '/sponsors'))) {
+                        const githubSponsorUsername = normalizeGitHubUsername(author.metadata?.github || author.author);
                         html += `
-                            <a href="https://github.com/sponsors/${encodeURIComponent(author.author)}" target="_blank" class="btn btn-sm btn-outline-danger">
+                            <a href="https://github.com/sponsors/${encodeURIComponent(githubSponsorUsername)}" target="_blank" class="btn btn-sm btn-outline-danger">
                                 <i class="fas fa-heart me-1"></i>GitHub Sponsors
                             </a>
                         `;
@@ -1184,10 +1743,10 @@
                 modal.show();
             }
 
-            function displayAuthors(authors, ecosystemFilter) {
+            function displayAuthors(authors, ecosystemFilter, locationFilter) {
                 const container = document.getElementById('authorContent');
                 
-                console.log(`🎨 Authors Page - Displaying authors. Total: ${authors ? authors.length : 0}, Filter: ${ecosystemFilter}`);
+                console.log(`🎨 Authors Page - Displaying authors. Total: ${authors ? authors.length : 0}, Filter: ${ecosystemFilter}, Location: ${locationFilter}`);
                 
                 if (!authors || authors.length === 0) {
                     console.log('⚠️ Authors Page - No authors to display');
@@ -1202,12 +1761,27 @@
                     console.log(`🎨 Authors Page - After filtering by ${ecosystemFilter}: ${filtered.length} authors`);
                 }
                 
+                // Filter by location
+                if (locationFilter !== 'all') {
+                    filtered = filtered.filter(a => {
+                        const location = a.metadata?.location || a.metadata?.company || null;
+                        return location === locationFilter;
+                    });
+                    console.log(`🎨 Authors Page - After filtering by location ${locationFilter}: ${filtered.length} authors`);
+                }
+                
                 // Filter by funding if checkbox is checked
                 const fundingFilterCheckbox = document.getElementById('fundingFilter');
                 if (fundingFilterCheckbox && fundingFilterCheckbox.checked) {
                     filtered = filtered.filter(a => a.funding && (a.funding.github || a.funding.opencollective || a.funding.patreon || a.funding.tidelift || a.funding.url));
                     console.log(`🎨 Authors Page - After filtering by funding: ${filtered.length} authors`);
                 }
+                
+                // Store all filtered authors (before separation) for map display
+                allFilteredAuthors = filtered;
+                
+                // Update location filter dropdown with unique locations
+                updateLocationFilter(filtered);
                 
                 if (filtered.length === 0) {
                     console.log('⚠️ Authors Page - No authors after filtering');
@@ -1247,10 +1821,10 @@
                 });
                 
                 // Combine multi-package and single-package-multiple-repos for main display
-                const visibleAuthors = [...multiPackageAuthors, ...singlePackageMultipleRepos];
+                const allVisibleAuthors = [...multiPackageAuthors, ...singlePackageMultipleRepos];
                 
                 // Sort visible authors by repository count (risk factor), then package count
-                visibleAuthors.sort((a, b) => {
+                allVisibleAuthors.sort((a, b) => {
                     const aRepoCount = a.repositoryCount || 0;
                     const bRepoCount = b.repositoryCount || 0;
                     if (bRepoCount !== aRepoCount) {
@@ -1264,21 +1838,31 @@
                     return (b.count || 0) - (a.count || 0);
                 });
                 
+                // Store filtered authors for pagination
+                filteredAuthors = allVisibleAuthors;
+                currentPage = 1; // Reset to first page when filtering
+                
+                // Calculate pagination
+                const totalPages = Math.ceil(filteredAuthors.length / pageSize);
+                const startIndex = (currentPage - 1) * pageSize;
+                const endIndex = Math.min(startIndex + pageSize, filteredAuthors.length);
+                const visibleAuthors = filteredAuthors.slice(startIndex, endIndex);
+                
                 // Sort single-package-single-repo authors by occurrence count (descending)
                 singlePackageSingleRepo.sort((a, b) => {
                     return (b.count || 0) - (a.count || 0);
                 });
                 
-                // Store for event handlers
-                currentAuthors = visibleAuthors;
+                // Store for event handlers (store all visible, not just current page)
+                currentAuthors = allVisibleAuthors;
                 window.currentSinglePackageAuthors = singlePackageSingleRepo; // Store globally for toggle (low-risk authors)
                 
-                console.log(`🎨 Authors Page - Visible: ${visibleAuthors.length} (${multiPackageAuthors.length} multi-package + ${singlePackageMultipleRepos.length} single-package-multi-repo), Hidden: ${singlePackageSingleRepo.length} (single-package-single-repo)`);
+                console.log(`🎨 Authors Page - Visible: ${allVisibleAuthors.length} (${multiPackageAuthors.length} multi-package + ${singlePackageMultipleRepos.length} single-package-multi-repo), Hidden: ${singlePackageSingleRepo.length} (single-package-single-repo), Showing page ${currentPage} of ${totalPages}`);
                 
                 let html = `
                     <div class="alert alert-info">
                         <i class="fas fa-info-circle me-2"></i>
-                        Showing <strong>${visibleAuthors.length}</strong> authors from <strong>${new Set(visibleAuthors.map(a => a.ecosystem)).size}</strong> ecosystems
+                        Showing <strong>${allVisibleAuthors.length}</strong> authors from <strong>${new Set(allVisibleAuthors.map(a => a.ecosystem)).size}</strong> ecosystems
                         ${multiPackageAuthors.length > 0 ? `(${multiPackageAuthors.length} with multiple packages, ${singlePackageMultipleRepos.length} with single package across multiple repos)` : ''}
                     </div>
                     <div class="table-responsive">
@@ -1290,6 +1874,8 @@
                                     <th>Ecosystem</th>
                                     <th>Packages</th>
                                     <th>Repository Usage</th>
+                                    <th>Location</th>
+                                    <th class="text-center">Social</th>
                                     <th class="text-center">Sponsorship</th>
                                     <th>Package List</th>
                                 </tr>
@@ -1303,11 +1889,35 @@
                     const repositoryCount = author.repositoryCount || 0;
                     const samplePackages = uniquePackages.slice(0, 3).join(', ');
                     
+                    // Build location cell
+                    const location = author.metadata?.location || author.metadata?.company || null;
+                    let locationCell = location 
+                        ? `<td><i class="fas fa-map-marker-alt me-1 text-muted"></i><small>${escapeHtml(location)}</small>`
+                        : '<td class="text-muted">—';
+                    // Add tentative correlation badge if present
+                    if (author.metadata?.tentative_correlation) {
+                        locationCell += ` <span class="badge bg-warning text-dark ms-1" title="Tentative correlation - same GitHub user ID">⚠️</span>`;
+                    }
+                    locationCell += '</td>';
+                    
+                    // Build social profile icons cell
+                    const socialIcons = getSocialProfileIcons(author);
+                    let socialCell = '<td class="text-center">—</td>';
+                    if (socialIcons.length > 0) {
+                        const iconLinks = socialIcons.map(icon => 
+                            `<a href="${icon.url}" target="_blank" rel="noreferrer noopener" title="${icon.title}" class="text-decoration-none ${icon.color} me-2"><i class="${icon.icon}"></i></a>`
+                        ).join('');
+                        socialCell = `<td class="text-center">${iconLinks}</td>`;
+                    }
+                    
                     // Build sponsorship cell
                     let sponsorshipCell = '<td class="text-center">—</td>';
                     if (author.funding) {
                         const platforms = [];
-                        if (author.funding.github) platforms.push('<a href="' + (author.funding.url || `https://github.com/sponsors/${encodeURIComponent(author.author)}`) + '" target="_blank" title="GitHub Sponsors"><i class="fab fa-github text-dark"></i></a>');
+                        if (author.funding.github) {
+                            const githubSponsorUsername = normalizeGitHubUsername(author.metadata?.github || author.author);
+                            platforms.push('<a href="' + (author.funding.url || `https://github.com/sponsors/${encodeURIComponent(githubSponsorUsername)}`) + '" target="_blank" title="GitHub Sponsors"><i class="fab fa-github text-dark"></i></a>');
+                        }
                         if (author.funding.opencollective) {
                             // Securely extract Open Collective username from URL
                             let ocUsername = author.author;
@@ -1345,9 +1955,9 @@
                     
                     html += `
                         <tr>
-                            <td>${index + 1}</td>
+                            <td>${startIndex + index + 1}</td>
                             <td>
-                                <a href="#" class="text-decoration-none author-details-link" data-author-index="${index}">
+                                <a href="#" class="text-decoration-none author-details-link" data-author-index="${startIndex + index}">
                                     <strong><i class="fas fa-user me-1"></i>${author.author}</strong>
                                 </a>
                             </td>
@@ -1357,9 +1967,11 @@
                                 <span class="badge bg-secondary">${repositoryCount} repo${repositoryCount !== 1 ? 's' : ''}</span>
                                 ${riskBadge}
                             </td>
+                            ${locationCell}
+                            ${socialCell}
                             ${sponsorshipCell}
                             <td>
-                                <a href="#" class="text-decoration-none package-list-link" data-author-index="${index}">
+                                <a href="#" class="text-decoration-none package-list-link" data-author-index="${startIndex + index}">
                                     <small>${samplePackages}${uniquePackages.length > 3 ? ` <strong>+ ${uniquePackages.length - 3} more</strong>` : ''}</small>
                                     <i class="fas fa-external-link-alt ms-1 small"></i>
                                 </a>
@@ -1372,11 +1984,33 @@
                             </tbody>
                         </table>
                     </div>
+                    <div class="card-footer">
+                        <div class="d-flex justify-content-between align-items-center">
+                            <div>
+                                <span class="text-muted" id="paginationInfo">Showing 0-0 of 0</span>
+                            </div>
+                            <div>
+                                <nav aria-label="Page navigation">
+                                    <ul class="pagination pagination-sm mb-0" id="paginationControls">
+                                        <li class="page-item disabled" id="prevPageBtn">
+                                            <a class="page-link" href="#" tabindex="-1">Previous</a>
+                                        </li>
+                                        <li class="page-item disabled" id="nextPageBtn">
+                                            <a class="page-link" href="#">Next</a>
+                                        </li>
+                                    </ul>
+                                </nav>
+                            </div>
+                        </div>
+                    </div>
                 `;
+                
+                container.innerHTML = html;
+                updatePaginationControls(filteredAuthors.length, totalPages);
                 
                 // Add single-package-single-repo authors summary with toggle (low-risk, hidden by default)
                 if (singlePackageSingleRepo.length > 0) {
-                    html += `
+                    let singlePackageHtml = `
                         <div class="alert alert-secondary mt-3 cursor-pointer" id="singlePackageAuthorsToggle">
                             <i class="fas fa-info-circle me-2"></i>
                             <strong>${singlePackageSingleRepo.length}</strong> additional author${singlePackageSingleRepo.length !== 1 ? 's' : ''} 
@@ -1400,6 +2034,9 @@
                                             <th>Ecosystem</th>
                                             <th>Package</th>
                                             <th>Repository</th>
+                                            <th>Location</th>
+                                            <th class="text-center">Social</th>
+                                            <th class="text-center">Sponsorship</th>
                                         </tr>
                                     </thead>
                                     <tbody>
@@ -1410,33 +2047,101 @@
                         const repositories = author.repositories || [];
                         const repoName = repositories.length > 0 ? repositories[0] : 'N/A';
                         
-                        html += `
+                        // Build location cell
+                        const location = author.metadata?.location || author.metadata?.company || null;
+                        const locationCell = location 
+                            ? `<td><i class="fas fa-map-marker-alt me-1 text-muted"></i><small>${escapeHtml(location)}</small></td>`
+                            : '<td class="text-muted">—</td>';
+                        
+                        // Build social profile icons cell
+                        const socialIcons = getSocialProfileIcons(author);
+                        let socialCell = '<td class="text-center">—</td>';
+                        if (socialIcons.length > 0) {
+                            const iconLinks = socialIcons.map(icon => 
+                                `<a href="${icon.url}" target="_blank" rel="noreferrer noopener" title="${icon.title}" class="text-decoration-none ${icon.color} me-2"><i class="${icon.icon}"></i></a>`
+                            ).join('');
+                            socialCell = `<td class="text-center">${iconLinks}</td>`;
+                        }
+                        
+                        // Build sponsorship cell
+                        let sponsorshipCell = '<td class="text-center">—</td>';
+                        if (author.funding) {
+                            const platforms = [];
+                            if (author.funding.github) {
+                                const githubSponsorUsername = normalizeGitHubUsername(author.metadata?.github || author.author);
+                                platforms.push('<a href="' + (author.funding.url || `https://github.com/sponsors/${encodeURIComponent(githubSponsorUsername)}`) + '" target="_blank" title="GitHub Sponsors"><i class="fab fa-github text-dark"></i></a>');
+                            }
+                            if (author.funding.opencollective) {
+                                // Securely extract Open Collective username from URL
+                                let ocUsername = author.author;
+                                if (author.funding.url && authorService.isUrlFromHostname(author.funding.url, 'opencollective.com')) {
+                                    try {
+                                        const url = new URL(author.funding.url.startsWith('http') ? author.funding.url : 'https://' + author.funding.url);
+                                        const pathParts = url.pathname.split('/').filter(p => p);
+                                        if (pathParts.length > 0) {
+                                            ocUsername = pathParts[0];
+                                        }
+                                    } catch (e) {
+                                        // If URL parsing fails, use author name as fallback
+                                        ocUsername = author.author;
+                                    }
+                                }
+                                platforms.push('<a href="https://opencollective.com/' + encodeURIComponent(ocUsername) + '" target="_blank" title="Open Collective"><i class="fas fa-hand-holding-usd text-primary"></i></a>');
+                            }
+                            if (author.funding.patreon) platforms.push('<a href="' + (author.funding.url || `https://patreon.com/${encodeURIComponent(author.author)}`) + '" target="_blank" title="Patreon"><i class="fab fa-patreon text-danger"></i></a>');
+                            if (author.funding.tidelift) platforms.push('<a href="' + author.funding.url + '" target="_blank" title="Tidelift"><i class="fas fa-gift text-warning"></i></a>');
+                            
+                            if (platforms.length > 0) {
+                                sponsorshipCell = '<td class="text-center"><span class="d-flex justify-content-center gap-2">' + platforms.join(' ') + '</span></td>';
+                            } else if (author.funding.url) {
+                                sponsorshipCell = '<td class="text-center"><a href="' + author.funding.url + '" target="_blank" title="Funding available"><i class="fas fa-donate text-success"></i></a></td>';
+                            }
+                        }
+                        
+                        singlePackageHtml += `
                             <tr>
                                 <td>${index + 1}</td>
                                 <td>
                                     <a href="#" class="text-decoration-none single-author-details-link" data-author-index="${index}">
-                                        <i class="fas fa-user me-1"></i>${author.author}
+                                        <i class="fas fa-user me-1"></i>${escapeHtml(author.author)}
                                     </a>
                                 </td>
-                                <td><span class="badge bg-info">${author.ecosystem}</span></td>
-                                <td><code>${packageName}</code></td>
-                                <td><code>${repoName}</code></td>
+                                <td><span class="badge bg-info">${escapeHtml(author.ecosystem)}</span></td>
+                                <td><code>${escapeHtml(packageName)}</code></td>
+                                <td><code>${escapeHtml(repoName)}</code></td>
+                                ${locationCell}
+                                ${socialCell}
+                                ${sponsorshipCell}
                             </tr>
                         `;
                     });
                     
-                    html += `
+                    singlePackageHtml += `
                                     </tbody>
                                 </table>
                             </div>
                         </div>
                     `;
+                    
+                    // Append to container instead of html variable
+                    container.insertAdjacentHTML('beforeend', singlePackageHtml);
                 }
-                
-                container.innerHTML = html;
                 
                 // Attach event listeners
                 attachEventListeners();
+                
+                // Update map if visible - use allFilteredAuthors to include ALL authors (including single-package-single-repo)
+                if (authorMapCard && authorMapCard.style.display !== 'none' && authorMap) {
+                    displayAuthorMap(allFilteredAuthors).catch(err => 
+                        console.warn('Failed to update author map:', err)
+                    );
+                    // Invalidate map size to ensure it renders correctly after content changes
+                    setTimeout(() => {
+                        if (authorMap) {
+                            authorMap.invalidateSize();
+                        }
+                    }, 100);
+                }
             }
             
             function attachEventListeners() {

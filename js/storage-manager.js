@@ -656,25 +656,27 @@ class StorageManager {
                 totalEntries: totalEntries,
                 organizations: orgs.map(org => {
                     const name = org.organization || org.name;
-                    const deps = org.data?.statistics?.totalDependencies || 0;
-                    const repos = org.data?.statistics?.totalRepositories || 0;
-                    console.log(`   📋 Org: ${name} - ${repos} repos, ${deps} deps`);
+                    // Calculate from actual data arrays for accuracy (matches Statistics Dashboard)
+                    const actualRepos = org.data?.allRepositories?.length || org.data?.statistics?.totalRepositories || 0;
+                    const actualDeps = org.data?.allDependencies?.length || org.data?.statistics?.totalDependencies || 0;
+                    console.log(`   📋 Org: ${name} - ${actualRepos} repos, ${actualDeps} deps (from ${org.data?.allRepositories ? 'allRepositories' : 'statistics'})`);
                     return {
                         name: name,
                         timestamp: org.timestamp,
-                        repositories: repos,
-                        dependencies: deps,
+                        repositories: actualRepos,
+                        dependencies: actualDeps,
                         type: 'organization'
                     };
                 }),
                 repositories: repos.map(repo => {
-                    const deps = repo.data?.statistics?.totalDependencies || 0;
-                    console.log(`   📋 Repo: ${repo.fullName} - ${deps} deps`);
+                    // Calculate from actual data arrays for accuracy (matches Statistics Dashboard)
+                    const actualDeps = repo.data?.allDependencies?.length || repo.data?.statistics?.totalDependencies || 0;
+                    console.log(`   📋 Repo: ${repo.fullName} - ${actualDeps} deps (from ${repo.data?.allDependencies ? 'allDependencies' : 'statistics'})`);
                     return {
                         name: repo.fullName,
                         timestamp: repo.timestamp,
                         repositories: 1,
-                        dependencies: deps,
+                        dependencies: actualDeps,
                         type: 'repository'
                     };
                 }),

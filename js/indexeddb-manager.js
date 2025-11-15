@@ -4,7 +4,7 @@
 class IndexedDBManager {
     constructor() {
         this.dbName = 'sbomplay_db';
-        this.version = 3; // Bump version for new normalized schema
+        this.version = 4; // Bump version to add locations store
         this.db = null;
     }
 
@@ -88,7 +88,44 @@ class IndexedDBManager {
                     authorEntityStore.createIndex('ecosystem', 'ecosystem', { unique: false });
                     authorEntityStore.createIndex('author', 'author', { unique: false });
                     authorEntityStore.createIndex('timestamp', 'timestamp', { unique: false });
-                    console.log('✅ Created authorEntities object store');
+                    // Indexes for location and company fields (for filtering and deduplication)
+                    authorEntityStore.createIndex('location', 'metadata.location', { unique: false });
+                    authorEntityStore.createIndex('company', 'metadata.company', { unique: false });
+                    authorEntityStore.createIndex('github', 'metadata.github', { unique: false });
+                    authorEntityStore.createIndex('email', 'email', { unique: false });
+                    console.log('✅ Created authorEntities object store with location/company/GitHub indexes');
+                } else {
+                    // Upgrade existing store - add new indexes if they don't exist
+                    const transaction = event.target.transaction;
+                    const authorEntityStore = transaction.objectStore('authorEntities');
+                    try {
+                        if (!authorEntityStore.indexNames.contains('location')) {
+                            authorEntityStore.createIndex('location', 'metadata.location', { unique: false });
+                            console.log('✅ Added location index to authorEntities');
+                        }
+                        if (!authorEntityStore.indexNames.contains('company')) {
+                            authorEntityStore.createIndex('company', 'metadata.company', { unique: false });
+                            console.log('✅ Added company index to authorEntities');
+                        }
+                        if (!authorEntityStore.indexNames.contains('github')) {
+                            authorEntityStore.createIndex('github', 'metadata.github', { unique: false });
+                            console.log('✅ Added github index to authorEntities');
+                        }
+                        if (!authorEntityStore.indexNames.contains('email')) {
+                            authorEntityStore.createIndex('email', 'email', { unique: false });
+                            console.log('✅ Added email index to authorEntities');
+                        }
+                    } catch (error) {
+                        // Indexes might already exist, ignore error
+                        console.debug('Index creation (may already exist):', error.message);
+                    }
+                }
+
+                // NEW: Geocoded locations cache
+                if (!db.objectStoreNames.contains('locations')) {
+                    const locationStore = db.createObjectStore('locations', { keyPath: 'locationString' });
+                    locationStore.createIndex('timestamp', 'timestamp', { unique: false });
+                    console.log('✅ Created locations object store');
                 }
             };
         });
@@ -452,7 +489,8 @@ class IndexedDBManager {
     }
 
     /**
-     * Save author entity to global cache
+     * Save author entity to global cache (IndexedDB)
+     * This persists all author data including metadata.location and metadata.company
      */
     async saveAuthorEntity(authorKey, authorData) {
         try {
@@ -463,11 +501,20 @@ class IndexedDBManager {
             const transaction = this.db.transaction(['authorEntities'], 'readwrite');
             const store = transaction.objectStore('authorEntities');
             
+            // Preserve all fields from authorData, including nested metadata object
             const entry = {
                 authorKey: authorKey,
                 ...authorData,
                 timestamp: new Date().toISOString()
             };
+
+            // Verify metadata structure includes location data if present
+            if (entry.metadata?.location || entry.metadata?.company) {
+                console.log(`💾 Saving author entity to IndexedDB: ${authorKey} with location data:`, {
+                    location: entry.metadata.location || null,
+                    company: entry.metadata.company || null
+                });
+            }
 
             await this._promisifyRequest(store.put(entry));
             return true;
@@ -935,6 +982,123 @@ class IndexedDBManager {
      */
     isInitialized() {
         return this.db !== null;
+    }
+
+    /**
+     * ============================================
+     * LOCATION CACHE METHODS
+     * ============================================
+     */
+
+    /**
+     * Save geocoded location to cache
+     * @param {string} locationString - Location string (e.g., "San Francisco, CA")
+     * @param {Object} geocodedData - {lat: number, lng: number, displayName: string}
+     */
+    async saveLocation(locationString, geocodedData) {
+        try {
+            if (!this.db) {
+                console.warn('⚠️ IndexedDB not initialized yet');
+                return false;
+            }
+            const transaction = this.db.transaction(['locations'], 'readwrite');
+            const store = transaction.objectStore('locations');
+            
+            const entry = {
+                locationString: locationString.trim(),
+                lat: geocodedData.lat,
+                lng: geocodedData.lng,
+                displayName: geocodedData.displayName || locationString,
+                timestamp: new Date().toISOString()
+            };
+
+            await this._promisifyRequest(store.put(entry));
+            return true;
+        } catch (error) {
+            console.error('❌ Failed to save location:', error);
+            return false;
+        }
+    }
+
+    /**
+     * Get geocoded location from cache
+     * @param {string} locationString - Location string
+     * @returns {Promise<Object|null>} - {lat: number, lng: number, displayName: string} or null
+     */
+    async getLocation(locationString) {
+        try {
+            if (!this.db) {
+                return null;
+            }
+            const transaction = this.db.transaction(['locations'], 'readonly');
+            const store = transaction.objectStore('locations');
+            const entry = await this._promisifyRequest(store.get(locationString.trim()));
+            
+            if (entry) {
+                return {
+                    lat: entry.lat,
+                    lng: entry.lng,
+                    displayName: entry.displayName || locationString
+                };
+            }
+            return null;
+        } catch (error) {
+            console.warn('⚠️ Failed to get location from cache:', error);
+            return null;
+        }
+    }
+
+    /**
+     * Batch get multiple locations from cache
+     * @param {Array<string>} locationStrings - Array of location strings
+     * @returns {Promise<Map>} - Map of locationString -> geocoded data (or null if not cached)
+     */
+    async batchGetLocations(locationStrings) {
+        const results = new Map();
+        if (!this.db) {
+            locationStrings.forEach(loc => results.set(loc, null));
+            return results;
+        }
+
+        try {
+            const transaction = this.db.transaction(['locations'], 'readonly');
+            const store = transaction.objectStore('locations');
+            
+            // Get all locations in parallel
+            const promises = locationStrings.map(async (locationString) => {
+                try {
+                    const entry = await this._promisifyRequest(store.get(locationString.trim()));
+                    if (entry) {
+                        return {
+                            location: locationString,
+                            data: {
+                                lat: entry.lat,
+                                lng: entry.lng,
+                                displayName: entry.displayName || locationString
+                            }
+                        };
+                    }
+                    return { location: locationString, data: null };
+                } catch (error) {
+                    return { location: locationString, data: null };
+                }
+            });
+
+            const batchResults = await Promise.allSettled(promises);
+            batchResults.forEach(result => {
+                if (result.status === 'fulfilled') {
+                    results.set(result.value.location, result.value.data);
+                } else {
+                    results.set(result.value?.location || 'unknown', null);
+                }
+            });
+
+            return results;
+        } catch (error) {
+            console.warn('⚠️ Failed to batch get locations:', error);
+            locationStrings.forEach(loc => results.set(loc, null));
+            return results;
+        }
     }
 }
 

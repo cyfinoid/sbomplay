@@ -96,6 +96,19 @@
                     </div>
                 </div>
                 <div class="row g-3 mt-2">
+                    <div class="col-md-3">
+                        <label class="form-label">Page Size</label>
+                        <select class="form-select" id="pageSizeSelect">
+                            <option value="10">10 per page</option>
+                            <option value="25" selected>25 per page</option>
+                            <option value="50">50 per page</option>
+                            <option value="100">100 per page</option>
+                            <option value="250">250 per page</option>
+                            <option value="500">500 per page</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="row g-3 mt-2">
                     <div class="col-12">
                         <div class="d-flex flex-wrap align-items-center gap-3">
                             <div class="form-check mb-0">
@@ -198,11 +211,24 @@
                     </tbody>
                 </table>
             </div>
-            <div class="load-more-container d-none" id="loadMoreContainer">
-                <button class="btn btn-primary" id="loadMoreBtn">
-                    <i class="fas fa-chevron-down me-2"></i>Load More
-                </button>
-                <p class="text-muted mt-2 mb-0" id="loadMoreText"></p>
+            <div class="card-footer">
+                <div class="d-flex justify-content-between align-items-center">
+                    <div>
+                        <span class="text-muted" id="paginationInfo">Showing 0-0 of 0</span>
+                    </div>
+                    <div>
+                        <nav aria-label="Page navigation">
+                            <ul class="pagination pagination-sm mb-0" id="paginationControls">
+                                <li class="page-item disabled" id="prevPageBtn">
+                                    <a class="page-link" href="#" tabindex="-1">Previous</a>
+                                </li>
+                                <li class="page-item disabled" id="nextPageBtn">
+                                    <a class="page-link" href="#">Next</a>
+                                </li>
+                            </ul>
+                        </nav>
+                    </div>
+                </div>
             </div>
         </div>
 
@@ -283,9 +309,8 @@
         
         let allDependencies = [];
         let filteredDependencies = [];
-        let displayedCount = 0;
-        const INITIAL_DISPLAY_COUNT = 25;
-        const LOAD_MORE_BATCH_SIZE = 25;
+        let currentPage = 1;
+        let pageSize = parseInt(localStorage.getItem('depsPageSize') || '25', 10);
         let currentData = null;
         let sortColumn = 'name';
         let sortDirection = 'asc';
@@ -294,6 +319,16 @@
         let searchFromURL = false; // Track if search came from URL parameter (exact match) vs user typing (fuzzy match)
         let searchPackageName = null; // Parsed package name from search parameter
         let searchPackageVersion = null; // Parsed package version from search parameter
+        
+        // Sanitize search input to prevent injection attacks
+        function sanitizeSearchInput(input) {
+            if (!input || typeof input !== 'string') return '';
+            // Remove any potentially dangerous characters, limit length
+            return input
+                .trim()
+                .substring(0, 200) // Limit length
+                .replace(/[<>\"'&]/g, ''); // Remove HTML/script injection chars
+        }
         
         // Helper function to parse package name@version from search term
         // Handles @scope/package names by ignoring leading @ for splitting
@@ -525,6 +560,43 @@
             }
             filterTable();
         });
+        // Page size selector
+        const pageSizeSelect = document.getElementById('pageSizeSelect');
+        if (pageSizeSelect) {
+            pageSizeSelect.value = pageSize.toString();
+            pageSizeSelect.addEventListener('change', (e) => {
+                pageSize = parseInt(e.target.value, 10);
+                localStorage.setItem('depsPageSize', pageSize.toString());
+                currentPage = 1;
+                filterTable();
+            });
+        }
+        
+        // Pagination controls
+        const prevPageBtn = document.getElementById('prevPageBtn');
+        const nextPageBtn = document.getElementById('nextPageBtn');
+        
+        if (prevPageBtn) {
+            prevPageBtn.addEventListener('click', (e) => {
+                e.preventDefault();
+                if (currentPage > 1) {
+                    currentPage--;
+                    renderTable(filteredDependencies, false);
+                }
+            });
+        }
+        
+        if (nextPageBtn) {
+            nextPageBtn.addEventListener('click', (e) => {
+                e.preventDefault();
+                const totalPages = Math.ceil(filteredDependencies.length / pageSize);
+                if (currentPage < totalPages) {
+                    currentPage++;
+                    renderTable(filteredDependencies, false);
+                }
+            });
+        }
+        
         document.getElementById('typeFilter').addEventListener('change', () => filterTable());
         document.getElementById('ecosystemFilter').addEventListener('change', () => filterTable());
         document.getElementById('repoFilter').addEventListener('change', () => filterTable());
@@ -607,7 +679,41 @@
             } else {
                 window.githubActionsAnalysis = currentData?.githubActionsAnalysis || null;
             }
-            allDependencies = processData(currentData);
+            
+            // Early filtering: Filter dependencies before processing if search parameter exists
+            // This reduces memory usage and processing time for large datasets (1000+ entries)
+            let dependenciesToProcess = currentData.allDependencies || [];
+            if (searchParam) {
+                const sanitizedSearch = sanitizeSearchInput(searchParam);
+                if (sanitizedSearch) {
+                    const parsed = parsePackageSearch(decodeURIComponent(sanitizedSearch));
+                    const searchName = parsed.name?.toLowerCase();
+                    const searchVersion = parsed.version?.toLowerCase();
+                    
+                    if (searchName && searchVersion) {
+                        // Exact match for both name and version
+                        dependenciesToProcess = dependenciesToProcess.filter(dep => 
+                            dep.name?.toLowerCase() === searchName && 
+                            dep.version?.toLowerCase() === searchVersion
+                        );
+                    } else if (searchName) {
+                        // Exact match for name only
+                        dependenciesToProcess = dependenciesToProcess.filter(dep => 
+                            dep.name?.toLowerCase() === searchName
+                        );
+                    } else {
+                        // Fuzzy match on name
+                        dependenciesToProcess = dependenciesToProcess.filter(dep => 
+                            dep.name?.toLowerCase().includes(sanitizedSearch.toLowerCase())
+                        );
+                    }
+                    console.log(`🔍 Early filtering: ${dependenciesToProcess.length} dependencies match search "${sanitizedSearch}" (from ${currentData.allDependencies?.length || 0} total)`);
+                }
+            }
+            
+            // Process only filtered dependencies
+            const tempData = { ...currentData, allDependencies: dependenciesToProcess };
+            allDependencies = processData(tempData);
             // Store processed dependencies in window.currentData for license fetching
             window.currentData.allDependencies = allDependencies;
             
@@ -679,7 +785,9 @@
                     loadFundingForVisibleDependencies();
                 }, 100);
                 
-                // Load licenses for PyPI packages that don't have licenses
+                // NOTE: License fetching should NOT be needed here - licenses are pre-fetched during initial analysis
+                // Only fetch licenses if they're missing (should be rare if initial scan completed properly)
+                // This is a fallback for edge cases where licenses weren't fetched during analysis
                 setTimeout(() => {
                     loadLicensesForVisibleDependencies();
                 }, 200);
@@ -1138,14 +1246,17 @@
             // If not stored, mark for async fetch
             // Skip if version is unknown (cannot query PyPI API without version)
             if (!isEnriched && licenseFull === 'Unknown' && dep.ecosystem === 'PyPI' && dep.name && dep.version && dep.version !== 'version unknown') {
-                // Check if license was already fetched and stored in the raw dependency data
-                if (dep.raw && dep.raw.licenseFull && dep.raw.licenseFull !== 'Unknown') {
+                // Check if license was already fetched and stored (check both raw and top-level)
+                // License data should be in dep.raw since fetchPyPILicenses updates the dependency objects before saving
+                const storedLicense = dep.raw?.licenseFull || dep.raw?.license;
+                if (storedLicense && storedLicense !== 'Unknown' && storedLicense !== 'NOASSERTION') {
                     // Use stored license from raw data
-                    licenseFull = dep.raw.licenseFull;
+                    licenseFull = dep.raw.licenseFull || dep.raw.license || storedLicense;
                     licenseText = dep.raw.license || licenseFull;
                     isEnriched = dep.raw._licenseEnriched || false;
                 } else {
-                    // Mark for async fetch if not already stored
+                    // Only mark for async fetch if license was NOT fetched during initial analysis
+                    // This should be rare - licenses should be pre-fetched during initial scan
                     dep._needsLicenseFetch = true;
                 }
             }
@@ -1338,7 +1449,8 @@
                 return;
             }
             
-            const search = document.getElementById('searchInput').value.toLowerCase();
+            const searchInput = document.getElementById('searchInput').value;
+            const search = sanitizeSearchInput(searchInput).toLowerCase();
             const typeFilter = document.getElementById('typeFilter').value;
             const ecosystemFilter = document.getElementById('ecosystemFilter').value;
             const repoFilter = document.getElementById('repoFilter').value;
@@ -1497,13 +1609,15 @@
                             }
                             
                             // Check cache first for version drift (should be populated during initial scan)
+                            // Version drift should be pre-fetched during initial analysis and saved to IndexedDB
                             const packageKey = `${ecosystem}:${dep.name}`;
                             let driftData = await window.versionDriftAnalyzer.getVersionDriftFromCache(packageKey, dep.version);
                             
-                            // Only fetch if not in cache (should be rare - data should be fetched during initial scan)
+                            // Only fetch if not in cache (should be rare - data should be pre-fetched during initial scan)
+                            // This is a fallback for edge cases where version drift wasn't fetched during analysis
                             // If we do fetch, it will automatically save to IndexedDB via cacheManager
                             if (!driftData) {
-                                console.debug(`Version drift not cached for ${packageKey}@${dep.version}, fetching...`);
+                                console.debug(`⚠️ Version drift not cached for ${packageKey}@${dep.version}, fetching as fallback (should be rare)`);
                                 driftData = await window.versionDriftAnalyzer.checkVersionDrift(
                                     dep.name,
                                     dep.version,
@@ -1584,7 +1698,7 @@
             });
             
             filteredDependencies = filtered;
-            displayedCount = 0;
+            currentPage = 1; // Reset to first page when filtering
             
             updateStats(filtered);
             await renderTable(filtered, true);
@@ -1929,13 +2043,17 @@
             
             if (reset) {
                 tbody.innerHTML = '';
-                displayedCount = 0;
+                currentPage = 1;
             }
             
-            // Determine how many to display
-            const startIndex = displayedCount;
-            const batchSize = reset ? INITIAL_DISPLAY_COUNT : LOAD_MORE_BATCH_SIZE;
-            const endIndex = Math.min(startIndex + batchSize, deps.length);
+            // Calculate pagination
+            const totalPages = Math.ceil(deps.length / pageSize);
+            if (currentPage > totalPages && totalPages > 0) {
+                currentPage = totalPages;
+            }
+            
+            const startIndex = (currentPage - 1) * pageSize;
+            const endIndex = Math.min(startIndex + pageSize, deps.length);
             const toDisplay = deps.slice(startIndex, endIndex);
             
             // getLicenseInfo is now defined globally above, so we can use it here
@@ -2108,14 +2226,20 @@
                                 const packageKey = `${ecosystem}:${dep.name}`;
                                 
                                 // Get version drift from cache (fast - no API call)
+                                // Version drift should be pre-fetched during initial analysis and saved to IndexedDB
                                 const drift = await window.versionDriftAnalyzer.getVersionDriftFromCache(packageKey, dep.version);
                                 
-                                // If not in cache, try to fetch (but this should be rare if analysis ran properly)
-                                const driftData = drift || await window.versionDriftAnalyzer.checkVersionDrift(
-                                    dep.name,
-                                    dep.version,
-                                    dep.ecosystem
-                                );
+                                // Only fetch if not in cache (should be rare - data should be pre-fetched during initial scan)
+                                // This is a fallback for edge cases where version drift wasn't fetched during analysis
+                                let driftData = drift;
+                                if (!driftData) {
+                                    console.debug(`⚠️ Version drift not cached for ${packageKey}@${dep.version}, fetching as fallback (should be rare)`);
+                                    driftData = await window.versionDriftAnalyzer.checkVersionDrift(
+                                        dep.name,
+                                        dep.version,
+                                        dep.ecosystem
+                                    );
+                                }
                                 
                                 if (driftData && driftData.latestVersion) {
                                     const depIndex = startIndex + idx;
@@ -2162,17 +2286,8 @@
                 }, 100); // Small delay to allow table to render first
             }
             
-            displayedCount = endIndex;
-            
-            // Update load more button visibility
-            const loadMoreContainer = document.getElementById('loadMoreContainer');
-            if (displayedCount < deps.length) {
-                loadMoreContainer.classList.remove('d-none');
-                const remaining = deps.length - displayedCount;
-                document.getElementById('loadMoreText').textContent = `Showing ${displayedCount} of ${deps.length} dependencies. ${remaining} more available.`;
-            } else {
-                loadMoreContainer.classList.add('d-none');
-            }
+            // Update pagination info and controls
+            updatePaginationControls(deps.length, totalPages);
             
             // Add click handlers for package links
             document.querySelectorAll('.package-link').forEach(link => {
@@ -2213,27 +2328,34 @@
             });
         }
         
-        async function loadMoreEntries() {
-            if (isLoadingMore) return;
+        // Function to update pagination controls
+        function updatePaginationControls(totalItems, totalPages) {
+            const paginationInfo = document.getElementById('paginationInfo');
+            const prevBtn = document.getElementById('prevPageBtn');
+            const nextBtn = document.getElementById('nextPageBtn');
             
-            isLoadingMore = true;
-            const btn = document.getElementById('loadMoreBtn');
-            const originalText = btn.innerHTML;
-            btn.disabled = true;
-            btn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Loading...';
+            if (!paginationInfo || !prevBtn || !nextBtn) return;
             
-            // Load in batches with a small delay between batches
-            const remaining = filteredDependencies.length - displayedCount;
-            const batchSize = Math.min(LOAD_MORE_BATCH_SIZE, remaining);
+            const startItem = totalItems === 0 ? 0 : (currentPage - 1) * pageSize + 1;
+            const endItem = Math.min(currentPage * pageSize, totalItems);
             
-            // Use setTimeout to allow UI to update
-            await new Promise(resolve => setTimeout(resolve, 50));
+            paginationInfo.textContent = `Showing ${startItem}-${endItem} of ${totalItems}`;
             
-            await renderTable(filteredDependencies, false);
+            // Update Previous button
+            if (currentPage > 1) {
+                prevBtn.classList.remove('disabled');
+                prevBtn.querySelector('a').removeAttribute('tabindex');
+            } else {
+                prevBtn.classList.add('disabled');
+                prevBtn.querySelector('a').setAttribute('tabindex', '-1');
+            }
             
-            btn.disabled = false;
-            btn.innerHTML = originalText;
-            isLoadingMore = false;
+            // Update Next button
+            if (currentPage < totalPages && totalPages > 0) {
+                nextBtn.classList.remove('disabled');
+            } else {
+                nextBtn.classList.add('disabled');
+            }
         }
         
         async function showPackageDetailsModal(packageKey, packageName, packageVersion, packageEcosystem, packageRepos, packageRaw) {
@@ -3154,7 +3276,8 @@
         }
         
         function exportCSV() {
-            const search = document.getElementById('searchInput').value.toLowerCase();
+            const searchInput = document.getElementById('searchInput').value;
+            const search = sanitizeSearchInput(searchInput).toLowerCase();
             const typeFilter = document.getElementById('typeFilter').value;
             const ecosystemFilter = document.getElementById('ecosystemFilter').value;
             const repoFilter = document.getElementById('repoFilter').value;

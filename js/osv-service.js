@@ -61,7 +61,11 @@ class OSVService {
 
             console.log(`🔍 OSV: Query payload:`, query);
 
-            const response = await fetch(`${this.baseUrl}/v1/query`, {
+            const url = `${this.baseUrl}/v1/query`;
+            console.log(`🌐 [DEBUG] Fetching URL: ${url}`);
+            console.log(`   Reason: Querying OSV API for vulnerabilities for package ${cleanName}@${cleanVersion} (ecosystem: ${mappedEcosystem || 'auto-detected'})`);
+
+            const response = await fetch(url, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json'
@@ -72,10 +76,21 @@ class OSVService {
             if (!response.ok) {
                 const errorText = await response.text();
                 console.error(`❌ OSV: API Response for ${cacheKey}:`, errorText);
+                console.log(`   ❌ Response: Status ${response.status} ${response.statusText}`);
                 throw new Error(`OSV API error: ${response.status} ${response.statusText} - ${errorText}`);
             }
 
             const data = await response.json();
+            
+            // Debug: Log extracted information
+            const vulnCount = data.vulns?.length || 0;
+            const extractedInfo = `Extracted: ${vulnCount} vulnerability/vulnerabilities for ${cleanName}@${cleanVersion}`;
+            if (vulnCount > 0) {
+                const vulnIds = data.vulns.slice(0, 3).map(v => v.id).join(', ');
+                console.log(`   ✅ Response: Status ${response.status}, ${extractedInfo} (IDs: ${vulnIds}${vulnCount > 3 ? '...' : ''})`);
+            } else {
+                console.log(`   ✅ Response: Status ${response.status}, ${extractedInfo}`);
+            }
             
             // Save to unified cache (NEW ARCHITECTURE)
             if (window.cacheManager) {
@@ -137,7 +152,12 @@ class OSVService {
             for (let idx = 0; idx < chunks.length; idx++) {
                 const chunk = chunks[idx];
                 console.log(`🔍 OSV: Sending chunk ${idx + 1}/${chunks.length} with ${chunk.length} queries`);
-                const response = await fetch(`${this.baseUrl}/v1/querybatch`, {
+                
+                const url = `${this.baseUrl}/v1/querybatch`;
+                console.log(`🌐 [DEBUG] Fetching URL: ${url}`);
+                console.log(`   Reason: Batch querying OSV API for ${chunk.length} packages (chunk ${idx + 1}/${chunks.length})`);
+                
+                const response = await fetch(url, {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json'
@@ -148,10 +168,16 @@ class OSVService {
                 if (!response.ok) {
                     const errorText = await response.text();
                     console.error(`❌ OSV: API Response (chunk ${idx + 1}):`, errorText);
+                    console.log(`   ❌ Response: Status ${response.status} ${response.statusText}`);
                     throw new Error(`OSV API error: ${response.status} ${response.statusText} - ${errorText}`);
                 }
 
                 const data = await response.json();
+                
+                // Debug: Log extracted information
+                const resultsCount = data.results?.length || 0;
+                const vulnCount = data.results?.reduce((sum, r) => sum + (r.vulns?.length || 0), 0) || 0;
+                console.log(`   ✅ Response: Status ${response.status}, Extracted: Batch results for ${resultsCount} packages with ${vulnCount} total vulnerabilities`);
                 if (data.results && Array.isArray(data.results)) {
                     allResults = allResults.concat(data.results);
                 }
