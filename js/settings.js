@@ -19,6 +19,7 @@ class SettingsApp {
         await this.showCacheStats();  // Load cache statistics
         this.loadRateLimitInfo();
         this.setupEventListeners();
+        this.displaySanctionsStatus();  // Load and display sanctions status
     }
 
     /**
@@ -115,6 +116,9 @@ class SettingsApp {
                     break;
                 case 'clearAnalysisData':
                     this.clearAnalysisData();
+                    break;
+                case 'saveOrgSanctions':
+                    this.saveOrgSanctions();
                     break;
             }
         });
@@ -295,6 +299,76 @@ class SettingsApp {
 
         console.log(`📋 Selected organization: ${orgName}`);
 
+        // Check if GitHub token is needed before proceeding
+        // Load the analysis data to count packages
+        const storageInfo = await this.storageManager.getStorageInfo();
+        const allEntries = [...storageInfo.organizations, ...storageInfo.repositories];
+        const matchingEntry = allEntries.find(e => 
+            e.name.toLowerCase() === orgName.toLowerCase() ||
+            e.name.toLowerCase().includes(orgName.toLowerCase())
+        );
+
+        if (!matchingEntry) {
+            this.showAlert(`No analysis found for "${orgName}"`, 'warning');
+            return;
+        }
+
+        const analysisData = await this.storageManager.loadAnalysisDataForOrganization(matchingEntry.name);
+        if (!analysisData || !analysisData.data || !analysisData.data.allDependencies) {
+            this.showAlert(`No dependency data found for "${orgName}"`, 'warning');
+            return;
+        }
+
+        // Count unique packages that will need author detection
+        const packageKeys = new Set();
+        analysisData.data.allDependencies.forEach(dep => {
+            if (dep.purl) {
+                const ecosystem = this.getEcosystemFromPurl(dep.purl);
+                const name = this.getPackageNameFromPurl(dep.purl);
+                if (ecosystem && name) {
+                    packageKeys.add(`${ecosystem}:${name}`);
+                }
+            }
+        });
+        const packageCount = packageKeys.size;
+        console.log(`📦 Found ${packageCount} unique packages for author detection`);
+
+        // Check rate limit
+        let rateLimitInfo;
+        try {
+            rateLimitInfo = await this.githubClient.getRateLimitInfo();
+            console.log(`📊 Rate limit: ${rateLimitInfo.remaining}/${rateLimitInfo.limit} remaining`);
+        } catch (error) {
+            console.warn('⚠️ Failed to get rate limit info:', error);
+            rateLimitInfo = { remaining: 60, limit: 60 }; // Default to unauthenticated limit
+        }
+
+        // Check if token is needed
+        const hasToken = !!this.githubClient.token || !!sessionStorage.getItem('github_token');
+        const needsToken = packageCount > 10 || (packageCount <= 10 && rateLimitInfo.remaining < 60);
+
+        if (needsToken && !hasToken) {
+            const message = packageCount > 10 
+                ? `GitHub token is required for author detection with ${packageCount} packages (>10). Please set a GitHub token in the settings above.`
+                : `GitHub token is required. Rate limit remaining (${rateLimitInfo.remaining}) is below 60, and you have ${packageCount} packages to process. Please set a GitHub token in the settings above.`;
+            
+            this.showAlert(message, 'warning');
+            console.warn('⚠️ GitHub token required but not set');
+            
+            // Scroll to token section and open it
+            const tokenSection = document.getElementById('tokenSectionHeader');
+            if (tokenSection) {
+                tokenSection.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                setTimeout(() => {
+                    const tokenBody = document.getElementById('tokenSectionBody');
+                    if (tokenBody && tokenBody.classList.contains('d-none')) {
+                        this.toggleTokenSection();
+                    }
+                }, 500);
+            }
+            return;
+        }
+
         if (!confirm(`This will clear cached author data for "${orgName}" and re-fetch from APIs. Continue?`)) {
             console.log('❌ User cancelled');
             return;
@@ -330,25 +404,26 @@ class SettingsApp {
         try {
             updateProgress(5, 'Loading analysis data...', '');
             
-            // Get all packages for this org/repo
-            const storageInfo = await this.storageManager.getStorageInfo();
-            const allEntries = [...storageInfo.organizations, ...storageInfo.repositories];
-            const matchingEntry = allEntries.find(e => 
+            // Note: We already loaded analysisData above for validation, but we'll reload it here
+            // to ensure we have the latest data
+            updateProgress(10, 'Loading package data...', '');
+            
+            // Re-load to ensure we have fresh data (already loaded above, but keeping for consistency)
+            const storageInfoReload = await this.storageManager.getStorageInfo();
+            const allEntriesReload = [...storageInfoReload.organizations, ...storageInfoReload.repositories];
+            const matchingEntryReload = allEntriesReload.find(e => 
                 e.name.toLowerCase() === orgName.toLowerCase() ||
                 e.name.toLowerCase().includes(orgName.toLowerCase())
             );
 
-            if (!matchingEntry) {
+            if (!matchingEntryReload) {
                 this.showAlert(`No analysis found for "${orgName}"`, 'warning');
                 progressContainer.classList.add('d-none');
                 redoBtn.disabled = false;
                 return;
             }
 
-            updateProgress(10, 'Loading package data...', '');
-            
-            // Load the analysis data
-            const analysisData = await this.storageManager.loadAnalysisDataForOrganization(matchingEntry.name);
+            // Use the already loaded analysisData from validation above
             if (!analysisData || !analysisData.data || !analysisData.data.allDependencies) {
                 this.showAlert(`No dependency data found for "${orgName}"`, 'warning');
                 progressContainer.classList.add('d-none');
@@ -1369,6 +1444,123 @@ class SettingsApp {
             console.error('Clear analysis data failed:', error);
             this.showAlert(`Failed to clear analysis data: ${error.message}`, 'danger');
         }
+    }
+
+    /**
+     * Save organization-specific sanctioned countries
+     */
+    saveOrgSanctions() {
+        const input = document.getElementById('orgSanctions');
+        if (!input) {
+            this.showAlert('Sanctions input field not found', 'danger');
+            return;
+        }
+
+        const value = input.value.trim();
+        
+        if (!value) {
+            // Clear org sanctions if input is empty
+            if (window.SanctionsService) {
+                const sanctionsService = new SanctionsService();
+                sanctionsService.saveOrgSanctions([]);
+                this.showAlert('Organization sanctions cleared', 'success');
+                this.displaySanctionsStatus();
+                return;
+            }
+        }
+
+        // Parse country codes (comma-separated, trim whitespace)
+        const countryCodes = value.split(',')
+            .map(code => code.trim().toUpperCase())
+            .filter(code => code.length === 2);
+
+        if (countryCodes.length === 0) {
+            this.showAlert('Please enter valid ISO 3166-1 alpha-2 country codes (e.g., CN, RU, BY)', 'warning');
+            return;
+        }
+
+        // Validate country codes (basic check - should be 2 uppercase letters)
+        const invalidCodes = countryCodes.filter(code => !/^[A-Z]{2}$/.test(code));
+        if (invalidCodes.length > 0) {
+            this.showAlert(`Invalid country codes: ${invalidCodes.join(', ')}. Please use ISO 3166-1 alpha-2 format (2 uppercase letters)`, 'warning');
+            return;
+        }
+
+        if (window.SanctionsService) {
+            const sanctionsService = new SanctionsService();
+            const success = sanctionsService.saveOrgSanctions(countryCodes);
+            if (success) {
+                this.showAlert(`Saved ${countryCodes.length} organization-sanctioned countries`, 'success');
+                this.displaySanctionsStatus();
+            } else {
+                this.showAlert('Failed to save organization sanctions', 'danger');
+            }
+        } else {
+            this.showAlert('Sanctions service not available', 'warning');
+        }
+    }
+
+    /**
+     * Display current sanctions status
+     */
+    displaySanctionsStatus() {
+        const statusDiv = document.getElementById('sanctionsStatus');
+        if (!statusDiv) {
+            return;
+        }
+
+        if (!window.SanctionsService) {
+            statusDiv.innerHTML = '<div class="alert alert-warning">Sanctions service not available</div>';
+            return;
+        }
+
+        const sanctionsService = new SanctionsService();
+        const allSanctions = sanctionsService.getAllSanctions();
+
+        let html = '<div class="row">';
+        
+        // USA Sanctions
+        html += '<div class="col-md-4 mb-3">';
+        html += '<h6 class="small text-muted mb-2">USA (OFAC) Sanctions</h6>';
+        if (allSanctions.usa.length > 0) {
+            html += `<div class="small"><code>${allSanctions.usa.join(', ')}</code></div>`;
+            html += `<div class="text-muted small mt-1">${allSanctions.usa.length} countries</div>`;
+        } else {
+            html += '<div class="text-muted small">None configured</div>';
+        }
+        html += '</div>';
+
+        // UN Sanctions
+        html += '<div class="col-md-4 mb-3">';
+        html += '<h6 class="small text-muted mb-2">UN Sanctions</h6>';
+        if (allSanctions.un.length > 0) {
+            html += `<div class="small"><code>${allSanctions.un.join(', ')}</code></div>`;
+            html += `<div class="text-muted small mt-1">${allSanctions.un.length} countries</div>`;
+        } else {
+            html += '<div class="text-muted small">None configured</div>';
+        }
+        html += '</div>';
+
+        // Organization Sanctions
+        html += '<div class="col-md-4 mb-3">';
+        html += '<h6 class="small text-muted mb-2">Organization Sanctions</h6>';
+        if (allSanctions.org.length > 0) {
+            html += `<div class="small"><code>${allSanctions.org.join(', ')}</code></div>`;
+            html += `<div class="text-muted small mt-1">${allSanctions.org.length} countries</div>`;
+        } else {
+            html += '<div class="text-muted small">None configured</div>';
+        }
+        html += '</div>';
+
+        html += '</div>';
+
+        // Load current org sanctions into input field
+        const orgSanctionsInput = document.getElementById('orgSanctions');
+        if (orgSanctionsInput) {
+            orgSanctionsInput.value = allSanctions.org.join(', ');
+        }
+
+        statusDiv.innerHTML = html;
     }
 
     /**

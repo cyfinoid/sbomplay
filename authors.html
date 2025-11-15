@@ -103,10 +103,16 @@
                 </div>
                 <div class="row mt-3">
                     <div class="col-md-6">
-                        <div class="form-check">
+                        <div class="form-check mb-2">
                             <input class="form-check-input" type="checkbox" id="fundingFilter" value="funding">
                             <label class="form-check-label" for="fundingFilter">
                                 <i class="fas fa-heart me-1 text-danger"></i>Show only authors looking for sponsorship
+                            </label>
+                        </div>
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" id="sanctionsFilter" value="sanctions">
+                            <label class="form-check-label" for="sanctionsFilter">
+                                <i class="fas fa-ban me-1 text-danger"></i>Show only authors from sanctioned countries
                             </label>
                         </div>
                     </div>
@@ -204,6 +210,7 @@
     <script src="js/cache-manager.js?v=0.0.6"></script>
     <script src="js/storage-manager.js?v=0.0.6"></script>
     <script src="js/location-service.js?v=0.0.6"></script>
+    <script src="js/sanctions-service.js?v=0.0.6"></script>
     <script src="js/author-service.js?v=0.0.6"></script>
     <script type="module">
         document.addEventListener('DOMContentLoaded', async function() {
@@ -266,6 +273,84 @@
                 locationService = new LocationService();
             }
             
+            // Initialize SanctionsService
+            let sanctionsService = null;
+            if (window.SanctionsService) {
+                sanctionsService = new SanctionsService();
+                window.sanctionsService = sanctionsService; // Make globally available
+            }
+            
+            /**
+             * Enrich author with country code from geocoded location cache or geocode if needed
+             * @param {Object} author - Author object
+             * @returns {Promise<Object>} - Author with enriched country code
+             */
+            async function enrichAuthorWithCountryCode(author) {
+                // If already has country code, return as-is (already persisted in database)
+                if (author.metadata?.countryCode) {
+                    return author; // Skip - already enriched and persisted
+                }
+                
+                // If no location, can't geocode
+                const location = author.metadata?.location || author.metadata?.company || null;
+                if (!location || !locationService) {
+                    return author;
+                }
+                
+                try {
+                    // Normalize location string
+                    const normalizedLocation = locationService.normalizeLocationString(location);
+                    if (!normalizedLocation) {
+                        return author;
+                    }
+                    
+                    // Check if location was already geocoded (from cache)
+                    let geocoded = await locationService.geocode(normalizedLocation, false, false);
+                    
+                    // If cached geocoded data exists but doesn't have countryCode, force refresh
+                    // This handles cases where locations were geocoded before country code extraction was added
+                    if (geocoded && !geocoded.countryCode) {
+                        console.log(`🔄 Re-geocoding "${normalizedLocation}" to extract country code`);
+                        geocoded = await locationService.geocode(normalizedLocation, true, false); // Force refresh
+                    }
+                    
+                    if (geocoded && geocoded.countryCode) {
+                        // Update author metadata with country code
+                        if (!author.metadata) {
+                            author.metadata = {};
+                        }
+                        author.metadata.countryCode = geocoded.countryCode;
+                        author.metadata.country = geocoded.country || null;
+                        
+                        // Save updated author entity to IndexedDB (persists permanently)
+                        if (window.cacheManager && author.authorKey) {
+                            try {
+                                const authorEntity = await window.cacheManager.getAuthorEntity(author.authorKey);
+                                if (authorEntity) {
+                                    authorEntity.metadata = {
+                                        ...authorEntity.metadata,
+                                        countryCode: geocoded.countryCode,
+                                        country: geocoded.country || null
+                                    };
+                                    await window.cacheManager.saveAuthorEntity(author.authorKey, authorEntity);
+                                    console.log(`💾 Saved country code ${geocoded.countryCode} for author ${author.authorKey} to IndexedDB`);
+                                } else {
+                                    console.warn(`⚠️ Could not find author entity ${author.authorKey} to save country code`);
+                                }
+                            } catch (error) {
+                                console.error(`❌ Failed to save country code for ${author.authorKey}:`, error.message);
+                            }
+                        } else {
+                            console.warn(`⚠️ Cannot save country code: cacheManager=${!!window.cacheManager}, authorKey=${!!author.authorKey}`);
+                        }
+                    }
+                } catch (error) {
+                    console.debug(`Could not enrich country code for author ${author.author}:`, error.message);
+                }
+                
+                return author;
+            }
+            
             // escapeHtml is now provided by utils.js
             
             const storageManager = new StorageManager();
@@ -303,6 +388,7 @@
             document.getElementById('ecosystemFilter').addEventListener('change', loadAuthorData);
             document.getElementById('locationFilter').addEventListener('change', loadAuthorData);
             document.getElementById('fundingFilter').addEventListener('change', loadAuthorData);
+            document.getElementById('sanctionsFilter').addEventListener('change', loadAuthorData);
             
             // Page size selector
             const pageSizeSelect = document.getElementById('pageSizeSelect');
@@ -794,7 +880,7 @@
                             // NEW FORMAT: Resolve references from cache
                             for (const ref of authorRefs) {
                                 const authorEntity = await window.cacheManager.getAuthorEntity(ref.authorKey);
-                                const author = {
+                                let author = {
                                     author: authorEntity?.author || ref.authorKey.split(':')[1] || ref.authorKey,
                                     ecosystem: authorEntity?.ecosystem || ref.ecosystem,
                                     packages: ref.packages || [],
@@ -803,8 +889,12 @@
                                     repositoryCount: ref.repositoryCount || 0,
                                     count: ref.count || 0,
                                     funding: authorEntity?.funding || null,
-                                    metadata: authorEntity?.metadata || null
+                                    metadata: authorEntity?.metadata || null,
+                                    authorKey: ref.authorKey // Store for enrichment
                                 };
+                                
+                                // Enrich with country code if location exists but countryCode doesn't
+                                author = await enrichAuthorWithCountryCode(author);
                                 
                                 // Try to find similar existing author
                                 let foundKey = null;
@@ -836,9 +926,24 @@
                                     if (author.author.length > existing.author.length) {
                                         existing.author = author.author;
                                     }
-                                    // Merge metadata if available
-                                    if (author.metadata && !existing.metadata) {
+                                    // Merge metadata if available (preserve countryCode if it exists)
+                                    if (author.metadata) {
+                                        if (!existing.metadata) {
                                         existing.metadata = author.metadata;
+                                        } else {
+                                            // Merge metadata, preserving countryCode from either source
+                                            existing.metadata = {
+                                                ...existing.metadata,
+                                                ...author.metadata,
+                                                // Preserve countryCode if either has it
+                                                countryCode: existing.metadata.countryCode || author.metadata.countryCode || null,
+                                                country: existing.metadata.country || author.metadata.country || null
+                                            };
+                                        }
+                                    }
+                                    // Preserve authorKey for saving back to database
+                                    if (author.authorKey && !existing.authorKey) {
+                                        existing.authorKey = author.authorKey;
                                     }
                                     if (author.funding && !existing.funding) {
                                         existing.funding = author.funding;
@@ -1031,8 +1136,9 @@
                     const authors = await Promise.all(
                         authorRefs.map(async (ref) => {
                             const authorEntity = await window.cacheManager.getAuthorEntity(ref.authorKey);
+                            let author;
                             if (authorEntity) {
-                                return {
+                                author = {
                                     author: authorEntity.author || ref.authorKey.split(':')[1],
                                     ecosystem: authorEntity.ecosystem || ref.ecosystem,
                                     packages: ref.packages || [],
@@ -1041,12 +1147,13 @@
                                     repositoryCount: ref.repositoryCount || 0,
                                     count: ref.count || 0,
                                     funding: authorEntity.funding || null,
-                                    metadata: authorEntity.metadata || null
+                                    metadata: authorEntity.metadata || null,
+                                    authorKey: ref.authorKey // Store for enrichment
                                 };
                             } else {
                                 // Fallback if cache miss
                                 const [, authorName] = ref.authorKey.split(':');
-                                return {
+                                author = {
                                     author: authorName || ref.authorKey,
                                     ecosystem: ref.ecosystem,
                                     packages: ref.packages || [],
@@ -1055,9 +1162,13 @@
                                     repositoryCount: ref.repositoryCount || 0,
                                     count: ref.count || 0,
                                     funding: null,
-                                    metadata: null
+                                    metadata: null,
+                                    authorKey: ref.authorKey // Store for enrichment
                                 };
                             }
+                            
+                            // Enrich with country code if location exists but countryCode doesn't
+                            return await enrichAuthorWithCountryCode(author);
                         })
                     );
                     console.log(`✅ Authors Page - Resolved ${authors.length} authors from cache`);
@@ -1520,10 +1631,19 @@
                     }
                     
                     if (author.metadata.location) {
+                        let locationDisplay = `<i class="fas fa-map-marker-alt me-1 text-muted"></i>${escapeHtml(author.metadata.location)}`;
+                        // Check for sanctioned countries
+                        if (author.metadata.countryCode && sanctionsService) {
+                            const sanctionCheck = sanctionsService.checkSanctioned(author.metadata.countryCode);
+                            if (sanctionCheck.isSanctioned) {
+                                const sources = sanctionCheck.sources.join(', ');
+                                locationDisplay += ` <span class="badge bg-danger ms-2" title="Sanctioned country (${sources}): ${escapeHtml(author.metadata.countryCode)}">🚫 ${sources}</span>`;
+                            }
+                        }
                         html += `
                             <tr>
                                 <td><strong>Location:</strong></td>
-                                <td><i class="fas fa-map-marker-alt me-1 text-muted"></i>${escapeHtml(author.metadata.location)}</td>
+                                <td>${locationDisplay}</td>
                             </tr>
                         `;
                     }
@@ -1533,6 +1653,16 @@
                             <tr>
                                 <td><strong>Company:</strong></td>
                                 <td><i class="fas fa-building me-1 text-muted"></i>${escapeHtml(author.metadata.company)}</td>
+                            </tr>
+                        `;
+                    }
+                    
+                    // Show country code if available
+                    if (author.metadata.countryCode) {
+                        html += `
+                            <tr>
+                                <td><strong>Country:</strong></td>
+                                <td>${escapeHtml(author.metadata.countryCode)}${author.metadata.country ? ` (${escapeHtml(author.metadata.country)})` : ''}</td>
                             </tr>
                         `;
                     }
@@ -1777,6 +1907,19 @@
                     console.log(`🎨 Authors Page - After filtering by funding: ${filtered.length} authors`);
                 }
                 
+                // Filter by sanctioned countries if checkbox is checked
+                const sanctionsFilterCheckbox = document.getElementById('sanctionsFilter');
+                const sanctionsFilterActive = sanctionsFilterCheckbox && sanctionsFilterCheckbox.checked;
+                if (sanctionsFilterActive && sanctionsService) {
+                    filtered = filtered.filter(a => {
+                        const countryCode = a.metadata?.countryCode || null;
+                        if (!countryCode) return false;
+                        const sanctionCheck = sanctionsService.checkSanctioned(countryCode);
+                        return sanctionCheck.isSanctioned;
+                    });
+                    console.log(`🎨 Authors Page - After filtering by sanctioned countries: ${filtered.length} authors`);
+                }
+                
                 // Store all filtered authors (before separation) for map display
                 allFilteredAuthors = filtered;
                 
@@ -1788,7 +1931,15 @@
                     const fundingFilterCheckbox = document.getElementById('fundingFilter');
                     const fundingFilterActive = fundingFilterCheckbox && fundingFilterCheckbox.checked;
                     let message = 'No authors found';
-                    if (ecosystemFilter !== 'all' && fundingFilterActive) {
+                    if (ecosystemFilter !== 'all' && fundingFilterActive && sanctionsFilterActive) {
+                        message = `No authors found for ecosystem "${ecosystemFilter}" with funding from sanctioned countries. Try adjusting filters.`;
+                    } else if (ecosystemFilter !== 'all' && sanctionsFilterActive) {
+                        message = `No authors found for ecosystem "${ecosystemFilter}" from sanctioned countries. Try selecting "All Ecosystems".`;
+                    } else if (fundingFilterActive && sanctionsFilterActive) {
+                        message = 'No authors found with funding information from sanctioned countries.';
+                    } else if (sanctionsFilterActive) {
+                        message = 'No authors found from sanctioned countries.';
+                    } else if (ecosystemFilter !== 'all' && fundingFilterActive) {
                         message = `No authors found for ecosystem "${ecosystemFilter}" with funding. Try selecting "All Ecosystems" or removing the funding filter.`;
                     } else if (ecosystemFilter !== 'all') {
                         message = `No authors found for ecosystem "${ecosystemFilter}". Try selecting "All Ecosystems".`;
@@ -1799,6 +1950,16 @@
                     return;
                 }
                 
+                // When sanctions filter is active, show ALL authors (including single-package-single-repo)
+                // Otherwise, separate authors as before
+                let allVisibleAuthors;
+                let singlePackageSingleRepo;
+                
+                if (sanctionsFilterActive) {
+                    // Show all authors when filtering by sanctions (compliance risk)
+                    allVisibleAuthors = filtered;
+                    singlePackageSingleRepo = [];
+                } else {
                 // Separate authors:
                 // 1. Multi-package authors (2+ packages) -> Always show in main table
                 // 2. Single-package authors with multiple repos (1 package, 2+ repos) -> Show in main table (risk)
@@ -1814,14 +1975,15 @@
                     return uniquePackages.length === 1 && repoCount > 1;
                 });
                 
-                const singlePackageSingleRepo = filtered.filter(a => {
+                    singlePackageSingleRepo = filtered.filter(a => {
                     const uniquePackages = [...new Set(a.packages || [])];
                     const repoCount = a.repositoryCount || 0;
                     return uniquePackages.length === 1 && repoCount === 1;
                 });
                 
                 // Combine multi-package and single-package-multiple-repos for main display
-                const allVisibleAuthors = [...multiPackageAuthors, ...singlePackageMultipleRepos];
+                    allVisibleAuthors = [...multiPackageAuthors, ...singlePackageMultipleRepos];
+                }
                 
                 // Sort visible authors by repository count (risk factor), then package count
                 allVisibleAuthors.sort((a, b) => {
@@ -1857,13 +2019,35 @@
                 currentAuthors = allVisibleAuthors;
                 window.currentSinglePackageAuthors = singlePackageSingleRepo; // Store globally for toggle (low-risk authors)
                 
-                console.log(`🎨 Authors Page - Visible: ${allVisibleAuthors.length} (${multiPackageAuthors.length} multi-package + ${singlePackageMultipleRepos.length} single-package-multi-repo), Hidden: ${singlePackageSingleRepo.length} (single-package-single-repo), Showing page ${currentPage} of ${totalPages}`);
+                if (sanctionsFilterActive) {
+                    console.log(`🎨 Authors Page - Sanctions filter active: Showing ${allVisibleAuthors.length} authors from sanctioned countries, Showing page ${currentPage} of ${totalPages}`);
+                } else {
+                    const multiPackageCount = filtered.filter(a => {
+                        const uniquePackages = [...new Set(a.packages || [])];
+                        return uniquePackages.length > 1;
+                    }).length;
+                    const singlePackageMultiRepoCount = filtered.filter(a => {
+                        const uniquePackages = [...new Set(a.packages || [])];
+                        const repoCount = a.repositoryCount || 0;
+                        return uniquePackages.length === 1 && repoCount > 1;
+                    }).length;
+                    console.log(`🎨 Authors Page - Visible: ${allVisibleAuthors.length} (${multiPackageCount} multi-package + ${singlePackageMultiRepoCount} single-package-multi-repo), Hidden: ${singlePackageSingleRepo.length} (single-package-single-repo), Showing page ${currentPage} of ${totalPages}`);
+                }
                 
                 let html = `
-                    <div class="alert alert-info">
-                        <i class="fas fa-info-circle me-2"></i>
-                        Showing <strong>${allVisibleAuthors.length}</strong> authors from <strong>${new Set(allVisibleAuthors.map(a => a.ecosystem)).size}</strong> ecosystems
-                        ${multiPackageAuthors.length > 0 ? `(${multiPackageAuthors.length} with multiple packages, ${singlePackageMultipleRepos.length} with single package across multiple repos)` : ''}
+                    <div class="alert ${sanctionsFilterActive ? 'alert-danger' : 'alert-info'}">
+                        <i class="fas ${sanctionsFilterActive ? 'fa-ban' : 'fa-info-circle'} me-2"></i>
+                        ${sanctionsFilterActive ? '<strong>⚠️ Sanctioned Countries Filter Active:</strong> ' : ''}
+                        Showing <strong>${allVisibleAuthors.length}</strong> author${allVisibleAuthors.length !== 1 ? 's' : ''} from <strong>${new Set(allVisibleAuthors.map(a => a.ecosystem)).size}</strong> ecosystem${new Set(allVisibleAuthors.map(a => a.ecosystem)).size !== 1 ? 's' : ''}
+                        ${sanctionsFilterActive ? 'from sanctioned countries' : ''}
+                        ${!sanctionsFilterActive && allVisibleAuthors.length > 0 ? `(${filtered.filter(a => {
+                            const uniquePackages = [...new Set(a.packages || [])];
+                            return uniquePackages.length > 1;
+                        }).length} with multiple packages, ${filtered.filter(a => {
+                            const uniquePackages = [...new Set(a.packages || [])];
+                            const repoCount = a.repositoryCount || 0;
+                            return uniquePackages.length === 1 && repoCount > 1;
+                        }).length} with single package across multiple repos)` : ''}
                     </div>
                     <div class="table-responsive">
                         <table class="table table-hover">
@@ -1891,12 +2075,21 @@
                     
                     // Build location cell
                     const location = author.metadata?.location || author.metadata?.company || null;
+                    const countryCode = author.metadata?.countryCode || null;
                     let locationCell = location 
                         ? `<td><i class="fas fa-map-marker-alt me-1 text-muted"></i><small>${escapeHtml(location)}</small>`
                         : '<td class="text-muted">—';
                     // Add tentative correlation badge if present
                     if (author.metadata?.tentative_correlation) {
                         locationCell += ` <span class="badge bg-warning text-dark ms-1" title="Tentative correlation - same GitHub user ID">⚠️</span>`;
+                    }
+                    // Check for sanctioned countries
+                    if (countryCode && sanctionsService) {
+                        const sanctionCheck = sanctionsService.checkSanctioned(countryCode);
+                        if (sanctionCheck.isSanctioned) {
+                            const sources = sanctionCheck.sources.join(', ');
+                            locationCell += ` <span class="badge bg-danger ms-1" title="Sanctioned country (${sources}): ${escapeHtml(countryCode)}">🚫 ${sources}</span>`;
+                        }
                     }
                     locationCell += '</td>';
                     

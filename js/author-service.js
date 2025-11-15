@@ -975,13 +975,31 @@ class AuthorService {
                 }
                 
                 if (userData && (userData.location || userData.company)) {
+                    // Geocode location to get country code if location is available
+                    let countryCode = null;
+                    let country = null;
+                    if (userData.location && window.LocationService) {
+                        try {
+                            const locationService = new window.LocationService();
+                            const geocoded = await locationService.geocode(userData.location);
+                            if (geocoded && geocoded.countryCode) {
+                                countryCode = geocoded.countryCode;
+                                country = geocoded.country;
+                            }
+                        } catch (error) {
+                            console.debug(`Could not geocode location "${userData.location}" for ${authorKey}:`, error.message);
+                        }
+                    }
+                    
                     // Update author entity metadata with location data
                     // Preserve existing metadata fields by merging
                     const existingMetadata = authorEntity.metadata || {};
                     const updatedMetadata = {
                         ...existingMetadata,
                         ...(userData.location && { location: userData.location }),
-                        ...(userData.company && { company: userData.company })
+                        ...(userData.company && { company: userData.company }),
+                        ...(countryCode && { countryCode: countryCode }),
+                        ...(country && { country: country })
                     };
                     
                     // Update author entity with merged metadata
@@ -989,11 +1007,13 @@ class AuthorService {
                     
                     // Save updated entity to cache (this will persist to IndexedDB)
                     await window.cacheManager.saveAuthorEntity(authorKey, authorEntity);
-                    console.log(`📍 Fetched and saved location to IndexedDB for ${authorKey}: ${userData.location || 'N/A'}, company: ${userData.company || 'N/A'}`);
+                    console.log(`📍 Fetched and saved location to IndexedDB for ${authorKey}: ${userData.location || 'N/A'}, company: ${userData.company || 'N/A'}, country: ${countryCode || 'N/A'}`);
                     
                     return {
                         location: userData.location || null,
-                        company: userData.company || null
+                        company: userData.company || null,
+                        countryCode: countryCode || null,
+                        country: country || null
                     };
                 }
             }

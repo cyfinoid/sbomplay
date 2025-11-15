@@ -246,6 +246,44 @@
             </div>
         </div>
 
+        <!-- Sanctioned Countries Settings -->
+        <div class="card mb-4">
+            <div class="card-header">
+                <h5 class="mb-0">
+                    <i class="fas fa-ban me-2"></i>Sanctioned Countries
+                </h5>
+            </div>
+            <div class="card-body">
+                <div class="alert alert-info mb-3">
+                    <i class="fas fa-info-circle me-2"></i>
+                    <strong>Compliance Feature:</strong> Configure countries sanctioned by your organization. Authors from these countries will be flagged in the Authors page. 
+                    This helps identify potential compliance risks when authors from sanctioned countries contribute to your dependencies.
+                </div>
+                
+                <div class="mb-3">
+                    <label class="form-label">Organization Sanctioned Countries</label>
+                    <input type="text" id="orgSanctions" class="form-control" placeholder="e.g., CN, RU, BY">
+                    <small class="form-text text-muted">
+                        Enter ISO 3166-1 alpha-2 country codes separated by commas (e.g., CN, RU, BY). 
+                        These will be in addition to USA and UN sanctioned countries.
+                    </small>
+                </div>
+                
+                <button class="btn btn-primary" data-action="saveOrgSanctions">
+                    <i class="fas fa-save me-2"></i>Save Organization Sanctions
+                </button>
+                
+                <hr class="my-3">
+                
+                <h6>Current Sanctions</h6>
+                <div id="sanctionsStatus">
+                    <div class="text-center text-muted">
+                        <i class="fas fa-spinner fa-spin me-2"></i>Loading sanctions status...
+                    </div>
+                </div>
+            </div>
+        </div>
+
         <!-- Author Detection Settings -->
         <div class="card mb-4">
             <div class="card-header">
@@ -529,6 +567,7 @@
     <script src="js/license-processor.js?v=0.0.6"></script>
     <script src="js/osv-service.js?v=0.0.6"></script>
     <script src="js/author-service.js?v=0.0.6"></script>
+    <script src="js/sanctions-service.js?v=0.0.6"></script>
     <script src="js/storage-manager.js?v=0.0.6"></script>
     <script src="js/view-manager.js?v=0.0.6"></script>
     <script src="js/app.js?v=0.0.6"></script>

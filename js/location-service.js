@@ -123,6 +123,11 @@ class LocationService {
         if (!skipCache) {
             const cached = this.geocodeCache.get(normalizedLocation);
             if (cached && Date.now() - cached.timestamp < this.cacheExpiry) {
+                // Check if this is a failed attempt marker
+                if (cached.data && cached.data.failed === true) {
+                    console.log(`📍 Memory cache: Found failed geocoding attempt for "${normalizedLocation}" - skipping retry`);
+                    return null;
+                }
                 console.log(`📍 Memory cache: Found geocoded location for "${normalizedLocation}"`);
                 return cached.data;
             }
@@ -131,6 +136,16 @@ class LocationService {
             if (!skipIndexedDBCheck && window.indexedDBManager && window.indexedDBManager.isInitialized()) {
                 const dbCached = await window.indexedDBManager.getLocation(normalizedLocation);
                 if (dbCached) {
+                    // Check if this is a failed attempt marker
+                    if (dbCached.failed === true) {
+                        console.log(`📍 IndexedDB cache: Found failed geocoding attempt for "${normalizedLocation}" - skipping retry`);
+                        // Update in-memory cache
+                        this.geocodeCache.set(normalizedLocation, {
+                            data: dbCached,
+                            timestamp: Date.now()
+                        });
+                        return null;
+                    }
                     console.log(`📍 IndexedDB cache: Found geocoded location for "${normalizedLocation}"`);
                     // Update in-memory cache
                     this.geocodeCache.set(normalizedLocation, {
@@ -179,6 +194,23 @@ class LocationService {
                 if (!data || data.length === 0) {
                     console.log(`ℹ️ No geocoding results for "${normalizedLocation}"`);
                     console.log(`   ✅ Response: Status ${response.status}, Extracted: No geocoding results`);
+                    
+                    // Cache the "no results" response to avoid repeated API calls
+                    const failedMarker = {
+                        failed: true,
+                        timestamp: Date.now()
+                    };
+                    this.geocodeCache.set(normalizedLocation, {
+                        data: failedMarker,
+                        timestamp: Date.now()
+                    });
+                    
+                    // Save failed attempt to IndexedDB to persist across sessions
+                    if (window.indexedDBManager && window.indexedDBManager.isInitialized()) {
+                        await window.indexedDBManager.saveLocation(normalizedLocation, failedMarker);
+                        console.log(`💾 Cached failed geocoding attempt for "${normalizedLocation}" to avoid retries`);
+                    }
+                    
                     return null;
                 }
 
@@ -186,10 +218,12 @@ class LocationService {
                 const geocoded = {
                     lat: parseFloat(result.lat),
                     lng: parseFloat(result.lon),
-                    displayName: result.display_name || normalizedLocation
+                    displayName: result.display_name || normalizedLocation,
+                    countryCode: result.address?.country_code?.toUpperCase() || null,
+                    country: result.address?.country || null
                 };
                 
-                console.log(`   ✅ Response: Status ${response.status}, Extracted: Coordinates (${geocoded.lat}, ${geocoded.lng}), Display name: "${geocoded.displayName}"`);
+                console.log(`   ✅ Response: Status ${response.status}, Extracted: Coordinates (${geocoded.lat}, ${geocoded.lng}), Display name: "${geocoded.displayName}", Country: ${geocoded.countryCode || 'N/A'}`);
 
                 // Cache the result in memory
                 this.geocodeCache.set(normalizedLocation, {
@@ -253,6 +287,15 @@ class LocationService {
             
             cachedResults.forEach((geocoded, location) => {
                 if (geocoded) {
+                    // Skip failed markers (they're cached to avoid retries, but shouldn't be used)
+                    if (geocoded.failed === true) {
+                        // Still cache it in memory to avoid retries
+                        this.geocodeCache.set(location, {
+                            data: geocoded,
+                            timestamp: Date.now()
+                        });
+                        return;
+                    }
                     results.set(location, geocoded);
                     // Update in-memory cache
                     this.geocodeCache.set(location, {

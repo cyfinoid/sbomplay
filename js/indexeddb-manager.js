@@ -1004,13 +1004,23 @@ class IndexedDBManager {
             const transaction = this.db.transaction(['locations'], 'readwrite');
             const store = transaction.objectStore('locations');
             
+            // Handle failed geocoding attempts (cached to avoid retries)
             const entry = {
                 locationString: locationString.trim(),
-                lat: geocodedData.lat,
-                lng: geocodedData.lng,
-                displayName: geocodedData.displayName || locationString,
                 timestamp: new Date().toISOString()
             };
+            
+            if (geocodedData.failed === true) {
+                // Store failed marker
+                entry.failed = true;
+            } else {
+                // Store successful geocoding data
+                entry.lat = geocodedData.lat;
+                entry.lng = geocodedData.lng;
+                entry.displayName = geocodedData.displayName || locationString;
+                entry.countryCode = geocodedData.countryCode || null;
+                entry.country = geocodedData.country || null;
+            }
 
             await this._promisifyRequest(store.put(entry));
             return true;
@@ -1035,10 +1045,17 @@ class IndexedDBManager {
             const entry = await this._promisifyRequest(store.get(locationString.trim()));
             
             if (entry) {
+                // Check if this is a failed attempt marker
+                if (entry.failed === true) {
+                    return { failed: true };
+                }
+                // Return successful geocoding data
                 return {
                     lat: entry.lat,
                     lng: entry.lng,
-                    displayName: entry.displayName || locationString
+                    displayName: entry.displayName || locationString,
+                    countryCode: entry.countryCode || null,
+                    country: entry.country || null
                 };
             }
             return null;
@@ -1069,12 +1086,22 @@ class IndexedDBManager {
                 try {
                     const entry = await this._promisifyRequest(store.get(locationString.trim()));
                     if (entry) {
+                        // Check if this is a failed attempt marker
+                        if (entry.failed === true) {
+                            return {
+                                location: locationString,
+                                data: { failed: true }
+                            };
+                        }
+                        // Return successful geocoding data
                         return {
                             location: locationString,
                             data: {
                                 lat: entry.lat,
                                 lng: entry.lng,
-                                displayName: entry.displayName || locationString
+                                displayName: entry.displayName || locationString,
+                                countryCode: entry.countryCode || null,
+                                country: entry.country || null
                             }
                         };
                     }
