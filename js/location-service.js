@@ -28,8 +28,8 @@ class LocationService {
         }
 
         // Skip obvious non-location strings
-        // Username patterns (starts with @)
-        if (normalized.startsWith('@')) {
+        // Username patterns (starts with @ or contains @username)
+        if (normalized.startsWith('@') || /\s@\w+/.test(normalized)) {
             console.log(`⚠️ Skipping geocoding for username-like string: "${normalized}"`);
             return null;
         }
@@ -43,6 +43,22 @@ class LocationService {
         // Email patterns
         if (normalized.includes('@') && normalized.match(/^[^\s@]+@[^\s@]+\.[^\s@]+$/)) {
             console.log(`⚠️ Skipping geocoding for email-like string: "${normalized}"`);
+            return null;
+        }
+
+        // Skip standalone company suffixes (not locations)
+        const companySuffixes = /^(Inc|LLC|LLP|Ltd|Corp|Corporation|Company|Co)$/i;
+        if (companySuffixes.test(normalized)) {
+            console.log(`⚠️ Skipping geocoding for company suffix: "${normalized}"`);
+            return null;
+        }
+
+        // Skip company names ending with company suffixes (e.g., "Sideway Inc", "CFWare, LLC")
+        // Pattern: word(s) followed by comma/space and company suffix
+        const companyNamePattern = /^[\w\s&]+(?:,\s*)?(?:Inc|LLC|LLP|Ltd|Corp|Corporation|Company|Co)\.?$/i;
+        if (companyNamePattern.test(normalized) && normalized.length < 50) {
+            // Only skip if it looks like a company name (not too long, contains company suffix)
+            console.log(`⚠️ Skipping geocoding for company name: "${normalized}"`);
             return null;
         }
 
@@ -103,6 +119,31 @@ class LocationService {
         }
 
         return normalized;
+    }
+
+    /**
+     * Parse multiple locations from a string separated by |, \, or /
+     * @param {string} locationString - Location string that may contain multiple locations
+     * @returns {Array<string>} - Array of individual location strings
+     */
+    parseMultipleLocations(locationString) {
+        if (!locationString || typeof locationString !== 'string') {
+            return [];
+        }
+
+        // Split by common separators: |, \, /, or multiple spaces
+        const separators = /[|\/\\]|,\s*and\s+/i;
+        const locations = locationString
+            .split(separators)
+            .map(loc => loc.trim())
+            .filter(loc => loc.length > 0);
+
+        // If no separators found, return single location
+        if (locations.length === 1) {
+            return [locationString.trim()];
+        }
+
+        return locations;
     }
 
     /**

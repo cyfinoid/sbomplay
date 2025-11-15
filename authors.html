@@ -28,9 +28,7 @@
                 <a class="nav-link" href="repos.html">Repos</a>
                 <a class="nav-link active" href="authors.html">Authors</a>
                 <a class="nav-link" href="about.html">About</a>
-                <a class="nav-link" href="settings.html">
-                    <i class="fas fa-cog"></i>
-                </a>
+                <a class="nav-link" href="settings.html">Settings</a>
                 <button class="btn btn-outline-secondary btn-sm ms-2 theme-toggle" title="Toggle theme">
                     <i class="fas fa-sun"></i>
                 </button>
@@ -281,13 +279,14 @@
             }
             
             /**
-             * Enrich author with country code from geocoded location cache or geocode if needed
+             * Enrich author with country code(s) from geocoded location cache or geocode if needed
+             * Handles multiple locations separated by |, \, or /
              * @param {Object} author - Author object
-             * @returns {Promise<Object>} - Author with enriched country code
+             * @returns {Promise<Object>} - Author with enriched country code(s)
              */
             async function enrichAuthorWithCountryCode(author) {
-                // If already has country code, return as-is (already persisted in database)
-                if (author.metadata?.countryCode) {
+                // If already has country codes, return as-is (already persisted in database)
+                if (author.metadata?.countryCode || author.metadata?.countryCodes) {
                     return author; // Skip - already enriched and persisted
                 }
                 
@@ -298,29 +297,54 @@
                 }
                 
                 try {
-                    // Normalize location string
-                    const normalizedLocation = locationService.normalizeLocationString(location);
-                    if (!normalizedLocation) {
-                        return author;
+                    // Parse multiple locations (handles |, \, / separators)
+                    const locationParts = locationService.parseMultipleLocations(location);
+                    const countryCodes = new Set();
+                    const countries = [];
+                    
+                    for (const locationPart of locationParts) {
+                        // Normalize each location part
+                        const normalizedLocation = locationService.normalizeLocationString(locationPart);
+                        if (!normalizedLocation) {
+                            continue; // Skip invalid locations
+                        }
+                        
+                        // Check if location was already geocoded (from cache)
+                        let geocoded = await locationService.geocode(normalizedLocation, false, false);
+                        
+                        // If cached geocoded data exists but doesn't have countryCode, force refresh
+                        // This handles cases where locations were geocoded before country code extraction was added
+                        if (geocoded && !geocoded.countryCode) {
+                            console.log(`🔄 Re-geocoding "${normalizedLocation}" to extract country code`);
+                            geocoded = await locationService.geocode(normalizedLocation, true, false); // Force refresh
+                        }
+                        
+                        if (geocoded && geocoded.countryCode) {
+                            countryCodes.add(geocoded.countryCode);
+                            if (geocoded.country && !countries.includes(geocoded.country)) {
+                                countries.push(geocoded.country);
+                            }
+                        }
                     }
                     
-                    // Check if location was already geocoded (from cache)
-                    let geocoded = await locationService.geocode(normalizedLocation, false, false);
-                    
-                    // If cached geocoded data exists but doesn't have countryCode, force refresh
-                    // This handles cases where locations were geocoded before country code extraction was added
-                    if (geocoded && !geocoded.countryCode) {
-                        console.log(`🔄 Re-geocoding "${normalizedLocation}" to extract country code`);
-                        geocoded = await locationService.geocode(normalizedLocation, true, false); // Force refresh
-                    }
-                    
-                    if (geocoded && geocoded.countryCode) {
-                        // Update author metadata with country code
+                    if (countryCodes.size > 0) {
+                        // Update author metadata with country code(s)
                         if (!author.metadata) {
                             author.metadata = {};
                         }
-                        author.metadata.countryCode = geocoded.countryCode;
-                        author.metadata.country = geocoded.country || null;
+                        
+                        // Store as array if multiple countries, single string if one country
+                        const countryCodesArray = Array.from(countryCodes);
+                        if (countryCodesArray.length === 1) {
+                            author.metadata.countryCode = countryCodesArray[0];
+                            author.metadata.country = countries[0] || null;
+                        } else {
+                            // Multiple countries - store as array
+                            author.metadata.countryCodes = countryCodesArray;
+                            author.metadata.countryCode = countryCodesArray[0]; // Primary country (first one)
+                            author.metadata.countries = countries;
+                            author.metadata.country = countries.join(', ') || null;
+                        }
                         
                         // Save updated author entity to IndexedDB (persists permanently)
                         if (window.cacheManager && author.authorKey) {
@@ -329,11 +353,14 @@
                                 if (authorEntity) {
                                     authorEntity.metadata = {
                                         ...authorEntity.metadata,
-                                        countryCode: geocoded.countryCode,
-                                        country: geocoded.country || null
+                                        ...author.metadata
                                     };
                                     await window.cacheManager.saveAuthorEntity(author.authorKey, authorEntity);
-                                    console.log(`💾 Saved country code ${geocoded.countryCode} for author ${author.authorKey} to IndexedDB`);
+                                    if (countryCodesArray.length === 1) {
+                                        console.log(`💾 Saved country code ${countryCodesArray[0]} for author ${author.authorKey} to IndexedDB`);
+                                    } else {
+                                        console.log(`💾 Saved ${countryCodesArray.length} country codes (${countryCodesArray.join(', ')}) for author ${author.authorKey} to IndexedDB`);
+                                    }
                                 } else {
                                     console.warn(`⚠️ Could not find author entity ${author.authorKey} to save country code`);
                                 }
@@ -1632,12 +1659,21 @@
                     
                     if (author.metadata.location) {
                         let locationDisplay = `<i class="fas fa-map-marker-alt me-1 text-muted"></i>${escapeHtml(author.metadata.location)}`;
-                        // Check for sanctioned countries
-                        if (author.metadata.countryCode && sanctionsService) {
-                            const sanctionCheck = sanctionsService.checkSanctioned(author.metadata.countryCode);
-                            if (sanctionCheck.isSanctioned) {
-                                const sources = sanctionCheck.sources.join(', ');
-                                locationDisplay += ` <span class="badge bg-danger ms-2" title="Sanctioned country (${sources}): ${escapeHtml(author.metadata.countryCode)}">🚫 ${sources}</span>`;
+                        // Check for sanctioned countries (check all country codes if multiple)
+                        const countryCodesToCheck = author.metadata?.countryCodes || (author.metadata?.countryCode ? [author.metadata.countryCode] : []);
+                        if (countryCodesToCheck.length > 0 && sanctionsService) {
+                            const sanctionedCountries = [];
+                            countryCodesToCheck.forEach(code => {
+                                const sanctionCheck = sanctionsService.checkSanctioned(code);
+                                if (sanctionCheck.isSanctioned) {
+                                    const sources = sanctionCheck.sources.join(', ');
+                                    sanctionedCountries.push({ code, sources });
+                                }
+                            });
+                            if (sanctionedCountries.length > 0) {
+                                const allSources = [...new Set(sanctionedCountries.flatMap(s => s.sources.split(', ')))].join(', ');
+                                const codes = sanctionedCountries.map(s => s.code).join(', ');
+                                locationDisplay += ` <span class="badge bg-danger ms-2" title="Sanctioned country (${allSources}): ${escapeHtml(codes)}">🚫 ${allSources}</span>`;
                             }
                         }
                         html += `
@@ -1657,12 +1693,23 @@
                         `;
                     }
                     
-                    // Show country code if available
-                    if (author.metadata.countryCode) {
+                    // Show country code(s) if available
+                    if (author.metadata.countryCode || author.metadata.countryCodes) {
+                        let countryDisplay = '';
+                        if (author.metadata.countryCodes && author.metadata.countryCodes.length > 1) {
+                            // Multiple countries
+                            const codes = author.metadata.countryCodes.map(code => escapeHtml(code)).join(', ');
+                            const countries = author.metadata.countries ? ` (${author.metadata.countries.map(c => escapeHtml(c)).join(', ')})` : '';
+                            countryDisplay = `${codes}${countries}`;
+                        } else {
+                            // Single country
+                            const code = author.metadata.countryCode || author.metadata.countryCodes?.[0] || '';
+                            countryDisplay = `${escapeHtml(code)}${author.metadata.country ? ` (${escapeHtml(author.metadata.country)})` : ''}`;
+                        }
                         html += `
                             <tr>
                                 <td><strong>Country:</strong></td>
-                                <td>${escapeHtml(author.metadata.countryCode)}${author.metadata.country ? ` (${escapeHtml(author.metadata.country)})` : ''}</td>
+                                <td>${countryDisplay}</td>
                             </tr>
                         `;
                     }
@@ -1912,10 +1959,15 @@
                 const sanctionsFilterActive = sanctionsFilterCheckbox && sanctionsFilterCheckbox.checked;
                 if (sanctionsFilterActive && sanctionsService) {
                     filtered = filtered.filter(a => {
-                        const countryCode = a.metadata?.countryCode || null;
-                        if (!countryCode) return false;
-                        const sanctionCheck = sanctionsService.checkSanctioned(countryCode);
-                        return sanctionCheck.isSanctioned;
+                        // Check all country codes (handles multiple locations)
+                        const countryCodesToCheck = a.metadata?.countryCodes || (a.metadata?.countryCode ? [a.metadata.countryCode] : []);
+                        if (countryCodesToCheck.length === 0) return false;
+                        
+                        // Author is sanctioned if ANY of their countries is sanctioned
+                        return countryCodesToCheck.some(code => {
+                            const sanctionCheck = sanctionsService.checkSanctioned(code);
+                            return sanctionCheck.isSanctioned;
+                        });
                     });
                     console.log(`🎨 Authors Page - After filtering by sanctioned countries: ${filtered.length} authors`);
                 }
@@ -2083,12 +2135,21 @@
                     if (author.metadata?.tentative_correlation) {
                         locationCell += ` <span class="badge bg-warning text-dark ms-1" title="Tentative correlation - same GitHub user ID">⚠️</span>`;
                     }
-                    // Check for sanctioned countries
-                    if (countryCode && sanctionsService) {
-                        const sanctionCheck = sanctionsService.checkSanctioned(countryCode);
-                        if (sanctionCheck.isSanctioned) {
-                            const sources = sanctionCheck.sources.join(', ');
-                            locationCell += ` <span class="badge bg-danger ms-1" title="Sanctioned country (${sources}): ${escapeHtml(countryCode)}">🚫 ${sources}</span>`;
+                    // Check for sanctioned countries (check all country codes if multiple)
+                    const countryCodesToCheck = author.metadata?.countryCodes || (author.metadata?.countryCode ? [author.metadata.countryCode] : []);
+                    if (countryCodesToCheck.length > 0 && sanctionsService) {
+                        const sanctionedCountries = [];
+                        countryCodesToCheck.forEach(code => {
+                            const sanctionCheck = sanctionsService.checkSanctioned(code);
+                            if (sanctionCheck.isSanctioned) {
+                                const sources = sanctionCheck.sources.join(', ');
+                                sanctionedCountries.push({ code, sources });
+                            }
+                        });
+                        if (sanctionedCountries.length > 0) {
+                            const allSources = [...new Set(sanctionedCountries.flatMap(s => s.sources.split(', ')))].join(', ');
+                            const codes = sanctionedCountries.map(s => s.code).join(', ');
+                            locationCell += ` <span class="badge bg-danger ms-1" title="Sanctioned country (${allSources}): ${escapeHtml(codes)}">🚫 ${allSources}</span>`;
                         }
                     }
                     locationCell += '</td>';
