@@ -71,17 +71,17 @@ class DependencyTreeResolver {
             // Debug: Log URL call with context
             console.log(`🌐 [DEBUG] Fetching URL: ${url}`);
             const caller = new Error().stack.split('\n')[2]?.trim() || 'unknown';
-            if (url.includes('deps.dev')) {
+            if (isUrlFromHostname(url, 'deps.dev')) {
                 console.log(`   Reason: Querying deps.dev API for package dependency information (called from: ${caller})`);
-            } else if (url.includes('ecosyste.ms')) {
+            } else if (isUrlFromHostname(url, 'ecosyste.ms')) {
                 console.log(`   Reason: Querying ecosyste.ms API for package dependency information (called from: ${caller})`);
-            } else if (url.includes('registry.npmjs.org')) {
+            } else if (isUrlFromHostname(url, 'registry.npmjs.org')) {
                 console.log(`   Reason: Querying npm registry for package dependency information (called from: ${caller})`);
-            } else if (url.includes('pypi.org')) {
+            } else if (isUrlFromHostname(url, 'pypi.org')) {
                 console.log(`   Reason: Querying PyPI registry for package dependency information (called from: ${caller})`);
-            } else if (url.includes('crates.io')) {
+            } else if (isUrlFromHostname(url, 'crates.io')) {
                 console.log(`   Reason: Querying crates.io registry for package dependency information (called from: ${caller})`);
-            } else if (url.includes('rubygems.org')) {
+            } else if (isUrlFromHostname(url, 'rubygems.org')) {
                 console.log(`   Reason: Querying RubyGems registry for package dependency information (called from: ${caller})`);
             } else {
                 console.log(`   Reason: Fetching dependency information (called from: ${caller})`);
@@ -99,13 +99,13 @@ class DependencyTreeResolver {
                     const data = await response.clone().json(); // Clone to avoid consuming the stream
                     let extractedInfo = `Status: ${response.status}`;
                     
-                    if (url.includes('deps.dev')) {
+                    if (isUrlFromHostname(url, 'deps.dev')) {
                         const depCount = data.nodes?.filter(n => n.relation === 'DIRECT')?.length || 0;
                         extractedInfo += `, Extracted: ${depCount} direct dependency/dependencies`;
-                    } else if (url.includes('ecosyste.ms')) {
+                    } else if (isUrlFromHostname(url, 'ecosyste.ms')) {
                         const depCount = data.dependencies?.length || 0;
                         extractedInfo += `, Extracted: ${depCount} dependency/dependencies`;
-                    } else if (url.includes('registry.npmjs.org') || url.includes('pypi.org') || url.includes('crates.io') || url.includes('rubygems.org')) {
+                    } else if (isUrlFromHostname(url, 'registry.npmjs.org') || isUrlFromHostname(url, 'pypi.org') || isUrlFromHostname(url, 'crates.io') || isUrlFromHostname(url, 'rubygems.org')) {
                         const depCount = data.dependencies ? Object.keys(data.dependencies).length : 0;
                         extractedInfo += `, Extracted: Package metadata with ${depCount} dependency/dependencies`;
                     }

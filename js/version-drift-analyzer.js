@@ -552,13 +552,13 @@ class VersionDriftAnalyzer {
             // Debug: Log URL call with context
             console.log(`🌐 [DEBUG] Fetching URL: ${url}`);
             const caller = new Error().stack.split('\n')[2]?.trim() || 'unknown';
-            if (url.includes('rubygems.org')) {
+            if (isUrlFromHostname(url, 'rubygems.org')) {
                 console.log(`   Reason: Fetching RubyGems package metadata for latest version information (called from: ${caller})`);
-            } else if (url.includes('registry.npmjs.org')) {
+            } else if (isUrlFromHostname(url, 'registry.npmjs.org')) {
                 console.log(`   Reason: Fetching npm package metadata for latest version information (called from: ${caller})`);
-            } else if (url.includes('pypi.org')) {
+            } else if (isUrlFromHostname(url, 'pypi.org')) {
                 console.log(`   Reason: Fetching PyPI package metadata for latest version information (called from: ${caller})`);
-            } else if (url.includes('crates.io')) {
+            } else if (isUrlFromHostname(url, 'crates.io')) {
                 console.log(`   Reason: Fetching crates.io package metadata for latest version information (called from: ${caller})`);
             } else {
                 console.log(`   Reason: Fetching package metadata for version information (called from: ${caller})`);
