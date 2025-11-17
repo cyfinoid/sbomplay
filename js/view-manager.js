@@ -64,27 +64,6 @@ class ViewManager {
         }
     }
 
-    /**
-     * Securely check if a URL belongs to a specific hostname
-     * Delegates to the shared utility function from utils.js
-     * @param {string} url - The URL to check
-     * @param {string} hostname - The expected hostname (e.g., "github.com", "tidelift.com")
-     * @param {string} pathPrefix - Optional path prefix to check (e.g., "/sponsors")
-     * @returns {boolean} - True if URL belongs to the hostname
-     */
-    isUrlFromHostname(url, hostname, pathPrefix = '') {
-        return isUrlFromHostname(url, hostname, pathPrefix);
-    }
-
-    /**
-     * Properly escape a string for use in JavaScript string literals
-     * Delegates to the shared utility function from utils.js
-     * @param {string} text - The string to escape
-     * @returns {string} - The escaped string safe for use in JavaScript string literals
-     */
-    escapeJsString(text) {
-        return escapeJsString(text);
-    }
 
     /**
      * Render overview header HTML
@@ -98,10 +77,10 @@ class ViewManager {
     <h2>📊 ${escapeHtml(organization)} - Dependency Overview</h2>
     <p class="text-muted">Analyzed on ${escapeHtml(analyzedDate)}</p>
     <div class="mt-2">
-        <button class="btn btn-primary btn-sm" onclick="viewManager.runBatchVulnerabilityQuery('${this.escapeJsString(escapeHtml(organization))}')">
+        <button class="btn btn-primary btn-sm" onclick="viewManager.runBatchVulnerabilityQuery('${escapeJsString(escapeHtml(organization))}')">
             <i class="fas fa-shield-alt"></i> Vulnerability Scan (All Repos)
         </button>
-        <button class="btn btn-success btn-sm" onclick="viewManager.runLicenseComplianceCheck('${this.escapeJsString(escapeHtml(organization))}')">
+        <button class="btn btn-success btn-sm" onclick="viewManager.runLicenseComplianceCheck('${escapeJsString(escapeHtml(organization))}')">
             <i class="fas fa-gavel"></i> License Compliance Check
         </button>
         <button class="btn btn-info btn-sm" onclick="viewManager.showVulnerabilityCacheStats()">
@@ -138,7 +117,7 @@ class ViewManager {
             <p>This organization hasn't been analyzed for license compliance yet. License analysis is performed automatically during the SBOM processing.</p>
             <p><strong>Note:</strong> License analysis includes detection of copyleft licenses, license conflicts, and compliance recommendations.</p>
             <div class="mt-3">
-                <button class="btn btn-success btn-sm" onclick="viewManager.runLicenseComplianceCheck('${this.escapeJsString(escapeHtml(organization))}')">
+                <button class="btn btn-success btn-sm" onclick="viewManager.runLicenseComplianceCheck('${escapeJsString(escapeHtml(organization))}')">
                     <i class="fas fa-gavel"></i> Run License Compliance Check
                 </button>
             </div>
@@ -200,7 +179,7 @@ class ViewManager {
             const archivedBadge = repo.archived ? '<span class="badge bg-secondary ms-2" title="Archived Repository"><i class="fas fa-archive"></i> Archived</span>' : '';
             const archivedClass = repo.archived ? ' archived-repo' : '';
             return `
-            <div class="repository-item${archivedClass}" onclick="viewManager.showRepositoryDetailsFromAllReposIndex(${repo.index}, '${this.escapeJsString(escapeHtml(repo.organization))}')">
+            <div class="repository-item${archivedClass}" onclick="viewManager.showRepositoryDetailsFromAllReposIndex(${repo.index}, '${escapeJsString(escapeHtml(repo.organization))}')">
                 <div class="repo-name">${escapeHtml(repo.owner)}/${escapeHtml(repo.name)}${archivedBadge}</div>
                 <div class="repo-deps">${repo.totalDependencies} total deps</div>
             </div>`;
@@ -231,7 +210,7 @@ class ViewManager {
             <h6>📋 No License Analysis Available</h6>
             <p>License analysis hasn't been performed for this organization yet. License information will be available after the next analysis run.</p>
             <div class="mt-3">
-                <button class="btn btn-success btn-sm" onclick="viewManager.runLicenseComplianceCheck('${this.escapeJsString(escapeHtml(data.organization))}')">
+                <button class="btn btn-success btn-sm" onclick="viewManager.runLicenseComplianceCheck('${escapeJsString(escapeHtml(data.organization))}')">
                     <i class="fas fa-gavel"></i> Run License Compliance Check
                 </button>
             </div>
@@ -239,7 +218,7 @@ class ViewManager {
         }
 
         return `<div class="view-header">
-    <button class="btn btn-secondary" onclick="viewManager.showOrganizationOverviewFromStorage('${this.escapeJsString(escapeHtml(data.organization))}')">
+    <button class="btn btn-secondary" onclick="viewManager.showOrganizationOverviewFromStorage('${escapeJsString(escapeHtml(data.organization))}')">
         ← Back to Overview
     </button>
     <h2>📦 ${escapeHtml(data.name)}@${escapeHtml(data.version)}</h2>
@@ -278,7 +257,7 @@ class ViewManager {
     <div class="detail-section">
         <h3>🔍 Security Analysis</h3>
         <div class="mt-3">
-            <button class="btn btn-primary btn-sm" onclick="viewManager.quickScanDependency('${this.escapeJsString(escapeHtml(data.name))}', '${this.escapeJsString(escapeHtml(data.version))}', '${this.escapeJsString(escapeHtml(data.organization))}')">
+            <button class="btn btn-primary btn-sm" onclick="viewManager.quickScanDependency('${escapeJsString(escapeHtml(data.name))}', '${escapeJsString(escapeHtml(data.version))}', '${escapeJsString(escapeHtml(data.organization))}')">
                 <i class="fas fa-shield-alt"></i> Quick Vulnerability Scan
             </button>
             <button class="btn btn-info btn-sm" onclick="viewManager.showVulnerabilityCacheStats()">
@@ -720,9 +699,14 @@ class ViewManager {
      * Generate dependency details HTML
      */
     async generateDependencyHTML(dependency, orgData) {
-        const allRepos = orgData.data.allRepositories;
+        // Add null check before accessing array
+        const allRepos = orgData.data?.allRepositories || [];
+        if (allRepos.length === 0) {
+            console.warn('No repositories found in orgData.data.allRepositories');
+            return '';
+        }
         const matchingRepos = allRepos.filter(repo => 
-            repo.dependencies.some(dep => dep === `${dependency.name}@${dependency.version}`)
+            repo.dependencies && repo.dependencies.some(dep => dep === `${dependency.name}@${dependency.version}`)
         );
 
         // Get package funding (package-level, not author-level)
@@ -740,10 +724,10 @@ class ViewManager {
             fundingData = {
                 packageFunding: true,
                 fundingUrl: fundingUrl,
-                fundingGitHub: packageFunding.github || this.isUrlFromHostname(fundingUrl, 'github.com', '/sponsors'),
-                fundingOpenCollective: packageFunding.opencollective || this.isUrlFromHostname(fundingUrl, 'opencollective.com'),
-                fundingPatreon: packageFunding.patreon || this.isUrlFromHostname(fundingUrl, 'patreon.com'),
-                fundingTidelift: packageFunding.tidelift || this.isUrlFromHostname(fundingUrl, 'tidelift.com'),
+                fundingGitHub: packageFunding.github || isUrlFromHostname(fundingUrl, 'github.com', '/sponsors'),
+                fundingOpenCollective: packageFunding.opencollective || isUrlFromHostname(fundingUrl, 'opencollective.com'),
+                fundingPatreon: packageFunding.patreon || isUrlFromHostname(fundingUrl, 'patreon.com'),
+                fundingTidelift: packageFunding.tidelift || isUrlFromHostname(fundingUrl, 'tidelift.com'),
                 fundingGeneric: packageFunding.url && !packageFunding.github && !packageFunding.opencollective && !packageFunding.patreon && !packageFunding.tidelift
             };
         }
@@ -849,7 +833,12 @@ class ViewManager {
      * Generate repository details HTML
      */
     generateRepositoryHTML(repo, orgData) {
-        const allDeps = orgData.data.allDependencies;
+        // Add null checks before accessing arrays
+        const allDeps = orgData.data?.allDependencies || [];
+        if (!repo.dependencies || !Array.isArray(repo.dependencies)) {
+            console.warn('Repository dependencies not found or not an array:', repo);
+            return '';
+        }
         const repoDeps = repo.dependencies.map(depKey => {
             const [name, version] = depKey.split('@');
             return { name, version, key: depKey };
@@ -2581,12 +2570,13 @@ class ViewManager {
                         <div class="repository-list">
                             ${repositories.map(repo => {
                                 const [owner, name] = repo.split('/');
-                                const repoIndex = orgData.data.allRepositories ? orgData.data.allRepositories.findIndex(r => r.owner === owner && r.name === name) : -1;
-                                const repoData = orgData.data.allRepositories && repoIndex >= 0 ? orgData.data.allRepositories[repoIndex] : null;
+                                const allRepos = orgData.data?.allRepositories || [];
+                                const repoIndex = allRepos.findIndex(r => r.owner === owner && r.name === name);
+                                const repoData = repoIndex >= 0 ? allRepos[repoIndex] : null;
                                 const isArchived = repoData && repoData.archived;
                                 const archivedBadge = isArchived ? ' <span class="badge bg-secondary ms-2" title="Archived Repository"><i class="fas fa-archive"></i> Archived</span>' : '';
                                 const archivedClass = isArchived ? ' archived-repo' : '';
-                                const escapedOrg = this.escapeJsString(this.escapeHtml(organization));
+                                const escapedOrg = escapeJsString(escapeHtml(organization));
                                 const escapedRepo = this.escapeHtml(repo);
                                 return `
                                     <div class="repository-item${archivedClass}" onclick="viewManager.showRepositoryDetailsFromAllReposIndex(${repoIndex}, '${escapedOrg}')" style="cursor: pointer;">
@@ -2999,15 +2989,28 @@ class ViewManager {
             // When filtering, only show count for the filtered category
             let filteredCount = 0;
             dependencies.forEach(dep => {
-                if (!dep.originalPackage) {
+                // Check for enriched license data first (from deps.dev API or GitHub Actions analysis)
+                let licenseInfo = null;
+                if (dep.licenseFull && dep.licenseFull !== 'Unknown' && dep.licenseFull !== 'NOASSERTION') {
+                    // Use enriched license data
+                    licenseInfo = licenseProcessor.parseLicense({
+                        licenseConcluded: dep.licenseFull,
+                        licenseDeclared: dep.licenseFull
+                    });
+                } else if (dep.originalPackage) {
+                    // Fall back to parsing originalPackage
+                    licenseInfo = licenseProcessor.parseLicense(dep.originalPackage);
+                }
+                
+                // If no license info found, treat as unlicensed
+                if (!licenseInfo || !licenseInfo.license || licenseInfo.license === 'NOASSERTION') {
                     if (categoryFilter === 'unlicensed') {
                         counts.unlicensed++;
                         filteredCount++;
                     }
                     return;
                 }
-
-                const licenseInfo = licenseProcessor.parseLicense(dep.originalPackage);
+                
                 let matches = false;
                 
                 switch (categoryFilter) {
@@ -3055,59 +3058,66 @@ class ViewManager {
             // that are compatible with all repository licenses
             const allRepos = orgData.data?.allRepositories || [];
             dependencies.forEach(dep => {
-                if (!dep.originalPackage) {
+                // Check for enriched license data first (from deps.dev API or GitHub Actions analysis)
+                let licenseInfo = null;
+                if (dep.licenseFull && dep.licenseFull !== 'Unknown' && dep.licenseFull !== 'NOASSERTION') {
+                    // Use enriched license data
+                    licenseInfo = licenseProcessor.parseLicense({
+                        licenseConcluded: dep.licenseFull,
+                        licenseDeclared: dep.licenseFull
+                    });
+                } else if (dep.originalPackage) {
+                    // Fall back to parsing originalPackage
+                    licenseInfo = licenseProcessor.parseLicense(dep.originalPackage);
+                }
+                
+                if (!licenseInfo || !licenseInfo.license || licenseInfo.license === 'NOASSERTION') {
                     counts.unlicensed++;
                     return;
                 }
-
-                const licenseInfo = licenseProcessor.parseLicense(dep.originalPackage);
                 
-                if (licenseInfo.license && licenseInfo.license !== 'NOASSERTION') {
-                    // For copyleft dependencies, check compatibility with repository licenses
-                    if (licenseInfo.category === 'copyleft' || licenseInfo.category === 'lgpl') {
-                        const depRepos = dep.repositories || [];
-                        let isCompatibleWithAllRepos = true;
-                        
-                        if (depRepos.length > 0 && allRepos.length > 0) {
-                            // Check each repository that uses this dependency
-                            for (const repoKey of depRepos) {
-                                const repo = allRepos.find(r => `${r.owner}/${r.name}` === repoKey);
-                                if (repo && repo.license) {
-                                    const compatibility = licenseProcessor.isDependencyCompatibleWithRepository(
-                                        licenseInfo.license, 
-                                        repo.license
-                                    );
-                                    if (compatibility === false) {
-                                        isCompatibleWithAllRepos = false;
-                                        break; // Found at least one incompatible repo
-                                    } else if (compatibility === null) {
-                                        // Unknown compatibility - treat as potentially incompatible
-                                        isCompatibleWithAllRepos = false;
-                                    }
-                                } else {
-                                    // Repository license not available - treat as potentially incompatible
+                // For copyleft dependencies, check compatibility with repository licenses
+                if (licenseInfo.category === 'copyleft' || licenseInfo.category === 'lgpl') {
+                    const depRepos = dep.repositories || [];
+                    let isCompatibleWithAllRepos = true;
+                    
+                    if (depRepos.length > 0 && allRepos.length > 0) {
+                        // Check each repository that uses this dependency
+                        for (const repoKey of depRepos) {
+                            const repo = allRepos.find(r => `${r.owner}/${r.name}` === repoKey);
+                            if (repo && repo.license) {
+                                const compatibility = licenseProcessor.isDependencyCompatibleWithRepository(
+                                    licenseInfo.license, 
+                                    repo.license
+                                );
+                                if (compatibility === false) {
+                                    isCompatibleWithAllRepos = false;
+                                    break; // Found at least one incompatible repo
+                                } else if (compatibility === null) {
+                                    // Unknown compatibility - treat as potentially incompatible
                                     isCompatibleWithAllRepos = false;
                                 }
+                            } else {
+                                // Repository license not available - treat as potentially incompatible
+                                isCompatibleWithAllRepos = false;
                             }
                         }
-                        
-                        // Only count copyleft dependencies that are incompatible with at least one repo
-                        if (!isCompatibleWithAllRepos) {
-                            counts.copyleft++;
-                        }
-                        // Always count in total
-                        counts.total++;
-                    } else {
-                        counts.total++;
-                        
-                        if (licenseInfo.category === 'proprietary') {
-                            counts.proprietary++;
-                        } else if (licenseInfo.category === 'unknown') {
-                            counts.unknown++;
-                        }
                     }
+                    
+                    // Only count copyleft dependencies that are incompatible with at least one repo
+                    if (!isCompatibleWithAllRepos) {
+                        counts.copyleft++;
+                    }
+                    // Always count in total
+                    counts.total++;
                 } else {
-                    counts.unlicensed++;
+                    counts.total++;
+                    
+                    if (licenseInfo.category === 'proprietary') {
+                        counts.proprietary++;
+                    } else if (licenseInfo.category === 'unknown') {
+                        counts.unknown++;
+                    }
                 }
             });
         }
@@ -3178,9 +3188,21 @@ class ViewManager {
         const licenseMap = new Map(); // license name -> { category, risk, packages: Set, repositories: Set }
 
         allDependencies.forEach(dep => {
-            if (!dep.originalPackage) return;
-
-            const licenseInfo = licenseProcessor.parseLicense(dep.originalPackage);
+            // Check for enriched license data first (from deps.dev API or GitHub Actions analysis)
+            let licenseInfo = null;
+            if (dep.licenseFull && dep.licenseFull !== 'Unknown' && dep.licenseFull !== 'NOASSERTION') {
+                // Use enriched license data
+                licenseInfo = licenseProcessor.parseLicense({
+                    licenseConcluded: dep.licenseFull,
+                    licenseDeclared: dep.licenseFull
+                });
+            } else if (dep.originalPackage) {
+                // Fall back to parsing originalPackage
+                licenseInfo = licenseProcessor.parseLicense(dep.originalPackage);
+            }
+            
+            if (!licenseInfo) return;
+            
             const license = licenseInfo.license || 'Unknown';
             const category = licenseInfo.category || 'unknown';
             const risk = licenseInfo.risk || 'low';
@@ -3259,9 +3281,20 @@ class ViewManager {
         const packageMap = new Map();
 
         allDependencies.forEach(dep => {
-            const licenseInfo = dep.originalPackage 
-                ? licenseProcessor.parseLicense(dep.originalPackage)
-                : { license: null, category: 'unknown' };
+            // Check for enriched license data first (from deps.dev API or GitHub Actions analysis)
+            let licenseInfo = null;
+            if (dep.licenseFull && dep.licenseFull !== 'Unknown' && dep.licenseFull !== 'NOASSERTION') {
+                // Use enriched license data
+                licenseInfo = licenseProcessor.parseLicense({
+                    licenseConcluded: dep.licenseFull,
+                    licenseDeclared: dep.licenseFull
+                });
+            } else if (dep.originalPackage) {
+                // Fall back to parsing originalPackage
+                licenseInfo = licenseProcessor.parseLicense(dep.originalPackage);
+            } else {
+                licenseInfo = { license: null, category: 'unknown' };
+            }
 
             // Check if unlicensed
             if (!licenseInfo.license || licenseInfo.license === 'NOASSERTION') {
@@ -3922,7 +3955,7 @@ class ViewManager {
                     ${conflict.licenses.map(lic => `<span class="badge badge-license">${escapeHtml(lic)}</span>`).join('\n                    ')}
                 </div>
                 <div class="conflict-actions">
-                    <button class="btn btn-outline-danger btn-sm" onclick="viewManager.showLicenseConflictDetailsModal('${this.escapeJsString(escapeHtml(orgName))}', ${index})">
+                    <button class="btn btn-outline-danger btn-sm" onclick="viewManager.showLicenseConflictDetailsModal('${escapeJsString(escapeHtml(orgName))}', ${index})">
                         <i class="fas fa-eye me-1"></i>View Affected Repositories
                     </button>
                 </div>
@@ -4594,17 +4627,17 @@ class ViewManager {
         const topDepsHTML = topDepsForTemplate.length > 0 
             ? topDepsForTemplate.map(dep => `
             <div class="dependency-item ${dep.categoryType}">
-                <div class="dep-content" onclick="viewManager.showDependencyDetailsFromIndex(${dep.index}, '${this.escapeJsString(escapeHtml(orgName))}')">
+                <div class="dep-content" onclick="viewManager.showDependencyDetailsFromIndex(${dep.index}, '${escapeJsString(escapeHtml(orgName))}')">
                     <div class="dep-name">${escapeHtml(dep.name)}</div>
                     <div class="dep-version">${escapeHtml(dep.version)}</div>
                     <div class="dep-count">${dep.count} repos</div>
                     <div class="dep-category">${escapeHtml(dep.categoryType)}</div>
                 </div>
                 <div class="dep-actions">
-                    <button class="btn btn-sm btn-outline-primary" onclick="viewManager.queryVulnerabilityForDependency('${this.escapeJsString(escapeHtml(dep.name))}', '${this.escapeJsString(escapeHtml(dep.version))}', '${this.escapeJsString(escapeHtml(orgName))}'))" title="Query vulnerabilities">
+                    <button class="btn btn-sm btn-outline-primary" onclick="viewManager.queryVulnerabilityForDependency('${escapeJsString(escapeHtml(dep.name))}', '${escapeJsString(escapeHtml(dep.version))}', '${escapeJsString(escapeHtml(orgName))}'))" title="Query vulnerabilities">
                         <i class="fas fa-shield-alt"></i>
                     </button>
-                    ${dep.showQuickScan ? `<button class="btn btn-sm btn-outline-success" onclick="viewManager.quickScanDependency('${this.escapeJsString(escapeHtml(dep.name))}', '${this.escapeJsString(escapeHtml(dep.version))}', '${this.escapeJsString(escapeHtml(orgName))}')" title="Quick scan for vulnerabilities">
+                    ${dep.showQuickScan ? `<button class="btn btn-sm btn-outline-success" onclick="viewManager.quickScanDependency('${escapeJsString(escapeHtml(dep.name))}', '${escapeJsString(escapeHtml(dep.version))}', '${escapeJsString(escapeHtml(orgName))}')" title="Quick scan for vulnerabilities">
                         <i class="fas fa-bolt"></i>
                     </button>` : ''}
                 </div>
@@ -4631,17 +4664,17 @@ class ViewManager {
         if (allDepsForTemplate.length > 0) {
             const allDepsHTML = allDepsForTemplate.map(dep => `
         <div class="dependency-card ${dep.categoryType}">
-            <div class="dep-content" onclick="viewManager.showDependencyDetailsFromAllDepsIndex(${dep.index}, '${this.escapeJsString(escapeHtml(orgName))}')">
+            <div class="dep-content" onclick="viewManager.showDependencyDetailsFromAllDepsIndex(${dep.index}, '${escapeJsString(escapeHtml(orgName))}')">
                 <div class="dep-name">${escapeHtml(dep.name)}</div>
                 <div class="dep-version">${escapeHtml(dep.version)}</div>
                 <div class="dep-count">${dep.count} repos</div>
                 <div class="dep-category">${escapeHtml(dep.categoryType)}</div>
             </div>
             <div class="dep-actions">
-                <button class="btn btn-sm btn-outline-primary" onclick="viewManager.queryVulnerabilityForDependency('${this.escapeJsString(escapeHtml(dep.name))}', '${this.escapeJsString(escapeHtml(dep.version))}', '${this.escapeJsString(escapeHtml(orgName))}'))" title="Query vulnerabilities">
+                <button class="btn btn-sm btn-outline-primary" onclick="viewManager.queryVulnerabilityForDependency('${escapeJsString(escapeHtml(dep.name))}', '${escapeJsString(escapeHtml(dep.version))}', '${escapeJsString(escapeHtml(orgName))}'))" title="Query vulnerabilities">
                     <i class="fas fa-shield-alt"></i>
                 </button>
-                ${dep.showQuickScan ? `<button class="btn btn-sm btn-outline-success" onclick="viewManager.quickScanDependency('${this.escapeJsString(escapeHtml(dep.name))}', '${this.escapeJsString(escapeHtml(dep.version))}', '${this.escapeJsString(escapeHtml(orgName))}')" title="Quick scan for vulnerabilities">
+                ${dep.showQuickScan ? `<button class="btn btn-sm btn-outline-success" onclick="viewManager.quickScanDependency('${escapeJsString(escapeHtml(dep.name))}', '${escapeJsString(escapeHtml(dep.version))}', '${escapeJsString(escapeHtml(orgName))}')" title="Quick scan for vulnerabilities">
                     <i class="fas fa-bolt"></i>
                 </button>` : ''}
             </div>
@@ -4924,14 +4957,14 @@ class ViewManager {
             ${depData.vulnerabilities.map(vuln => `
             <span class="badge severity-${vuln.cssSeverity} clickable-severity-badge me-1" 
                   title="${escapeHtml(vuln.tooltip)}" 
-                  onclick="viewManager.showVulnerabilityDetails('${this.escapeJsString(escapeHtml(depData.depName))}', '${this.escapeJsString(escapeHtml(depData.depVersion))}', [${vuln.vulnJson}])">
+                  onclick="viewManager.showVulnerabilityDetails('${escapeJsString(escapeHtml(depData.depName))}', '${escapeJsString(escapeHtml(depData.depVersion))}', [${vuln.vulnJson}])">
                 ${escapeHtml(vuln.severity)}
             </span>`).join('')}
         </div>
         ${usageHTML}
     </div>
     <div class="vuln-dep-actions mt-2">
-        <button class="btn btn-sm btn-outline-info" onclick="viewManager.showVulnerabilityDetails('${this.escapeJsString(escapeHtml(depData.name))}', '${this.escapeJsString(escapeHtml(depData.version))}', ${depData.allVulnsJson})">
+        <button class="btn btn-sm btn-outline-info" onclick="viewManager.showVulnerabilityDetails('${escapeJsString(escapeHtml(depData.name))}', '${escapeJsString(escapeHtml(depData.version))}', ${depData.allVulnsJson})">
             <i class="fas fa-eye me-1"></i>View Details
         </button>
     </div>
@@ -4943,7 +4976,7 @@ class ViewManager {
                 const loadMoreIdentifier = (orgName === 'All Entries Combined' || orgName === 'All Projects (Combined)' || orgName === 'All Organizations Combined') ? '__ALL__' : orgName;
                 const loadMoreHTML = hasMore ? `
                     <div class="text-center mt-3">
-                        <button class="btn btn-primary" onclick="viewManager.loadMoreVulnerabilities('${this.escapeJsString(escapeHtml(loadMoreIdentifier))}', '${severityFilter || ''}', ${offset + limit})">
+                        <button class="btn btn-primary" onclick="viewManager.loadMoreVulnerabilities('${escapeJsString(escapeHtml(loadMoreIdentifier))}', '${severityFilter || ''}', ${offset + limit})">
                             <i class="fas fa-chevron-down me-2"></i>Load More (${totalCount - (offset + limit)} remaining)
                         </button>
                     </div>
@@ -4980,7 +5013,7 @@ class ViewManager {
         <h3>🔒 Vulnerability Analysis</h3>
         ${filterNotice}
         <div class="vulnerability-actions mb-3">
-            <button class="btn btn-primary btn-sm" onclick="viewManager.runBatchVulnerabilityQuery('${this.escapeJsString(escapeHtml(orgName))}')">
+            <button class="btn btn-primary btn-sm" onclick="viewManager.runBatchVulnerabilityQuery('${escapeJsString(escapeHtml(orgName))}')">
                 <i class="fas fa-search"></i> Re-run Batch Vulnerability Query
             </button>
             <button class="btn btn-info btn-sm" onclick="viewManager.showVulnerabilityCacheStats()">
@@ -5016,11 +5049,6 @@ class ViewManager {
                 <div class="vuln-number">${vulnAnalysis.vulnerablePackages || 0}</div>
                 <div class="vuln-detail">vulnerable packages</div>
             </div>
-            <div class="vuln-stat-card rate">
-                <h4>📈 Rate</h4>
-                <div class="vuln-number">${vulnAnalysis.vulnerabilityRate || 0}%</div>
-                <div class="vuln-detail">vulnerability rate</div>
-            </div>
         </div>
         ${vulnerableDepsHTML}
     </div>
@@ -5030,7 +5058,7 @@ class ViewManager {
     <div class="vulnerability-breakdown">
         <h3>🔒 Vulnerability Analysis</h3>
         <div class="vulnerability-actions mb-3">
-            <button class="btn btn-primary btn-sm" onclick="viewManager.runBatchVulnerabilityQuery('${this.escapeJsString(escapeHtml(orgName))}')">
+            <button class="btn btn-primary btn-sm" onclick="viewManager.runBatchVulnerabilityQuery('${escapeJsString(escapeHtml(orgName))}')">
                 <i class="fas fa-search"></i> Run Initial Vulnerability Analysis
             </button>
             <button class="btn btn-info btn-sm" onclick="viewManager.showVulnerabilityCacheStats()">
@@ -5047,6 +5075,174 @@ class ViewManager {
         </div>
     </div>
 </div>`;
+        }
+    }
+
+    /**
+     * Generate audit findings card HTML
+     */
+    generateAuditFindingsCard(orgData) {
+        // Standardized access pattern: githubActionsAnalysis is always at orgData.data.githubActionsAnalysis
+        const githubActionsAnalysis = orgData?.data?.githubActionsAnalysis;
+        
+        if (!githubActionsAnalysis || !githubActionsAnalysis.findings || githubActionsAnalysis.findings.length === 0) {
+            return `<div class="vuln-stat-card audit-findings">
+                <h4>🔍 Audit Findings</h4>
+                <div class="vuln-number">0</div>
+                <div class="vuln-detail">findings</div>
+            </div>`;
+        }
+
+        const findings = githubActionsAnalysis.findings;
+        const findingsBySeverity = {
+            high: findings.filter(f => f.severity === 'high' || f.severity === 'error').length,
+            medium: findings.filter(f => f.severity === 'medium').length,
+            warning: findings.filter(f => f.severity === 'warning').length
+        };
+        const totalFindings = findings.length;
+
+        return `<div class="vuln-stat-card audit-findings" style="cursor: pointer;" onclick="viewManager.scrollToAuditFindings()">
+            <h4>🔍 Audit Findings</h4>
+            <div class="vuln-number">${totalFindings}</div>
+            <div class="vuln-detail">total findings</div>
+            <div class="mt-2" style="font-size: 0.75rem; color: var(--text-secondary, #6c757d);">
+                <div>High: ${findingsBySeverity.high}</div>
+                <div>Medium: ${findingsBySeverity.medium}</div>
+                <div>Warning: ${findingsBySeverity.warning}</div>
+            </div>
+        </div>`;
+    }
+
+    /**
+     * Generate audit findings section HTML
+     */
+    generateAuditFindingsSection(orgData) {
+        // Standardized access pattern: githubActionsAnalysis is always at orgData.data.githubActionsAnalysis
+        const githubActionsAnalysis = orgData?.data?.githubActionsAnalysis;
+        
+        if (!githubActionsAnalysis || !githubActionsAnalysis.findings || githubActionsAnalysis.findings.length === 0) {
+            return '';
+        }
+
+        const findings = githubActionsAnalysis.findings;
+        const findingsByType = githubActionsAnalysis.findingsByType || {};
+        
+        // Group findings by type
+        const findingsByTypeMap = new Map();
+        findings.forEach(finding => {
+            const ruleId = finding.rule_id;
+            if (!findingsByTypeMap.has(ruleId)) {
+                findingsByTypeMap.set(ruleId, []);
+            }
+            findingsByTypeMap.get(ruleId).push(finding);
+        });
+
+        // Sort by count (descending)
+        const sortedTypes = Array.from(findingsByTypeMap.entries())
+            .sort((a, b) => b[1].length - a[1].length)
+            .slice(0, 10); // Top 10
+
+        // Generate findings HTML
+        let findingsHTML = '<div id="audit-findings-section" class="mt-4">';
+        findingsHTML += '<h3 class="mb-3">🔍 GitHub Actions Audit Findings</h3>';
+        
+        // Summary
+        findingsHTML += `<div class="card mb-3">
+            <div class="card-body">
+                <h5>Summary</h5>
+                <p>Found <strong>${findings.length}</strong> audit findings across <strong>${githubActionsAnalysis.uniqueActions || 0}</strong> GitHub Actions.</p>
+                <div class="row">
+                    <div class="col-md-4">
+                        <strong>High Severity:</strong> ${findings.filter(f => f.severity === 'high' || f.severity === 'error').length}
+                    </div>
+                    <div class="col-md-4">
+                        <strong>Medium Severity:</strong> ${findings.filter(f => f.severity === 'medium').length}
+                    </div>
+                    <div class="col-md-4">
+                        <strong>Warning:</strong> ${findings.filter(f => f.severity === 'warning').length}
+                    </div>
+                </div>
+            </div>
+        </div>`;
+
+        // Findings by type
+        findingsHTML += '<div class="card mb-3"><div class="card-body"><h5>Findings by Type</h5><ul class="list-group">';
+        sortedTypes.forEach(([ruleId, typeFindings]) => {
+            const severity = typeFindings[0].severity;
+            const severityClass = severity === 'high' || severity === 'error' ? 'danger' : 
+                                 severity === 'medium' ? 'warning' : 'info';
+            findingsHTML += `<li class="list-group-item d-flex justify-content-between align-items-center">
+                <span><span class="badge bg-${severityClass} me-2">${severity}</span>${this.getFindingName(ruleId)}</span>
+                <span class="badge bg-primary rounded-pill">${typeFindings.length}</span>
+            </li>`;
+        });
+        findingsHTML += '</ul></div></div>';
+
+        // Detailed findings
+        findingsHTML += '<div class="card"><div class="card-body"><h5>Detailed Findings</h5>';
+        findingsHTML += '<div class="table-responsive"><table class="table table-sm table-hover">';
+        findingsHTML += '<thead><tr><th>Severity</th><th>Rule</th><th>Action</th><th>Message</th><th>Details</th></tr></thead><tbody>';
+        
+        findings.slice(0, 50).forEach(finding => {
+            const severity = finding.severity || 'warning';
+            const severityClass = severity === 'high' || severity === 'error' ? 'danger' : 
+                                 severity === 'medium' ? 'warning' : 'info';
+            const actionLink = finding.action ? 
+                `<a href="https://github.com/${finding.action.split('@')[0]}" target="_blank" rel="noreferrer noopener">${escapeHtml(finding.action)}</a>` : 
+                'N/A';
+            
+            findingsHTML += `<tr>
+                <td><span class="badge bg-${severityClass}">${severity}</span></td>
+                <td><code>${escapeHtml(finding.rule_id || 'N/A')}</code></td>
+                <td>${actionLink}</td>
+                <td>${escapeHtml(finding.message || 'N/A')}</td>
+                <td>${finding.details ? escapeHtml(finding.details) : ''}</td>
+            </tr>`;
+        });
+        
+        if (findings.length > 50) {
+            findingsHTML += `<tr><td colspan="5" class="text-center text-muted">... and ${findings.length - 50} more findings</td></tr>`;
+        }
+        
+        findingsHTML += '</tbody></table></div></div></div>';
+        findingsHTML += '</div>';
+
+        return findingsHTML;
+    }
+
+    /**
+     * Get finding name from rule ID
+     */
+    getFindingName(ruleId) {
+        const findingNames = {
+            'UNPINNED_ACTION_REFERENCE': 'Unpinned Action Reference',
+            'MUTABLE_TAG_REFERENCE': 'Mutable Tag Reference',
+            'DOCKER_FLOATING_TAG': 'Docker Floating Tag',
+            'DOCKER_IMPLICIT_LATEST': 'Docker Implicit Latest Tag',
+            'DOCKERFILE_FLOATING_BASE_IMAGE': 'Dockerfile Floating Base Image',
+            'DOCKER_UNPINNED_DEPENDENCIES': 'Docker Unpinned Dependencies',
+            'DOCKER_REMOTE_CODE_NO_INTEGRITY': 'Docker Remote Code Without Integrity',
+            'COMPOSITE_NESTED_UNPINNED_ACTION': 'Composite Nested Unpinned Action',
+            'COMPOSITE_UNPINNED_DEPENDENCIES': 'Composite Unpinned Dependencies',
+            'COMPOSITE_REMOTE_CODE_NO_INTEGRITY': 'Composite Remote Code Without Integrity',
+            'JS_REMOTE_CODE_NO_INTEGRITY': 'JavaScript Remote Code Without Integrity',
+            'JS_RUNTIME_UNPINNED_DEPENDENCIES': 'JavaScript Runtime Unpinned Dependencies',
+            'INDIRECT_UNPINNABLE_ACTION': 'Indirect Unpinnable Action',
+            'REMOTE_CODE_NO_INTEGRITY': 'Remote Code Without Integrity',
+            'UNPINNED_PACKAGE_INSTALL': 'Unpinned Package Installation',
+            'ACTION_METADATA_UNAVAILABLE': 'Action Metadata Unavailable',
+            'ANALYSIS_ERROR': 'Analysis Error'
+        };
+        return findingNames[ruleId] || ruleId;
+    }
+
+    /**
+     * Scroll to audit findings section
+     */
+    scrollToAuditFindings() {
+        const section = document.getElementById('audit-findings-section');
+        if (section) {
+            section.scrollIntoView({ behavior: 'smooth', block: 'start' });
         }
     }
 

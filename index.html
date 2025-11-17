@@ -6,11 +6,11 @@
     <title>SBOM Play - Client-Side Analysis</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
-    <link href="css/style.css?v=0.0.2" rel="stylesheet">
-    <link href="css/themes.css?v=0.0.2" rel="stylesheet">
-    <script src="js/theme-manager.js?v=0.0.2"></script>
+    <link href="css/style.css?v=0.0.3" rel="stylesheet">
+    <link href="css/themes.css?v=0.0.3" rel="stylesheet">
+    <script src="js/theme-manager.js?v=0.0.3"></script>
+    <script src="js/analytics.js?v=0.0.3"></script>
     <script defer data-domain="cyfinoid.github.io" src="https://plausible.io/js/script.outbound-links.js"></script>
-<script>window.plausible = window.plausible || function() { (window.plausible.q = window.plausible.q || []).push(arguments) }</script>
 
 </head>
 <body>
@@ -24,14 +24,12 @@
                 <a class="nav-link active" href="index.html">Home</a>
                 <a class="nav-link" href="licenses.html">License</a>
                 <a class="nav-link" href="vuln.html">Vulns</a>
-                <a class="nav-link" href="quality.html">Quality</a>
+                <a class="nav-link" href="audit.html">Audit</a>
                 <a class="nav-link" href="deps.html">Deps</a>
                 <a class="nav-link" href="repos.html">Repos</a>
                 <a class="nav-link" href="authors.html">Authors</a>
                 <a class="nav-link" href="about.html">About</a>
-                <a class="nav-link" href="settings.html">
-                    <i class="fas fa-cog"></i>
-                </a>
+                <a class="nav-link" href="settings.html">Settings</a>
                 <button class="btn btn-outline-secondary btn-sm ms-2 theme-toggle" title="Toggle theme">
                     <i class="fas fa-sun"></i>
                 </button>
@@ -396,23 +394,25 @@
 
     <!-- Scripts -->
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
-        <script src="js/indexeddb-manager.js?v=0.0.2"></script>
-        <script src="js/github-client.js?v=0.0.2"></script>
-        <script src="js/registry-utils.js?v=0.0.2"></script>
-        <script src="js/version-utils.js?v=0.0.2"></script>
-        <script src="js/ecosystem-utils.js?v=0.0.2"></script>
-        <script src="js/dependency-tree-resolver.js?v=0.0.2"></script>
-        <script src="js/sbom-quality-processor.js?v=0.0.2"></script>
-        <script src="js/sbom-processor.js?v=0.0.2"></script>
-        <script src="js/license-processor.js?v=0.0.2"></script>
-        <script src="js/cache-manager.js?v=0.0.2"></script>
-        <script src="js/request-queue-manager.js?v=0.0.2"></script>
-        <script src="js/osv-service.js?v=0.0.2"></script>
-        <script src="js/author-service.js?v=0.0.2"></script>
-        <script src="js/storage-manager.js?v=0.0.2"></script>
-        <script src="js/view-manager.js?v=0.0.2"></script>
-        <script src="js/utils.js?v=0.0.2"></script>
-    <script src="js/app.js?v=0.0.2"></script>
-    <script src="js/index-page.js?v=0.0.2"></script>
+    <script src="https://cdn.jsdelivr.net/npm/js-yaml@4.1.0/dist/js-yaml.min.js"></script>
+        <script src="js/indexeddb-manager.js?v=0.0.3"></script>
+        <script src="js/github-client.js?v=0.0.3"></script>
+        <script src="js/registry-utils.js?v=0.0.3"></script>
+        <script src="js/version-utils.js?v=0.0.3"></script>
+        <script src="js/ecosystem-utils.js?v=0.0.3"></script>
+        <script src="js/dependency-tree-resolver.js?v=0.0.3"></script>
+        <script src="js/sbom-quality-processor.js?v=0.0.3"></script>
+        <script src="js/sbom-processor.js?v=0.0.3"></script>
+        <script src="js/github-actions-analyzer.js?v=0.0.3"></script>
+        <script src="js/license-processor.js?v=0.0.3"></script>
+        <script src="js/cache-manager.js?v=0.0.3"></script>
+        <script src="js/request-queue-manager.js?v=0.0.3"></script>
+        <script src="js/osv-service.js?v=0.0.3"></script>
+        <script src="js/author-service.js?v=0.0.3"></script>
+        <script src="js/storage-manager.js?v=0.0.3"></script>
+        <script src="js/view-manager.js?v=0.0.3"></script>
+        <script src="js/utils.js?v=0.0.3"></script>
+    <script src="js/app.js?v=0.0.3"></script>
+    <script src="js/index-page.js?v=0.0.3"></script>
 </body>
 </html> 

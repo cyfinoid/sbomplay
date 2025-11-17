@@ -4,7 +4,7 @@
 class SettingsApp {
     constructor() {
         this.githubClient = new GitHubClient();
-        this.storageManager = new StorageManager();
+        this.storageManager = window.storageManager || new StorageManager();
         this.initializeSettings();
     }
 
@@ -19,6 +19,7 @@ class SettingsApp {
         await this.showCacheStats();  // Load cache statistics
         this.loadRateLimitInfo();
         this.setupEventListeners();
+        this.displaySanctionsStatus();  // Load and display sanctions status
     }
 
     /**
@@ -116,13 +117,23 @@ class SettingsApp {
                 case 'clearAnalysisData':
                     this.clearAnalysisData();
                     break;
+                case 'saveOrgSanctions':
+                    this.saveOrgSanctions();
+                    break;
             }
         });
         
         // Token section toggle
         const tokenHeader = document.getElementById('tokenSectionHeader');
         if (tokenHeader) {
-            tokenHeader.addEventListener('click', () => this.toggleTokenSection());
+            tokenHeader.addEventListener('click', () => {
+                console.log('🔽 Token section header clicked');
+                this.toggleTokenSection();
+            });
+            // Also add cursor pointer style if not already applied
+            tokenHeader.style.cursor = 'pointer';
+        } else {
+            console.warn('⚠️ Token section header not found');
         }
         
         // Save token button
@@ -146,6 +157,481 @@ class SettingsApp {
                 }
             });
         }
+
+        // Analysis settings
+        const maxDepthInput = document.getElementById('maxDepth');
+        if (maxDepthInput) {
+            // Load saved max depth
+            const savedMaxDepth = localStorage.getItem('maxDepth') || '10';
+            maxDepthInput.value = savedMaxDepth;
+            document.getElementById('currentMaxDepth').textContent = savedMaxDepth;
+            
+            maxDepthInput.addEventListener('input', (e) => {
+                document.getElementById('currentMaxDepth').textContent = e.target.value;
+            });
+        }
+
+        const saveAnalysisSettingsBtn = document.getElementById('saveAnalysisSettingsBtn');
+        if (saveAnalysisSettingsBtn) {
+            saveAnalysisSettingsBtn.addEventListener('click', () => this.saveAnalysisSettings());
+        }
+
+        const resetAnalysisSettingsBtn = document.getElementById('resetAnalysisSettingsBtn');
+        if (resetAnalysisSettingsBtn) {
+            resetAnalysisSettingsBtn.addEventListener('click', () => this.resetAnalysisSettings());
+        }
+
+        // Redo author detection
+        const redoOrgSelect = document.getElementById('redoOrgSelect');
+        const redoAuthorDetectionBtn = document.getElementById('redoAuthorDetectionBtn');
+        
+        if (redoOrgSelect) {
+            // Populate dropdown with saved organizations/repositories
+            this.populateRedoOrgDropdown();
+            
+            // Enable/disable button based on selection
+            redoOrgSelect.addEventListener('change', (e) => {
+                redoAuthorDetectionBtn.disabled = !e.target.value;
+            });
+        }
+        
+        if (redoAuthorDetectionBtn) {
+            redoAuthorDetectionBtn.addEventListener('click', () => this.redoAuthorDetection());
+        }
+    }
+
+    /**
+     * Populate the redo organization dropdown with saved entries
+     */
+    async populateRedoOrgDropdown() {
+        const select = document.getElementById('redoOrgSelect');
+        if (!select) return;
+
+        try {
+            const storageInfo = await this.storageManager.getStorageInfo();
+            const allEntries = [...storageInfo.organizations, ...storageInfo.repositories];
+            
+            // Clear existing options except the first placeholder
+            select.innerHTML = '<option value="">-- Select an organization or repository --</option>';
+            
+            if (allEntries.length === 0) {
+                const option = document.createElement('option');
+                option.value = '';
+                option.textContent = 'No saved analyses found';
+                option.disabled = true;
+                select.appendChild(option);
+                return;
+            }
+            
+            // Sort entries by name
+            allEntries.sort((a, b) => a.name.localeCompare(b.name));
+            
+            // Add each entry to dropdown
+            allEntries.forEach(entry => {
+                const option = document.createElement('option');
+                option.value = entry.name;
+                option.textContent = `${entry.name} (${entry.repositories} repos, ${entry.dependencies} deps)`;
+                select.appendChild(option);
+            });
+        } catch (error) {
+            console.error('Failed to populate redo org dropdown:', error);
+            const option = document.createElement('option');
+            option.value = '';
+            option.textContent = 'Error loading entries';
+            option.disabled = true;
+            select.appendChild(option);
+        }
+    }
+
+    /**
+     * Save analysis settings
+     */
+    saveAnalysisSettings() {
+        const maxDepth = document.getElementById('maxDepth').value;
+        const depth = parseInt(maxDepth, 10);
+        
+        if (isNaN(depth) || depth < 1 || depth > 50) {
+            this.showAlert('Maximum depth must be between 1 and 50', 'warning');
+            return;
+        }
+
+        localStorage.setItem('maxDepth', depth.toString());
+        
+        // Update dependency tree resolver if available
+        if (window.dependencyTreeResolver) {
+            window.dependencyTreeResolver.maxDepth = depth;
+        }
+        
+        this.showAlert(`Settings saved! Maximum depth set to ${depth}`, 'success');
+        document.getElementById('currentMaxDepth').textContent = depth.toString();
+    }
+
+    /**
+     * Reset analysis settings to defaults
+     */
+    resetAnalysisSettings() {
+        if (confirm('Reset all analysis settings to defaults?')) {
+            localStorage.removeItem('maxDepth');
+            document.getElementById('maxDepth').value = '10';
+            document.getElementById('currentMaxDepth').textContent = '10';
+            
+            if (window.dependencyTreeResolver) {
+                window.dependencyTreeResolver.maxDepth = 10;
+            }
+            
+            this.showAlert('Settings reset to defaults', 'success');
+        }
+    }
+
+    /**
+     * Redo author detection for specific organization/repository
+     */
+    async redoAuthorDetection() {
+        console.log('🔄 Redo author detection started');
+        const orgSelect = document.getElementById('redoOrgSelect');
+        const orgName = orgSelect?.value?.trim();
+        
+        if (!orgName) {
+            console.warn('⚠️ No organization selected');
+            this.showAlert('Please select an organization or repository', 'warning');
+            return;
+        }
+
+        console.log(`📋 Selected organization: ${orgName}`);
+
+        // Check if GitHub token is needed before proceeding
+        // Load the analysis data to count packages
+        const storageInfo = await this.storageManager.getStorageInfo();
+        const allEntries = [...storageInfo.organizations, ...storageInfo.repositories];
+        const matchingEntry = allEntries.find(e => 
+            e.name.toLowerCase() === orgName.toLowerCase() ||
+            e.name.toLowerCase().includes(orgName.toLowerCase())
+        );
+
+        if (!matchingEntry) {
+            this.showAlert(`No analysis found for "${orgName}"`, 'warning');
+            return;
+        }
+
+        const analysisData = await this.storageManager.loadAnalysisDataForOrganization(matchingEntry.name);
+        if (!analysisData || !analysisData.data || !analysisData.data.allDependencies) {
+            this.showAlert(`No dependency data found for "${orgName}"`, 'warning');
+            return;
+        }
+
+        // Count unique packages that will need author detection
+        const packageKeys = new Set();
+        analysisData.data.allDependencies.forEach(dep => {
+            if (dep.purl) {
+                const ecosystem = this.getEcosystemFromPurl(dep.purl);
+                const name = this.getPackageNameFromPurl(dep.purl);
+                if (ecosystem && name) {
+                    packageKeys.add(`${ecosystem}:${name}`);
+                }
+            }
+        });
+        const packageCount = packageKeys.size;
+        console.log(`📦 Found ${packageCount} unique packages for author detection`);
+
+        // Check rate limit
+        let rateLimitInfo;
+        try {
+            rateLimitInfo = await this.githubClient.getRateLimitInfo();
+            console.log(`📊 Rate limit: ${rateLimitInfo.remaining}/${rateLimitInfo.limit} remaining`);
+        } catch (error) {
+            console.warn('⚠️ Failed to get rate limit info:', error);
+            rateLimitInfo = { remaining: 60, limit: 60 }; // Default to unauthenticated limit
+        }
+
+        // Check if token is needed
+        const hasToken = !!this.githubClient.token || !!sessionStorage.getItem('github_token');
+        const needsToken = packageCount > 10 || (packageCount <= 10 && rateLimitInfo.remaining < 60);
+
+        if (needsToken && !hasToken) {
+            const message = packageCount > 10 
+                ? `GitHub token is required for author detection with ${packageCount} packages (>10). Please set a GitHub token in the settings above.`
+                : `GitHub token is required. Rate limit remaining (${rateLimitInfo.remaining}) is below 60, and you have ${packageCount} packages to process. Please set a GitHub token in the settings above.`;
+            
+            this.showAlert(message, 'warning');
+            console.warn('⚠️ GitHub token required but not set');
+            
+            // Scroll to token section and open it
+            const tokenSection = document.getElementById('tokenSectionHeader');
+            if (tokenSection) {
+                tokenSection.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                setTimeout(() => {
+                    const tokenBody = document.getElementById('tokenSectionBody');
+                    if (tokenBody && tokenBody.classList.contains('d-none')) {
+                        this.toggleTokenSection();
+                    }
+                }, 500);
+            }
+            return;
+        }
+
+        if (!confirm(`This will clear cached author data for "${orgName}" and re-fetch from APIs. Continue?`)) {
+            console.log('❌ User cancelled');
+            return;
+        }
+
+        // Show progress bar
+        const progressContainer = document.getElementById('authorDetectionProgress');
+        const progressBar = document.getElementById('authorDetectionProgressBar');
+        const statusText = document.getElementById('authorDetectionStatus');
+        const detailsText = document.getElementById('authorDetectionDetails');
+        const redoBtn = document.getElementById('redoAuthorDetectionBtn');
+        
+        if (!progressContainer || !progressBar || !statusText || !detailsText || !redoBtn) {
+            console.error('❌ Progress bar elements not found');
+            this.showAlert('Progress bar elements not found. Please refresh the page.', 'danger');
+            return;
+        }
+        
+        console.log('📊 Showing progress bar');
+        progressContainer.classList.remove('d-none');
+        redoBtn.disabled = true;
+        
+        const updateProgress = (percent, status, details = '') => {
+            progressBar.style.width = `${percent}%`;
+            progressBar.setAttribute('aria-valuenow', percent);
+            progressBar.textContent = `${Math.round(percent)}%`;
+            statusText.textContent = status;
+            if (details) {
+                detailsText.textContent = details;
+            }
+        };
+
+        try {
+            updateProgress(5, 'Loading analysis data...', '');
+            
+            // Note: We already loaded analysisData above for validation, but we'll reload it here
+            // to ensure we have the latest data
+            updateProgress(10, 'Loading package data...', '');
+            
+            // Re-load to ensure we have fresh data (already loaded above, but keeping for consistency)
+            const storageInfoReload = await this.storageManager.getStorageInfo();
+            const allEntriesReload = [...storageInfoReload.organizations, ...storageInfoReload.repositories];
+            const matchingEntryReload = allEntriesReload.find(e => 
+                e.name.toLowerCase() === orgName.toLowerCase() ||
+                e.name.toLowerCase().includes(orgName.toLowerCase())
+            );
+
+            if (!matchingEntryReload) {
+                this.showAlert(`No analysis found for "${orgName}"`, 'warning');
+                progressContainer.classList.add('d-none');
+                redoBtn.disabled = false;
+                return;
+            }
+
+            // Use the already loaded analysisData from validation above
+            if (!analysisData || !analysisData.data || !analysisData.data.allDependencies) {
+                this.showAlert(`No dependency data found for "${orgName}"`, 'warning');
+                progressContainer.classList.add('d-none');
+                redoBtn.disabled = false;
+                return;
+            }
+
+            updateProgress(15, 'Clearing cached author data...', '');
+            
+            // Clear author cache for packages in this analysis
+            const dbManager = window.indexedDBManager;
+            if (dbManager && dbManager.db) {
+                const dependencies = analysisData.data.allDependencies || [];
+                const packageKeys = new Set();
+                
+                dependencies.forEach(dep => {
+                    if (dep.purl) {
+                        const ecosystem = this.getEcosystemFromPurl(dep.purl);
+                        const name = this.getPackageNameFromPurl(dep.purl);
+                        if (ecosystem && name) {
+                            packageKeys.add(`${ecosystem}:${name}`);
+                        }
+                    }
+                });
+                
+                let clearedCount = 0;
+                let totalRelationships = 0;
+                const totalPackages = packageKeys.size;
+                
+                // First, count total relationships to clear
+                for (const packageKey of packageKeys) {
+                    const relationships = await dbManager.getPackageAuthors(packageKey);
+                    totalRelationships += relationships.length;
+                }
+                
+                // Now delete relationships for each package
+                for (const packageKey of packageKeys) {
+                    const relationships = await dbManager.getPackageAuthors(packageKey);
+                    
+                    // Delete each relationship in a single transaction per package
+                    if (relationships.length > 0) {
+                        const transaction = dbManager.db.transaction(['packageAuthors'], 'readwrite');
+                        const store = transaction.objectStore('packageAuthors');
+                        
+                        // Delete all relationships for this package
+                        const deletePromises = relationships.map(rel => 
+                            dbManager._promisifyRequest(store.delete(rel.packageAuthorKey))
+                        );
+                        await Promise.all(deletePromises);
+                        clearedCount += relationships.length;
+                    }
+                    
+                    const progressPercent = 15 + (clearedCount / Math.max(totalRelationships, 1) * 10);
+                    updateProgress(progressPercent, 
+                        `Clearing cache: ${clearedCount} relationships...`,
+                        `Cleared ${clearedCount} package-author relationships`);
+                }
+                
+                updateProgress(25, 'Cache cleared. Starting author detection...', `Cleared ${clearedCount} package-author relationships`);
+            } else {
+                updateProgress(25, 'Database not available, proceeding without clearing cache...', '');
+            }
+
+            // Now actually re-run author detection
+            if (!window.AuthorService) {
+                console.error('❌ AuthorService not available. Make sure author-service.js is loaded.');
+                this.showAlert('AuthorService not available. Please refresh the page.', 'warning');
+                progressContainer.classList.add('d-none');
+                redoBtn.disabled = false;
+                return;
+            }
+
+            console.log('✅ AuthorService available, initializing...');
+            updateProgress(30, 'Initializing author service...', '');
+            
+            const authorService = new window.AuthorService();
+            console.log('✅ AuthorService initialized');
+            
+            // Extract unique packages with ecosystem info (similar to analyzeAuthors)
+            updateProgress(35, 'Extracting packages from dependencies...', '');
+            
+            const packageMap = new Map();
+            analysisData.data.allDependencies
+                .filter(dep => dep.purl)
+                .forEach(dep => {
+                    const ecosystem = this.getEcosystemFromPurl(dep.purl);
+                    const name = this.getPackageNameFromPurl(dep.purl);
+                    
+                    if (!ecosystem || !name) return;
+                    
+                    const key = `${ecosystem}:${name}`;
+                    const repositories = dep.repositories || [];
+                    
+                    if (packageMap.has(key)) {
+                        const existing = packageMap.get(key);
+                        const existingRepos = new Set(existing.repositories || []);
+                        repositories.forEach(repo => existingRepos.add(repo));
+                        existing.repositories = Array.from(existingRepos);
+                    } else {
+                        packageMap.set(key, {
+                            ecosystem: ecosystem,
+                            name: name,
+                            purl: dep.purl,
+                            repositories: Array.from(new Set(repositories))
+                        });
+                    }
+                });
+            
+            const packages = Array.from(packageMap.values());
+            updateProgress(40, `Found ${packages.length} unique packages`, `Processing ${packages.length} packages for author detection`);
+            
+            // Fetch authors with progress callback
+            updateProgress(45, 'Fetching author information from APIs...', 'This may take a while...');
+            
+            const authorResults = await authorService.fetchAuthorsForPackages(
+                packages,
+                (processed, total) => {
+                    const percent = 45 + (processed / total * 50);
+                    updateProgress(percent, 
+                        `Fetching authors: ${processed}/${total} packages`,
+                        `Processing ${processed} of ${total} packages...`);
+                }
+            );
+            
+            updateProgress(95, 'Saving author analysis results...', '');
+            
+            // Convert Map to array and sort by repository count
+            const authorsList = Array.from(authorResults.values())
+                .sort((a, b) => {
+                    if (b.repositoryCount !== a.repositoryCount) {
+                        return b.repositoryCount - a.repositoryCount;
+                    }
+                    const aPackageCount = [...new Set(a.packages)].length;
+                    const bPackageCount = [...new Set(b.packages)].length;
+                    if (bPackageCount !== aPackageCount) {
+                        return bPackageCount - aPackageCount;
+                    }
+                    return b.count - a.count;
+                });
+            
+            // Store only references (author keys) instead of full author data
+            const authorReferences = authorsList.map(author => {
+                let authorKey;
+                if (author.author.includes(':')) {
+                    authorKey = author.author;
+                } else {
+                    authorKey = `${author.ecosystem}:${author.author}`;
+                }
+                
+                return {
+                    authorKey: authorKey,
+                    ecosystem: author.ecosystem,
+                    packages: [...new Set(author.packages)],
+                    packageRepositories: author.packageRepositories,
+                    repositories: author.repositories,
+                    repositoryCount: author.repositoryCount,
+                    count: author.count
+                };
+            });
+            
+            // Save to analysis data
+            analysisData.data.authorAnalysis = {
+                timestamp: Date.now(),
+                totalAuthors: authorReferences.length,
+                totalPackages: packages.length,
+                authors: authorReferences,
+                _cacheVersion: 3
+            };
+            
+            await this.storageManager.saveAnalysisData(matchingEntry.name, analysisData.data);
+            
+            updateProgress(100, 'Author detection complete!', `Detected ${authorsList.length} unique authors for ${packages.length} packages`);
+            console.log(`✅ Author detection complete! Found ${authorsList.length} unique authors for ${packages.length} packages`);
+            
+            // Show success message
+            setTimeout(() => {
+                this.showAlert(`Author detection complete! Found ${authorsList.length} unique authors for ${packages.length} packages.`, 'success');
+                progressContainer.classList.add('d-none');
+                redoBtn.disabled = false;
+                console.log('✅ Progress bar hidden, button re-enabled');
+            }, 2000);
+            
+        } catch (error) {
+            console.error('❌ Redo author detection failed:', error);
+            console.error('Error stack:', error.stack);
+            updateProgress(0, 'Error occurred', error.message);
+            this.showAlert(`Failed to redo author detection: ${error.message}`, 'danger');
+            progressContainer.classList.add('d-none');
+            redoBtn.disabled = false;
+        }
+    }
+
+    /**
+     * Extract ecosystem from PURL
+     */
+    getEcosystemFromPurl(purl) {
+        if (!purl) return null;
+        const match = purl.match(/^pkg:([^/]+)/);
+        return match ? match[1] : null;
+    }
+
+    /**
+     * Extract package name from PURL
+     */
+    getPackageNameFromPurl(purl) {
+        if (!purl) return null;
+        const match = purl.match(/^pkg:[^/]+\/([^@?]+)/);
+        return match ? match[1] : null;
     }
 
     /**
@@ -155,12 +641,23 @@ class SettingsApp {
         const tokenSection = document.getElementById('tokenSectionBody');
         const toggleIcon = document.getElementById('tokenToggleIcon');
         
-        if (tokenSection.style.display === 'none') {
-            tokenSection.style.display = 'block';
+        if (!tokenSection || !toggleIcon) {
+            console.warn('⚠️ Token section elements not found');
+            return;
+        }
+        
+        // Toggle Bootstrap d-none class
+        const isHidden = tokenSection.classList.contains('d-none');
+        console.log(`🔄 Toggling token section: ${isHidden ? 'showing' : 'hiding'}`);
+        
+        if (isHidden) {
+            tokenSection.classList.remove('d-none');
             toggleIcon.className = 'fas fa-chevron-up';
+            console.log('✅ Token section shown');
         } else {
-            tokenSection.style.display = 'none';
+            tokenSection.classList.add('d-none');
             toggleIcon.className = 'fas fa-chevron-down';
+            console.log('✅ Token section hidden');
         }
     }
 
@@ -647,6 +1144,9 @@ class SettingsApp {
     async displayOrganizationsOverview() {
         const storageInfo = await this.storageManager.getStorageInfo();
         
+        // Refresh the redo org dropdown when organizations list is updated
+        await this.populateRedoOrgDropdown();
+        
         if (storageInfo.totalEntries === 0) {
             document.getElementById('organizationsSection').style.display = 'none';
             document.getElementById('noDataSection').style.display = 'block';
@@ -947,15 +1447,142 @@ class SettingsApp {
     }
 
     /**
+     * Save organization-specific sanctioned countries
+     */
+    saveOrgSanctions() {
+        const input = document.getElementById('orgSanctions');
+        if (!input) {
+            this.showAlert('Sanctions input field not found', 'danger');
+            return;
+        }
+
+        const value = input.value.trim();
+        
+        if (!value) {
+            // Clear org sanctions if input is empty
+            if (window.SanctionsService) {
+                const sanctionsService = new SanctionsService();
+                sanctionsService.saveOrgSanctions([]);
+                this.showAlert('Organization sanctions cleared', 'success');
+                this.displaySanctionsStatus();
+                return;
+            }
+        }
+
+        // Parse country codes (comma-separated, trim whitespace)
+        const countryCodes = value.split(',')
+            .map(code => code.trim().toUpperCase())
+            .filter(code => code.length === 2);
+
+        if (countryCodes.length === 0) {
+            this.showAlert('Please enter valid ISO 3166-1 alpha-2 country codes (e.g., CN, RU, BY)', 'warning');
+            return;
+        }
+
+        // Validate country codes (basic check - should be 2 uppercase letters)
+        const invalidCodes = countryCodes.filter(code => !/^[A-Z]{2}$/.test(code));
+        if (invalidCodes.length > 0) {
+            this.showAlert(`Invalid country codes: ${invalidCodes.join(', ')}. Please use ISO 3166-1 alpha-2 format (2 uppercase letters)`, 'warning');
+            return;
+        }
+
+        if (window.SanctionsService) {
+            const sanctionsService = new SanctionsService();
+            const success = sanctionsService.saveOrgSanctions(countryCodes);
+            if (success) {
+                this.showAlert(`Saved ${countryCodes.length} organization-sanctioned countries`, 'success');
+                this.displaySanctionsStatus();
+            } else {
+                this.showAlert('Failed to save organization sanctions', 'danger');
+            }
+        } else {
+            this.showAlert('Sanctions service not available', 'warning');
+        }
+    }
+
+    /**
+     * Display current sanctions status
+     */
+    displaySanctionsStatus() {
+        const statusDiv = document.getElementById('sanctionsStatus');
+        if (!statusDiv) {
+            return;
+        }
+
+        if (!window.SanctionsService) {
+            statusDiv.innerHTML = '<div class="alert alert-warning">Sanctions service not available</div>';
+            return;
+        }
+
+        const sanctionsService = new SanctionsService();
+        const allSanctions = sanctionsService.getAllSanctions();
+
+        let html = '<div class="row">';
+        
+        // USA Sanctions
+        html += '<div class="col-md-4 mb-3">';
+        html += '<h6 class="small text-muted mb-2">USA (OFAC) Sanctions</h6>';
+        if (allSanctions.usa.length > 0) {
+            html += `<div class="small"><code>${allSanctions.usa.join(', ')}</code></div>`;
+            html += `<div class="text-muted small mt-1">${allSanctions.usa.length} countries</div>`;
+        } else {
+            html += '<div class="text-muted small">None configured</div>';
+        }
+        html += '</div>';
+
+        // UN Sanctions
+        html += '<div class="col-md-4 mb-3">';
+        html += '<h6 class="small text-muted mb-2">UN Sanctions</h6>';
+        if (allSanctions.un.length > 0) {
+            html += `<div class="small"><code>${allSanctions.un.join(', ')}</code></div>`;
+            html += `<div class="text-muted small mt-1">${allSanctions.un.length} countries</div>`;
+        } else {
+            html += '<div class="text-muted small">None configured</div>';
+        }
+        html += '</div>';
+
+        // Organization Sanctions
+        html += '<div class="col-md-4 mb-3">';
+        html += '<h6 class="small text-muted mb-2">Organization Sanctions</h6>';
+        if (allSanctions.org.length > 0) {
+            html += `<div class="small"><code>${allSanctions.org.join(', ')}</code></div>`;
+            html += `<div class="text-muted small mt-1">${allSanctions.org.length} countries</div>`;
+        } else {
+            html += '<div class="text-muted small">None configured</div>';
+        }
+        html += '</div>';
+
+        html += '</div>';
+
+        // Load current org sanctions into input field
+        const orgSanctionsInput = document.getElementById('orgSanctions');
+        if (orgSanctionsInput) {
+            orgSanctionsInput.value = allSanctions.org.join(', ');
+        }
+
+        statusDiv.innerHTML = html;
+    }
+
+    /**
      * Show alert message
      */
     showAlert(message, type) {
         const alertDiv = document.createElement('div');
         alertDiv.className = `alert alert-${type} alert-dismissible fade show`;
-        alertDiv.innerHTML = `
-            ${message}
-            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
-        `;
+        // Escape HTML to prevent XSS attacks
+        const escapedMessage = escapeHtml(message);
+        // Use safeSetHTML if available, otherwise use innerHTML with escaped content
+        if (window.viewManager && typeof window.viewManager.safeSetHTML === 'function') {
+            window.viewManager.safeSetHTML(alertDiv, `
+                ${escapedMessage}
+                <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+            `);
+        } else {
+            alertDiv.innerHTML = `
+                ${escapedMessage}
+                <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+            `;
+        }
         
         // Insert at the top of the container
         const container = document.querySelector('.container');

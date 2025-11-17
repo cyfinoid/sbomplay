@@ -27,15 +27,21 @@ class RegistryManager {
         // Start fetching
         this.registryPromise = (async () => {
             try {
-                const response = await fetch(`${this.ecosystemsBaseUrl}/registries/`);
+                const url = `${this.ecosystemsBaseUrl}/registries/`;
+                console.log(`🌐 [DEBUG] Fetching URL: ${url}`);
+                console.log(`   Reason: Fetching ecosyste.ms registry list to initialize registry mappings`);
+                
+                const response = await fetch(url);
                 if (!response.ok) {
                     console.warn('Failed to fetch registry list from ecosyste.ms');
+                    console.log(`   ❌ Response: Status ${response.status} ${response.statusText}`);
                     this.registryList = [];
                     this.registryCache = this.getDefaultMappings();
                     return;
                 }
 
                 const registries = await response.json();
+                console.log(`   ✅ Response: Status ${response.status}, Extracted: ${registries.length} registry/registries`);
                 this.registryList = registries; // Store full registry objects array
                 
                 // Build mapping from purl_type to registry name for backwards compatibility

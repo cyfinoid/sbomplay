@@ -4,7 +4,7 @@
 class IndexedDBManager {
     constructor() {
         this.dbName = 'sbomplay_db';
-        this.version = 3; // Bump version for new normalized schema
+        this.version = 5; // Current database version
         this.db = null;
     }
 
@@ -88,7 +88,44 @@ class IndexedDBManager {
                     authorEntityStore.createIndex('ecosystem', 'ecosystem', { unique: false });
                     authorEntityStore.createIndex('author', 'author', { unique: false });
                     authorEntityStore.createIndex('timestamp', 'timestamp', { unique: false });
-                    console.log('✅ Created authorEntities object store');
+                    // Indexes for location and company fields (for filtering and deduplication)
+                    authorEntityStore.createIndex('location', 'metadata.location', { unique: false });
+                    authorEntityStore.createIndex('company', 'metadata.company', { unique: false });
+                    authorEntityStore.createIndex('github', 'metadata.github', { unique: false });
+                    authorEntityStore.createIndex('email', 'email', { unique: false });
+                    console.log('✅ Created authorEntities object store with location/company/GitHub indexes');
+                } else {
+                    // Upgrade existing store - add new indexes if they don't exist
+                    const transaction = event.target.transaction;
+                    const authorEntityStore = transaction.objectStore('authorEntities');
+                    try {
+                        if (!authorEntityStore.indexNames.contains('location')) {
+                            authorEntityStore.createIndex('location', 'metadata.location', { unique: false });
+                            console.log('✅ Added location index to authorEntities');
+                        }
+                        if (!authorEntityStore.indexNames.contains('company')) {
+                            authorEntityStore.createIndex('company', 'metadata.company', { unique: false });
+                            console.log('✅ Added company index to authorEntities');
+                        }
+                        if (!authorEntityStore.indexNames.contains('github')) {
+                            authorEntityStore.createIndex('github', 'metadata.github', { unique: false });
+                            console.log('✅ Added github index to authorEntities');
+                        }
+                        if (!authorEntityStore.indexNames.contains('email')) {
+                            authorEntityStore.createIndex('email', 'email', { unique: false });
+                            console.log('✅ Added email index to authorEntities');
+                        }
+                    } catch (error) {
+                        // Indexes might already exist, ignore error
+                        console.debug('Index creation (may already exist):', error.message);
+                    }
+                }
+
+                // NEW: Geocoded locations cache
+                if (!db.objectStoreNames.contains('locations')) {
+                    const locationStore = db.createObjectStore('locations', { keyPath: 'locationString' });
+                    locationStore.createIndex('timestamp', 'timestamp', { unique: false });
+                    console.log('✅ Created locations object store');
                 }
             };
         });
@@ -106,17 +143,38 @@ class IndexedDBManager {
             const transaction = this.db.transaction(['organizations'], 'readwrite');
             const store = transaction.objectStore('organizations');
             
+            // Ensure data structure is consistent - data should be the analysis data object
+            // If data already has a 'data' property, use it; otherwise use data directly
+            const analysisData = data.data || data;
+            
             const entry = {
                 name: name,
                 organization: name,
                 timestamp: data.timestamp || new Date().toISOString(),
-                data: data.data || data,
+                data: analysisData,
                 type: 'organization',
-                statistics: data.data?.statistics || data.statistics
+                // Note: statistics should only be accessed via entry.data.statistics
+                // Removed duplicate statistics field to avoid inconsistency
             };
 
+            // Save the entry and wait for transaction to complete
             await this._promisifyRequest(store.put(entry));
-            console.log(`✅ Saved organization: ${name}`);
+            
+            // Wait for transaction to complete before returning
+            await new Promise((resolve, reject) => {
+                transaction.oncomplete = () => {
+                    console.log(`✅ Saved organization: ${name} (transaction completed)`);
+                    console.log(`   - Repositories: ${analysisData?.statistics?.totalRepositories || 0}`);
+                    console.log(`   - Dependencies: ${analysisData?.statistics?.totalDependencies || 0}`);
+                    console.log(`   - Timestamp: ${entry.timestamp}`);
+                    resolve(true);
+                };
+                transaction.onerror = () => {
+                    console.error(`❌ Transaction failed for organization: ${name}`, transaction.error);
+                    reject(transaction.error);
+                };
+            });
+            
             return true;
         } catch (error) {
             console.error('❌ Failed to save organization:', error);
@@ -136,16 +194,36 @@ class IndexedDBManager {
             const transaction = this.db.transaction(['repositories'], 'readwrite');
             const store = transaction.objectStore('repositories');
             
+            // Ensure data structure is consistent - data should be the analysis data object
+            // If data already has a 'data' property, use it; otherwise use data directly
+            const analysisData = data.data || data;
+            
             const entry = {
                 fullName: fullName,
                 timestamp: data.timestamp || new Date().toISOString(),
-                data: data.data || data,
+                data: analysisData,
                 type: 'repository',
-                statistics: data.data?.statistics || data.statistics
+                // Note: statistics should only be accessed via entry.data.statistics
+                // Removed duplicate statistics field to avoid inconsistency
             };
 
+            // Save the entry and wait for transaction to complete
             await this._promisifyRequest(store.put(entry));
-            console.log(`✅ Saved repository: ${fullName}`);
+            
+            // Wait for transaction to complete before returning
+            await new Promise((resolve, reject) => {
+                transaction.oncomplete = () => {
+                    console.log(`✅ Saved repository: ${fullName} (transaction completed)`);
+                    console.log(`   - Dependencies: ${analysisData?.statistics?.totalDependencies || 0}`);
+                    console.log(`   - Timestamp: ${entry.timestamp}`);
+                    resolve(true);
+                };
+                transaction.onerror = () => {
+                    console.error(`❌ Transaction failed for repository: ${fullName}`, transaction.error);
+                    reject(transaction.error);
+                };
+            });
+            
             return true;
         } catch (error) {
             console.error('❌ Failed to save repository:', error);
@@ -203,7 +281,15 @@ class IndexedDBManager {
             const transaction = this.db.transaction(['organizations'], 'readonly');
             const store = transaction.objectStore('organizations');
             const result = await this._promisifyRequest(store.getAll());
-            return result || [];
+            const orgs = result || [];
+            console.log(`🏢 Retrieved ${orgs.length} organizations from IndexedDB`);
+            if (orgs.length > 0) {
+                orgs.forEach(org => {
+                    const name = org.organization || org.name;
+                    console.log(`   - ${name} (${org.data?.statistics?.totalRepositories || 0} repos, ${org.data?.statistics?.totalDependencies || 0} deps)`);
+                });
+            }
+            return orgs;
         } catch (error) {
             console.error('❌ Failed to get all organizations:', error);
             return [];
@@ -222,7 +308,14 @@ class IndexedDBManager {
             const transaction = this.db.transaction(['repositories'], 'readonly');
             const store = transaction.objectStore('repositories');
             const result = await this._promisifyRequest(store.getAll());
-            return result || [];
+            const repos = result || [];
+            console.log(`📦 Retrieved ${repos.length} repositories from IndexedDB`);
+            if (repos.length > 0) {
+                repos.forEach(repo => {
+                    console.log(`   - ${repo.fullName} (${repo.data?.statistics?.totalDependencies || 0} deps)`);
+                });
+            }
+            return repos;
         } catch (error) {
             console.error('❌ Failed to get all repositories:', error);
             return [];
@@ -396,7 +489,8 @@ class IndexedDBManager {
     }
 
     /**
-     * Save author entity to global cache
+     * Save author entity to global cache (IndexedDB)
+     * This persists all author data including metadata.location and metadata.company
      */
     async saveAuthorEntity(authorKey, authorData) {
         try {
@@ -407,11 +501,20 @@ class IndexedDBManager {
             const transaction = this.db.transaction(['authorEntities'], 'readwrite');
             const store = transaction.objectStore('authorEntities');
             
+            // Preserve all fields from authorData, including nested metadata object
             const entry = {
                 authorKey: authorKey,
                 ...authorData,
                 timestamp: new Date().toISOString()
             };
+
+            // Verify metadata structure includes location data if present
+            if (entry.metadata?.location || entry.metadata?.company) {
+                console.log(`💾 Saving author entity to IndexedDB: ${authorKey} with location data:`, {
+                    location: entry.metadata.location || null,
+                    company: entry.metadata.company || null
+                });
+            }
 
             await this._promisifyRequest(store.put(entry));
             return true;
@@ -879,6 +982,150 @@ class IndexedDBManager {
      */
     isInitialized() {
         return this.db !== null;
+    }
+
+    /**
+     * ============================================
+     * LOCATION CACHE METHODS
+     * ============================================
+     */
+
+    /**
+     * Save geocoded location to cache
+     * @param {string} locationString - Location string (e.g., "San Francisco, CA")
+     * @param {Object} geocodedData - {lat: number, lng: number, displayName: string}
+     */
+    async saveLocation(locationString, geocodedData) {
+        try {
+            if (!this.db) {
+                console.warn('⚠️ IndexedDB not initialized yet');
+                return false;
+            }
+            const transaction = this.db.transaction(['locations'], 'readwrite');
+            const store = transaction.objectStore('locations');
+            
+            // Handle failed geocoding attempts (cached to avoid retries)
+            const entry = {
+                locationString: locationString.trim(),
+                timestamp: new Date().toISOString()
+            };
+            
+            if (geocodedData.failed === true) {
+                // Store failed marker
+                entry.failed = true;
+            } else {
+                // Store successful geocoding data
+                entry.lat = geocodedData.lat;
+                entry.lng = geocodedData.lng;
+                entry.displayName = geocodedData.displayName || locationString;
+                entry.countryCode = geocodedData.countryCode || null;
+                entry.country = geocodedData.country || null;
+            }
+
+            await this._promisifyRequest(store.put(entry));
+            return true;
+        } catch (error) {
+            console.error('❌ Failed to save location:', error);
+            return false;
+        }
+    }
+
+    /**
+     * Get geocoded location from cache
+     * @param {string} locationString - Location string
+     * @returns {Promise<Object|null>} - {lat: number, lng: number, displayName: string} or null
+     */
+    async getLocation(locationString) {
+        try {
+            if (!this.db) {
+                return null;
+            }
+            const transaction = this.db.transaction(['locations'], 'readonly');
+            const store = transaction.objectStore('locations');
+            const entry = await this._promisifyRequest(store.get(locationString.trim()));
+            
+            if (entry) {
+                // Check if this is a failed attempt marker
+                if (entry.failed === true) {
+                    return { failed: true };
+                }
+                // Return successful geocoding data
+                return {
+                    lat: entry.lat,
+                    lng: entry.lng,
+                    displayName: entry.displayName || locationString,
+                    countryCode: entry.countryCode || null,
+                    country: entry.country || null
+                };
+            }
+            return null;
+        } catch (error) {
+            console.warn('⚠️ Failed to get location from cache:', error);
+            return null;
+        }
+    }
+
+    /**
+     * Batch get multiple locations from cache
+     * @param {Array<string>} locationStrings - Array of location strings
+     * @returns {Promise<Map>} - Map of locationString -> geocoded data (or null if not cached)
+     */
+    async batchGetLocations(locationStrings) {
+        const results = new Map();
+        if (!this.db) {
+            locationStrings.forEach(loc => results.set(loc, null));
+            return results;
+        }
+
+        try {
+            const transaction = this.db.transaction(['locations'], 'readonly');
+            const store = transaction.objectStore('locations');
+            
+            // Get all locations in parallel
+            const promises = locationStrings.map(async (locationString) => {
+                try {
+                    const entry = await this._promisifyRequest(store.get(locationString.trim()));
+                    if (entry) {
+                        // Check if this is a failed attempt marker
+                        if (entry.failed === true) {
+                            return {
+                                location: locationString,
+                                data: { failed: true }
+                            };
+                        }
+                        // Return successful geocoding data
+                        return {
+                            location: locationString,
+                            data: {
+                                lat: entry.lat,
+                                lng: entry.lng,
+                                displayName: entry.displayName || locationString,
+                                countryCode: entry.countryCode || null,
+                                country: entry.country || null
+                            }
+                        };
+                    }
+                    return { location: locationString, data: null };
+                } catch (error) {
+                    return { location: locationString, data: null };
+                }
+            });
+
+            const batchResults = await Promise.allSettled(promises);
+            batchResults.forEach(result => {
+                if (result.status === 'fulfilled') {
+                    results.set(result.value.location, result.value.data);
+                } else {
+                    results.set(result.value?.location || 'unknown', null);
+                }
+            });
+
+            return results;
+        } catch (error) {
+            console.warn('⚠️ Failed to batch get locations:', error);
+            locationStrings.forEach(loc => results.set(loc, null));
+            return results;
+        }
     }
 }
 

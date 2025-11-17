@@ -8,7 +8,9 @@ class DependencyTreeResolver {
         this.cache = new Map(); // Cache API responses to minimize calls
         this.ecosystemsApiCache = new Map();
         this.depsDevCache = new Map();
-        this.maxDepth = 10; // Prevent infinite recursion
+        // Load maxDepth from localStorage or use default of 10
+        const savedMaxDepth = localStorage.getItem('maxDepth');
+        this.maxDepth = savedMaxDepth ? parseInt(savedMaxDepth, 10) : 10;
         this.requestDelay = 100; // ms between requests to avoid rate limiting
         this.lastRequestTime = 0;
         this.requestTimeout = 10000; // 10 seconds timeout for API requests
@@ -66,11 +68,57 @@ class DependencyTreeResolver {
         const timeoutId = setTimeout(() => controller.abort(), timeout);
         
         try {
+            // Debug: Log URL call with context
+            console.log(`🌐 [DEBUG] Fetching URL: ${url}`);
+            const caller = new Error().stack.split('\n')[2]?.trim() || 'unknown';
+            if (isUrlFromHostname(url, 'deps.dev')) {
+                console.log(`   Reason: Querying deps.dev API for package dependency information (called from: ${caller})`);
+            } else if (isUrlFromHostname(url, 'ecosyste.ms')) {
+                console.log(`   Reason: Querying ecosyste.ms API for package dependency information (called from: ${caller})`);
+            } else if (isUrlFromHostname(url, 'registry.npmjs.org')) {
+                console.log(`   Reason: Querying npm registry for package dependency information (called from: ${caller})`);
+            } else if (isUrlFromHostname(url, 'pypi.org')) {
+                console.log(`   Reason: Querying PyPI registry for package dependency information (called from: ${caller})`);
+            } else if (isUrlFromHostname(url, 'crates.io')) {
+                console.log(`   Reason: Querying crates.io registry for package dependency information (called from: ${caller})`);
+            } else if (isUrlFromHostname(url, 'rubygems.org')) {
+                console.log(`   Reason: Querying RubyGems registry for package dependency information (called from: ${caller})`);
+            } else {
+                console.log(`   Reason: Fetching dependency information (called from: ${caller})`);
+            }
+            
             const response = await fetch(url, {
                 ...options,
                 signal: controller.signal
             });
             clearTimeout(timeoutId);
+            
+            // Debug: Log response and extract information
+            if (response.ok) {
+                try {
+                    const data = await response.clone().json(); // Clone to avoid consuming the stream
+                    let extractedInfo = `Status: ${response.status}`;
+                    
+                    if (isUrlFromHostname(url, 'deps.dev')) {
+                        const depCount = data.nodes?.filter(n => n.relation === 'DIRECT')?.length || 0;
+                        extractedInfo += `, Extracted: ${depCount} direct dependency/dependencies`;
+                    } else if (isUrlFromHostname(url, 'ecosyste.ms')) {
+                        const depCount = data.dependencies?.length || 0;
+                        extractedInfo += `, Extracted: ${depCount} dependency/dependencies`;
+                    } else if (isUrlFromHostname(url, 'registry.npmjs.org') || isUrlFromHostname(url, 'pypi.org') || isUrlFromHostname(url, 'crates.io') || isUrlFromHostname(url, 'rubygems.org')) {
+                        const depCount = data.dependencies ? Object.keys(data.dependencies).length : 0;
+                        extractedInfo += `, Extracted: Package metadata with ${depCount} dependency/dependencies`;
+                    }
+                    
+                    console.log(`   ✅ Response: ${extractedInfo}`);
+                } catch (e) {
+                    // If JSON parsing fails, just log status
+                    console.log(`   ✅ Response: Status ${response.status}`);
+                }
+            } else {
+                console.log(`   ❌ Response: Status ${response.status} ${response.statusText}`);
+            }
+            
             return response;
         } catch (error) {
             clearTimeout(timeoutId);

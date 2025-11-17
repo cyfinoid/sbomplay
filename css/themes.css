@@ -108,6 +108,8 @@ h6 { font-size: var(--font-size-body); }
   color: var(--text-secondary) !important;
 }
 
+/* Override text-muted for bg-opacity cards - must come after general .text-muted rule */
+
 .form-control,
 .form-select {
   background-color: var(--bg-secondary) !important;
@@ -253,6 +255,118 @@ footer {
 /* For other uses of text-dark, use theme-aware color */
 .text-dark:not(.bg-warning):not(.badge) {
   color: var(--text-primary) !important;
+}
+
+/* Fix text contrast for bg-opacity-10 elements (used in audit page stats cards) */
+/* When background is very light (10% opacity), we need darker text for contrast */
+.bg-primary.bg-opacity-10 .text-primary,
+.bg-primary.bg-opacity-10 h3.text-primary,
+.bg-primary.bg-opacity-10 .card-body .text-primary {
+  color: var(--color-blue) !important;
+}
+
+[data-theme="dark"] .bg-primary.bg-opacity-10 .text-primary,
+[data-theme="dark"] .bg-primary.bg-opacity-10 h3.text-primary,
+[data-theme="dark"] .bg-primary.bg-opacity-10 .card-body .text-primary {
+  color: #6b8cff !important; /* Lighter blue for dark theme */
+}
+
+.bg-danger.bg-opacity-10 .text-danger,
+.bg-danger.bg-opacity-10 h3.text-danger,
+.bg-danger.bg-opacity-10 .card-body .text-danger {
+  color: var(--color-red) !important;
+}
+
+[data-theme="dark"] .bg-danger.bg-opacity-10 .text-danger,
+[data-theme="dark"] .bg-danger.bg-opacity-10 h3.text-danger,
+[data-theme="dark"] .bg-danger.bg-opacity-10 .card-body .text-danger {
+  color: #ff6b7d !important; /* Lighter red for dark theme */
+}
+
+.bg-warning.bg-opacity-10 .text-warning,
+.bg-warning.bg-opacity-10 h3.text-warning,
+.bg-warning.bg-opacity-10 .card-body .text-warning {
+  color: #b8860b !important; /* Darker yellow/gold for better contrast on light yellow */
+}
+
+[data-theme="dark"] .bg-warning.bg-opacity-10 .text-warning,
+[data-theme="dark"] .bg-warning.bg-opacity-10 h3.text-warning,
+[data-theme="dark"] .bg-warning.bg-opacity-10 .card-body .text-warning {
+  color: #fdcb52 !important; /* Brighter yellow for dark theme */
+}
+
+.bg-info.bg-opacity-10 .text-info,
+.bg-info.bg-opacity-10 h3.text-info,
+.bg-info.bg-opacity-10 .card-body .text-info {
+  color: var(--color-blue) !important;
+}
+
+[data-theme="dark"] .bg-info.bg-opacity-10 .text-info,
+[data-theme="dark"] .bg-info.bg-opacity-10 h3.text-info,
+[data-theme="dark"] .bg-info.bg-opacity-10 .card-body .text-info {
+  color: #6b8cff !important; /* Lighter blue for dark theme */
+}
+
+/* Ensure text-muted is visible on bg-opacity backgrounds */
+/* In light theme, use darker text for better contrast */
+[data-theme="light"] .card.bg-primary.bg-opacity-10 .text-muted,
+[data-theme="light"] .card.bg-primary.bg-opacity-10 p.text-muted,
+[data-theme="light"] .card.bg-primary.bg-opacity-10 .card-body .text-muted,
+[data-theme="light"] .card.bg-primary.bg-opacity-10 .card-body p.text-muted,
+[data-theme="light"] .card.bg-danger.bg-opacity-10 .text-muted,
+[data-theme="light"] .card.bg-danger.bg-opacity-10 p.text-muted,
+[data-theme="light"] .card.bg-danger.bg-opacity-10 .card-body .text-muted,
+[data-theme="light"] .card.bg-danger.bg-opacity-10 .card-body p.text-muted,
+[data-theme="light"] .card.bg-warning.bg-opacity-10 .text-muted,
+[data-theme="light"] .card.bg-warning.bg-opacity-10 p.text-muted,
+[data-theme="light"] .card.bg-warning.bg-opacity-10 .card-body .text-muted,
+[data-theme="light"] .card.bg-warning.bg-opacity-10 .card-body p.text-muted,
+[data-theme="light"] .card.bg-info.bg-opacity-10 .text-muted,
+[data-theme="light"] .card.bg-info.bg-opacity-10 p.text-muted,
+[data-theme="light"] .card.bg-info.bg-opacity-10 .card-body .text-muted,
+[data-theme="light"] .card.bg-info.bg-opacity-10 .card-body p.text-muted {
+  color: #495057 !important; /* Dark gray for better contrast on light backgrounds */
+}
+
+/* In dark theme, use lighter text for better contrast */
+[data-theme="dark"] .card.bg-primary.bg-opacity-10 .text-muted,
+[data-theme="dark"] .card.bg-primary.bg-opacity-10 p.text-muted,
+[data-theme="dark"] .card.bg-primary.bg-opacity-10 .card-body .text-muted,
+[data-theme="dark"] .card.bg-primary.bg-opacity-10 .card-body p.text-muted,
+[data-theme="dark"] .card.bg-danger.bg-opacity-10 .text-muted,
+[data-theme="dark"] .card.bg-danger.bg-opacity-10 p.text-muted,
+[data-theme="dark"] .card.bg-danger.bg-opacity-10 .card-body .text-muted,
+[data-theme="dark"] .card.bg-danger.bg-opacity-10 .card-body p.text-muted,
+[data-theme="dark"] .card.bg-warning.bg-opacity-10 .text-muted,
+[data-theme="dark"] .card.bg-warning.bg-opacity-10 p.text-muted,
+[data-theme="dark"] .card.bg-warning.bg-opacity-10 .card-body .text-muted,
+[data-theme="dark"] .card.bg-warning.bg-opacity-10 .card-body p.text-muted,
+[data-theme="dark"] .card.bg-info.bg-opacity-10 .text-muted,
+[data-theme="dark"] .card.bg-info.bg-opacity-10 p.text-muted,
+[data-theme="dark"] .card.bg-info.bg-opacity-10 .card-body .text-muted,
+[data-theme="dark"] .card.bg-info.bg-opacity-10 .card-body p.text-muted {
+  color: #d0d0d0 !important; /* Light gray for better contrast on dark backgrounds */
+}
+
+/* Ensure card body text is visible on bg-opacity cards */
+.bg-primary.bg-opacity-10 .card-body,
+.bg-danger.bg-opacity-10 .card-body,
+.bg-warning.bg-opacity-10 .card-body,
+.bg-info.bg-opacity-10 .card-body {
+  color: var(--text-primary) !important;
+}
+
+/* Stats card label text - theme-aware contrast for bg-opacity cards */
+.stats-card-label {
+  /* Default will be overridden by theme-specific rules below */
+}
+
+[data-theme="light"] .stats-card-label {
+  color: #495057 !important; /* Dark gray for better contrast on light backgrounds */
+}
+
+[data-theme="dark"] .stats-card-label {
+  color: #d0d0d0 !important; /* Light gray for better contrast on dark backgrounds */
 }
 
 /* Smooth transitions for theme changes */

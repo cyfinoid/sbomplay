@@ -3,12 +3,14 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>SBOM Play - License Compliance</title>
+    <title>SBOM Play - GitHub Actions Audit</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
     <link href="css/style.css?v=0.0.3" rel="stylesheet">
     <link href="css/themes.css?v=0.0.3" rel="stylesheet">
     <script src="js/theme-manager.js?v=0.0.3"></script>
+    <script src="js/analytics.js?v=0.0.3"></script>
+    <script defer data-domain="cyfinoid.github.io" src="https://plausible.io/js/script.outbound-links.js"></script>
 </head>
 <body>
     <!-- Navigation -->
@@ -19,9 +21,9 @@
             </a>
             <div class="navbar-nav ms-auto">
                 <a class="nav-link" href="index.html">Home</a>
-                <a class="nav-link active" href="licenses.html">License</a>
+                <a class="nav-link" href="licenses.html">License</a>
                 <a class="nav-link" href="vuln.html">Vulns</a>
-                <a class="nav-link" href="audit.html">Audit</a>
+                <a class="nav-link active" href="audit.html">Audit</a>
                 <a class="nav-link" href="deps.html">Deps</a>
                 <a class="nav-link" href="repos.html">Repos</a>
                 <a class="nav-link" href="authors.html">Authors</a>
@@ -39,8 +41,8 @@
             <div class="col-12">
                 <div class="d-flex justify-content-between align-items-center">
                     <div>
-                        <h1><i class="fas fa-shield-alt me-2"></i>License Compliance Analysis</h1>
-                        <p class="text-muted">Analyze license compatibility and compliance issues across your dependencies</p>
+                        <h1><i class="fas fa-search me-2"></i>Audit Findings</h1>
+                        <p class="text-muted">Security audit findings including GitHub Actions, package deprecation, and repository-level audits</p>
                     </div>
                     <div>
                         <a href="index.html" class="btn btn-outline-primary">
@@ -51,13 +53,13 @@
             </div>
         </div>
 
-        <!-- Tool Description and Assurance -->
+        <!-- Tool Description -->
         <div class="row mb-4">
             <div class="col-12">
-                <div class="alert alert-info text-center" role="alert">
+                <div class="alert alert-info" role="alert">
                     <i class="fas fa-info-circle me-2"></i>
-                    <strong>License Analysis:</strong> This tool analyzes license compatibility and compliance issues across your dependencies. 
-                    All processing happens in your browser for maximum privacy and security.
+                    <strong>Audit Findings:</strong> This page shows security audit findings including GitHub Actions security issues, 
+                    deprecated packages, and repository-level audit findings. All processing happens in your browser for maximum privacy and security.
                 </div>
             </div>
         </div>
@@ -66,29 +68,46 @@
         <div class="card mb-4">
             <div class="card-body">
                 <div class="row">
-                    <div class="col-md-6">
+                    <div class="col-md-4">
                         <label class="form-label">Select Analysis</label>
                         <select class="form-select" id="analysisSelector">
                             <option value="__ALL__">All Projects (Combined)</option>
                         </select>
                     </div>
-                    <div class="col-md-6">
-                        <label class="form-label">Filter by License Category</label>
-                        <select class="form-select" id="categoryFilter">
-                            <option value="all">All Categories</option>
-                            <option value="proprietary">Proprietary</option>
-                            <option value="copyleft">Copyleft</option>
-                            <option value="lgpl">LGPL</option>
-                            <option value="unknown">Unknown</option>
-                            <option value="unlicensed">Unlicensed</option>
+                    <div class="col-md-2">
+                        <label class="form-label">Filter by Severity</label>
+                        <select class="form-select" id="severityFilter">
+                            <option value="all">All Severities</option>
+                            <option value="high">High</option>
+                            <option value="medium">Medium</option>
+                            <option value="warning">Warning</option>
+                        </select>
+                    </div>
+                    <div class="col-md-3">
+                        <label class="form-label">Filter by Section</label>
+                        <select class="form-select" id="sectionFilter">
+                            <option value="all">All Sections</option>
+                            <option value="github-actions">GitHub Actions</option>
+                            <option value="package-deprecation">Package Deprecation</option>
+                            <option value="sbom-deficiencies">SBOM Deficiencies</option>
+                            <option value="version-drift">Version Drift</option>
+                            <option value="stale-dependencies">Stale Dependencies</option>
+                            <option value="license-compatibility">License Compatibility</option>
+                            <option value="repository-audit">Repository Audit</option>
+                        </select>
+                    </div>
+                    <div class="col-md-3">
+                        <label class="form-label">Filter by Repository</label>
+                        <select class="form-select" id="repoFilter">
+                            <option value="all">All Repositories</option>
                         </select>
                     </div>
                 </div>
             </div>
         </div>
         
-        <div id="license-compliance-page">
-            <!-- License Compliance content will be rendered here by JS -->
+        <div id="audit-analysis-page">
+            <!-- Audit Analysis content will be rendered here by JS -->
         </div>
 
         <!-- No Data Section -->
@@ -99,8 +118,8 @@
                 </h5>
             </div>
             <div class="card-body text-center">
-                <i class="fas fa-shield-alt fa-3x text-muted mb-3"></i>
-                <h5>No License Analysis Data Found</h5>
+                <i class="fas fa-search fa-3x text-muted mb-3"></i>
+                <h5>No Audit Analysis Data Found</h5>
                 <p class="text-muted">
                     You haven't analyzed any organizations yet, or all data has been cleared.
                 </p>
@@ -109,6 +128,7 @@
                 </a>
             </div>
         </div>
+
 
     <!-- Footer -->
     <footer class="bg-light mt-5 py-4">
@@ -169,6 +189,7 @@
             </div>
         </div>
     </footer>
+    
     <script src="js/indexeddb-manager.js?v=0.0.3"></script>
     <script src="js/utils.js?v=0.0.3"></script>
     <script src="js/registry-utils.js?v=0.0.3"></script>
@@ -177,13 +198,15 @@
     <script src="js/cache-manager.js?v=0.0.3"></script>
     <script src="js/view-manager.js?v=0.0.3"></script>
     <script src="js/license-processor.js?v=0.0.3"></script>
-    <script src="js/osv-service.js?v=0.0.3"></script>
     <script src="js/sbom-processor.js?v=0.0.3"></script>
+    <script src="js/sbom-quality-processor.js?v=0.0.3"></script>
+    <script src="js/version-drift-analyzer.js?v=0.0.3"></script>
     <script src="js/storage-manager.js?v=0.0.3"></script>
     <script src="js/github-client.js?v=0.0.3"></script>
     <script src="js/app.js?v=0.0.3"></script>
-    <script src="js/page-common.js?v=0.0.3"></script>
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
-    <script src="js/licenses-page.js?v=0.0.3"></script>
+    <script src="js/page-common.js?v=0.0.3"></script>
+    <script src="js/audit-page.js?v=0.0.3"></script>
 </body>
-</html> 
+</html>
+

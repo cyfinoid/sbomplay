@@ -3342,4 +3342,32 @@ body {
 
 .position-absolute {
     position: absolute !important;
+}
+
+/* Author Detection Progress Styles */
+.author-detection-progress {
+    height: 1.5rem;
+}
+
+.author-detection-progress-bar {
+    width: 0%;
+}
+
+/* Author Map Styles */
+.author-map-card {
+    display: none;
+}
+
+.author-map {
+    height: 400px;
+    width: 100%;
+}
+
+/* Map Popup Styles */
+.map-popup-content {
+    max-width: 250px;
+}
+
+.map-popup-hr {
+    margin: 5px 0;
 } 

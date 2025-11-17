@@ -48,7 +48,7 @@ jobs:
           cp index.html _site/
           cp licenses.html _site/
           cp vuln.html _site/
-          cp quality.html _site/
+          cp audit.html _site/
           cp deps.html _site/
           cp settings.html _site/
           cp authors.html _site/

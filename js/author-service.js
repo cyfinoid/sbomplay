@@ -23,17 +23,6 @@ class AuthorService {
         }
     }
 
-    /**
-     * Securely check if a URL belongs to a specific hostname
-     * Delegates to the shared utility function from utils.js
-     * @param {string} url - The URL to check
-     * @param {string} hostname - The expected hostname (e.g., "github.com", "tidelift.com")
-     * @param {string} pathPrefix - Optional path prefix to check (e.g., "/sponsors")
-     * @returns {boolean} - True if URL belongs to the hostname
-     */
-    isUrlFromHostname(url, hostname, pathPrefix = '') {
-        return isUrlFromHostname(url, hostname, pathPrefix);
-    }
 
     /**
      * Fetch registry mappings from ecosyste.ms (uses cached data)
@@ -136,6 +125,7 @@ class AuthorService {
         let authors = [];
         let funding = null;
         let packageWarnings = null;
+        let ecosystemsAuthors = []; // Keep track of ecosyste.ms authors for correlation
         
         // Try native registry and ecosyste.ms in parallel (race condition - use first successful response)
         const apiPromises = [];
@@ -159,7 +149,8 @@ class AuthorService {
         // Wait for all API calls to complete
         const apiResults = await Promise.allSettled(apiPromises);
         
-        // Use first successful response with authors
+        // Collect results from both sources for correlation
+        let nativeAuthors = [];
         for (const apiResult of apiResults) {
             if (apiResult.status === 'fulfilled' && apiResult.value.result) {
                 const { source, result } = apiResult.value;
@@ -167,27 +158,46 @@ class AuthorService {
                 if (source === 'native') {
                     // Handle both old format (array) and new format (object with authors/packageFunding/packageWarnings)
                     if (Array.isArray(result)) {
-                        if (result.length > 0) {
-                            authors = result;
-                            console.log(`✅ Found ${authors.length} authors for ${packageKey} from native registry`);
-                            break; // Use first successful result
-                        }
+                        nativeAuthors = result;
                     } else {
-                        const resultAuthors = result.authors || [];
-                        if (resultAuthors.length > 0) {
-                            authors = resultAuthors;
-                            funding = result.packageFunding || null;
-                            packageWarnings = result.packageWarnings || null;
-                            console.log(`✅ Found ${authors.length} authors for ${packageKey} from native registry`);
-                            break; // Use first successful result
-                        }
+                        nativeAuthors = result.authors || [];
+                        funding = result.packageFunding || null;
+                        packageWarnings = result.packageWarnings || null;
                     }
                 } else if (source === 'ecosystems') {
-                    const resultAuthors = result.authors || [];
-                    if (resultAuthors.length > 0) {
-                        authors = resultAuthors;
-                        console.log(`✅ Found ${authors.length} authors for ${packageKey} from ecosyste.ms`);
-                        break; // Use first successful result
+                    ecosystemsAuthors = result.authors || [];
+                }
+            }
+        }
+        
+        // Use native authors if available, otherwise use ecosyste.ms authors
+        if (nativeAuthors.length > 0) {
+            authors = nativeAuthors;
+            console.log(`✅ Found ${authors.length} authors for ${packageKey} from native registry`);
+            // NOTE: We do NOT correlate author names with maintainer logins - this causes false positives
+            // Only check GitHub when there's an explicit pointer (e.g., GitHub URL in maintainer profile)
+        } else if (ecosystemsAuthors.length > 0) {
+            authors = ecosystemsAuthors;
+            console.log(`✅ Found ${authors.length} authors for ${packageKey} from ecosyste.ms`);
+        }
+        
+        // Try to fetch GitHub contributors if we have a GitHub repository URL
+        // This provides tentative correlation (same GitHub user ID = same person)
+        if (authors.length > 0) {
+            const repoUrl = await this.getRepositoryUrl(ecosystem, packageName);
+            if (repoUrl) {
+                const githubMatch = repoUrl.match(/github\.com[\/:]([^\/]+)\/([^\/]+)/i);
+                if (githubMatch) {
+                    const [, owner, repo] = githubMatch;
+                    // Clean up repo name (remove .git suffix, etc.)
+                    const cleanRepo = repo.replace(/\.git$/, '').replace(/\/$/, '');
+                    try {
+                        const contributors = await this.fetchContributorsFromGitHub(owner, cleanRepo);
+                        if (contributors.length > 0) {
+                            authors = this.correlateWithContributors(authors, contributors);
+                        }
+                    } catch (error) {
+                        console.warn(`Failed to fetch GitHub contributors for ${owner}/${cleanRepo}:`, error.message);
                     }
                 }
             }
@@ -195,10 +205,19 @@ class AuthorService {
         
         // If still no authors, try to extract from repository URL (fallback)
         if (authors.length === 0) {
-            const repoAuthors = await this.fetchAuthorsFromRepository(ecosystem, packageName);
-            if (repoAuthors.length > 0) {
-                console.log(`✅ Found ${repoAuthors.length} repository owners for ${packageKey}`);
-                authors = repoAuthors;
+            // Special handling for GitHub Actions - extract owner/repo from package name
+            if (ecosystem === 'githubactions' || ecosystem === 'GitHub Actions') {
+                const gaAuthors = await this.fetchAuthorsFromGitHubAction(packageName);
+                if (gaAuthors.length > 0) {
+                    console.log(`✅ Found ${gaAuthors.length} repository owners for ${packageKey}`);
+                    authors = gaAuthors;
+                }
+            } else {
+                const repoAuthors = await this.fetchAuthorsFromRepository(ecosystem, packageName);
+                if (repoAuthors.length > 0) {
+                    console.log(`✅ Found ${repoAuthors.length} repository owners for ${packageKey}`);
+                    authors = repoAuthors;
+                }
             }
         }
         
@@ -321,23 +340,34 @@ class AuthorService {
                 authorName = authorString;
             }
 
-            // CRITICAL: Check for existing author by email first (for correlation)
-            // This allows us to merge "Kyle Robinson Young" with "shama" if they share the same email
+            // CRITICAL: Check for existing author by email OR GitHub username (for correlation)
+            // This allows us to merge authors if they share the same email OR GitHub username
+            // Priority: Email (same ecosystem) > GitHub username (cross-ecosystem) > authorKey
             let authorEntity = null;
             let existingAuthorKey = authorKey;
             
+            // Step 1: Check by email in same ecosystem (most reliable, same ecosystem)
             if (authorMetadata?.email && window.cacheManager) {
-                // Try to find existing author by email in the same ecosystem
                 const existingByEmail = await window.cacheManager.findAuthorByEmail(authorMetadata.email, ecosystem);
                 if (existingByEmail) {
-                    // Found existing author with same email - merge them
                     authorEntity = existingByEmail.entity;
                     existingAuthorKey = existingByEmail.authorKey;
                     console.log(`🔗 Found existing author by email: ${existingAuthorKey} (email: ${authorMetadata.email})`);
                 }
             }
             
-            // If not found by email, check by authorKey
+            // Step 2: Check by GitHub username (cross-ecosystem correlation)
+            // Same GitHub username = same person across different package registries
+            if (!authorEntity && authorMetadata?.github && window.cacheManager) {
+                const existingByGitHub = await window.cacheManager.findAuthorByGitHub(authorMetadata.github);
+                if (existingByGitHub) {
+                    authorEntity = existingByGitHub.entity;
+                    existingAuthorKey = existingByGitHub.authorKey;
+                    console.log(`🔗 Found existing author by GitHub: ${existingAuthorKey} (GitHub: ${authorMetadata.github})`);
+                }
+            }
+            
+            // Step 3: Check by authorKey (exact match)
             if (!authorEntity) {
                 authorEntity = await window.cacheManager.getAuthorEntity(authorKey);
             }
@@ -409,12 +439,44 @@ class AuthorService {
                 }
             }
 
+            // CRITICAL: Do NOT check GitHub based on name inference or maintainer login correlation
+            // Only check GitHub when there's an explicit pointer (e.g., GitHub URL in maintainer profile)
+            // Remove any potential_github that might have been set (shouldn't happen now, but clean up if present)
+            if (authorEntity.metadata?.potential_github) {
+                delete authorEntity.metadata.potential_github;
+                await window.cacheManager.saveAuthorEntity(existingAuthorKey, authorEntity);
+            }
+
             // Fetch author-level funding if we have GitHub username or email
             // This will be done asynchronously and updated separately
-            if (authorMetadata?.github || authorMetadata?.email) {
+            // Reload entity to get updated GitHub username if it was just added
+            authorEntity = await window.cacheManager.getAuthorEntity(existingAuthorKey);
+            if (authorEntity?.metadata?.github || authorMetadata?.email) {
                 this.fetchAuthorFunding(existingAuthorKey, authorEntity).catch(err => 
                     console.warn(`Failed to fetch author funding for ${existingAuthorKey}:`, err)
                 );
+            }
+
+            // Fetch author location if we have GitHub username
+            // CRITICAL: Only fetch if GitHub username exists AND we verify it's not an organization
+            // Check IndexedDB first - only fetch if location data is missing
+            if (authorEntity?.metadata?.github) {
+                // Check if location data already exists in the entity
+                const hasLocation = authorEntity.metadata.location || authorEntity.metadata.company;
+                
+                if (!hasLocation) {
+                    // Location data missing - fetch it now during initial analysis
+                    // fetchAuthorLocation will check if it's an organization and skip if so
+                    try {
+                        await this.fetchAuthorLocation(existingAuthorKey, authorEntity);
+                        // Reload entity to get updated location data (may have removed org GitHub username)
+                        authorEntity = await window.cacheManager.getAuthorEntity(existingAuthorKey);
+                    } catch (err) {
+                        console.warn(`Failed to fetch author location for ${existingAuthorKey}:`, err);
+                    }
+                } else {
+                    console.log(`📍 Location data already cached for ${existingAuthorKey}`);
+                }
             }
 
             // Save package-author relationship (junction table)
@@ -435,13 +497,21 @@ class AuthorService {
                 case 'npm':
                     // npm registry provides full package metadata including funding
                     url = `${this.registryUrls.npm}/${packageName}/latest`;
+                    console.log(`🌐 [DEBUG] Fetching URL: ${url}`);
+                    console.log(`   Reason: Fetching npm package metadata for ${packageName} to extract authors and funding information`);
                     const npmResponse = await fetch(url);
-                    if (!npmResponse.ok) return { authors: [], packageFunding: null };
+                    if (!npmResponse.ok) {
+                        console.log(`   ❌ Response: Status ${npmResponse.status} ${npmResponse.statusText}`);
+                        return { authors: [], packageFunding: null };
+                    }
                     data = await npmResponse.json();
                     description = data.description || null;
+                    const npmAuthors = this.extractNpmAuthors(data);
+                    const npmFunding = this.extractNpmFunding(data);
+                    console.log(`   ✅ Response: Status ${npmResponse.status}, Extracted: ${npmAuthors.length} author(s), funding: ${npmFunding ? 'yes' : 'no'}, description: ${description ? 'yes' : 'no'}`);
                     return {
-                        authors: this.extractNpmAuthors(data),
-                        packageFunding: this.extractNpmFunding(data),  // Package-level funding (from package.json)
+                        authors: npmAuthors,
+                        packageFunding: npmFunding,  // Package-level funding (from package.json)
                         description: description,
                         packageWarnings: this.parsePackageWarnings(description)
                     };
@@ -449,13 +519,21 @@ class AuthorService {
                 case 'pypi':
                     // PyPI JSON API with project URLs
                     url = `${this.registryUrls.pypi}/${packageName}/json`;
+                    console.log(`🌐 [DEBUG] Fetching URL: ${url}`);
+                    console.log(`   Reason: Fetching PyPI package metadata for ${packageName} to extract authors and funding information`);
                     const pypiResponse = await fetch(url);
-                    if (!pypiResponse.ok) return { authors: [], packageFunding: null };
+                    if (!pypiResponse.ok) {
+                        console.log(`   ❌ Response: Status ${pypiResponse.status} ${pypiResponse.statusText}`);
+                        return { authors: [], packageFunding: null };
+                    }
                     data = await pypiResponse.json();
                     description = data.info?.summary || data.info?.description || null;
+                    const pypiAuthors = this.extractPyPiAuthors(data);
+                    const pypiFunding = this.extractPyPiFunding(data);
+                    console.log(`   ✅ Response: Status ${pypiResponse.status}, Extracted: ${pypiAuthors.length} author(s), funding: ${pypiFunding ? 'yes' : 'no'}, description: ${description ? 'yes' : 'no'}`);
                     return {
-                        authors: this.extractPyPiAuthors(data),
-                        packageFunding: this.extractPyPiFunding(data),  // Package-level funding (from project_urls)
+                        authors: pypiAuthors,
+                        packageFunding: pypiFunding,  // Package-level funding (from project_urls)
                         description: description,
                         packageWarnings: this.parsePackageWarnings(description)
                     };
@@ -463,12 +541,19 @@ class AuthorService {
                 case 'cargo':
                     // crates.io API
                     url = `${this.registryUrls.cargo}/${packageName}`;
+                    console.log(`🌐 [DEBUG] Fetching URL: ${url}`);
+                    console.log(`   Reason: Fetching crates.io package metadata for ${packageName} to extract authors and funding information`);
                     const cargoResponse = await fetch(url);
-                    if (!cargoResponse.ok) return { authors: [], packageFunding: null };
+                    if (!cargoResponse.ok) {
+                        console.log(`   ❌ Response: Status ${cargoResponse.status} ${cargoResponse.statusText}`);
+                        return { authors: [], packageFunding: null };
+                    }
                     data = await cargoResponse.json();
                     description = data.crate?.description || null;
+                    const cargoAuthors = this.extractCargoAuthors(data);
+                    console.log(`   ✅ Response: Status ${cargoResponse.status}, Extracted: ${cargoAuthors.length} author(s), description: ${description ? 'yes' : 'no'}`);
                     return {
-                        authors: this.extractCargoAuthors(data),
+                        authors: cargoAuthors,
                         packageFunding: null,  // Crates.io doesn't have funding field in API
                         description: description,
                         packageWarnings: this.parsePackageWarnings(description)
@@ -477,13 +562,21 @@ class AuthorService {
                 case 'gem':
                     // RubyGems API
                     url = `${this.registryUrls.gem}/${packageName}.json`;
+                    console.log(`🌐 [DEBUG] Fetching URL: ${url}`);
+                    console.log(`   Reason: Fetching RubyGems package metadata for ${packageName} to extract authors and funding information`);
                     const gemResponse = await fetch(url);
-                    if (!gemResponse.ok) return { authors: [], packageFunding: null };
+                    if (!gemResponse.ok) {
+                        console.log(`   ❌ Response: Status ${gemResponse.status} ${gemResponse.statusText}`);
+                        return { authors: [], packageFunding: null };
+                    }
                     data = await gemResponse.json();
                     description = data.info || data.description || null;
+                    const gemAuthors = this.extractGemAuthors(data);
+                    const gemFunding = this.extractGemFunding(data);
+                    console.log(`   ✅ Response: Status ${gemResponse.status}, Extracted: ${gemAuthors.length} author(s), funding: ${gemFunding ? 'yes' : 'no'}, description: ${description ? 'yes' : 'no'}`);
                     return {
-                        authors: this.extractGemAuthors(data),
-                        packageFunding: this.extractGemFunding(data),  // Package-level funding
+                        authors: gemAuthors,
+                        packageFunding: gemFunding,  // Package-level funding
                         description: description,
                         packageWarnings: this.parsePackageWarnings(description)
                     };
@@ -607,19 +700,19 @@ class AuthorService {
                 if (!url) return;
                 
                 // Check by type first, then by URL pattern (secure hostname validation)
-                if (type === 'github' || this.isUrlFromHostname(url, 'github.com', '/sponsors')) {
+                if (type === 'github' || isUrlFromHostname(url, 'github.com', '/sponsors')) {
                     funding.github = true;
                     funding.githubUrl = url;
                 }
-                if (type === 'patreon' || this.isUrlFromHostname(url, 'patreon.com')) {
+                if (type === 'patreon' || isUrlFromHostname(url, 'patreon.com')) {
                     funding.patreon = true;
                     funding.patreonUrl = url;
                 }
-                if (type === 'opencollective' || this.isUrlFromHostname(url, 'opencollective.com')) {
+                if (type === 'opencollective' || isUrlFromHostname(url, 'opencollective.com')) {
                     funding.opencollective = true;
                     funding.opencollectiveUrl = url;
                 }
-                if (type === 'tidelift' || this.isUrlFromHostname(url, 'tidelift.com')) {
+                if (type === 'tidelift' || isUrlFromHostname(url, 'tidelift.com')) {
                     funding.tidelift = true;
                     funding.tideliftUrl = url;
                 }
@@ -629,19 +722,19 @@ class AuthorService {
             funding.type = data.funding.type;
             
             // Set platform flags based on URL (secure hostname validation)
-            if (this.isUrlFromHostname(funding.url, 'github.com', '/sponsors')) {
+            if (isUrlFromHostname(funding.url, 'github.com', '/sponsors')) {
                 funding.github = true;
                 funding.githubUrl = funding.url;
             }
-            if (this.isUrlFromHostname(funding.url, 'patreon.com')) {
+            if (isUrlFromHostname(funding.url, 'patreon.com')) {
                 funding.patreon = true;
                 funding.patreonUrl = funding.url;
             }
-            if (this.isUrlFromHostname(funding.url, 'opencollective.com')) {
+            if (isUrlFromHostname(funding.url, 'opencollective.com')) {
                 funding.opencollective = true;
                 funding.opencollectiveUrl = funding.url;
             }
-            if (this.isUrlFromHostname(funding.url, 'tidelift.com')) {
+            if (isUrlFromHostname(funding.url, 'tidelift.com')) {
                 funding.tidelift = true;
                 funding.tideliftUrl = funding.url;
             }
@@ -651,27 +744,27 @@ class AuthorService {
         const urls = funding.urls || [funding.url];
         if (urls && urls.length > 0) {
             if (!funding.github) {
-                funding.github = urls.some(u => u && this.isUrlFromHostname(u, 'github.com', '/sponsors'));
+                funding.github = urls.some(u => u && isUrlFromHostname(u, 'github.com', '/sponsors'));
                 if (funding.github && !funding.githubUrl) {
-                    funding.githubUrl = urls.find(u => u && this.isUrlFromHostname(u, 'github.com', '/sponsors'));
+                    funding.githubUrl = urls.find(u => u && isUrlFromHostname(u, 'github.com', '/sponsors'));
                 }
             }
             if (!funding.opencollective) {
-                funding.opencollective = urls.some(u => u && this.isUrlFromHostname(u, 'opencollective.com'));
+                funding.opencollective = urls.some(u => u && isUrlFromHostname(u, 'opencollective.com'));
                 if (funding.opencollective && !funding.opencollectiveUrl) {
-                    funding.opencollectiveUrl = urls.find(u => u && this.isUrlFromHostname(u, 'opencollective.com'));
+                    funding.opencollectiveUrl = urls.find(u => u && isUrlFromHostname(u, 'opencollective.com'));
                 }
             }
             if (!funding.patreon) {
-                funding.patreon = urls.some(u => u && this.isUrlFromHostname(u, 'patreon.com'));
+                funding.patreon = urls.some(u => u && isUrlFromHostname(u, 'patreon.com'));
                 if (funding.patreon && !funding.patreonUrl) {
-                    funding.patreonUrl = urls.find(u => u && this.isUrlFromHostname(u, 'patreon.com'));
+                    funding.patreonUrl = urls.find(u => u && isUrlFromHostname(u, 'patreon.com'));
                 }
             }
             if (!funding.tidelift) {
-                funding.tidelift = urls.some(u => u && this.isUrlFromHostname(u, 'tidelift.com'));
+                funding.tidelift = urls.some(u => u && isUrlFromHostname(u, 'tidelift.com'));
                 if (funding.tidelift && !funding.tideliftUrl) {
-                    funding.tideliftUrl = urls.find(u => u && this.isUrlFromHostname(u, 'tidelift.com'));
+                    funding.tideliftUrl = urls.find(u => u && isUrlFromHostname(u, 'tidelift.com'));
                 }
             }
         }
@@ -698,9 +791,9 @@ class AuthorService {
                 funding.url = funding.url || url;  // Set first as primary
                 
                 // Detect specific platforms (secure hostname validation)
-                if (this.isUrlFromHostname(url, 'github.com', '/sponsors')) funding.github = true;
-                if (this.isUrlFromHostname(url, 'opencollective.com')) funding.opencollective = true;
-                if (this.isUrlFromHostname(url, 'patreon.com')) funding.patreon = true;
+                if (isUrlFromHostname(url, 'github.com', '/sponsors')) funding.github = true;
+                if (isUrlFromHostname(url, 'opencollective.com')) funding.opencollective = true;
+                if (isUrlFromHostname(url, 'patreon.com')) funding.patreon = true;
             }
         }
         
@@ -717,9 +810,9 @@ class AuthorService {
         const funding = { url: fundingUrl };
         
         // Detect specific platforms (secure hostname validation)
-        if (this.isUrlFromHostname(fundingUrl, 'github.com', '/sponsors')) funding.github = true;
-        if (this.isUrlFromHostname(fundingUrl, 'opencollective.com')) funding.opencollective = true;
-        if (this.isUrlFromHostname(fundingUrl, 'patreon.com')) funding.patreon = true;
+        if (isUrlFromHostname(fundingUrl, 'github.com', '/sponsors')) funding.github = true;
+        if (isUrlFromHostname(fundingUrl, 'opencollective.com')) funding.opencollective = true;
+        if (isUrlFromHostname(fundingUrl, 'patreon.com')) funding.patreon = true;
         
         return funding;
     }
@@ -746,17 +839,24 @@ class AuthorService {
             // Try fetching from GitHub profile JSON files
             // GitHub supports profile.json at root of user's .github repository
             const githubProfileJsonUrl = `https://raw.githubusercontent.com/${githubUsername}/.github/main/profile.json`;
+            console.log(`🌐 [DEBUG] Fetching URL: ${githubProfileJsonUrl} (HEAD)`);
+            console.log(`   Reason: Checking if GitHub profile.json exists for user ${githubUsername} to extract funding information`);
             let response = await fetch(githubProfileJsonUrl, { 
                 method: 'HEAD',  // Check if file exists without downloading
                 cache: 'no-cache'
             });
+            console.log(`   ✅ Response: Status ${response.status} ${response.statusText}`);
 
             if (response.ok) {
                 // File exists, fetch it
+                console.log(`🌐 [DEBUG] Fetching URL: ${githubProfileJsonUrl}`);
+                console.log(`   Reason: Fetching GitHub profile.json for user ${githubUsername} to extract funding information`);
                 response = await fetch(githubProfileJsonUrl, { cache: 'no-cache' });
                 if (response.ok) {
                     const profile = await response.json();
-                    if (profile.sponsor && profile.sponsor.github) {
+                    const hasFunding = profile.sponsor && profile.sponsor.github;
+                    console.log(`   ✅ Response: Status ${response.status}, Extracted: Profile data, funding: ${hasFunding ? 'yes' : 'no'}`);
+                    if (hasFunding) {
                         const funding = {
                             url: `https://github.com/sponsors/${githubUsername}`,
                             github: true
@@ -766,17 +866,24 @@ class AuthorService {
                         await window.cacheManager.saveAuthorEntity(authorKey, authorEntity);
                         return funding;
                     }
+                } else {
+                    console.log(`   ❌ Response: Status ${response.status} ${response.statusText}`);
                 }
             }
 
             // Try alternative: .github/FUNDING.yml (GitHub Sponsors)
             const fundingYmlUrl = `https://raw.githubusercontent.com/${githubUsername}/.github/main/FUNDING.yml`;
+            console.log(`🌐 [DEBUG] Fetching URL: ${fundingYmlUrl}`);
+            console.log(`   Reason: Fetching GitHub FUNDING.yml for user ${githubUsername} to extract funding information`);
             response = await fetch(fundingYmlUrl, { cache: 'no-cache' });
             if (response.ok) {
                 const yml = await response.text();
                 // Simple parsing for FUNDING.yml
                 const githubMatch = yml.match(/github:\s*(\S+)/i);
                 const customMatch = yml.match(/custom:\s*(\S+)/i);
+                
+                const hasFunding = !!(githubMatch || customMatch);
+                console.log(`   ✅ Response: Status ${response.status}, Extracted: FUNDING.yml content, funding: ${hasFunding ? 'yes' : 'no'}`);
                 
                 if (githubMatch) {
                     const username = githubMatch[1].replace(/['"]/g, '');
@@ -794,8 +901,8 @@ class AuthorService {
                     const funding = { url: url };
                     
                     // Detect platform (secure hostname validation)
-                    if (this.isUrlFromHostname(url, 'opencollective.com')) funding.opencollective = true;
-                    if (this.isUrlFromHostname(url, 'patreon.com')) funding.patreon = true;
+                    if (isUrlFromHostname(url, 'opencollective.com')) funding.opencollective = true;
+                    if (isUrlFromHostname(url, 'patreon.com')) funding.patreon = true;
                     
                     authorEntity.funding = funding;
                     await window.cacheManager.saveAuthorEntity(authorKey, authorEntity);
@@ -811,6 +918,108 @@ class AuthorService {
         } catch (error) {
             // Silently fail - author funding is optional
             console.debug(`Could not fetch author funding for ${authorKey}:`, error.message);
+        }
+
+        return null;
+    }
+
+    /**
+     * Fetch author location from GitHub API and other sources
+     * @param {string} authorKey - Author identifier (e.g., "github:username" or "pypi:authorName")
+     * @param {Object} authorEntity - Existing author entity
+     * @returns {Promise<Object|null>} - Location data {location: string, company: string} or null
+     */
+    async fetchAuthorLocation(authorKey, authorEntity) {
+        // Check IndexedDB first - reload entity to ensure we have latest data
+        if (!authorEntity) {
+            authorEntity = await window.cacheManager?.getAuthorEntity(authorKey);
+        }
+        
+        // If author already has location data in DB, don't refetch
+        if (authorEntity?.metadata?.location || authorEntity?.metadata?.company) {
+            return {
+                location: authorEntity.metadata.location || null,
+                company: authorEntity.metadata.company || null
+            };
+        }
+
+        const githubUsername = authorEntity?.metadata?.github;
+        if (!githubUsername) {
+            return null;  // Can't fetch without GitHub username
+        }
+
+        try {
+            // Fetch from GitHub API if GitHubClient is available
+            if (window.GitHubClient) {
+                const githubClient = new window.GitHubClient();
+                // Get GitHub token from sessionStorage if available
+                const token = sessionStorage.getItem('github_token') || null;
+                if (token) {
+                    githubClient.setToken(token);
+                }
+                
+                const userData = await githubClient.getUser(githubUsername);
+                
+                // CRITICAL: Do NOT associate GitHub organizations with individual authors
+                // Organizations (type: "Organization") should not be used for author location/profile
+                if (userData && userData.type === 'Organization') {
+                    console.warn(`⚠️ Skipping GitHub organization "${githubUsername}" for author ${authorKey} - organizations should not be associated with individual authors`);
+                    // Remove GitHub username from metadata if it's an organization
+                    if (authorEntity.metadata?.github === githubUsername) {
+                        const updatedMetadata = { ...authorEntity.metadata };
+                        delete updatedMetadata.github;
+                        authorEntity.metadata = Object.keys(updatedMetadata).length > 0 ? updatedMetadata : null;
+                        await window.cacheManager.saveAuthorEntity(authorKey, authorEntity);
+                    }
+                    return null;
+                }
+                
+                if (userData && (userData.location || userData.company)) {
+                    // Geocode location to get country code if location is available
+                    let countryCode = null;
+                    let country = null;
+                    if (userData.location && window.LocationService) {
+                        try {
+                            const locationService = new window.LocationService();
+                            const geocoded = await locationService.geocode(userData.location);
+                            if (geocoded && geocoded.countryCode) {
+                                countryCode = geocoded.countryCode;
+                                country = geocoded.country;
+                            }
+                        } catch (error) {
+                            console.debug(`Could not geocode location "${userData.location}" for ${authorKey}:`, error.message);
+                        }
+                    }
+                    
+                    // Update author entity metadata with location data
+                    // Preserve existing metadata fields by merging
+                    const existingMetadata = authorEntity.metadata || {};
+                    const updatedMetadata = {
+                        ...existingMetadata,
+                        ...(userData.location && { location: userData.location }),
+                        ...(userData.company && { company: userData.company }),
+                        ...(countryCode && { countryCode: countryCode }),
+                        ...(country && { country: country })
+                    };
+                    
+                    // Update author entity with merged metadata
+                    authorEntity.metadata = updatedMetadata;
+                    
+                    // Save updated entity to cache (this will persist to IndexedDB)
+                    await window.cacheManager.saveAuthorEntity(authorKey, authorEntity);
+                    console.log(`📍 Fetched and saved location to IndexedDB for ${authorKey}: ${userData.location || 'N/A'}, company: ${userData.company || 'N/A'}, country: ${countryCode || 'N/A'}`);
+                    
+                    return {
+                        location: userData.location || null,
+                        company: userData.company || null,
+                        countryCode: countryCode || null,
+                        country: country || null
+                    };
+                }
+            }
+        } catch (error) {
+            // Silently fail - author location is optional
+            console.debug(`Could not fetch author location for ${authorKey}:`, error.message);
         }
 
         return null;
@@ -842,14 +1051,22 @@ class AuthorService {
             const url = `${registry.packages_url}/${encodeURIComponent(packageName)}`;
             
             console.log(`🔍 Fetching from ecosyste.ms (full package): ${ecosystem} → ${registry.name} (${url})`);
+            console.log(`🌐 [DEBUG] Fetching URL: ${url}`);
+            console.log(`   Reason: Fetching ecosyste.ms package metadata for ${packageName} (${ecosystem}/${registry.name}) to extract maintainers/authors`);
             
             const response = await fetch(url);
             if (!response.ok) {
                 console.warn(`ecosyste.ms returned ${response.status} for ${registry.name}/${packageName}`);
+                console.log(`   ❌ Response: Status ${response.status} ${response.statusText}`);
                 return [];
             }
             
             const data = await response.json();
+            
+            // Debug: Log extracted information
+            const authors = this.extractEcosystemsAuthors(data);
+            const hasMaintainers = !!(data.maintainers || data.owners || data.author);
+            console.log(`   ✅ Response: Status ${response.status}, Extracted: ${authors.length} author(s), has maintainers/owners/author fields: ${hasMaintainers}`);
             
             // Verify we have the expected structure (top-level maintainers array)
             if (!data.maintainers && !data.owners && !data.author) {
@@ -911,43 +1128,70 @@ class AuthorService {
             switch (ecosystem) {
                 case 'npm':
                     url = `${this.registryUrls.npm}/${packageName}/latest`;
+                    console.log(`🌐 [DEBUG] Fetching URL: ${url}`);
+                    console.log(`   Reason: Fetching npm package metadata for ${packageName} to extract repository URL`);
                     const npmResponse = await fetch(url);
-                    if (!npmResponse.ok) return null;
+                    if (!npmResponse.ok) {
+                        console.log(`   ❌ Response: Status ${npmResponse.status} ${npmResponse.statusText}`);
+                        return null;
+                    }
                     data = await npmResponse.json();
-                    if (data.repository) {
-                        return typeof data.repository === 'string' ? data.repository : data.repository.url;
+                    const npmRepo = data.repository ? (typeof data.repository === 'string' ? data.repository : data.repository.url) : null;
+                    console.log(`   ✅ Response: Status ${npmResponse.status}, Extracted: Repository URL: ${npmRepo || 'none'}`);
+                    if (npmRepo) {
+                        return npmRepo;
                     }
                     break;
                 
                 case 'pypi':
                     url = `${this.registryUrls.pypi}/${packageName}/json`;
+                    console.log(`🌐 [DEBUG] Fetching URL: ${url}`);
+                    console.log(`   Reason: Fetching PyPI package metadata for ${packageName} to extract repository URL`);
                     const pypiResponse = await fetch(url);
-                    if (!pypiResponse.ok) return null;
+                    if (!pypiResponse.ok) {
+                        console.log(`   ❌ Response: Status ${pypiResponse.status} ${pypiResponse.statusText}`);
+                        return null;
+                    }
                     data = await pypiResponse.json();
-                    if (data.info && data.info.project_urls) {
-                        return data.info.project_urls.Source || 
-                               data.info.project_urls.Homepage || 
-                               data.info.project_urls.Repository;
+                    const pypiRepo = data.info && data.info.project_urls ? 
+                        (data.info.project_urls.Source || data.info.project_urls.Homepage || data.info.project_urls.Repository) : null;
+                    console.log(`   ✅ Response: Status ${pypiResponse.status}, Extracted: Repository URL: ${pypiRepo || 'none'}`);
+                    if (pypiRepo) {
+                        return pypiRepo;
                     }
                     break;
                 
                 case 'cargo':
                     url = `${this.registryUrls.cargo}/${packageName}`;
+                    console.log(`🌐 [DEBUG] Fetching URL: ${url}`);
+                    console.log(`   Reason: Fetching crates.io package metadata for ${packageName} to extract repository URL`);
                     const cargoResponse = await fetch(url);
-                    if (!cargoResponse.ok) return null;
+                    if (!cargoResponse.ok) {
+                        console.log(`   ❌ Response: Status ${cargoResponse.status} ${cargoResponse.statusText}`);
+                        return null;
+                    }
                     data = await cargoResponse.json();
-                    if (data.crate && data.crate.repository) {
-                        return data.crate.repository;
+                    const cargoRepo = data.crate && data.crate.repository ? data.crate.repository : null;
+                    console.log(`   ✅ Response: Status ${cargoResponse.status}, Extracted: Repository URL: ${cargoRepo || 'none'}`);
+                    if (cargoRepo) {
+                        return cargoRepo;
                     }
                     break;
                 
                 case 'gem':
                     url = `${this.registryUrls.gem}/${packageName}.json`;
+                    console.log(`🌐 [DEBUG] Fetching URL: ${url}`);
+                    console.log(`   Reason: Fetching RubyGems package metadata for ${packageName} to extract repository URL`);
                     const gemResponse = await fetch(url);
-                    if (!gemResponse.ok) return null;
+                    if (!gemResponse.ok) {
+                        console.log(`   ❌ Response: Status ${gemResponse.status} ${gemResponse.statusText}`);
+                        return null;
+                    }
                     data = await gemResponse.json();
-                    if (data.source_code_uri || data.homepage_uri) {
-                        return data.source_code_uri || data.homepage_uri;
+                    const gemRepo = data.source_code_uri || data.homepage_uri || null;
+                    console.log(`   ✅ Response: Status ${gemResponse.status}, Extracted: Repository URL: ${gemRepo || 'none'}`);
+                    if (gemRepo) {
+                        return gemRepo;
                     }
                     break;
             }
@@ -955,6 +1199,104 @@ class AuthorService {
             return null;
         } catch (error) {
             return null;
+        }
+    }
+
+    /**
+     * Fetch authors for GitHub Actions by extracting owner/repo from package name
+     * Package name format: owner/repo@ref or owner/repo/path@ref
+     */
+    async fetchAuthorsFromGitHubAction(packageName) {
+        try {
+            // Parse GitHub Action name: owner/repo@ref or owner/repo/path@ref
+            const match = packageName.match(/^([^/@]+)\/([^/@]+)(?:\/(.+))?@(.+)$/);
+            if (!match) {
+                // Try without @ref: owner/repo or owner/repo/path
+                const simpleMatch = packageName.match(/^([^/@]+)\/([^/@]+)(?:\/(.+))?$/);
+                if (simpleMatch) {
+                    const [, owner, repo] = simpleMatch;
+                    // Use GitHub API to get repository owner info
+                    if (window.GitHubClient) {
+                        try {
+                            // Get GitHub token from sessionStorage if available
+                            const token = sessionStorage.getItem('github_token') || null;
+                            const githubClient = new window.GitHubClient();
+                            if (token) {
+                                githubClient.setToken(token);
+                            }
+                            const repoInfo = await githubClient.getRepository(owner, repo);
+                            if (repoInfo && repoInfo.owner) {
+                                return [{
+                                    name: repoInfo.owner.login || repoInfo.owner.name || owner,
+                                    email: null,
+                                    metadata: {
+                                        github: repoInfo.owner.login || owner,
+                                        type: repoInfo.owner.type || 'User',
+                                        url: repoInfo.owner.html_url || `https://github.com/${owner}`
+                                    },
+                                    isMaintainer: true
+                                }];
+                            }
+                        } catch (error) {
+                            console.warn(`Failed to fetch GitHub repo info for ${owner}/${repo}:`, error);
+                        }
+                    }
+                    // Fallback: return owner as author
+                    return [{
+                        name: owner,
+                        email: null,
+                        metadata: {
+                            github: owner,
+                            url: `https://github.com/${owner}`
+                        },
+                        isMaintainer: true
+                    }];
+                }
+                return [];
+            }
+            
+            const [, owner, repo] = match;
+            
+            // Use GitHub API to get repository owner info
+            if (window.GitHubClient) {
+                try {
+                    // Get GitHub token from sessionStorage if available
+                    const token = sessionStorage.getItem('github_token') || null;
+                    const githubClient = new window.GitHubClient();
+                    if (token) {
+                        githubClient.setToken(token);
+                    }
+                    const repoInfo = await githubClient.getRepository(owner, repo);
+                    if (repoInfo && repoInfo.owner) {
+                        return [{
+                            name: repoInfo.owner.login || repoInfo.owner.name || owner,
+                            email: null,
+                            metadata: {
+                                github: repoInfo.owner.login || owner,
+                                type: repoInfo.owner.type || 'User',
+                                url: repoInfo.owner.html_url || `https://github.com/${owner}`
+                            },
+                            isMaintainer: true
+                        }];
+                    }
+                } catch (error) {
+                    console.warn(`Failed to fetch GitHub repo info for ${owner}/${repo}:`, error);
+                }
+            }
+            
+            // Fallback: return owner as author
+            return [{
+                name: owner,
+                email: null,
+                metadata: {
+                    github: owner,
+                    url: `https://github.com/${owner}`
+                },
+                isMaintainer: true
+            }];
+        } catch (error) {
+            console.warn(`Error extracting authors from GitHub Action ${packageName}:`, error);
+            return [];
         }
     }
 
@@ -1041,26 +1383,42 @@ class AuthorService {
         // FALLBACK: If no maintainers, collect author (may be historical or current)
         if (!hasMaintainers && data.author) {
             if (typeof data.author === 'string') {
-                authorObjects.push({ name: data.author, email: null, isMaintainer: false });
+                const authorObj = { name: data.author, email: null, isMaintainer: false };
+                if (githubUsername) {
+                    authorObj.metadata = { github: githubUsername };
+                }
+                authorObjects.push(authorObj);
             } else {
-                authorObjects.push({ 
+                const authorObj = { 
                     name: data.author.name || null, 
                     email: data.author.email || null,
                     isMaintainer: false
-                });
+                };
+                if (githubUsername) {
+                    authorObj.metadata = { github: githubUsername };
+                }
+                authorObjects.push(authorObj);
             }
         }
         // CONTEXT: If maintainers exist, also collect author for deduplication (may be same person)
         else if (hasMaintainers && data.author) {
             // Add author only for deduplication purposes (will be merged if same as maintainer)
             if (typeof data.author === 'string') {
-                authorObjects.push({ name: data.author, email: null, isMaintainer: false });
+                const authorObj = { name: data.author, email: null, isMaintainer: false };
+                if (githubUsername) {
+                    authorObj.metadata = { github: githubUsername };
+                }
+                authorObjects.push(authorObj);
             } else {
-                authorObjects.push({ 
+                const authorObj = { 
                     name: data.author.name || null, 
                     email: data.author.email || null,
                     isMaintainer: false
-                });
+                };
+                if (githubUsername) {
+                    authorObj.metadata = { github: githubUsername };
+                }
+                authorObjects.push(authorObj);
             }
         }
         
@@ -1186,127 +1544,240 @@ class AuthorService {
     }
     
     /**
-     * Deduplicate authors by email (primary key) and similar names (fallback)
+     * Merge author metadata, preserving ALL profile information from both sources
+     * This ensures that when authors are merged (same email/GitHub), all ecosystem-specific
+     * profile information (npm_username, pypi_username, rubygems_username, etc.) is preserved
+     * @param {Object} metadata1 - First author's metadata
+     * @param {Object} metadata2 - Second author's metadata
+     * @returns {Object} Merged metadata with all profile fields preserved
+     */
+    mergeAuthorMetadata(metadata1, metadata2) {
+        if (!metadata1 && !metadata2) return null;
+        if (!metadata1) return metadata2;
+        if (!metadata2) return metadata1;
+        
+        // Merge both metadata objects, preserving all keys
+        // Profile fields that should be preserved: npm_username, pypi_username, rubygems_username, github, location, company, etc.
+        const merged = { ...metadata1, ...metadata2 };
+        
+        // For fields that might have different values, prefer non-null values
+        // But for profile usernames, they should be different keys per ecosystem, so both will be preserved
+        
+        return merged;
+    }
+
+    /**
+     * Deduplicate authors by email OR GitHub username (primary keys) and similar names (fallback)
      * Prefer full names over usernames, and names over emails
+     * Consolidation signals: email OR GitHub username (same person if either matches)
+     * IMPORTANT: When merging, ALL profile information is preserved (npm, PyPI, RubyGems, GitHub, etc.)
      */
     deduplicateAuthorsByEmail(authorObjects) {
         if (authorObjects.length === 0) return [];
         
-        // Step 1: Group by email (most reliable deduplication)
-        const emailMap = new Map();
-        const noEmailAuthors = [];
+        // Step 1: Group by email OR GitHub username (most reliable deduplication)
+        // Use email as primary key, but also track GitHub username for cross-referencing
+        const emailMap = new Map(); // email -> author
+        const githubMap = new Map(); // github username -> author (for cross-reference)
+        const noEmailNoGithubAuthors = [];
         
         authorObjects.forEach(author => {
-            if (author.email) {
-                const existing = emailMap.get(author.email);
+            const email = author.email;
+            const github = author.metadata?.github;
+            
+            // Check if author has email
+            if (email) {
+                const existing = emailMap.get(email);
                 if (!existing) {
-                    emailMap.set(author.email, author);
+                    emailMap.set(email, author);
+                    // Also track by GitHub if available
+                    if (github) {
+                        githubMap.set(github, author);
+                    }
                 } else {
-                    // Same email - prefer maintainer over author, then prefer longer name
+                    // Same email - merge (prefer maintainer, longer name, more complete metadata)
+                    // IMPORTANT: Preserve ALL profile information from both authors
                     const preferNew = author.isMaintainer || 
                         (!existing.isMaintainer && !author.isMaintainer && 
                          author.name && (!existing.name || author.name.length > existing.name.length));
                     
+                    // Merge metadata: preserve ALL profile fields (npm_username, pypi_username, rubygems_username, github, etc.)
+                    // Spread both metadata objects to ensure all profile information is preserved
+                    const mergedMetadata = this.mergeAuthorMetadata(existing.metadata, author.metadata);
+                    
                     if (preferNew) {
-                        // Keep maintainer flag if either is maintainer, prefer longer name
-                        // But preserve npm_username from maintainer if available
-                        const mergedMetadata = { ...existing.metadata, ...author.metadata };
-                        emailMap.set(author.email, { 
+                        const merged = { 
                             name: author.name || existing.name, 
                             email: author.email,
                             isMaintainer: author.isMaintainer || existing.isMaintainer || false,
                             metadata: Object.keys(mergedMetadata).length > 0 ? mergedMetadata : null
-                        });
+                        };
+                        emailMap.set(email, merged);
+                        if (github || merged.metadata?.github) {
+                            githubMap.set(github || merged.metadata.github, merged);
+                        }
                     } else {
-                        // Keep existing but preserve maintainer flag and npm username
-                        if (author.isMaintainer && !existing.isMaintainer) {
-                            const mergedMetadata = { ...existing.metadata, ...author.metadata };
-                            emailMap.set(author.email, {
-                                ...existing,
-                                isMaintainer: true,
-                                metadata: Object.keys(mergedMetadata).length > 0 ? mergedMetadata : existing.metadata
-                            });
-                        } else if (author.metadata?.npm_username && !existing.metadata?.npm_username) {
-                            // Preserve npm username even if not preferring new author
-                            const mergedMetadata = { ...existing.metadata, ...author.metadata };
-                            emailMap.set(author.email, {
-                                ...existing,
-                                metadata: mergedMetadata
-                            });
+                        // Merge metadata into existing
+                        const merged = {
+                            ...existing,
+                            isMaintainer: author.isMaintainer || existing.isMaintainer || false,
+                            metadata: Object.keys(mergedMetadata).length > 0 ? mergedMetadata : existing.metadata
+                        };
+                        emailMap.set(email, merged);
+                        if (github || merged.metadata?.github) {
+                            githubMap.set(github || merged.metadata.github, merged);
                         }
                     }
                 }
-            } else if (author.name) {
-                noEmailAuthors.push(author);
+            } 
+            // Check if author has GitHub username (but no email)
+            else if (github) {
+                const existingByGithub = githubMap.get(github);
+                if (!existingByGithub) {
+                    // Check if there's an existing author with same GitHub in emailMap
+                    let foundInEmailMap = false;
+                    for (const [existingEmail, existingAuthor] of emailMap.entries()) {
+                        if (existingAuthor.metadata?.github === github) {
+                            // Found existing author with same GitHub - merge
+                            // IMPORTANT: Preserve ALL profile information from both authors
+                            const mergedMetadata = this.mergeAuthorMetadata(existingAuthor.metadata, author.metadata);
+                            const merged = {
+                                ...existingAuthor,
+                                isMaintainer: author.isMaintainer || existingAuthor.isMaintainer || false,
+                                metadata: Object.keys(mergedMetadata).length > 0 ? mergedMetadata : existingAuthor.metadata
+                            };
+                            emailMap.set(existingEmail, merged);
+                            githubMap.set(github, merged);
+                            foundInEmailMap = true;
+                            break;
+                        }
+                    }
+                    if (!foundInEmailMap) {
+                        githubMap.set(github, author);
+                    }
+                } else {
+                    // Same GitHub username - merge
+                    // IMPORTANT: Preserve ALL profile information from both authors
+                    const preferNew = author.isMaintainer || 
+                        (!existingByGithub.isMaintainer && !author.isMaintainer && 
+                         author.name && (!existingByGithub.name || author.name.length > existingByGithub.name.length));
+                    
+                    // Merge metadata: preserve ALL profile fields
+                    const mergedMetadata = this.mergeAuthorMetadata(existingByGithub.metadata, author.metadata);
+                    
+                    if (preferNew) {
+                        const merged = {
+                            name: author.name || existingByGithub.name,
+                            email: existingByGithub.email || null,
+                            isMaintainer: author.isMaintainer || existingByGithub.isMaintainer || false,
+                            metadata: Object.keys(mergedMetadata).length > 0 ? mergedMetadata : null
+                        };
+                        githubMap.set(github, merged);
+                        // Update emailMap if existing had email
+                        if (existingByGithub.email) {
+                            emailMap.set(existingByGithub.email, merged);
+                        }
+                    } else {
+                        const merged = {
+                            ...existingByGithub,
+                            isMaintainer: author.isMaintainer || existingByGithub.isMaintainer || false,
+                            metadata: Object.keys(mergedMetadata).length > 0 ? mergedMetadata : existingByGithub.metadata
+                        };
+                        githubMap.set(github, merged);
+                        if (existingByGithub.email) {
+                            emailMap.set(existingByGithub.email, merged);
+                        }
+                    }
+                }
+            }
+            // No email, no GitHub - add to noEmailNoGithubAuthors for name-based deduplication
+            else if (author.name) {
+                noEmailNoGithubAuthors.push(author);
             }
         });
         
-        // Step 2: Deduplicate authors without emails by similar names
-        const mergedNoEmail = this.deduplicateSimilarNames(noEmailAuthors);
+        // Step 2: Combine all authors from emailMap and githubMap (avoid duplicates)
+        // Authors in emailMap are primary, githubMap may have additional authors without emails
+        const allDeduplicatedAuthors = new Map(); // Use author key to avoid duplicates
         
-        // Step 3: Cross-check noEmailAuthors against emailAuthors for similar names
-        // If a no-email author matches an email author, upgrade the email author's name if better
-        const emailAuthors = Array.from(emailMap.values());
-        const finalAuthors = [];
-        const usedNoEmailIndices = new Set();
+        // Add all authors from emailMap (these have emails)
+        Array.from(emailMap.values()).forEach(author => {
+            const key = author.email || author.metadata?.github || author.name;
+            if (key) {
+                allDeduplicatedAuthors.set(key, author);
+            }
+        });
         
-        emailAuthors.forEach(emailAuthor => {
-            let bestName = emailAuthor.name;
-            let bestEmail = emailAuthor.email;
-            let bestMetadata = emailAuthor.metadata || null;
-            let isMaintainer = emailAuthor.isMaintainer || false;
+        // Add authors from githubMap that aren't already in emailMap
+        Array.from(githubMap.values()).forEach(author => {
+            const key = author.email || author.metadata?.github || author.name;
+            if (key && !allDeduplicatedAuthors.has(key)) {
+                allDeduplicatedAuthors.set(key, author);
+            }
+        });
+        
+        // Step 3: Deduplicate authors without emails/GitHub by similar names
+        const mergedNoEmailNoGithub = this.deduplicateSimilarNames(noEmailNoGithubAuthors);
+        
+        // Step 4: Cross-check noEmailNoGithubAuthors against deduplicated authors for similar names
+        // If a no-email/no-github author matches an existing author, merge them
+        const finalAuthors = Array.from(allDeduplicatedAuthors.values());
+        const usedNoEmailNoGithubIndices = new Set();
+        
+        finalAuthors.forEach((existingAuthor, idx) => {
+            let bestName = existingAuthor.name;
+            let bestEmail = existingAuthor.email;
+            let bestMetadata = existingAuthor.metadata || {};
+            let isMaintainer = existingAuthor.isMaintainer || false;
             
-            // Check if any no-email author is similar
-            mergedNoEmail.forEach((noEmailAuthor, idx) => {
-                if (usedNoEmailIndices.has(idx)) return;
+            // Check if any no-email/no-github author is similar
+            mergedNoEmailNoGithub.forEach((noEmailNoGithubAuthor, noIdx) => {
+                if (usedNoEmailNoGithubIndices.has(noIdx)) return;
                 
-                if (noEmailAuthor.name && emailAuthor.name && 
-                    this.areSimilarAuthors(noEmailAuthor.name, emailAuthor.name)) {
+                if (noEmailNoGithubAuthor.name && existingAuthor.name && 
+                    this.areSimilarAuthors(noEmailNoGithubAuthor.name, existingAuthor.name)) {
                     // Prefer maintainer over author, then prefer longer/fuller name
-                    if (noEmailAuthor.isMaintainer && !isMaintainer) {
-                        bestName = noEmailAuthor.name;
+                    if (noEmailNoGithubAuthor.isMaintainer && !isMaintainer) {
+                        bestName = noEmailNoGithubAuthor.name;
                         isMaintainer = true;
-                    } else if (!noEmailAuthor.isMaintainer && !isMaintainer && noEmailAuthor.name.length > bestName.length) {
+                    } else if (!noEmailNoGithubAuthor.isMaintainer && !isMaintainer && noEmailNoGithubAuthor.name.length > bestName.length) {
                         // Only prefer longer name if neither is maintainer
-                        bestName = noEmailAuthor.name;
+                        bestName = noEmailNoGithubAuthor.name;
                     }
-                    // Preserve metadata from either source (merge both, prefer maintainer's npm_username)
-                    if (noEmailAuthor.metadata) {
-                        bestMetadata = { ...bestMetadata, ...noEmailAuthor.metadata };
+                    // Preserve metadata from either source (merge both)
+                    // IMPORTANT: Preserve ALL profile information
+                    if (noEmailNoGithubAuthor.metadata) {
+                        bestMetadata = this.mergeAuthorMetadata(bestMetadata, noEmailNoGithubAuthor.metadata);
                     }
-                    // Preserve npm_username from maintainer even if we prefer display name
-                    if (emailAuthor.metadata?.npm_username) {
-                        bestMetadata = { ...bestMetadata, npm_username: emailAuthor.metadata.npm_username };
-                    }
-                    if (noEmailAuthor.metadata?.npm_username) {
-                        bestMetadata = { ...bestMetadata, npm_username: noEmailAuthor.metadata.npm_username };
-                    }
-                    usedNoEmailIndices.add(idx);
+                    usedNoEmailNoGithubIndices.add(noIdx);
                 }
             });
             
-            const authorObj = { name: bestName, email: bestEmail };
-            if (bestMetadata) {
-                authorObj.metadata = bestMetadata;
+            // Update the author in finalAuthors array
+            if (bestName !== existingAuthor.name || bestEmail !== existingAuthor.email || 
+                JSON.stringify(bestMetadata) !== JSON.stringify(existingAuthor.metadata || {}) || 
+                isMaintainer !== existingAuthor.isMaintainer) {
+                finalAuthors[idx] = {
+                    name: bestName,
+                    email: bestEmail,
+                    metadata: Object.keys(bestMetadata).length > 0 ? bestMetadata : null,
+                    isMaintainer: isMaintainer
+                };
             }
-            // Only set isMaintainer flag if true (keep it clean)
-            if (isMaintainer) {
-                authorObj.isMaintainer = true;
-            }
-            finalAuthors.push(authorObj);
         });
         
-        // Step 4: Add remaining no-email authors that weren't matched
-        mergedNoEmail.forEach((author, idx) => {
-            if (!usedNoEmailIndices.has(idx)) {
+        // Step 5: Add remaining no-email/no-github authors that weren't matched
+        mergedNoEmailNoGithub.forEach((author, idx) => {
+            if (!usedNoEmailNoGithubIndices.has(idx)) {
                 finalAuthors.push(author);
             }
         });
         
-        // Step 5: Return objects (preserve metadata), deduplicate by name/email
+        // Step 6: Return objects (preserve metadata), deduplicate by name/email/GitHub
         const seen = new Set();
         return finalAuthors.filter(a => {
-            const key = a.name || a.email;
+            // Use email, GitHub username, or name as deduplication key
+            const key = a.email || a.metadata?.github || a.name;
             if (!key || seen.has(key)) return false;
             seen.add(key);
             return true;
@@ -1428,6 +1899,110 @@ class AuthorService {
         
         // Multiple parts - return as separate authors
         return parts.map(p => p.trim()).filter(p => p.length > 0);
+    }
+
+
+    /**
+     * Fetch top contributors from GitHub repository
+     * @param {string} owner - Repository owner
+     * @param {string} repo - Repository name
+     * @param {boolean} fetchProfiles - Whether to fetch full user profiles (default: true)
+     * @returns {Promise<Array>} - Array of contributor objects
+     */
+    async fetchContributorsFromGitHub(owner, repo, fetchProfiles = true) {
+        if (!window.GitHubClient) {
+            return [];
+        }
+
+        try {
+            const githubClient = new window.GitHubClient();
+            const token = sessionStorage.getItem('github_token') || null;
+            if (token) {
+                githubClient.setToken(token);
+            }
+            
+            // Fetch full profiles by default (can be set to false to save API calls if needed)
+            const contributors = await githubClient.getContributors(owner, repo, 10, fetchProfiles);
+            return contributors;
+        } catch (error) {
+            console.warn(`Failed to fetch GitHub contributors for ${owner}/${repo}:`, error);
+            return [];
+        }
+    }
+
+    /**
+     * Correlate authors with GitHub contributors (tentative correlation)
+     * If same GitHub user ID exists, consider them the same person
+     * Mark as tentative correlation (not confirmed)
+     * 
+     * @param {Array} authors - Existing authors
+     * @param {Array} contributors - GitHub contributors
+     * @returns {Array} - Authors with tentative correlations added
+     */
+    correlateWithContributors(authors, contributors) {
+        if (!contributors || contributors.length === 0) {
+            return authors;
+        }
+
+        // Build map of existing GitHub usernames
+        const existingGitHubUsers = new Set();
+        authors.forEach(author => {
+            const github = typeof author === 'string' ? null : (author.metadata?.github);
+            if (github) {
+                existingGitHubUsers.add(github.toLowerCase());
+            }
+        });
+
+        // Add contributors that aren't already in authors list
+        const newAuthors = [];
+        contributors.forEach(contributor => {
+            const contributorLogin = contributor.login?.toLowerCase();
+            if (contributorLogin && !existingGitHubUsers.has(contributorLogin)) {
+                // Check if this contributor matches any existing author by GitHub username
+                let matched = false;
+                for (const author of authors) {
+                    const authorObj = typeof author === 'string' ? { name: author } : author;
+                    const authorGithub = authorObj.metadata?.github?.toLowerCase();
+                    
+                    // If same GitHub user ID, mark as tentative correlation
+                    if (authorGithub === contributorLogin) {
+                        matched = true;
+                        // Update author with contributor info (location, etc.)
+                        if (!authorObj.metadata) {
+                            authorObj.metadata = {};
+                        }
+                        authorObj.metadata.tentative_correlation = true;
+                        authorObj.metadata.correlation_source = 'github_contributor';
+                        if (contributor.location && !authorObj.metadata.location) {
+                            authorObj.metadata.location = contributor.location;
+                        }
+                        if (contributor.company && !authorObj.metadata.company) {
+                            authorObj.metadata.company = contributor.company;
+                        }
+                        break;
+                    }
+                }
+                
+                // If not matched, add as new author with tentative flag
+                if (!matched) {
+                    newAuthors.push({
+                        name: contributor.name || contributor.login,
+                        email: null,
+                        metadata: {
+                            github: contributor.login,
+                            location: contributor.location || null,
+                            company: contributor.company || null,
+                            tentative_correlation: true,
+                            correlation_source: 'github_contributor',
+                            contributions: contributor.contributions
+                        },
+                        isMaintainer: false
+                    });
+                }
+            }
+        });
+
+        return [...authors, ...newAuthors];
     }
 
     /**
@@ -1675,14 +2250,32 @@ class AuthorService {
     extractCargoAuthors(data) {
         const authorObjects = [];
         
+        // Extract GitHub username from repository URL if available
+        let githubUsername = null;
+        if (data.crate && data.crate.repository) {
+            const githubMatch = data.crate.repository.match(/github\.com[\/:]([^\/]+)/i);
+            if (githubMatch) {
+                githubUsername = githubMatch[1];
+            }
+        }
+        
         // Try to get from owners/maintainers if available
         if (data.users && Array.isArray(data.users)) {
             data.users.forEach(user => {
                 if (user) {
-                    authorObjects.push({
+                    const authorObj = {
                         name: user.name || user.login || null,
                         email: user.login || null  // Use login as pseudo-email for dedup
-                    });
+                    };
+                    
+                    // Add GitHub username if available
+                    if (githubUsername) {
+                        authorObj.metadata = { github: githubUsername, cargo_username: user.login };
+                    } else if (user.login) {
+                        authorObj.metadata = { cargo_username: user.login };
+                    }
+                    
+                    authorObjects.push(authorObj);
                 }
             });
         }
@@ -1691,7 +2284,11 @@ class AuthorService {
         if (data.crate && data.crate.authors && Array.isArray(data.crate.authors)) {
             data.crate.authors.forEach(author => {
                 if (author) {
-                    authorObjects.push({ name: author, email: null });
+                    const authorObj = { name: author, email: null };
+                    if (githubUsername) {
+                        authorObj.metadata = { github: githubUsername };
+                    }
+                    authorObjects.push(authorObj);
                 }
             });
         }
@@ -1701,7 +2298,11 @@ class AuthorService {
             if (latestVersion.authors && Array.isArray(latestVersion.authors)) {
                 latestVersion.authors.forEach(author => {
                     if (author) {
-                        authorObjects.push({ name: author, email: null });
+                        const authorObj = { name: author, email: null };
+                        if (githubUsername) {
+                            authorObj.metadata = { github: githubUsername };
+                        }
+                        authorObjects.push(authorObj);
                     }
                 });
             }
@@ -1719,13 +2320,32 @@ class AuthorService {
     extractGemAuthors(data) {
         const authorObjects = [];
         
+        // Extract GitHub username from source_code_uri or homepage_uri if available
+        // CRITICAL: Do NOT associate GitHub organizations with individual authors
+        // The repository owner (e.g., "ruby" org) is NOT the same as the package author
+        let githubUsername = null;
+        const repoUrl = data.source_code_uri || data.homepage_uri;
+        if (repoUrl) {
+            const githubMatch = repoUrl.match(/github\.com[\/:]([^\/]+)/i);
+            if (githubMatch) {
+                githubUsername = githubMatch[1];
+                // NOTE: We will check if this is an organization later when fetching GitHub profile
+                // For now, we extract it but won't blindly associate it with authors
+                // The GitHub profile lookup will verify if it's a User or Organization
+            }
+        }
+        
         if (data.authors) {
             if (typeof data.authors === 'string') {
                 // RubyGems may have comma-separated authors: "Author1, Author2, Author3"
                 const authorNames = this.splitCommaSeparatedAuthors(data.authors);
                 authorNames.forEach(authorName => {
                     if (authorName && authorName.trim()) {
-                        authorObjects.push({ name: authorName.trim(), email: null });
+                        const authorObj = { name: authorName.trim(), email: null };
+                        // DO NOT associate repository owner (which might be an org) with individual authors
+                        // GitHub username will be checked separately to verify it's a User, not Organization
+                        // Only associate if we can verify it's a user (done in fetchAuthorLocation)
+                        authorObjects.push(authorObj);
                     }
                 });
             } else if (Array.isArray(data.authors)) {
@@ -1737,11 +2357,15 @@ class AuthorService {
                             const authorNames = this.splitCommaSeparatedAuthors(author);
                             authorNames.forEach(authorName => {
                                 if (authorName && authorName.trim()) {
-                                    authorObjects.push({ name: authorName.trim(), email: null });
+                                    const authorObj = { name: authorName.trim(), email: null };
+                                    // DO NOT associate repository owner with individual authors
+                                    authorObjects.push(authorObj);
                                 }
                             });
                         } else {
-                            authorObjects.push({ name: author, email: null });
+                            const authorObj = { name: author, email: null };
+                            // DO NOT associate repository owner with individual authors
+                            authorObjects.push(authorObj);
                         }
                     }
                 });
@@ -1780,9 +2404,20 @@ class AuthorService {
                         metadata.login = authorLogin;
                     }
                     
-                    // Store html_url if available (e.g., npm profile URL)
+                    // Store html_url if available (e.g., npm profile URL, RubyGems profile)
                     if (m.html_url) {
                         metadata.html_url = m.html_url;
+                        // CRITICAL: Only extract GitHub username if html_url actually points to GitHub
+                        // For RubyGems, html_url points to RubyGems profiles (rubygems.org/profiles/...)
+                        // Do NOT assume maintainer login = GitHub username without correlation
+                        const githubMatch = m.html_url.match(/github\.com\/([^\/]+)/i);
+                        if (githubMatch) {
+                            // Only add GitHub username if html_url is actually a GitHub URL
+                            metadata.github = githubMatch[1];
+                        }
+                        // NOTE: For RubyGems, html_url is like "https://rubygems.org/profiles/hsbt"
+                        // We should NOT assume "hsbt" is a GitHub username without verification
+                        // GitHub username should only be added if there's explicit correlation
                     }
                     
                     authorObjects.push({
@@ -1808,6 +2443,13 @@ class AuthorService {
                     }
                     if (o.html_url) {
                         metadata.html_url = o.html_url;
+                        // CRITICAL: Only extract GitHub username if html_url actually points to GitHub
+                        // Do NOT assume owner login = GitHub username without correlation
+                        const githubMatch = o.html_url.match(/github\.com\/([^\/]+)/i);
+                        if (githubMatch) {
+                            // Only add GitHub username if html_url is actually a GitHub URL
+                            metadata.github = githubMatch[1];
+                        }
                     }
                     
                     authorObjects.push({
@@ -1831,6 +2473,13 @@ class AuthorService {
                 }
                 if (data.author.html_url) {
                     metadata.html_url = data.author.html_url;
+                    // CRITICAL: Only extract GitHub username if html_url actually points to GitHub
+                    // Do NOT assume author login = GitHub username without correlation
+                    const githubMatch = data.author.html_url.match(/github\.com\/([^\/]+)/i);
+                    if (githubMatch) {
+                        // Only add GitHub username if html_url is actually a GitHub URL
+                        metadata.github = githubMatch[1];
+                    }
                 }
                 
                 authorObjects.push({

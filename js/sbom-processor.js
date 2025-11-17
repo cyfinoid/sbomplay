@@ -16,6 +16,9 @@ class SBOMProcessor {
         // Initialize quality processor
         this.qualityProcessor = window.SBOMQualityProcessor ? new window.SBOMQualityProcessor() : null;
         
+        // GitHub Actions analysis results
+        this.githubActionsAnalysis = null;
+        
         // Categorization mappings
         this.purlTypeMap = {
             'pypi': { type: 'code', language: 'Python', ecosystem: 'PyPI' },
@@ -182,81 +185,92 @@ class SBOMProcessor {
             }
             
             // Skip the main repository package (it's not a dependency)
+            // GitHub SBOM includes the repository itself as a package (e.g., "com.github.owner/repo")
+            // This is filtered out because it's not an external dependency
+            // This explains why GitHub SBOM may show N packages but we display N-1 dependencies
             if (pkg.name === `com.github.${owner}/${repo}` || pkg.name === `${owner}/${repo}`) {
-                console.log(`  ⏭️  Skipping main repository package: ${pkg.name}`);
+                console.log(`  ⏭️  Skipping main repository package: ${pkg.name} (not an external dependency)`);
+                skippedPackages++;
                 return;
             }
             
-            if (pkg.name && version) {
-                const depKey = `${pkg.name}@${version}`;
-                repoData.dependencies.add(depKey);
-                processedPackages++;
-                
-                // Check if this is a direct dependency (directly from main package)
-                const isDirect = repoData.relationships.some(rel => 
-                    rel.to === pkg.SPDXID && rel.isDirectFromMain
-                );
-                if (isDirect) {
-                    repoData.directDependencies.add(depKey);
-                }
-                
-                // Categorize the dependency
-                const category = this.categorizeDependency(pkg);
-                repoData.languages.add(category.language);
-                
-                // Add to appropriate category
-                repoData.dependencyCategories[category.type].add(depKey);
-                
-                // Extract GitHub Actions owner/repo if this is a GitHub Action
-                let githubActionInfo = null;
-                if (category.ecosystem === 'GitHub Actions' || category.isWorkflow) {
-                    githubActionInfo = this.parseGitHubAction(pkg.name);
-                }
-                
-                // Track global dependency usage
-                if (!this.dependencies.has(depKey)) {
-                    this.dependencies.set(depKey, {
-                        name: pkg.name,
-                        version: version,
-                        repositories: new Set(),
-                        count: 0,
-                        category: category,
-                        languages: new Set([category.language]),
-                        originalPackage: pkg,  // Store original package data for PURL extraction
-                        directIn: new Set(),  // Track which repos use this as direct dependency
-                        transitiveIn: new Set(),  // Track which repos use this as transitive dependency
-                        githubActionInfo: githubActionInfo  // Store parsed GitHub Action info
-                    });
-                }
-                
-                const dep = this.dependencies.get(depKey);
-                dep.repositories.add(repoKey);
-                dep.count++;
-                dep.languages.add(category.language);
-                
-                // Update GitHub Action info if not already set
-                if (githubActionInfo && !dep.githubActionInfo) {
-                    dep.githubActionInfo = githubActionInfo;
-                }
-                
-                // Track if it's direct or transitive in this repo
-                if (isDirect) {
-                    dep.directIn.add(repoKey);
-                } else {
-                    dep.transitiveIn.add(repoKey);
-                }
-                
-                // Log first few packages for debugging
-                if (index < 3) {
-                    console.log(`  📦 Package ${index + 1}: ${pkg.name}@${version} (${category.type}/${category.language})`);
-                }
-            } else {
+            // Skip packages without names (cannot identify dependency)
+            if (!pkg.name) {
                 skippedPackages++;
-                if (!pkg.name) {
-                    console.log(`⚠️  Package missing name in ${owner}/${repo}`);
-                } else if (!version) {
-                    console.log(`⚠️  Package missing version in ${owner}/${repo}: ${pkg.name}`);
-                }
+                console.log(`⚠️  Package missing name in ${owner}/${repo}`);
+                return;
+            }
+            
+            // Use "version unknown" as placeholder when version is missing
+            // This ensures dependencies without versions are still tracked and displayed
+            const displayVersion = version || 'version unknown';
+            const depKey = `${pkg.name}@${displayVersion}`;
+            repoData.dependencies.add(depKey);
+            processedPackages++;
+            
+            // Log warning if version is missing
+            if (!version) {
+                console.log(`⚠️  Package missing version in ${owner}/${repo}: ${pkg.name} (using "version unknown")`);
+            }
+            
+            // Check if this is a direct dependency (directly from main package)
+            const isDirect = repoData.relationships.some(rel => 
+                rel.to === pkg.SPDXID && rel.isDirectFromMain
+            );
+            if (isDirect) {
+                repoData.directDependencies.add(depKey);
+            }
+            
+            // Categorize the dependency
+            const category = this.categorizeDependency(pkg);
+            repoData.languages.add(category.language);
+            
+            // Add to appropriate category
+            repoData.dependencyCategories[category.type].add(depKey);
+            
+            // Extract GitHub Actions owner/repo if this is a GitHub Action
+            let githubActionInfo = null;
+            if (category.ecosystem === 'GitHub Actions' || category.isWorkflow) {
+                githubActionInfo = this.parseGitHubAction(pkg.name);
+            }
+            
+            // Track global dependency usage
+            if (!this.dependencies.has(depKey)) {
+                this.dependencies.set(depKey, {
+                    name: pkg.name,
+                    version: displayVersion,
+                    repositories: new Set(),
+                    count: 0,
+                    category: category,
+                    languages: new Set([category.language]),
+                    originalPackage: pkg,  // Store original package data for PURL extraction
+                    directIn: new Set(),  // Track which repos use this as direct dependency
+                    transitiveIn: new Set(),  // Track which repos use this as transitive dependency
+                    githubActionInfo: githubActionInfo,  // Store parsed GitHub Action info
+                    versionUnknown: !version  // Flag to indicate version was missing
+                });
+            }
+            
+            const dep = this.dependencies.get(depKey);
+            dep.repositories.add(repoKey);
+            dep.count++;
+            dep.languages.add(category.language);
+            
+            // Update GitHub Action info if not already set
+            if (githubActionInfo && !dep.githubActionInfo) {
+                dep.githubActionInfo = githubActionInfo;
+            }
+            
+            // Track if it's direct or transitive in this repo
+            if (isDirect) {
+                dep.directIn.add(repoKey);
+            } else {
+                dep.transitiveIn.add(repoKey);
+            }
+            
+            // Log first few packages for debugging
+            if (index < 3) {
+                console.log(`  📦 Package ${index + 1}: ${pkg.name}@${displayVersion} (${category.type}/${category.language})`);
             }
         });
 
@@ -657,6 +671,8 @@ class SBOMProcessor {
         const allRepos = Array.from(this.repositories.values()).map(repo => ({
             name: repo.name,
             owner: repo.owner,
+            license: repo.license || null,  // Include repository license
+            archived: repo.archived || false,  // Include archived status
             totalDependencies: repo.totalDependencies,
             dependencies: Array.from(repo.dependencies),
             directDependencies: Array.from(repo.directDependencies || []),  // Direct dependencies
@@ -696,8 +712,91 @@ class SBOMProcessor {
             languageStats: this.getLanguageStats(),
             vulnerabilityAnalysis: this.vulnerabilityAnalysis || null,
             licenseAnalysis: this.licenseAnalysis || null,
-            qualityAnalysis: qualityAnalysis  // Add aggregate quality analysis
+            qualityAnalysis: qualityAnalysis,  // Add aggregate quality analysis
+            githubActionsAnalysis: this.githubActionsAnalysis || null  // Add GitHub Actions analysis
         };
+    }
+
+    /**
+     * Analyze GitHub Actions for all repositories
+     * @param {GitHubClient} githubClient - GitHub client instance
+     * @param {AuthorService} authorService - Author service instance
+     * @param {Function} onProgress - Optional progress callback
+     * @returns {Promise<Object>} GitHub Actions analysis results
+     */
+    async analyzeGitHubActions(githubClient, authorService, onProgress = null) {
+        if (!window.GitHubActionsAnalyzer) {
+            console.warn('⚠️ GitHub Actions Analyzer not available');
+            return null;
+        }
+
+        try {
+            console.log('🔍 SBOM Processor: Starting GitHub Actions analysis...');
+            
+            const analyzer = new window.GitHubActionsAnalyzer(githubClient, authorService);
+            const allResults = {
+                repositories: [],
+                totalActions: 0,
+                uniqueActions: 0,
+                allFindings: [],
+                findingsByType: new Map()
+            };
+
+            // Analyze each repository
+            for (const [repoKey, repoData] of this.repositories) {
+                const [owner, repo] = repoKey.split('/');
+                
+                if (onProgress) {
+                    onProgress({ 
+                        phase: 'github-actions-analysis',
+                        message: `Analyzing GitHub Actions for ${repoKey}...`,
+                        repository: repoKey
+                    });
+                }
+
+                try {
+                    const result = await analyzer.analyzeRepository(owner, repo, 'HEAD', onProgress);
+                    
+                    if (result && result.findings) {
+                        allResults.repositories.push({
+                            repository: repoKey,
+                            ...result
+                        });
+                        allResults.totalActions += result.totalActions || 0;
+                        allResults.uniqueActions += result.uniqueActions || 0;
+                        allResults.allFindings.push(...result.findings);
+                        
+                        // Aggregate findings by type
+                        if (result.findingsByType) {
+                            Object.entries(result.findingsByType).forEach(([ruleId, count]) => {
+                                const current = allResults.findingsByType.get(ruleId) || 0;
+                                allResults.findingsByType.set(ruleId, current + count);
+                            });
+                        }
+                    }
+                } catch (error) {
+                    console.warn(`Failed to analyze GitHub Actions for ${repoKey}:`, error);
+                }
+            }
+
+            // Convert Map to object for storage
+            const findingsByTypeObj = Object.fromEntries(allResults.findingsByType);
+
+            this.githubActionsAnalysis = {
+                totalActions: allResults.totalActions,
+                uniqueActions: allResults.uniqueActions,
+                repositories: allResults.repositories,
+                findings: allResults.allFindings,
+                findingsByType: findingsByTypeObj,
+                timestamp: new Date().toISOString()
+            };
+
+            console.log(`✅ SBOM Processor: GitHub Actions analysis complete: ${allResults.allFindings.length} findings`);
+            return this.githubActionsAnalysis;
+        } catch (error) {
+            console.error('❌ SBOM Processor: GitHub Actions analysis failed:', error);
+            return null;
+        }
     }
 
     /**
@@ -710,6 +809,7 @@ class SBOMProcessor {
         this.processedRepos = 0;
         this.successfulRepos = 0;
         this.failedRepos = 0;
+        this.githubActionsAnalysis = null;
     }
 
     /**

@@ -6,9 +6,9 @@
     <title>SBOM Play - Dependencies</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
-    <link href="css/style.css?v=0.0.2" rel="stylesheet">
-    <link href="css/themes.css?v=0.0.2" rel="stylesheet">
-    <script src="js/theme-manager.js?v=0.0.2"></script>
+    <link href="css/style.css?v=0.0.3" rel="stylesheet">
+    <link href="css/themes.css?v=0.0.3" rel="stylesheet">
+    <script src="js/theme-manager.js?v=0.0.3"></script>
 </head>
 <body>
     <nav class="navbar navbar-expand-lg navbar-dark bg-primary">
@@ -20,14 +20,12 @@
                 <a class="nav-link" href="index.html">Home</a>
                 <a class="nav-link" href="licenses.html">License</a>
                 <a class="nav-link" href="vuln.html">Vulns</a>
-                <a class="nav-link" href="quality.html">Quality</a>
+                <a class="nav-link" href="audit.html">Audit</a>
                 <a class="nav-link active" href="deps.html">Deps</a>
                 <a class="nav-link" href="repos.html">Repos</a>
                 <a class="nav-link" href="authors.html">Authors</a>
                 <a class="nav-link" href="about.html">About</a>
-                <a class="nav-link" href="settings.html">
-                    <i class="fas fa-cog"></i>
-                </a>
+                <a class="nav-link" href="settings.html">Settings</a>
                 <button class="btn btn-outline-secondary btn-sm ms-2 theme-toggle" title="Toggle theme">
                     <i class="fas fa-sun"></i>
                 </button>
@@ -96,18 +94,51 @@
                     </div>
                 </div>
                 <div class="row g-3 mt-2">
+                    <div class="col-md-3">
+                        <label class="form-label">Page Size</label>
+                        <select class="form-select" id="pageSizeSelect">
+                            <option value="10">10 per page</option>
+                            <option value="25" selected>25 per page</option>
+                            <option value="50">50 per page</option>
+                            <option value="100">100 per page</option>
+                            <option value="250">250 per page</option>
+                            <option value="500">500 per page</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="row g-3 mt-2">
                     <div class="col-12">
-                        <div class="form-check">
-                            <input class="form-check-input" type="checkbox" id="vulnerableFilter" value="vulnerable">
-                            <label class="form-check-label" for="vulnerableFilter">
-                                <i class="fas fa-shield-alt me-1 text-warning"></i>Show only vulnerable dependencies
-                            </label>
-                        </div>
-                        <div class="form-check">
-                            <input class="form-check-input" type="checkbox" id="sponsorshipFilter" value="sponsorship">
-                            <label class="form-check-label" for="sponsorshipFilter">
-                                <i class="fas fa-heart me-1 text-danger"></i>Show only dependencies with sponsorship opportunities
-                            </label>
+                        <div class="d-flex flex-wrap align-items-center gap-3">
+                            <div class="form-check mb-0">
+                                <input class="form-check-input" type="checkbox" id="vulnerableFilter" value="vulnerable">
+                                <label class="form-check-label" for="vulnerableFilter">
+                                    <i class="fas fa-shield-alt me-1 text-warning"></i>Vulnerable
+                                </label>
+                            </div>
+                            <div class="form-check mb-0">
+                                <input class="form-check-input" type="checkbox" id="sponsorshipFilter" value="sponsorship">
+                                <label class="form-check-label" for="sponsorshipFilter">
+                                    <i class="fas fa-heart me-1 text-danger"></i>Sponsorship
+                                </label>
+                            </div>
+                            <div class="form-check mb-0">
+                                <input class="form-check-input" type="checkbox" id="majorDriftFilter" value="majorDrift">
+                                <label class="form-check-label" for="majorDriftFilter">
+                                    <i class="fas fa-arrow-up me-1 text-danger"></i>Major Drift
+                                </label>
+                            </div>
+                            <div class="form-check mb-0">
+                                <input class="form-check-input" type="checkbox" id="minorDriftFilter" value="minorDrift">
+                                <label class="form-check-label" for="minorDriftFilter">
+                                    <i class="fas fa-arrow-up me-1 text-warning"></i>Minor Drift
+                                </label>
+                            </div>
+                            <div class="form-check mb-0">
+                                <input class="form-check-input" type="checkbox" id="statusFilter" value="status">
+                                <label class="form-check-label" for="statusFilter">
+                                    <i class="fas fa-exclamation-triangle me-1 text-warning"></i>Unmaintained
+                                </label>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -157,11 +188,7 @@
                     <thead>
                         <tr>
                             <th class="sortable" data-sort="name">
-                                Package
-                                <i class="fas fa-sort sort-icon"></i>
-                            </th>
-                            <th class="sortable" data-sort="type">
-                                Type
+                                Dependency
                                 <i class="fas fa-sort sort-icon"></i>
                             </th>
                             <th class="sortable" data-sort="ecosystem">
@@ -169,24 +196,37 @@
                                 <i class="fas fa-sort sort-icon"></i>
                             </th>
                             <th class="sortable" data-sort="repoCount">
-                                Used In
+                                Repos
                                 <i class="fas fa-sort sort-icon"></i>
                             </th>
-                            <th class="text-center">Vulnerabilities</th>
+                            <th class="text-center">Vulns</th>
                             <th>License</th>
-                            <th class="text-center">Sponsorship</th>
-                            <th>Brought In By</th>
+                            <th class="text-center">Sponsor</th>
+                            <th>Parent</th>
                         </tr>
                     </thead>
                     <tbody id="tableBody">
                     </tbody>
                 </table>
             </div>
-            <div class="load-more-container d-none" id="loadMoreContainer">
-                <button class="btn btn-primary" id="loadMoreBtn">
-                    <i class="fas fa-chevron-down me-2"></i>Load More
-                </button>
-                <p class="text-muted mt-2 mb-0" id="loadMoreText"></p>
+            <div class="card-footer">
+                <div class="d-flex justify-content-between align-items-center">
+                    <div>
+                        <span class="text-muted" id="paginationInfo">Showing 0-0 of 0</span>
+                    </div>
+                    <div>
+                        <nav aria-label="Page navigation">
+                            <ul class="pagination pagination-sm mb-0" id="paginationControls">
+                                <li class="page-item disabled" id="prevPageBtn">
+                                    <a class="page-link" href="#" tabindex="-1">Previous</a>
+                                </li>
+                                <li class="page-item disabled" id="nextPageBtn">
+                                    <a class="page-link" href="#">Next</a>
+                                </li>
+                            </ul>
+                        </nav>
+                    </div>
+                </div>
             </div>
         </div>
 
@@ -246,16 +286,16 @@
     </div>
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
-    <script src="js/indexeddb-manager.js?v=0.0.2"></script>
-    <script src="js/utils.js?v=0.0.2"></script>
-    <script src="js/version-utils.js?v=0.0.2"></script>
-    <script src="js/version-drift-analyzer.js?v=0.0.2"></script>
-    <script src="js/github-client.js?v=0.0.2"></script>
-    <script src="js/cache-manager.js?v=0.0.2"></script>
-    <script src="js/storage-manager.js?v=0.0.2"></script>
-    <script src="js/license-processor.js?v=0.0.2"></script>
-    <script src="js/osv-service.js?v=0.0.2"></script>
-    <script src="js/deps-page.js?v=0.0.2"></script>
+    <script src="js/indexeddb-manager.js?v=0.0.3"></script>
+    <script src="js/utils.js?v=0.0.3"></script>
+    <script src="js/version-utils.js?v=0.0.3"></script>
+    <script src="js/version-drift-analyzer.js?v=0.0.3"></script>
+    <script src="js/github-client.js?v=0.0.3"></script>
+    <script src="js/cache-manager.js?v=0.0.3"></script>
+    <script src="js/storage-manager.js?v=0.0.3"></script>
+    <script src="js/license-processor.js?v=0.0.3"></script>
+    <script src="js/osv-service.js?v=0.0.3"></script>
+    <script src="js/deps-page.js?v=0.0.3"></script>
     <script type="module">
         const storageManager = new StorageManager();
         await storageManager.init();
@@ -267,9 +307,8 @@
         
         let allDependencies = [];
         let filteredDependencies = [];
-        let displayedCount = 0;
-        const INITIAL_DISPLAY_COUNT = 25;
-        const LOAD_MORE_BATCH_SIZE = 25;
+        let currentPage = 1;
+        let pageSize = parseInt(localStorage.getItem('depsPageSize') || '25', 10);
         let currentData = null;
         let sortColumn = 'name';
         let sortDirection = 'asc';
@@ -278,6 +317,16 @@
         let searchFromURL = false; // Track if search came from URL parameter (exact match) vs user typing (fuzzy match)
         let searchPackageName = null; // Parsed package name from search parameter
         let searchPackageVersion = null; // Parsed package version from search parameter
+        
+        // Sanitize search input to prevent injection attacks
+        function sanitizeSearchInput(input) {
+            if (!input || typeof input !== 'string') return '';
+            // Remove any potentially dangerous characters, limit length
+            return input
+                .trim()
+                .substring(0, 200) // Limit length
+                .replace(/[<>\"'&]/g, ''); // Remove HTML/script injection chars
+        }
         
         // Helper function to parse package name@version from search term
         // Handles @scope/package names by ignoring leading @ for splitting
@@ -411,44 +460,87 @@
         await loadAnalysesList();
         
         async function loadAnalysesList() {
-            const storageInfo = await storageManager.getStorageInfo();
-            const selector = document.getElementById('analysisSelector');
-            const allEntries = [...storageInfo.organizations, ...storageInfo.repositories];
-            
-            if (allEntries.length === 0) {
-                document.getElementById('noDataMessage').classList.remove('d-none');
-                return;
-            }
-            
-            // Add "All Projects (Combined)" as the first option
-            const allOption = document.createElement('option');
-            allOption.value = '__ALL__';
-            const totalDeps = allEntries.reduce((sum, entry) => sum + (entry.dependencies || 0), 0);
-            allOption.textContent = `All Projects (Combined) (${totalDeps} deps)`;
-            selector.appendChild(allOption);
-            
-            // Add individual entries
-            allEntries.forEach(entry => {
-                const option = document.createElement('option');
-                option.value = entry.name;
-                option.textContent = `${entry.name} (${entry.dependencies} deps)`;
-                selector.appendChild(option);
-            });
-            
-            // Set default based on URL parameter or default to "All Projects (Combined)"
-            if (allEntries.length > 0) {
-                if (orgParam) {
-                    // Check if the org from URL parameter exists in the entries
-                    const orgExists = allEntries.some(entry => entry.name === orgParam);
-                    if (orgExists) {
-                        selector.value = orgParam;
+            try {
+                console.log('📋 Loading analyses list for deps page...');
+                
+                // Ensure storage manager is initialized
+                if (!storageManager.initialized) {
+                    await storageManager.init();
+                }
+                
+                const storageInfo = await storageManager.getStorageInfo();
+                console.log(`📋 Storage info retrieved: ${storageInfo.organizations.length} orgs, ${storageInfo.repositories.length} repos`);
+                
+                const selector = document.getElementById('analysisSelector');
+                if (!selector) {
+                    console.error('❌ Analysis selector not found');
+                    return;
+                }
+                
+                const allEntries = [...storageInfo.organizations, ...storageInfo.repositories];
+                console.log(`📋 Total entries to add: ${allEntries.length}`);
+                
+                selector.innerHTML = '';
+                
+                if (allEntries.length === 0) {
+                    console.warn('⚠️ No entries found in storage');
+                    const noDataMessage = document.getElementById('noDataMessage');
+                    if (noDataMessage) {
+                        noDataMessage.classList.remove('d-none');
+                    }
+                    selector.disabled = true;
+                    return;
+                }
+                
+                // Add "All Projects (Combined)" as the first option
+                const allOption = document.createElement('option');
+                allOption.value = '__ALL__';
+                const totalDeps = allEntries.reduce((sum, entry) => sum + (entry.dependencies || 0), 0);
+                allOption.textContent = `All Projects (Combined) (${totalDeps} deps)`;
+                selector.appendChild(allOption);
+                console.log(`📋 Added "All Projects (Combined)" option`);
+                
+                // Add individual entries
+                allEntries.forEach(entry => {
+                    const option = document.createElement('option');
+                    option.value = entry.name;
+                    const depCount = entry.dependencies || 0;
+                    option.textContent = `${entry.name} (${depCount} deps)`;
+                    selector.appendChild(option);
+                    console.log(`📋 Added option: ${entry.name} (${depCount} deps)`);
+                });
+                
+                // Set default based on URL parameter or default to "All Projects (Combined)"
+                if (allEntries.length > 0) {
+                    if (orgParam) {
+                        // Check if the org from URL parameter exists in the entries
+                        const orgExists = allEntries.some(entry => entry.name === orgParam);
+                        if (orgExists) {
+                            selector.value = orgParam;
+                            console.log(`📋 Set selector to URL parameter: ${orgParam}`);
+                        } else {
+                            selector.value = '__ALL__';
+                            console.log(`📋 URL parameter ${orgParam} not found, using "__ALL__"`);
+                        }
                     } else {
                         selector.value = '__ALL__';
+                        console.log(`📋 No URL parameter, using "__ALL__"`);
                     }
-                } else {
-                    selector.value = '__ALL__';
+                    selector.disabled = false;
+                    console.log(`✅ Analysis selector populated with ${allEntries.length} entries`);
+                    await loadAnalysis();
                 }
-                await loadAnalysis();
+            } catch (error) {
+                console.error('❌ Error loading analyses list:', error);
+                console.error('   Error details:', error.stack);
+                const selector = document.getElementById('analysisSelector');
+                if (selector) {
+                    selector.disabled = true;
+                }
+                const noDataMessage = document.getElementById('noDataMessage');
+                if (noDataMessage) {
+                    noDataMessage.classList.remove('d-none');
+                }
             }
         }
         
@@ -466,11 +558,51 @@
             }
             filterTable();
         });
+        // Page size selector
+        const pageSizeSelect = document.getElementById('pageSizeSelect');
+        if (pageSizeSelect) {
+            pageSizeSelect.value = pageSize.toString();
+            pageSizeSelect.addEventListener('change', (e) => {
+                pageSize = parseInt(e.target.value, 10);
+                localStorage.setItem('depsPageSize', pageSize.toString());
+                currentPage = 1;
+                filterTable();
+            });
+        }
+        
+        // Pagination controls
+        const prevPageBtn = document.getElementById('prevPageBtn');
+        const nextPageBtn = document.getElementById('nextPageBtn');
+        
+        if (prevPageBtn) {
+            prevPageBtn.addEventListener('click', (e) => {
+                e.preventDefault();
+                if (currentPage > 1) {
+                    currentPage--;
+                    renderTable(filteredDependencies, false);
+                }
+            });
+        }
+        
+        if (nextPageBtn) {
+            nextPageBtn.addEventListener('click', (e) => {
+                e.preventDefault();
+                const totalPages = Math.ceil(filteredDependencies.length / pageSize);
+                if (currentPage < totalPages) {
+                    currentPage++;
+                    renderTable(filteredDependencies, false);
+                }
+            });
+        }
+        
         document.getElementById('typeFilter').addEventListener('change', () => filterTable());
         document.getElementById('ecosystemFilter').addEventListener('change', () => filterTable());
         document.getElementById('repoFilter').addEventListener('change', () => filterTable());
         document.getElementById('vulnerableFilter').addEventListener('change', () => filterTable());
         document.getElementById('sponsorshipFilter').addEventListener('change', () => filterTable());
+        document.getElementById('statusFilter').addEventListener('change', () => filterTable());
+        document.getElementById('majorDriftFilter').addEventListener('change', () => filterTable());
+        document.getElementById('minorDriftFilter').addEventListener('change', () => filterTable());
         document.getElementById('exportBtn').addEventListener('click', () => {
             if (typeof window.exportDepsCSV === 'function') {
                 window.exportDepsCSV(allDependencies, searchFromURL, searchPackageName, searchPackageVersion);
@@ -537,7 +669,58 @@
             }
             
             currentData = data.data;
-            allDependencies = processData(currentData);
+            window.currentData = currentData; // Expose globally for license lookup
+            // Store GitHub Actions analysis for enriched license lookup
+            // For combined data, aggregate GitHub Actions analysis from all repositories
+            if (analysisName === '__ALL__' && data.data.githubActionsAnalysis) {
+                window.githubActionsAnalysis = data.data.githubActionsAnalysis;
+            } else {
+                window.githubActionsAnalysis = currentData?.githubActionsAnalysis || null;
+            }
+            
+            // Early filtering: Filter dependencies before processing if search parameter exists
+            // This reduces memory usage and processing time for large datasets (1000+ entries)
+            let dependenciesToProcess = currentData.allDependencies || [];
+            if (searchParam) {
+                const sanitizedSearch = sanitizeSearchInput(searchParam);
+                if (sanitizedSearch) {
+                    const parsed = parsePackageSearch(decodeURIComponent(sanitizedSearch));
+                    const searchName = parsed.name?.toLowerCase();
+                    const searchVersion = parsed.version?.toLowerCase();
+                    
+                    if (searchName && searchVersion) {
+                        // Exact match for both name and version
+                        dependenciesToProcess = dependenciesToProcess.filter(dep => 
+                            dep.name?.toLowerCase() === searchName && 
+                            dep.version?.toLowerCase() === searchVersion
+                        );
+                    } else if (searchName) {
+                        // Exact match for name only
+                        dependenciesToProcess = dependenciesToProcess.filter(dep => 
+                            dep.name?.toLowerCase() === searchName
+                        );
+                    } else {
+                        // Fuzzy match on name
+                        dependenciesToProcess = dependenciesToProcess.filter(dep => 
+                            dep.name?.toLowerCase().includes(sanitizedSearch.toLowerCase())
+                        );
+                    }
+                    console.log(`🔍 Early filtering: ${dependenciesToProcess.length} dependencies match search "${sanitizedSearch}" (from ${currentData.allDependencies?.length || 0} total)`);
+                }
+            }
+            
+            // Process only filtered dependencies
+            const tempData = { ...currentData, allDependencies: dependenciesToProcess };
+            allDependencies = processData(tempData);
+            // Store processed dependencies in window.currentData for license fetching
+            window.currentData.allDependencies = allDependencies;
+            
+            // Clear license cache for GitHub Actions dependencies so they can be re-looked up with enriched data
+            allDependencies.forEach(dep => {
+                if (dep.ecosystem === 'GitHub Actions') {
+                    dep._licenseCached = false;
+                }
+            });
             
             // Populate ecosystem filter
             const ecosystems = [...new Set(allDependencies.map(d => d.ecosystem))].sort();
@@ -599,6 +782,13 @@
                 setTimeout(() => {
                     loadFundingForVisibleDependencies();
                 }, 100);
+                
+                // NOTE: License fetching should NOT be needed here - licenses are pre-fetched during initial analysis
+                // Only fetch licenses if they're missing (should be rare if initial scan completed properly)
+                // This is a fallback for edge cases where licenses weren't fetched during analysis
+                setTimeout(() => {
+                    loadLicensesForVisibleDependencies();
+                }, 200);
             }
         }
         
@@ -623,13 +813,198 @@
             // Store license processor for lazy evaluation
             const licenseProcessor = window.LicenseProcessor ? new LicenseProcessor() : null;
             
+            // Build map of direct vs nested GitHub Actions from GitHub Actions analysis
+            // Use owner/repo/path as key (without ref) to match across different ref formats
+            const githubActionsDirectMap = new Map(); // actionKeyBase -> true if direct
+            const githubActionsNestedMap = new Map(); // actionKeyBase -> parent action key
+            const githubActionsMetadataMap = new Map(); // actionKeyBase -> {license, authors, ...}
+            const nestedActionsToAdd = new Map(); // actionKeyBase -> nested action data (for adding to deps list)
+            
+            if (data.githubActionsAnalysis && data.githubActionsAnalysis.repositories) {
+                data.githubActionsAnalysis.repositories.forEach(repoData => {
+                    if (repoData.actions && Array.isArray(repoData.actions)) {
+                        repoData.actions.forEach(action => {
+                            // Direct actions from workflows - use owner/repo/path as key (no ref)
+                            const actionKeyBase = `${action.owner}/${action.repo}${action.path ? '/' + action.path : ''}`;
+                            githubActionsDirectMap.set(actionKeyBase, true);
+                            
+                            // Store metadata for license/author lookup (use base key, store ref separately)
+                            if (!githubActionsMetadataMap.has(actionKeyBase)) {
+                                githubActionsMetadataMap.set(actionKeyBase, {
+                                    license: action.license,
+                                    authors: action.authors,
+                                    owner: action.owner,
+                                    repo: action.repo,
+                                    path: action.path || '',
+                                    ref: action.ref
+                                });
+                            }
+                            
+                            // Check nested actions recursively
+                            if (action.nested && Array.isArray(action.nested)) {
+                                // Build full parent action name with ref for parentKey
+                                const parentActionName = `${action.owner}/${action.repo}${action.path ? '/' + action.path : ''}@${action.ref}`;
+                                
+                                const checkNested = (nestedAction, parentKeyBase, parentActionNameWithRef) => {
+                                    if (nestedAction.owner && nestedAction.repo) {
+                                        // Normalize ref - remove leading @ if present
+                                        const normalizedRef = nestedAction.ref ? nestedAction.ref.replace(/^@+/, '') : '';
+                                        const nestedKeyBase = `${nestedAction.owner}/${nestedAction.repo}${nestedAction.path ? '/' + nestedAction.path : ''}`;
+                                        
+                                        // Mark as nested (overrides direct if same action)
+                                        // Store parent's base key for matching, but we'll use full name when adding to parents
+                                        githubActionsNestedMap.set(nestedKeyBase, parentActionNameWithRef);
+                                        
+                                        // Store metadata for nested actions (use base key)
+                                        if (!githubActionsMetadataMap.has(nestedKeyBase)) {
+                                            githubActionsMetadataMap.set(nestedKeyBase, {
+                                                license: nestedAction.license,
+                                                authors: nestedAction.authors,
+                                                owner: nestedAction.owner,
+                                                repo: nestedAction.repo,
+                                                path: nestedAction.path || '',
+                                                ref: normalizedRef
+                                            });
+                                        }
+                                        
+                                        // Track nested actions that might not be in SBOM
+                                        // Store with base key, but include full name with ref for dependency entry
+                                        const nestedActionName = `${nestedAction.owner}/${nestedAction.repo}${nestedAction.path ? '/' + nestedAction.path : ''}@${normalizedRef}`;
+                                        nestedActionsToAdd.set(nestedKeyBase, {
+                                            name: nestedActionName,
+                                            version: normalizedRef,
+                                            owner: nestedAction.owner,
+                                            repo: nestedAction.repo,
+                                            path: nestedAction.path || '',
+                                            ref: normalizedRef,
+                                            license: nestedAction.license,
+                                            authors: nestedAction.authors,
+                                            repositories: [repoData.repository],
+                                            parentKey: parentActionNameWithRef
+                                        });
+                                        
+                                        // Build full nested action name for recursive calls
+                                        const nestedActionNameWithRef = nestedActionName;
+                                        
+                                        // Recursively check nested actions
+                                        if (nestedAction.nested && Array.isArray(nestedAction.nested)) {
+                                            nestedAction.nested.forEach(n => checkNested(n, nestedKeyBase, nestedActionNameWithRef));
+                                        }
+                                    }
+                                };
+                                action.nested.forEach(nested => checkNested(nested, actionKeyBase, parentActionName));
+                            }
+                        });
+                    }
+                });
+            }
+            
+            // Create a set of existing dependency keys to check if nested actions are already included
+            // Check by name@version format
+            const existingDepKeys = new Set();
             allDeps.forEach(dep => {
-                const isDirect = dep.directIn && dep.directIn.length > 0;
-                const isTransitive = dep.transitiveIn && dep.transitiveIn.length > 0;
-                
+                existingDepKeys.add(`${dep.name}@${dep.version}`);
+            });
+            
+            // Add nested actions that aren't in the SBOM to the dependency list
+            nestedActionsToAdd.forEach((nestedAction, actionKeyBase) => {
+                // Check if this action already exists (by name@version)
+                const depKey = `${nestedAction.name}@${nestedAction.ref}`;
+                if (!existingDepKeys.has(depKey)) {
+                    // Add as a new dependency entry
+                    allDeps.push({
+                        name: nestedAction.name,
+                        version: nestedAction.ref,
+                        category: {
+                            ecosystem: 'GitHub Actions',
+                            language: 'YAML',
+                            type: 'workflow'
+                        },
+                        repositories: nestedAction.repositories,
+                        directIn: [],
+                        transitiveIn: nestedAction.repositories,
+                        originalPackage: {
+                            name: nestedAction.name,
+                            versionInfo: nestedAction.ref
+                        },
+                        _isNestedAction: true,
+                        _parentAction: nestedAction.parentKey,
+                        _gaMetadata: {
+                            license: nestedAction.license,
+                            authors: nestedAction.authors
+                        }
+                    });
+                }
+            });
+            
+            allDeps.forEach(dep => {
                 // Get parent dependencies with repository context
                 const parents = new Set();
                 const parentsByRepo = {}; // Track which repo has which parent
+                
+                let isDirect = dep.directIn && dep.directIn.length > 0;
+                let isTransitive = dep.transitiveIn && dep.transitiveIn.length > 0;
+                
+                // Override for GitHub Actions: check if it's direct or nested
+                // Check category.ecosystem since dep.ecosystem hasn't been set yet
+                if ((dep.category?.ecosystem === 'GitHub Actions' || dep.category?.isWorkflow) && dep.name) {
+                    // Parse action name: owner/repo@ref or owner/repo/path@ref
+                    const match = dep.name.match(/^([^/@]+)\/([^/@]+)(?:\/(.+))?@(.+)$/);
+                    if (match) {
+                        const [, owner, repo, path, ref] = match;
+                        const normalizedPath = path || '';
+                        // Normalize ref - remove leading @ if present to avoid @v4@v4 issues
+                        const normalizedRef = ref.replace(/^@+/, '');
+                        const actionKeyBase = `${owner}/${repo}${normalizedPath ? '/' + normalizedPath : ''}`;
+                        
+                        // Match on owner/repo/path only (ignore ref differences)
+                        // Check if it's a nested action FIRST (nested takes precedence)
+                        let foundDirect = false;
+                        let foundNested = false;
+                        let parentKey = null;
+                        
+                        // Match nested actions by owner/repo/path (exact match on base key)
+                        if (githubActionsNestedMap.has(actionKeyBase)) {
+                            foundNested = true;
+                            parentKey = githubActionsNestedMap.get(actionKeyBase);
+                        }
+                        
+                        // Only check direct if not found as nested
+                        if (!foundNested) {
+                            // Match direct actions by owner/repo/path (exact match on base key)
+                            if (githubActionsDirectMap.has(actionKeyBase)) {
+                                foundDirect = true;
+                            }
+                        }
+                        
+                        // Store metadata for license/author lookup (exact match on base key)
+                        // Always update if metadata exists, even if _gaMetadata already exists (to ensure license is set)
+                        if (githubActionsMetadataMap.has(actionKeyBase)) {
+                            const metadata = githubActionsMetadataMap.get(actionKeyBase);
+                            if (!dep._gaMetadata) {
+                                dep._gaMetadata = metadata;
+                            } else {
+                                // Merge metadata, ensuring license is set if available
+                                dep._gaMetadata = { ...dep._gaMetadata, ...metadata };
+                            }
+                        }
+                        
+                        // Apply classification: nested takes precedence over direct
+                        if (foundNested) {
+                            isDirect = false;
+                            isTransitive = true;
+                            
+                            // Add parent action to parents list
+                            if (parentKey) {
+                                parents.add(parentKey);
+                            }
+                        } else if (foundDirect) {
+                            isDirect = true;
+                            isTransitive = false;
+                        }
+                        // If not found in analysis, keep original classification from SBOM
+                    }
+                }
                 
                 repos.forEach(repo => {
                     if (repo.relationships) {
@@ -732,6 +1107,28 @@
                     });
                 }
                 
+                // Store GitHub Actions metadata if available
+                // Match on owner/repo/path only (metadata doesn't change between refs)
+                let gaMetadata = null;
+                if ((dep.category?.ecosystem === 'GitHub Actions' || dep.category?.isWorkflow) && dep.name) {
+                    const match = dep.name.match(/^([^/@]+)\/([^/@]+)(?:\/(.+))?@(.+)$/);
+                    if (match) {
+                        const [, owner, repo, path] = match;
+                        const normalizedPath = path || '';
+                        const actionKeyBase = `${owner}/${repo}${normalizedPath ? '/' + normalizedPath : ''}`;
+                        
+                        // Match by owner/repo/path using exact key lookup (ignore ref differences)
+                        if (githubActionsMetadataMap.has(actionKeyBase)) {
+                            gaMetadata = githubActionsMetadataMap.get(actionKeyBase);
+                        }
+                    }
+                }
+                
+                // Use metadata from _gaMetadata if available (for nested actions added above)
+                if (!gaMetadata && dep._gaMetadata) {
+                    gaMetadata = dep._gaMetadata;
+                }
+                
                 // Store references for lazy evaluation (license and quality calculated on-demand)
                 deps.push({
                     name: dep.name,
@@ -751,6 +1148,7 @@
                     // Lazy-evaluated fields (calculated only when rendering)
                     _licenseProcessor: licenseProcessor,
                     _licenseCached: false,
+                    _gaMetadata: gaMetadata,  // Store GitHub Actions metadata for license/author lookup
                     raw: dep
                 });
             });
@@ -766,12 +1164,66 @@
         // Helper function to get license info (accessible to both filterTable and renderTable)
         function getLicenseInfo(dep) {
             if (dep._licenseCached) {
-                return { license: dep.license, licenseFull: dep.licenseFull };
+                return { license: dep.license, licenseFull: dep.licenseFull, isEnriched: dep._licenseEnriched || false };
             }
             
             let licenseText = 'Unknown';
             let licenseFull = 'Unknown';
-            if (dep.raw && dep.raw.originalPackage && dep._licenseProcessor) {
+            let isEnriched = false;
+            
+            // Check for enriched GitHub Actions license data
+            if (dep.ecosystem === 'GitHub Actions') {
+                // First check metadata stored in dep
+                if (dep._gaMetadata && dep._gaMetadata.license) {
+                    licenseFull = dep._gaMetadata.license;
+                    isEnriched = true;
+                }
+                
+                // Always try fallback lookup if we don't have a license yet
+                if (!isEnriched && window.currentData?.githubActionsAnalysis) {
+                    // Fallback to lookup from githubActionsAnalysis (this should always work if analysis data exists)
+                    const enrichedLicense = getEnrichedGitHubActionLicense(dep);
+                    if (enrichedLicense) {
+                        licenseFull = enrichedLicense;
+                        isEnriched = true;
+                        // Also store it in _gaMetadata for future lookups
+                        if (!dep._gaMetadata) {
+                            dep._gaMetadata = { license: enrichedLicense };
+                        } else {
+                            dep._gaMetadata.license = enrichedLicense;
+                        }
+                    } else {
+                        // For reusable workflows (paths containing .github/workflows/), try to get repository license
+                        const repoLicense = getRepositoryLicenseForReusableWorkflow(dep);
+                        if (repoLicense) {
+                            licenseFull = repoLicense;
+                            isEnriched = true;
+                            // Store it in _gaMetadata for future lookups
+                            if (!dep._gaMetadata) {
+                                dep._gaMetadata = { license: repoLicense };
+                            } else {
+                                dep._gaMetadata.license = repoLicense;
+                            }
+                        }
+                    }
+                }
+            }
+            
+            // Better abbreviation: show first part of license name, but handle "Apache-2.0 AND MIT" properly
+            if (isEnriched && licenseFull !== 'Unknown') {
+                if (licenseFull.includes(' AND ')) {
+                    // For compound licenses, show first license name
+                    const firstLicense = licenseFull.split(' AND ')[0];
+                    licenseText = firstLicense.startsWith('Apache') ? 'Apache' : (firstLicense.length > 8 ? firstLicense.substring(0, 8) + '...' : firstLicense);
+                } else if (licenseFull.startsWith('Apache')) {
+                    licenseText = 'Apache';
+                } else {
+                    licenseText = licenseFull.length > 8 ? licenseFull.substring(0, 8) + '...' : licenseFull;
+                }
+            }
+            
+            // Fallback to SBOM data if not enriched
+            if (!isEnriched && dep.raw && dep.raw.originalPackage && dep._licenseProcessor) {
                 const licenseInfo = dep._licenseProcessor.parseLicense(dep.raw.originalPackage);
                 if (licenseInfo.license && licenseInfo.license !== 'NOASSERTION') {
                     licenseFull = licenseInfo.license;
@@ -788,11 +1240,166 @@
                 }
             }
             
+            // If still no license and this is a PyPI package, check if license is already stored
+            // If not stored, mark for async fetch
+            // Skip if version is unknown (cannot query PyPI API without version)
+            if (!isEnriched && licenseFull === 'Unknown' && dep.ecosystem === 'PyPI' && dep.name && dep.version && dep.version !== 'version unknown') {
+                // Check if license was already fetched and stored (check both raw and top-level)
+                // License data should be in dep.raw since fetchPyPILicenses updates the dependency objects before saving
+                const storedLicense = dep.raw?.licenseFull || dep.raw?.license;
+                if (storedLicense && storedLicense !== 'Unknown' && storedLicense !== 'NOASSERTION') {
+                    // Use stored license from raw data
+                    licenseFull = dep.raw.licenseFull || dep.raw.license || storedLicense;
+                    licenseText = dep.raw.license || licenseFull;
+                    isEnriched = dep.raw._licenseEnriched || false;
+                } else {
+                    // Only mark for async fetch if license was NOT fetched during initial analysis
+                    // This should be rare - licenses should be pre-fetched during initial scan
+                    dep._needsLicenseFetch = true;
+                }
+            }
+            
             // Cache the result
             dep.license = licenseText;
             dep.licenseFull = licenseFull;
+            dep._licenseEnriched = isEnriched;
             dep._licenseCached = true;
-            return { license: licenseText, licenseFull: licenseFull };
+            return { license: licenseText, licenseFull: licenseFull, isEnriched: isEnriched };
+        }
+        
+        // Helper function to get enriched license from GitHub Actions analysis
+        // Match on owner/repo/path only (license doesn't change between refs)
+        function getEnrichedGitHubActionLicense(dep) {
+            if (!window.currentData?.githubActionsAnalysis || !dep.name) {
+                return null;
+            }
+            
+            try {
+                // Build full name with version if not already present
+                // dep.name might be just "owner/repo" or "owner/repo/path" without @ref
+                let fullName = dep.name;
+                if (dep.version && !fullName.includes('@')) {
+                    fullName = `${dep.name}@${dep.version}`;
+                }
+                
+                // Parse GitHub Action name: owner/repo@ref or owner/repo/path@ref
+                // Also handle cases where name doesn't have @ref (just owner/repo or owner/repo/path)
+                let match = fullName.match(/^([^/@]+)\/([^/@]+)(?:\/(.+))?@(.+)$/);
+                if (!match) {
+                    // Try without @ref - just owner/repo or owner/repo/path
+                    match = fullName.match(/^([^/@]+)\/([^/@]+)(?:\/(.+))?$/);
+                    if (!match) {
+                        return null;
+                    }
+                }
+                
+                const [, owner, repo, path] = match;
+                const normalizedPath = path || '';
+                
+                // Search through repositories - match on owner/repo/path only (ignore ref)
+                const repositories = window.currentData.githubActionsAnalysis.repositories || [];
+                
+                for (const repoData of repositories) {
+                    if (!repoData.actions || !Array.isArray(repoData.actions)) {
+                        continue;
+                    }
+                    
+                    // Check direct actions first
+                    for (const action of repoData.actions) {
+                        const actionPath = action.path || '';
+                        const matches = action.owner === owner && 
+                            action.repo === repo && 
+                            actionPath === normalizedPath;
+                        
+                        if (matches && action.license) {
+                            return action.license;
+                        }
+                        
+                        // Check nested actions recursively
+                        if (action.nested && Array.isArray(action.nested)) {
+                            const checkNested = (nestedAction) => {
+                                const nestedPath = nestedAction.path || '';
+                                const nestedMatches = nestedAction.owner === owner && 
+                                    nestedAction.repo === repo && 
+                                    nestedPath === normalizedPath;
+                                
+                                if (nestedMatches && nestedAction.license) {
+                                    return nestedAction.license;
+                                }
+                                
+                                // Recursively check deeper nested actions
+                                if (nestedAction.nested && Array.isArray(nestedAction.nested)) {
+                                    for (const deeperNested of nestedAction.nested) {
+                                        const result = checkNested(deeperNested);
+                                        if (result) return result;
+                                    }
+                                }
+                                
+                                return null;
+                            };
+                            
+                            for (const nestedAction of action.nested) {
+                                const result = checkNested(nestedAction);
+                                if (result) return result;
+                            }
+                        }
+                    }
+                }
+            } catch (error) {
+                console.warn('Failed to get enriched GitHub Action license:', error);
+            }
+            
+            return null;
+        }
+        
+        // Helper function to get repository license for reusable workflows
+        // Reusable workflows inherit the repository's license
+        function getRepositoryLicenseForReusableWorkflow(dep) {
+            if (!dep.name) {
+                return null;
+            }
+            
+            try {
+                // Build full name with version if not already present
+                let fullName = dep.name;
+                if (dep.version && !fullName.includes('@')) {
+                    fullName = `${dep.name}@${dep.version}`;
+                }
+                
+                // Parse to get owner/repo
+                // Handle both formats: owner/repo@ref or owner/repo/path@ref
+                let match = fullName.match(/^([^/@]+)\/([^/@]+)(?:\/(.+))?@(.+)$/);
+                if (!match) {
+                    match = fullName.match(/^([^/@]+)\/([^/@]+)(?:\/(.+))?$/);
+                    if (!match) {
+                        return null;
+                    }
+                }
+                
+                const [, owner, repo, path] = match;
+                
+                // Check if this is a reusable workflow (has .github/workflows/ in path)
+                if (path && path.includes('.github/workflows/')) {
+                    // For reusable workflows, check if we have repository license data
+                    // We can try to fetch it from GitHub API or use cached data
+                    // For now, return known licenses for common repositories
+                    const knownLicenses = {
+                        'google/osv-scanner-action': 'Apache-2.0'
+                    };
+                    
+                    const repoKey = `${owner}/${repo}`;
+                    if (knownLicenses[repoKey]) {
+                        return knownLicenses[repoKey];
+                    }
+                    
+                    // TODO: Could fetch from GitHub API if we have a GitHub client available
+                    // For now, return null and let it show as Unknown
+                }
+            } catch (error) {
+                console.warn('Failed to get repository license for reusable workflow:', error);
+            }
+            
+            return null;
         }
 
         async function filterTable() {
@@ -840,11 +1447,15 @@
                 return;
             }
             
-            const search = document.getElementById('searchInput').value.toLowerCase();
+            const searchInput = document.getElementById('searchInput').value;
+            const search = sanitizeSearchInput(searchInput).toLowerCase();
             const typeFilter = document.getElementById('typeFilter').value;
             const ecosystemFilter = document.getElementById('ecosystemFilter').value;
             const repoFilter = document.getElementById('repoFilter').value;
             const sponsorshipFilter = document.getElementById('sponsorshipFilter').checked;
+            const statusFilter = document.getElementById('statusFilter').checked;
+            const majorDriftFilter = document.getElementById('majorDriftFilter').checked;
+            const minorDriftFilter = document.getElementById('minorDriftFilter').checked;
             
             let filtered = allDependencies;
             
@@ -886,6 +1497,154 @@
                 }
                 
                 filtered = filtered.filter((dep, index) => fundingResults[index]);
+            }
+            
+            // Apply status filter (stale/deprecated/unmaintained) if active
+            if (statusFilter && (window.cacheManager || window.versionDriftAnalyzer)) {
+                // Filter to only packages with status issues
+                // Use batched approach to avoid too many concurrent requests
+                const batchSize = 50; // Process in batches of 50
+                const batches = [];
+                for (let i = 0; i < filtered.length; i += batchSize) {
+                    batches.push(filtered.slice(i, i + batchSize));
+                }
+                
+                const statusResults = [];
+                for (const batch of batches) {
+                    const batchChecks = await Promise.all(batch.map(async (dep) => {
+                        let hasStatusIssue = false;
+                        
+                        // Check package warnings (deprecated/unmaintained)
+                        if (dep.packageKey && window.cacheManager) {
+                            try {
+                                const packageData = await window.cacheManager.getPackage(dep.packageKey);
+                                if (packageData && packageData.warnings) {
+                                    const warnings = packageData.warnings;
+                                    if (warnings.isDeprecated || warnings.isUnmaintained) {
+                                        hasStatusIssue = true;
+                                    }
+                                }
+                            } catch (e) {
+                                // Ignore errors
+                            }
+                        }
+                        
+                        // Check staleness if not already found an issue
+                        // Skip if version is unknown (cannot check staleness without version)
+                        if (!hasStatusIssue && dep.ecosystem && dep.version && dep.version !== 'version unknown' && dep.name && window.versionDriftAnalyzer) {
+                            try {
+                                // Normalize ecosystem for packageKey (same as renderTable)
+                                let ecosystem = dep.ecosystem.toLowerCase();
+                                if (ecosystem === 'rubygems' || ecosystem === 'gem') {
+                                    ecosystem = 'gem';
+                                } else if (ecosystem === 'go' || ecosystem === 'golang') {
+                                    ecosystem = 'golang';
+                                } else if (ecosystem === 'packagist' || ecosystem === 'composer') {
+                                    ecosystem = 'composer';
+                                }
+                                
+                                // Check cache first for staleness
+                                const packageKey = `${ecosystem}:${dep.name}`;
+                                const drift = await window.versionDriftAnalyzer.getVersionDriftFromCache(packageKey, dep.version);
+                                
+                                let staleness = null;
+                                if (drift && drift.staleness) {
+                                    staleness = drift.staleness;
+                                } else {
+                                    // Try to get staleness (will check cache)
+                                    // Use original ecosystem for checkStaleness API
+                                    const originalEcosystem = dep.ecosystem.toLowerCase();
+                                    staleness = await window.versionDriftAnalyzer.checkStaleness(
+                                        dep.name,
+                                        dep.version,
+                                        originalEcosystem
+                                    );
+                                }
+                                
+                                if (staleness && staleness.isStale) {
+                                    hasStatusIssue = true;
+                                }
+                            } catch (e) {
+                                // Ignore errors
+                            }
+                        }
+                        
+                        return hasStatusIssue;
+                    }));
+                    statusResults.push(...batchChecks);
+                }
+                
+                filtered = filtered.filter((dep, index) => statusResults[index]);
+            }
+            
+            // Apply version drift filters (major/minor) if active
+            if ((majorDriftFilter || minorDriftFilter) && window.versionDriftAnalyzer) {
+                // Filter to only packages with version drift
+                // Use batched approach to avoid too many concurrent requests
+                const batchSize = 50; // Process in batches of 50
+                const batches = [];
+                for (let i = 0; i < filtered.length; i += batchSize) {
+                    batches.push(filtered.slice(i, i + batchSize));
+                }
+                
+                const driftResults = [];
+                for (const batch of batches) {
+                    const batchChecks = await Promise.all(batch.map(async (dep) => {
+                        // Skip dependencies with unknown versions (cannot check drift)
+                        if (!dep.ecosystem || !dep.version || dep.version === 'version unknown' || !dep.name) {
+                            return false; // Can't check drift without required data
+                        }
+                        
+                        try {
+                            // Normalize ecosystem for packageKey (same as renderTable)
+                            let ecosystem = dep.ecosystem.toLowerCase();
+                            if (ecosystem === 'rubygems' || ecosystem === 'gem') {
+                                ecosystem = 'gem';
+                            } else if (ecosystem === 'go' || ecosystem === 'golang') {
+                                ecosystem = 'golang';
+                            } else if (ecosystem === 'packagist' || ecosystem === 'composer') {
+                                ecosystem = 'composer';
+                            }
+                            
+                            // Check cache first for version drift (should be populated during initial scan)
+                            // Version drift should be pre-fetched during initial analysis and saved to IndexedDB
+                            const packageKey = `${ecosystem}:${dep.name}`;
+                            let driftData = await window.versionDriftAnalyzer.getVersionDriftFromCache(packageKey, dep.version);
+                            
+                            // Only fetch if not in cache (should be rare - data should be pre-fetched during initial scan)
+                            // This is a fallback for edge cases where version drift wasn't fetched during analysis
+                            // If we do fetch, it will automatically save to IndexedDB via cacheManager
+                            if (!driftData) {
+                                console.debug(`⚠️ Version drift not cached for ${packageKey}@${dep.version}, fetching as fallback (should be rare)`);
+                                driftData = await window.versionDriftAnalyzer.checkVersionDrift(
+                                    dep.name,
+                                    dep.version,
+                                    dep.ecosystem
+                                );
+                            }
+                            
+                            if (!driftData) {
+                                return false; // No drift data available
+                            }
+                            
+                            // Check filters
+                            if (majorDriftFilter && driftData.hasMajorUpdate) {
+                                return true; // Has major update
+                            }
+                            if (minorDriftFilter && driftData.hasMinorUpdate) {
+                                return true; // Has minor update
+                            }
+                            
+                            return false; // Doesn't match filter criteria
+                        } catch (e) {
+                            // Ignore errors
+                            return false;
+                        }
+                    }));
+                    driftResults.push(...batchChecks);
+                }
+                
+                filtered = filtered.filter((dep, index) => driftResults[index]);
             }
             
             // Apply other filters
@@ -937,7 +1696,7 @@
             });
             
             filteredDependencies = filtered;
-            displayedCount = 0;
+            currentPage = 1; // Reset to first page when filtering
             
             updateStats(filtered);
             await renderTable(filtered, true);
@@ -954,6 +1713,226 @@
         }
         
         // Load funding data for visible dependencies (lazy loading)
+        // Fetch licenses from deps.dev API for PyPI packages that don't have licenses
+        async function loadLicensesForVisibleDependencies() {
+            const tbody = document.getElementById('tableBody');
+            if (!tbody) return;
+            
+            const rows = Array.from(tbody.querySelectorAll('tr'));
+            // Get dependencies from window.currentData.allDependencies (processed dependencies)
+            // The data-dep-index refers to the index in the filtered dependencies array passed to renderTable
+            // We need to find the corresponding dependency in the processed array by matching name and version
+            const processedDeps = window.currentData?.allDependencies || [];
+            
+            const depsNeedingLicenses = rows
+                .map((row, index) => {
+                    // Get package name and version from the row to find the matching processed dependency
+                    const nameCell = row.querySelector('td a[data-package-name]');
+                    const versionCell = row.querySelector('td a[data-package-version]');
+                    if (!nameCell || !versionCell) return null;
+                    
+                    const packageName = nameCell.getAttribute('data-package-name');
+                    const packageVersion = versionCell.getAttribute('data-package-version');
+                    if (!packageName || !packageVersion) return null;
+                    
+                    // Find the matching dependency in processed dependencies
+                    const dep = processedDeps.find(d => d.name === packageName && d.version === packageVersion);
+                    // Only fetch if marked for fetch AND license is still Unknown (should be rare - data should be fetched during initial scan)
+                    if (!dep || !dep._needsLicenseFetch || (dep.licenseFull && dep.licenseFull !== 'Unknown')) return null;
+                    return { row, dep };
+                })
+                .filter(item => item !== null);
+            
+            if (depsNeedingLicenses.length === 0) {
+                console.log('ℹ️ No licenses need fetching - all licenses are already available from initial scan');
+                return;
+            }
+            
+            console.log(`📄 Fetching ${depsNeedingLicenses.length} missing licenses (should be rare if initial scan completed)`);
+            
+            // Process in batches to avoid overwhelming the API
+            const batchSize = 20;
+            for (let i = 0; i < depsNeedingLicenses.length; i += batchSize) {
+                const batch = depsNeedingLicenses.slice(i, i + batchSize);
+                await Promise.all(batch.map(async ({ row, dep }) => {
+                    try {
+                        // Fetch license from deps.dev API
+                        const url = `https://api.deps.dev/v3alpha/systems/pypi/packages/${encodeURIComponent(dep.name)}/versions/${encodeURIComponent(dep.version)}`;
+                        const response = await fetch(url);
+                        if (!response.ok) {
+                            dep._needsLicenseFetch = false; // Mark as attempted
+                            return;
+                        }
+                        
+                        const data = await response.json();
+                        if (data.licenses && data.licenses.length > 0) {
+                            const licenseFull = data.licenses.join(' AND ');
+                            let licenseText = licenseFull;
+                            
+                            // Format license text (same logic as getLicenseInfo)
+                            if (licenseFull.includes(' AND ')) {
+                                const firstLicense = licenseFull.split(' AND ')[0];
+                                licenseText = firstLicense.startsWith('Apache') ? 'Apache' : (firstLicense.length > 8 ? firstLicense.substring(0, 8) + '...' : firstLicense);
+                            } else if (licenseFull.startsWith('Apache')) {
+                                licenseText = 'Apache';
+                            } else {
+                                licenseText = licenseFull.length > 8 ? licenseFull.substring(0, 8) + '...' : licenseFull;
+                            }
+                            
+                            // Update dep object
+                            dep.license = licenseText;
+                            dep.licenseFull = licenseFull;
+                            dep._licenseEnriched = true;
+                            dep._licenseCached = true;
+                            dep._needsLicenseFetch = false;
+                            
+                            // Also update the original dependency in processedDeps array
+                            // This ensures the license persists in the processed data
+                            const originalDep = processedDeps.find(d => d.name === dep.name && d.version === dep.version);
+                            if (originalDep) {
+                                originalDep.license = licenseText;
+                                originalDep.licenseFull = licenseFull;
+                                originalDep._licenseEnriched = true;
+                                originalDep._licenseCached = true;
+                                originalDep._needsLicenseFetch = false;
+                                
+                                // Also update the raw dependency data so it persists in IndexedDB
+                                if (originalDep.raw) {
+                                    originalDep.raw.license = licenseText;
+                                    originalDep.raw.licenseFull = licenseFull;
+                                    originalDep.raw._licenseEnriched = true;
+                                }
+                            }
+                            
+                            // Update the license cell in the table
+                            updateLicenseCell(row, dep);
+                        } else {
+                            dep._needsLicenseFetch = false; // Mark as attempted, no license found
+                        }
+                    } catch (e) {
+                        console.warn(`Failed to fetch license for ${dep.name}@${dep.version}:`, e);
+                        dep._needsLicenseFetch = false; // Mark as attempted
+                    }
+                }));
+                // Small delay between batches to avoid overwhelming the API
+                await new Promise(resolve => setTimeout(resolve, 50));
+            }
+            
+            // After fetching all licenses, update the stored data in IndexedDB
+            await saveUpdatedLicensesToIndexedDB();
+        }
+        
+        // Save updated licenses back to IndexedDB
+        async function saveUpdatedLicensesToIndexedDB() {
+            if (!window.storageManager || !window.currentData) return;
+            
+            try {
+                // Ensure storage manager is initialized
+                if (!window.storageManager.initialized) {
+                    await window.storageManager.init();
+                }
+                
+                const analysisName = document.getElementById('analysisSelector')?.value;
+                if (!analysisName) return;
+                
+                // Get the current stored data
+                let storedData;
+                if (analysisName === '__ALL__') {
+                    storedData = await window.storageManager.getCombinedData();
+                } else {
+                    storedData = await window.storageManager.loadAnalysisDataForOrganization(analysisName);
+                }
+                
+                if (!storedData || !storedData.data) return;
+                
+                // Update allDependencies in the stored data with fetched licenses
+                const processedDeps = window.currentData.allDependencies || [];
+                const storedDeps = storedData.data.allDependencies || [];
+                
+                // Create a map of processed dependencies by name@version for quick lookup
+                const processedMap = new Map();
+                processedDeps.forEach(dep => {
+                    const key = `${dep.name}@${dep.version}`;
+                    if (dep.licenseFull && dep.licenseFull !== 'Unknown' && dep._licenseEnriched) {
+                        processedMap.set(key, {
+                            license: dep.license,
+                            licenseFull: dep.licenseFull,
+                            _licenseEnriched: dep._licenseEnriched
+                        });
+                    }
+                });
+                
+                // Update stored dependencies with fetched licenses
+                let updated = false;
+                storedDeps.forEach(dep => {
+                    const key = `${dep.name}@${dep.version}`;
+                    const fetchedLicense = processedMap.get(key);
+                    if (fetchedLicense && (!dep.licenseFull || dep.licenseFull === 'Unknown')) {
+                        dep.license = fetchedLicense.license;
+                        dep.licenseFull = fetchedLicense.licenseFull;
+                        dep._licenseEnriched = fetchedLicense._licenseEnriched;
+                        
+                        // Also update raw dependency data if it exists
+                        if (dep.raw) {
+                            dep.raw.license = fetchedLicense.license;
+                            dep.raw.licenseFull = fetchedLicense.licenseFull;
+                            dep.raw._licenseEnriched = fetchedLicense._licenseEnriched;
+                        }
+                        
+                        updated = true;
+                    }
+                });
+                
+                // Also update in the raw dependency data (from SBOM processing)
+                // This ensures licenses persist in the original data structure
+                if (storedData.data.allRepositories) {
+                    storedData.data.allRepositories.forEach(repo => {
+                        if (repo.dependencies) {
+                            repo.dependencies.forEach(dep => {
+                                const key = `${dep.name}@${dep.version}`;
+                                const fetchedLicense = processedMap.get(key);
+                                if (fetchedLicense && (!dep.licenseFull || dep.licenseFull === 'Unknown')) {
+                                    dep.license = fetchedLicense.license;
+                                    dep.licenseFull = fetchedLicense.licenseFull;
+                                    dep._licenseEnriched = fetchedLicense._licenseEnriched;
+                                    updated = true;
+                                }
+                            });
+                        }
+                    });
+                }
+                
+                // Save updated data back to IndexedDB if any licenses were updated
+                if (updated) {
+                    console.log('💾 Saving updated license data to IndexedDB...');
+                    const saveSuccess = await window.storageManager.saveAnalysisData(analysisName, storedData.data);
+                    if (saveSuccess) {
+                        console.log('✅ Successfully saved updated license data to IndexedDB');
+                    } else {
+                        console.warn('⚠️ Failed to save updated license data to IndexedDB');
+                    }
+                } else {
+                    console.log('ℹ️ No license updates to save');
+                }
+            } catch (error) {
+                console.error('❌ Error saving updated licenses to IndexedDB:', error);
+            }
+        }
+        
+        // Update license cell for a specific row
+        function updateLicenseCell(row, dep) {
+            const cells = row.querySelectorAll('td');
+            if (cells.length < 7) return; // Not enough cells (license is typically around column 6)
+            
+            // Find the license cell (it contains the license text)
+            // License cell is typically the 6th column (index 5) after: name, type, ecosystem, repos, vulnerabilities
+            const licenseCell = cells[5];
+            if (!licenseCell) return;
+            
+            const enrichedBadge = dep._licenseEnriched ? '<span class="badge bg-success bg-opacity-25 ms-1" title="Enriched license data from deps.dev API">✓</span>' : '';
+            licenseCell.innerHTML = `<span title="${escapeHtml(dep.licenseFull)}${dep._licenseEnriched ? ' (Enriched)' : ''}">${escapeHtml(dep.license)}</span>${enrichedBadge}`;
+        }
+        
         async function loadFundingForVisibleDependencies() {
             if (!window.cacheManager) return;
             
@@ -1043,9 +2022,12 @@
         
         /**
          * Format version for display - truncate hash to 5 chars with tooltip
+         * Shows "version unknown" badge when version is missing
          */
         function formatVersionForDisplay(version) {
-            if (!version) return '';
+            if (!version || version === 'version unknown') {
+                return '<span class="badge bg-warning text-dark" title="Version information not available in SBOM">version unknown</span>';
+            }
             const escaped = escapeHtml(version);
             if (isHashVersion(version)) {
                 const truncated = escaped.substring(0, 5);
@@ -1059,13 +2041,17 @@
             
             if (reset) {
                 tbody.innerHTML = '';
-                displayedCount = 0;
+                currentPage = 1;
             }
             
-            // Determine how many to display
-            const startIndex = displayedCount;
-            const batchSize = reset ? INITIAL_DISPLAY_COUNT : LOAD_MORE_BATCH_SIZE;
-            const endIndex = Math.min(startIndex + batchSize, deps.length);
+            // Calculate pagination
+            const totalPages = Math.ceil(deps.length / pageSize);
+            if (currentPage > totalPages && totalPages > 0) {
+                currentPage = totalPages;
+            }
+            
+            const startIndex = (currentPage - 1) * pageSize;
+            const endIndex = Math.min(startIndex + pageSize, deps.length);
             const toDisplay = deps.slice(startIndex, endIndex);
             
             // getLicenseInfo is now defined globally above, so we can use it here
@@ -1132,7 +2118,8 @@
                 
                 // Build license cell (lazy evaluation)
                 const licenseInfo = getLicenseInfo(dep);
-                const licenseCell = `<td><span title="${escapeHtml(licenseInfo.licenseFull)}">${escapeHtml(licenseInfo.license)}</span></td>`;
+                const enrichedBadge = licenseInfo.isEnriched ? '<span class="badge bg-success bg-opacity-25 ms-1" title="Enriched license data from GitHub Actions analysis">✓</span>' : '';
+                const licenseCell = `<td><span title="${escapeHtml(licenseInfo.licenseFull)}${licenseInfo.isEnriched ? ' (Enriched)' : ''}">${escapeHtml(licenseInfo.license)}</span>${enrichedBadge}</td>`;
                 
                 // Note: SBOM Quality is not shown for individual dependencies
                 // SBOM quality scores are only meaningful at the repository level,
@@ -1142,9 +2129,14 @@
                 tr.setAttribute('data-dep-index', startIndex + idx); // Store dependency index for easy lookup
                 const versionDisplay = formatVersionForDisplay(dep.version);
                 const packageNameEscaped = escapeHtml(dep.name);
-                const packageLink = `${packageNameEscaped}@${versionDisplay}`;
+                // For GitHub Actions and some other packages, the name already includes @version
+                // Check if name already ends with the version (with or without @) to avoid duplication
+                const versionInName = dep.name.endsWith(`@${dep.version}`) || dep.name.endsWith(dep.version);
+                const packageLink = versionInName ? packageNameEscaped : `${packageNameEscaped}@${versionDisplay}`;
                 // Version drift badge placeholder (will be populated asynchronously)
                 const driftBadgeId = `drift-${startIndex + idx}`;
+                // Ecosystem-Type badge: blue (bg-primary) for direct, grey (bg-secondary) for transitive
+                const ecosystemBadgeClass = dep.type === 'direct' ? 'bg-primary' : 'bg-secondary';
                 tr.innerHTML = `
                     <td>
                         <a href="#" class="package-link text-primary text-decoration-none" 
@@ -1153,13 +2145,12 @@
                            data-package-version="${escapeHtml(dep.version)}"
                            data-package-ecosystem="${escapeHtml(dep.ecosystem)}"
                            data-package-repos='${JSON.stringify(dep.repositories)}'
-                           data-package-raw='${JSON.stringify(dep.raw).replace(/'/g, '&apos;')}'>
+                           data-package-raw='${JSON.stringify({...dep.raw, _gaMetadata: dep._gaMetadata}).replace(/'/g, '&apos;')}'>
                             <strong>${packageLink}</strong>
                         </a>
                         <span id="${driftBadgeId}" class="ms-2"></span>
                     </td>
-                    <td><span class="badge badge-${dep.type}">${dep.type}</span></td>
-                    <td>${escapeHtml(dep.ecosystem)}</td>
+                    <td><span class="badge ${ecosystemBadgeClass} text-white">${escapeHtml(dep.ecosystem)}</span></td>
                     <td>
                         <span class="clickable-cell" data-repos='${JSON.stringify(dep.repositories)}' data-package='${escapeHtml(dep.name)}'>
                             ${dep.repoCount} ${dep.repoCount === 1 ? 'repo' : 'repos'}
@@ -1170,7 +2161,7 @@
                     ${sponsorshipCell}
                     <td>
                         ${dep.type === 'direct' 
-                            ? '<span class="text-muted">Direct dependency</span>' 
+                            ? 'Direct' 
                             : dep.parents.length > 0 
                                 ? `<span class="clickable-cell" data-parents='${JSON.stringify(dep.parents)}' data-parents-by-repo='${JSON.stringify(dep.parentsByRepo).replace(/'/g, '&apos;')}' data-package='${escapeHtml(dep.name)}' data-package-version='${escapeHtml(dep.version)}'>${dep.parents.length} ${dep.parents.length === 1 ? 'parent' : 'parents'}</span>`
                                 : '<span class="text-muted">Unknown</span>'
@@ -1218,7 +2209,8 @@
                 setTimeout(async () => {
                     // Process all displayed dependencies (no batching needed since we're reading from cache)
                     await Promise.all(toDisplay.map(async (dep, idx) => {
-                        if (dep.ecosystem && dep.version && dep.name) {
+                        // Skip dependencies with unknown versions (cannot check drift)
+                        if (dep.ecosystem && dep.version && dep.version !== 'version unknown' && dep.name) {
                             try {
                                 // Normalize ecosystem for packageKey
                                 let ecosystem = dep.ecosystem.toLowerCase();
@@ -1232,14 +2224,20 @@
                                 const packageKey = `${ecosystem}:${dep.name}`;
                                 
                                 // Get version drift from cache (fast - no API call)
+                                // Version drift should be pre-fetched during initial analysis and saved to IndexedDB
                                 const drift = await window.versionDriftAnalyzer.getVersionDriftFromCache(packageKey, dep.version);
                                 
-                                // If not in cache, try to fetch (but this should be rare if analysis ran properly)
-                                const driftData = drift || await window.versionDriftAnalyzer.checkVersionDrift(
-                                    dep.name,
-                                    dep.version,
-                                    dep.ecosystem
-                                );
+                                // Only fetch if not in cache (should be rare - data should be pre-fetched during initial scan)
+                                // This is a fallback for edge cases where version drift wasn't fetched during analysis
+                                let driftData = drift;
+                                if (!driftData) {
+                                    console.debug(`⚠️ Version drift not cached for ${packageKey}@${dep.version}, fetching as fallback (should be rare)`);
+                                    driftData = await window.versionDriftAnalyzer.checkVersionDrift(
+                                        dep.name,
+                                        dep.version,
+                                        dep.ecosystem
+                                    );
+                                }
                                 
                                 if (driftData && driftData.latestVersion) {
                                     const depIndex = startIndex + idx;
@@ -1286,17 +2284,8 @@
                 }, 100); // Small delay to allow table to render first
             }
             
-            displayedCount = endIndex;
-            
-            // Update load more button visibility
-            const loadMoreContainer = document.getElementById('loadMoreContainer');
-            if (displayedCount < deps.length) {
-                loadMoreContainer.classList.remove('d-none');
-                const remaining = deps.length - displayedCount;
-                document.getElementById('loadMoreText').textContent = `Showing ${displayedCount} of ${deps.length} dependencies. ${remaining} more available.`;
-            } else {
-                loadMoreContainer.classList.add('d-none');
-            }
+            // Update pagination info and controls
+            updatePaginationControls(deps.length, totalPages);
             
             // Add click handlers for package links
             document.querySelectorAll('.package-link').forEach(link => {
@@ -1337,27 +2326,34 @@
             });
         }
         
-        async function loadMoreEntries() {
-            if (isLoadingMore) return;
+        // Function to update pagination controls
+        function updatePaginationControls(totalItems, totalPages) {
+            const paginationInfo = document.getElementById('paginationInfo');
+            const prevBtn = document.getElementById('prevPageBtn');
+            const nextBtn = document.getElementById('nextPageBtn');
             
-            isLoadingMore = true;
-            const btn = document.getElementById('loadMoreBtn');
-            const originalText = btn.innerHTML;
-            btn.disabled = true;
-            btn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Loading...';
+            if (!paginationInfo || !prevBtn || !nextBtn) return;
             
-            // Load in batches with a small delay between batches
-            const remaining = filteredDependencies.length - displayedCount;
-            const batchSize = Math.min(LOAD_MORE_BATCH_SIZE, remaining);
+            const startItem = totalItems === 0 ? 0 : (currentPage - 1) * pageSize + 1;
+            const endItem = Math.min(currentPage * pageSize, totalItems);
             
-            // Use setTimeout to allow UI to update
-            await new Promise(resolve => setTimeout(resolve, 50));
+            paginationInfo.textContent = `Showing ${startItem}-${endItem} of ${totalItems}`;
             
-            await renderTable(filteredDependencies, false);
+            // Update Previous button
+            if (currentPage > 1) {
+                prevBtn.classList.remove('disabled');
+                prevBtn.querySelector('a').removeAttribute('tabindex');
+            } else {
+                prevBtn.classList.add('disabled');
+                prevBtn.querySelector('a').setAttribute('tabindex', '-1');
+            }
             
-            btn.disabled = false;
-            btn.innerHTML = originalText;
-            isLoadingMore = false;
+            // Update Next button
+            if (currentPage < totalPages && totalPages > 0) {
+                nextBtn.classList.remove('disabled');
+            } else {
+                nextBtn.classList.add('disabled');
+            }
         }
         
         async function showPackageDetailsModal(packageKey, packageName, packageVersion, packageEcosystem, packageRepos, packageRaw) {
@@ -1446,8 +2442,9 @@
                 licenseInfo = licenseProcessor.parseLicense(packageRaw.originalPackage);
             }
             
-            // Extract GitHub repository URL from package metadata
+            // Extract GitHub repository URL and package registry URLs from package metadata
             let githubRepoUrl = null;
+            let registryUrl = null;
             if (packageRaw && packageRaw.originalPackage && packageRaw.originalPackage.externalRefs) {
                 // Check externalRefs for repository URLs
                 for (const ref of packageRaw.originalPackage.externalRefs) {
@@ -1467,14 +2464,107 @@
                         // Check PURL for repository info
                         const purl = ref.referenceLocator;
                         // PURL might contain repository info in qualifiers
-                        if (purl.includes('github.com')) {
+                        // Securely validate github.com hostname to prevent attacks
+                        // Extract URLs from PURL string (may contain URLs in qualifiers)
+                        const urlMatch = purl.match(/https?:\/\/[^\s\)]+/gi);
+                        if (urlMatch) {
+                            // Check if any extracted URL is from github.com
+                            for (const url of urlMatch) {
+                                if (isUrlFromHostname(url, 'github.com')) {
+                                    const match = url.match(/github\.com[\/:]([^\/]+)\/([^\/\s]+)/i);
+                                    if (match) {
+                                        githubRepoUrl = `https://github.com/${match[1]}/${match[2]}`;
+                                        break;
+                                    }
+                                }
+                            }
+                        } else {
+                            // Fallback: if PURL doesn't contain full URLs, check for github.com pattern
+                            // but only if it looks like a valid github.com reference
                             const match = purl.match(/github\.com[\/:]([^\/]+)\/([^\/\s]+)/i);
                             if (match) {
-                                githubRepoUrl = `https://github.com/${match[1]}/${match[2]}`;
-                                break;
+                                // Validate by constructing URL and checking hostname
+                                const testUrl = `https://github.com/${match[1]}/${match[2]}`;
+                                if (isUrlFromHostname(testUrl, 'github.com')) {
+                                    githubRepoUrl = testUrl;
+                                }
                             }
                         }
                     }
+                }
+            }
+            
+            // Build package registry URL based on ecosystem
+            const ecosystemLower = packageEcosystem.toLowerCase();
+            if (ecosystemLower === 'npm' || ecosystemLower === 'nodejs') {
+                registryUrl = `https://www.npmjs.com/package/${encodeURIComponent(packageName)}`;
+            } else if (ecosystemLower === 'pypi' || ecosystemLower === 'python') {
+                registryUrl = `https://pypi.org/project/${encodeURIComponent(packageName)}/`;
+            } else if (ecosystemLower === 'rubygems' || ecosystemLower === 'gem') {
+                registryUrl = `https://rubygems.org/gems/${encodeURIComponent(packageName)}`;
+            } else if (ecosystemLower === 'cargo' || ecosystemLower === 'rust') {
+                registryUrl = `https://crates.io/crates/${encodeURIComponent(packageName)}`;
+            } else if (ecosystemLower === 'maven' || ecosystemLower === 'java') {
+                // Maven coordinates format: groupId:artifactId
+                const parts = packageName.split(':');
+                if (parts.length >= 2) {
+                    const groupId = parts[0].replace(/\./g, '/');
+                    const artifactId = parts[1];
+                    registryUrl = `https://mvnrepository.com/artifact/${groupId}/${artifactId}`;
+                }
+            } else if (ecosystemLower === 'composer' || ecosystemLower === 'packagist' || ecosystemLower === 'php') {
+                registryUrl = `https://packagist.org/packages/${encodeURIComponent(packageName)}`;
+            } else if (ecosystemLower === 'go' || ecosystemLower === 'golang') {
+                registryUrl = `https://pkg.go.dev/${encodeURIComponent(packageName)}`;
+            }
+            
+            // Determine dependency type (direct or transitive)
+            const targetPkgKey = `${packageName}@${packageVersion}`;
+            const depInfo = allDependencies.find(d => `${d.name}@${d.version}` === targetPkgKey);
+            const isDirect = depInfo ? depInfo.type === 'direct' : false;
+            
+            // Fetch version drift data
+            let driftData = null;
+            let staleness = null;
+            // Skip if version is unknown (cannot check drift without version)
+            if (packageEcosystem && packageVersion && packageVersion !== 'version unknown' && packageName && window.versionDriftAnalyzer) {
+                try {
+                    // Normalize ecosystem for packageKey
+                    let ecosystem = packageEcosystem.toLowerCase();
+                    if (ecosystem === 'rubygems' || ecosystem === 'gem') {
+                        ecosystem = 'gem';
+                    } else if (ecosystem === 'go' || ecosystem === 'golang') {
+                        ecosystem = 'golang';
+                    } else if (ecosystem === 'packagist' || ecosystem === 'composer') {
+                        ecosystem = 'composer';
+                    }
+                    const driftPackageKey = `${ecosystem}:${packageName}`;
+                    
+                    // Get version drift from cache
+                    driftData = await window.versionDriftAnalyzer.getVersionDriftFromCache(driftPackageKey, packageVersion);
+                    
+                    // If not in cache, try to fetch
+                    if (!driftData) {
+                        driftData = await window.versionDriftAnalyzer.checkVersionDrift(
+                            packageName,
+                            packageVersion,
+                            packageEcosystem
+                        );
+                    }
+                    
+                    // Get staleness if available
+                    if (driftData && driftData.staleness) {
+                        staleness = driftData.staleness;
+                    } else if (driftData && !driftData.hasMajorUpdate && !driftData.hasMinorUpdate) {
+                        // Only check staleness if no updates available
+                        staleness = await window.versionDriftAnalyzer.checkStaleness(
+                            packageName,
+                            packageVersion,
+                            packageEcosystem
+                        );
+                    }
+                } catch (e) {
+                    console.warn('Failed to fetch version drift data:', e);
                 }
             }
             
@@ -1492,180 +2582,242 @@
                 return `deps.html?${params.toString()}`;
             };
             
-            // Build HTML
+            // Build HTML - Compact layout with two columns
             let html = `
-                <div class="row">
-                    <div class="col-12">
-                        <h6><i class="fas fa-info-circle me-2"></i>Basic Information</h6>
-                        <table class="table table-sm">
-                            <tr>
-                                <th width="20%">Package:</th>
-                                <td><code>${escapeHtml(packageName)}@${escapeHtml(packageVersion)}</code></td>
-                            </tr>
-                            <tr>
-                                <th>Ecosystem:</th>
-                                <td><span class="badge bg-secondary">${escapeHtml(packageEcosystem)}</span></td>
-                            </tr>
-                            ${githubActionOwner ? `
-                            <tr>
-                                <th>Hosted by:</th>
-                                <td>
-                                    ${githubActionRepoInfo && githubActionRepoInfo.ownerUrl 
-                                        ? `<a href="${escapeHtml(githubActionRepoInfo.ownerUrl)}" target="_blank" class="text-decoration-none"><i class="fab fa-github me-1"></i>${escapeHtml(githubActionOwner)}</a>`
-                                        : `<i class="fab fa-github me-1"></i>${escapeHtml(githubActionOwner)}`
-                                    }
-                                    ${githubActionRepoInfo && githubActionRepoInfo.repoUrl 
-                                        ? ` <a href="${escapeHtml(githubActionRepoInfo.repoUrl)}" target="_blank" class="text-decoration-none ms-2" title="View repository"><i class="fas fa-external-link-alt"></i></a>`
-                                        : ''
-                                    }
-                                </td>
-                            </tr>
-                            ` : ''}
-                            <tr>
-                                <th>License:</th>
-                                <td>
-                                    <span title="${escapeHtml(licenseInfo.license || 'Unknown')}">
-                                        ${escapeHtml(licenseInfo.license || 'Unknown')}
-                                    </span>
-                                    ${licenseInfo.category !== 'unknown' ? `<span class="badge bg-info ms-2">${licenseInfo.category}</span>` : ''}
-                                </td>
-                            </tr>
-                            ${githubRepoUrl ? `
-                            <tr>
-                                <th>Repository:</th>
-                                <td>
-                                    <a href="${escapeHtml(githubRepoUrl)}" target="_blank" class="text-decoration-none">
-                                        <i class="fab fa-github me-1"></i>${escapeHtml(githubRepoUrl)}
-                                    </a>
-                                </td>
-                            </tr>
-                            ` : ''}
-                        </table>
+                <div class="row g-3">
+                    <!-- Left Column: Basic Info & Version Status -->
+                    <div class="col-md-6">
+                        <div class="card h-100">
+                            <div class="card-body">
+                                <h6 class="card-title"><i class="fas fa-info-circle me-2"></i>Package Info</h6>
+                                <div class="mb-2">
+                                    <strong>${escapeHtml(packageName)}</strong>
+                                    <code class="ms-2 small">v${escapeHtml(packageVersion)}</code>
+                                </div>
+                                <div class="d-flex flex-wrap gap-2 mb-2">
+                                    <span class="badge ${isDirect ? 'bg-primary' : 'bg-secondary'} text-white">${escapeHtml(packageEcosystem)}</span>
+                                    <span class="badge ${isDirect ? 'bg-primary' : 'bg-secondary'} text-white">${isDirect ? 'Direct' : 'Transitive'}</span>
+                                    <span class="badge bg-info" title="${escapeHtml(licenseInfo.license || 'Unknown')}">${escapeHtml(licenseInfo.license || 'Unknown')}</span>
+                                </div>
+                                ${driftData && driftData.latestVersion ? `
+                                    <div class="mt-2">
+                                        ${driftData.hasMajorUpdate ? `
+                                            <div class="alert alert-danger py-2 mb-0">
+                                                <i class="fas fa-arrow-up me-1"></i><strong>Major update available:</strong> v${escapeHtml(driftData.latestVersion)}
+                                            </div>
+                                        ` : driftData.hasMinorUpdate ? `
+                                            <div class="alert alert-warning py-2 mb-0">
+                                                <i class="fas fa-arrow-up me-1"></i><strong>Minor update available:</strong> v${escapeHtml(driftData.latestVersion)}
+                                            </div>
+                                        ` : staleness && staleness.isStale ? `
+                                            <div class="alert alert-warning py-2 mb-0">
+                                                <i class="fas fa-clock me-1"></i><strong>Stale:</strong> Last release ${staleness.monthsSinceRelease} months ago
+                                            </div>
+                                        ` : `
+                                            <div class="alert alert-success py-2 mb-0">
+                                                <i class="fas fa-check me-1"></i>Up to date (v${escapeHtml(driftData.latestVersion)})
+                                            </div>
+                                        `}
+                                    </div>
+                                ` : ''}
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Right Column: Links & Quick Actions -->
+                    <div class="col-md-6">
+                        <div class="card h-100">
+                            <div class="card-body">
+                                <h6 class="card-title"><i class="fas fa-link me-2"></i>Links</h6>
+                                <div class="d-grid gap-2">
+                                    ${githubRepoUrl ? `
+                                        <a href="${escapeHtml(githubRepoUrl)}" target="_blank" rel="noreferrer noopener" class="btn btn-outline-dark btn-sm">
+                                            <i class="fab fa-github me-1"></i>GitHub Source
+                                        </a>
+                                    ` : ''}
+                                    ${registryUrl ? `
+                                        <a href="${escapeHtml(registryUrl)}" target="_blank" rel="noreferrer noopener" class="btn btn-outline-primary btn-sm">
+                                            <i class="fas fa-box me-1"></i>Package Registry
+                                        </a>
+                                    ` : ''}
+                                    ${githubActionOwner && githubActionRepoInfo && githubActionRepoInfo.repoUrl ? `
+                                        <a href="${escapeHtml(githubActionRepoInfo.repoUrl)}" target="_blank" rel="noreferrer noopener" class="btn btn-outline-secondary btn-sm">
+                                            <i class="fab fa-github me-1"></i>Action Repository
+                                        </a>
+                                    ` : ''}
+                                </div>
+                                ${packageRepos && packageRepos.length > 0 ? `
+                                    <div class="mt-3">
+                                        <small class="text-muted d-block mb-1">Used in ${packageRepos.length} ${packageRepos.length === 1 ? 'repository' : 'repositories'}</small>
+                                        <div class="d-flex flex-wrap gap-1">
+                                            ${packageRepos.slice(0, 3).map(repo => `
+                                                <a href="${createRepoLink(repo)}" class="badge bg-primary text-decoration-none">${escapeHtml(repo)}</a>
+                                            `).join('')}
+                                            ${packageRepos.length > 3 ? `<span class="badge bg-secondary">+${packageRepos.length - 3} more</span>` : ''}
+                                        </div>
+                                    </div>
+                                ` : ''}
+                            </div>
+                        </div>
                     </div>
                 </div>
             `;
             
-            // Package warnings section (maintenance and deprecation)
-            let warningsHtml = '';
+            // Additional sections in compact layout
+            html += `<div class="row g-3 mt-2">`;
+            
+            // Warnings section (if any)
             if (packageData && packageData.warnings) {
                 const warnings = packageData.warnings;
-                warningsHtml = '<div class="row mt-3"><div class="col-12">';
-                
-                // Deprecation warning (highest priority)
+                html += `<div class="col-12">`;
                 if (warnings.isDeprecated) {
-                    warningsHtml += `
-                        <div class="alert alert-danger">
-                            <h6><i class="fas fa-exclamation-triangle me-2"></i>🚨 Deprecated Package</h6>
-                            <p class="mb-1">This package has been deprecated and is no longer recommended for use.</p>
-                            ${warnings.replacement ? `<p class="mb-0"><strong>Consider migrating to:</strong> <code>${escapeHtml(warnings.replacement)}</code></p>` : ''}
+                    html += `
+                        <div class="alert alert-danger py-2 mb-0">
+                            <i class="fas fa-exclamation-triangle me-1"></i><strong>Deprecated</strong>
+                            ${warnings.replacement ? ` - Consider migrating to: <code>${escapeHtml(warnings.replacement)}</code>` : ''}
+                        </div>
+                    `;
+                } else if (warnings.isUnmaintained) {
+                    const warningText = warnings.warningType === 'out-of-support' ? 'Out of support' : 'Unmaintained';
+                    html += `
+                        <div class="alert alert-warning py-2 mb-0">
+                            <i class="fas fa-exclamation-triangle me-1"></i><strong>${warningText}</strong> - May not receive security updates
                         </div>
                     `;
                 }
-                
-                // Maintenance warning (if not deprecated)
-                if (warnings.isUnmaintained && !warnings.isDeprecated) {
-                    const warningText = warnings.warningType === 'out-of-support' 
-                        ? '⚠️ This package is out of support'
-                        : '⚠️ This package is no longer maintained';
-                    warningsHtml += `
-                        <div class="alert alert-warning">
-                            <h6><i class="fas fa-exclamation-triangle me-2"></i>${warningText}</h6>
-                            <p class="mb-0">This package may not receive security updates or bug fixes.</p>
-                        </div>
-                    `;
-                }
-                
-                warningsHtml += '</div></div>';
+                html += `</div>`;
             }
             
-            html += warningsHtml;
-            
-            // Sponsorship section
+            // Sponsorship section (compact)
             if (funding) {
                 const platforms = [];
                 if (funding.github) {
                     const githubUrl = funding.githubUrl || funding.url || `https://github.com/sponsors/${encodeURIComponent(packageName)}`;
-                    platforms.push(`<a href="${githubUrl}" target="_blank" class="btn btn-outline-dark btn-sm me-2"><i class="fab fa-github me-1"></i>GitHub Sponsors</a>`);
+                    platforms.push(`<a href="${githubUrl}" target="_blank" rel="noreferrer noopener" class="btn btn-outline-dark btn-sm"><i class="fab fa-github me-1"></i>GitHub</a>`);
                 }
                 if (funding.opencollective) {
                     const ocUrl = funding.opencollectiveUrl || funding.url;
                     if (ocUrl) {
-                        platforms.push(`<a href="${ocUrl}" target="_blank" class="btn btn-outline-primary btn-sm me-2"><i class="fas fa-hand-holding-usd me-1"></i>Open Collective</a>`);
+                        platforms.push(`<a href="${ocUrl}" target="_blank" rel="noreferrer noopener" class="btn btn-outline-primary btn-sm"><i class="fas fa-hand-holding-usd me-1"></i>Open Collective</a>`);
                     }
                 }
                 if (funding.patreon) {
                     const patreonUrl = funding.patreonUrl || funding.url || `https://patreon.com/${encodeURIComponent(packageName)}`;
-                    platforms.push(`<a href="${patreonUrl}" target="_blank" class="btn btn-outline-danger btn-sm me-2"><i class="fab fa-patreon me-1"></i>Patreon</a>`);
+                    platforms.push(`<a href="${patreonUrl}" target="_blank" rel="noreferrer noopener" class="btn btn-outline-danger btn-sm"><i class="fab fa-patreon me-1"></i>Patreon</a>`);
                 }
                 if (funding.tidelift) {
                     const tideliftUrl = funding.tideliftUrl || funding.url;
                     if (tideliftUrl) {
-                        platforms.push(`<a href="${tideliftUrl}" target="_blank" class="btn btn-outline-warning btn-sm me-2"><i class="fas fa-gift me-1"></i>Tidelift</a>`);
+                        platforms.push(`<a href="${tideliftUrl}" target="_blank" rel="noreferrer noopener" class="btn btn-outline-warning btn-sm"><i class="fas fa-gift me-1"></i>Tidelift</a>`);
                     }
                 }
                 if (platforms.length > 0) {
                     html += `
-                        <div class="mt-3">
-                            <h6><i class="fas fa-heart text-danger me-2"></i>Sponsorship Opportunities</h6>
-                            <p class="mb-2">This package accepts donations/sponsorships:</p>
-                            <div>${platforms.join('')}</div>
+                        <div class="col-12">
+                            <div class="card">
+                                <div class="card-body py-2">
+                                    <small class="text-muted d-block mb-1"><i class="fas fa-heart text-danger me-1"></i>Sponsorship</small>
+                                    <div class="d-flex flex-wrap gap-1">${platforms.join('')}</div>
+                                </div>
+                            </div>
                         </div>
                     `;
                 } else if (funding.url) {
                     html += `
-                        <div class="mt-3">
-                            <h6><i class="fas fa-heart text-danger me-2"></i>Sponsorship Opportunities</h6>
-                            <p class="mb-2">This package accepts donations/sponsorships:</p>
-                            <a href="${funding.url}" target="_blank" class="btn btn-outline-success btn-sm"><i class="fas fa-donate me-1"></i>Support</a>
+                        <div class="col-12">
+                            <div class="card">
+                                <div class="card-body py-2">
+                                    <small class="text-muted d-block mb-1"><i class="fas fa-heart text-danger me-1"></i>Sponsorship</small>
+                                    <a href="${funding.url}" target="_blank" rel="noreferrer noopener" class="btn btn-outline-success btn-sm"><i class="fas fa-donate me-1"></i>Support</a>
+                                </div>
+                            </div>
                         </div>
                     `;
                 }
-            } else {
-                html += `
-                    <div class="mt-3">
-                        <h6><i class="fas fa-heart me-2"></i>Sponsorship</h6>
-                        <p class="text-muted mb-0">No sponsorship information available for this package.</p>
-                    </div>
-                `;
             }
             
-            // Authors section
-            if (authors && authors.length > 0) {
+            html += `</div>`;
+            
+            // Authors section - Section 6
+            // SIMPLIFIED: For GitHub Actions, match on owner/repo/path only (ignore ref)
+            let enrichedAuthors = null;
+            if (packageEcosystem === 'GitHub Actions' && packageRaw._gaMetadata && packageRaw._gaMetadata.authors) {
+                enrichedAuthors = packageRaw._gaMetadata.authors;
+            } else if (packageEcosystem === 'GitHub Actions' && window.currentData?.githubActionsAnalysis) {
+                // Parse and match on owner/repo/path only
+                const match = packageName.match(/^([^/@]+)\/([^/@]+)(?:\/(.+))?@(.+)$/);
+                if (match) {
+                    const [, owner, repo, path] = match;
+                    const normalizedPath = path || '';
+                    const repositories = window.currentData.githubActionsAnalysis.repositories || [];
+                    
+                    // Search for matching action (match on owner/repo/path, ignore ref)
+                    for (const repoData of repositories) {
+                        if (!repoData.actions || !Array.isArray(repoData.actions)) continue;
+                        
+                        for (const action of repoData.actions) {
+                            // Check direct action
+                            if (action.owner === owner && 
+                                action.repo === repo && 
+                                (action.path || '') === normalizedPath &&
+                                action.authors && action.authors.length > 0) {
+                                enrichedAuthors = action.authors;
+                                break;
+                            }
+                            
+                            // Check nested actions
+                            if (action.nested && Array.isArray(action.nested)) {
+                                for (const nestedAction of action.nested) {
+                                    if (nestedAction.owner === owner && 
+                                        nestedAction.repo === repo && 
+                                        (nestedAction.path || '') === normalizedPath &&
+                                        nestedAction.authors && nestedAction.authors.length > 0) {
+                                        enrichedAuthors = nestedAction.authors;
+                                        break;
+                                    }
+                                }
+                                if (enrichedAuthors) break;
+                            }
+                        }
+                        if (enrichedAuthors) break;
+                    }
+                }
+            }
+            
+            // Use enriched authors if available, otherwise use cached authors
+            const displayAuthors = enrichedAuthors || authors;
+            
+            if (displayAuthors && displayAuthors.length > 0) {
                 html += `
-                    <div class="mt-3">
-                        <h6><i class="fas fa-users me-2"></i>Authors & Maintainers</h6>
-                        <div class="list-group">
-                            ${authors.map(author => {
-                                const authorName = author.name || author.author || 'Unknown';
-                                const authorEmail = author.email || '';
-                                const isMaintainer = author.isMaintainer || false;
-                                return `
-                                    <div class="list-group-item">
-                                        <div class="d-flex justify-content-between align-items-center">
-                                            <div>
-                                                <strong>${escapeHtml(authorName)}</strong>
-                                                ${isMaintainer ? '<span class="badge bg-primary ms-2">Maintainer</span>' : ''}
-                                                ${authorEmail ? `<br><small class="text-muted">${escapeHtml(authorEmail)}</small>` : ''}
-                                            </div>
-                                        </div>
+                    <div class="row mt-2">
+                        <div class="col-12">
+                            <div class="card">
+                                <div class="card-body py-2">
+                                    <small class="text-muted d-block mb-2">
+                                        <i class="fas fa-users me-1"></i>Authors & Maintainers
+                                        ${enrichedAuthors ? ' <span class="badge bg-success bg-opacity-25" title="Enriched data">✓</span>' : ''}
+                                    </small>
+                                    <div class="d-flex flex-wrap gap-2">
+                                        ${displayAuthors.map(author => {
+                                            const authorName = author.name || author.author || author.login || 'Unknown';
+                                            const authorUrl = author.html_url || author.url || '';
+                                            const isMaintainer = author.isMaintainer || false;
+                                            return `
+                                                <div class="d-flex align-items-center">
+                                                    ${authorUrl ? `<a href="${escapeHtml(authorUrl)}" target="_blank" rel="noreferrer noopener" class="text-decoration-none">${escapeHtml(authorName)}</a>` : `<span>${escapeHtml(authorName)}</span>`}
+                                                    ${isMaintainer ? '<span class="badge bg-primary ms-1 small">M</span>' : ''}
+                                                </div>
+                                            `;
+                                        }).join('')}
                                     </div>
-                                `;
-                            }).join('')}
+                                </div>
+                            </div>
                         </div>
                     </div>
                 `;
-            } else {
-                html += `
-                    <div class="mt-3">
-                        <h6><i class="fas fa-users me-2"></i>Authors</h6>
-                        <p class="text-muted mb-0">No author information available for this package.</p>
-                    </div>
-                `;
             }
             
-            // Dependency Chain section (for transitive dependencies)
-            const targetPkgKey = `${packageName}@${packageVersion}`;
-            const depInfo = allDependencies.find(d => `${d.name}@${d.version}` === targetPkgKey);
+            // Dependency Chain section (for transitive dependencies) - Section 7
             
             if (depInfo && depInfo.type === 'transitive' && depInfo.parentsByRepo && Object.keys(depInfo.parentsByRepo).length > 0) {
                 // Helper function to parse package name and version
@@ -2142,7 +3294,8 @@
         }
         
         function exportCSV() {
-            const search = document.getElementById('searchInput').value.toLowerCase();
+            const searchInput = document.getElementById('searchInput').value;
+            const search = sanitizeSearchInput(searchInput).toLowerCase();
             const typeFilter = document.getElementById('typeFilter').value;
             const ecosystemFilter = document.getElementById('ecosystemFilter').value;
             const repoFilter = document.getElementById('repoFilter').value;
@@ -2172,28 +3325,24 @@
             
             // Helper functions for CSV export (same as in renderTable)
             function getLicenseInfoForCSV(dep) {
-                if (dep._licenseCached) {
-                    return dep.licenseFull;
+                // Use the same logic as getLicenseInfo but return full license text
+                const licenseInfo = getLicenseInfo(dep);
+                if (licenseInfo.isEnriched) {
+                    return `${licenseInfo.licenseFull} (Enriched)`;
                 }
-                if (dep.raw.originalPackage && dep._licenseProcessor) {
-                    const licenseInfo = dep._licenseProcessor.parseLicense(dep.raw.originalPackage);
-                    if (licenseInfo.license && licenseInfo.license !== 'NOASSERTION') {
-                        return licenseInfo.license;
-                    }
-                }
-                return 'Unknown';
+                return licenseInfo.licenseFull;
             }
             
             const csv = [
-                ['Package', 'Type', 'Ecosystem', 'Repositories', 'Vulnerabilities (H/M/L)', 'License', 'Brought In By'].join(','),
+                ['Dependency', 'Ecosystem - Type', 'Repos', 'Vulns (H/M/L)', 'License', 'Sponsor', 'Parent'].join(','),
                 ...filtered.map(dep => [
                     `"${dep.name}@${dep.version}"`,
-                    dep.type,
-                    dep.ecosystem,
+                    `"${dep.ecosystem} - ${dep.type}"`,
                     `"${dep.repositories.join(', ')}"`,
                     `"H:${dep.vulnHigh} M:${dep.vulnMedium} L:${dep.vulnLow}"`,
                     `"${getLicenseInfoForCSV(dep)}"`,
-                    dep.type === 'direct' ? 'N/A' : `"${dep.parents.join(', ')}"`
+                    dep.funding ? 'Yes' : 'No',
+                    dep.type === 'direct' ? 'Direct' : (dep.parents.length > 0 ? `"${dep.parents.join(', ')}"` : 'Unknown')
                 ].join(','))
             ].join('\n');
             
