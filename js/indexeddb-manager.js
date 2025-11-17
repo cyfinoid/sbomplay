@@ -4,7 +4,7 @@
 class IndexedDBManager {
     constructor() {
         this.dbName = 'sbomplay_db';
-        this.version = 4; // Bump version to add locations store
+        this.version = 5; // Current database version
         this.db = null;
     }
 

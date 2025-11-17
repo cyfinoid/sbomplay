@@ -9,8 +9,8 @@
     <link href="css/style.css?v=0.0.6" rel="stylesheet">
     <link href="css/themes.css?v=0.0.6" rel="stylesheet">
     <script src="js/theme-manager.js?v=0.0.6"></script>
+    <script src="js/analytics.js?v=0.0.6"></script>
     <script defer data-domain="cyfinoid.github.io" src="https://plausible.io/js/script.outbound-links.js"></script>
-<script>window.plausible = window.plausible || function() { (window.plausible.q = window.plausible.q || []).push(arguments) }</script>
 
 </head>
 <body>
@@ -310,11 +310,10 @@
                     <div class="mb-2">
                         <strong id="authorDetectionStatus">Preparing...</strong>
                     </div>
-                    <div class="progress" style="height: 1.5rem;">
-                        <div class="progress-bar progress-bar-striped progress-bar-animated" 
+                    <div class="progress author-detection-progress">
+                        <div class="progress-bar progress-bar-striped progress-bar-animated author-detection-progress-bar" 
                              role="progressbar" 
                              id="authorDetectionProgressBar"
-                             style="width: 0%" 
                              aria-valuenow="0" 
                              aria-valuemin="0" 
                              aria-valuemax="100">

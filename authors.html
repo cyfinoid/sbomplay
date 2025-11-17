@@ -130,7 +130,7 @@
         </div>
 
         <!-- Author Map -->
-        <div class="card mb-4" id="authorMapCard" style="display: none;">
+        <div class="card mb-4 author-map-card" id="authorMapCard">
             <div class="card-header d-flex justify-content-between align-items-center">
                 <h5><i class="fas fa-globe me-2"></i>Author Locations Map</h5>
                 <button type="button" class="btn btn-sm btn-outline-secondary" id="toggleMapBtn">
@@ -143,7 +143,7 @@
                     <strong>Location Data Disclaimer:</strong> Author locations shown on this map are based on voluntarily provided information from authors themselves (typically from their GitHub profiles, package registry profiles, or other public sources). This information may be incomplete, outdated, or inaccurate. Locations are geocoded automatically and may not reflect the actual current location of authors.
                     <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
                 </div>
-                <div id="authorMap" style="height: 400px; width: 100%;"></div>
+                <div id="authorMap" class="author-map"></div>
             </div>
         </div>
 
@@ -593,10 +593,10 @@
                     const authorNames = authorsAtLocation.slice(0, 5).map(a => escapeHtml(a.author)).join('<br>');
                     const moreText = authorCount > 5 ? `<br><strong>+ ${authorCount - 5} more</strong>` : '';
                     const popupContent = `
-                        <div style="max-width: 250px;">
+                        <div class="map-popup-content">
                             <strong>${escapeHtml(location)}</strong><br>
                             <small>${authorCount} author${authorCount !== 1 ? 's' : ''}</small>
-                            <hr style="margin: 5px 0;">
+                            <hr class="map-popup-hr">
                             ${authorNames}${moreText}
                         </div>
                     `;

@@ -1901,21 +1901,6 @@ class AuthorService {
         return parts.map(p => p.trim()).filter(p => p.length > 0);
     }
 
-    /**
-     * DEPRECATED: This function is no longer used - it caused false positives
-     * We now only check GitHub when there's an explicit pointer (e.g., GitHub URL in maintainer profile)
-     * 
-     * @deprecated Do not use - causes false positives by inferring GitHub usernames from name matching
-     * @param {Array} nativeAuthors - Authors from native registry (e.g., RubyGems)
-     * @param {Array} ecosystemsAuthors - Authors/maintainers from ecosyste.ms
-     * @returns {Array} - Returns nativeAuthors unchanged (no correlation performed)
-     */
-    correlateAuthorsWithMaintainers(nativeAuthors, ecosystemsAuthors) {
-        // Function disabled - do not correlate based on name inference
-        // Only check GitHub when there's an explicit pointer (e.g., GitHub URL in maintainer profile)
-        // This prevents false positives from assuming maintainer login = GitHub username
-        return nativeAuthors;
-    }
 
     /**
      * Fetch top contributors from GitHub repository
