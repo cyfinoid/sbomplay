@@ -7,135 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.0.3] - 2025-11-17
+
 ### Added
-
-#### Audit Findings Enhancements
-- **Unified Audit Findings View**: Consolidated GitHub Actions and SBOM Deficiencies into a single, unified audit findings section
-  - Collapsible accordion sections for each finding type (default expanded)
-  - Finding type descriptions shown once per type (eliminates redundant copy-pasted data)
-  - Cleaner instance tables without redundant "Description" and "Additional Details" columns
-  - Findings grouped by type and sorted by severity (high → low) then by instance count
-  - Category badges (GitHub Actions vs SBOM) for easy identification
-  - Instance count badges showing number of occurrences per finding type
-
-- **GitHub Actions Finding Links**: Direct links to GitHub files with line numbers for audit findings
-  - File and line number information extracted from workflow analysis
-  - Clickable links format: `filename:line` (e.g., `workflow.yml:42`)
-  - Links open directly to the specific line in GitHub's web interface
-  - URL format: `https://github.com/owner/repo/blob/ref/path/to/file#L123`
-  - Falls back to message display when file/line info unavailable
-
-- **SBOM Finding Navigation**: Repository links in SBOM deficiency findings now redirect to dependency view
-  - SBOM finding repository links navigate to `deps.html` with repository filter applied
-  - Preserves organization context in URL parameters
-  - Enables quick navigation from audit findings to affected dependencies
-  - URL format: `deps.html?org=organization&repo=owner/repo` or `deps.html?repo=owner/repo`
-
-#### URL Parameter Support
-- **Repository Filter Parameter**: Added `repo` URL parameter support across multiple pages
-  - `deps.html` - Filters dependencies by repository
-  - `vuln.html` - Filters vulnerabilities by repository
-  - `quality.html` - Filters repositories by repository name
-  - `licenses.html` - Filters licenses by repository
-  - `authors.html` - Filters authors by repository
-  - Enables deep linking and cross-page navigation from `repos.html`
-
-#### New Major Features (Pages)
-- **Repository View**: New repository-focused page (`repos.html`) for viewing repository statistics and analysis
-  - Repository statistics table showing:
-    - SBOM status and grade (combined column, links to quality.html when available)
-    - Vulnerability counts (High/Medium/Low badges, links to vuln.html)
-    - Dependency counts (links to deps.html)
-    - Author counts (links to authors.html)
-    - Repository license (links to licenses.html)
-  - Clickable columns that navigate to respective pages with repository filter applied
-  - Analysis selector supporting "All Projects (Combined)" and individual analyses
-  - Search functionality for repository names
-  - Sortable columns with proper sorting logic (including grade-based sorting)
-  - Statistics summary (Total Repos, With SBOM, With Vulnerabilities, Showing)
-  - CSV export functionality
-  - URL parameter support (`org`, `search`)
+- **Repository View Page**: New `repos.html` page for repository-focused statistics and analysis
+  - Repository statistics table with SBOM status, vulnerability counts, dependency counts, author counts, and license info
+  - Clickable columns navigate to respective pages with repository filter applied
+  - Search, sorting, CSV export, and URL parameter support (`org`, `search`)
+- **Unified Audit Findings**: Consolidated GitHub Actions and SBOM Deficiencies into single audit findings section
+  - Collapsible accordion sections with finding type descriptions shown once per type
+  - Direct links to GitHub files with line numbers for audit findings
+  - Repository links in SBOM findings navigate to dependency view with filters applied
+- **Repository Filter Parameter**: Added `repo` URL parameter support across `deps.html`, `vuln.html`, `licenses.html`, and `authors.html` for deep linking and cross-page navigation
 
 ### Changed
-
-#### Audit Findings UI/UX Improvements
-- **Streamlined Audit Findings Display**: Refactored audit findings to eliminate redundant information
-  - Removed redundant "Description" and "Additional Details" columns from instance tables
-  - Finding descriptions now shown once per type in collapsible accordion headers
-  - Instance tables focus on actionable information (Action/Repository + Location/Context)
-  - Reduced visual clutter and improved information density
-  - Better organization with collapsible sections for easier navigation
-
-- **Consolidated Audit Sections**: Unified GitHub Actions and SBOM Deficiencies into single flow
-  - Both finding types now displayed in unified "Security & SBOM Audit Findings" section
-  - Consistent presentation and interaction patterns across all audit finding types
-  - Removed separate `generateSBOMAuditHTML` function (now handled by unified approach)
-  - Improved maintainability with single code path for audit findings display
-
-#### Theme & Visual Improvements
-- **Enhanced Dark Mode Support**: Comprehensive theme fixes for better readability
-  - Fixed table headers to use theme-aware backgrounds (`var(--bg-tertiary)`) instead of hardcoded light colors
-  - Fixed footer backgrounds to adapt to both themes (all pages)
-  - Fixed stat box colors to use CSS variables for theme adaptation
-  - Fixed badge and link colors to use theme-aware CSS variables
-  - Added theme support for Bootstrap utility classes (`bg-light`, `text-dark`)
-  - Improved contrast and readability in both light and dark modes
-
-#### Navigation & UI Improvements
-- **Concise Navigation Menu**: Streamlined navigation menu across all pages
-  - Changed "Vulnerabilities" → "Vulns" for brevity
-  - Changed "Dependencies" → "Deps" for brevity
-  - Changed "Analysis" → "Home" (icon/brand already links to index.html)
-  - Added "Repos" link to all navigation menus
-  - More compact and scannable navigation bar
-
-#### Code Organization & Optimization
-- **JavaScript Refactoring**: Comprehensive JavaScript code optimization and organization
-  - Extracted all inline JavaScript from HTML files to separate JS files
-  - Created shared utilities file (`js/utils.js`) for common functions (escapeHtml, escapeJsString, isUrlFromHostname)
-  - Removed redundant code: eliminated duplicate utility functions across multiple files
-  - Simplified overly complicated code patterns
-  - Extracted repeated patterns into reusable utility functions
-  - Updated all HTML files to load `utils.js` before other scripts
-  - Optimized JavaScript code for better maintainability and performance
-
-- **CSS Consolidation**: Comprehensive CSS optimization and organization
-  - Extracted all inline styles from HTML files to CSS classes
-  - Extracted all `<style>` blocks from HTML files to `style.css`
-  - Consolidated redundant CSS rules between `style.css` and `themes.css`
-  - Created utility classes for common inline styles:
-    - Display utilities (`.d-none`, `.d-block`, `.d-flex`)
-    - Cursor utilities (`.cursor-pointer`)
-    - Text alignment utilities (`.text-center`, `.text-left`, `.text-right`)
-    - Dimension utilities (`.w-140`, `.h-2rem`, `.h-8px`, `.h-20px`)
-    - Max height utilities (`.max-h-200`, `.max-h-400`)
-    - Overflow utilities (`.overflow-y-auto`)
-    - Background/text color utilities (`.bg-secondary`, `.bg-tertiary`, `.text-primary`)
-    - Position utilities (`.position-relative`, `.position-absolute`)
-  - Removed duplicate progress bar definitions
-  - Removed old dark mode support from `style.css` (now handled by `themes.css`)
-  - Consolidated button styles
-  - Optimized `themes.css` to remove redundancies
-  - Updated JavaScript-generated HTML to use CSS classes instead of inline styles
-
-#### File Structure Improvements
-- **JavaScript Files**: Better organization of JavaScript code
-  - Created `js/index-page.js` for index.html-specific functionality
+- **Code Organization**: Extracted all inline JavaScript and CSS from HTML files to separate files
   - Created `js/utils.js` for shared utility functions
-  - All page-specific JavaScript now properly separated from HTML files
-
-- **CSS Files**: Better organization of styles
-  - All styles consolidated in `style.css` and `themes.css`
-  - Clear separation between base styles and theme-specific styles
-  - Removed all inline styles and style blocks from HTML files
-
-#### Progress Bar & Status Improvements
-- **Enhanced Progress Tracking**: Improved progress bar accuracy and status messages
-  - Implemented phase-based progress tracking with weighted phases for more accurate progress representation
-  - Enhanced status messages with detailed information (e.g., "Resolving github actions dependencies (3/4 packages)...")
-  - Progress bar now reflects actual work progress based on analysis phases rather than simple percentage
-  - Added smoother progress bar animations with cubic-bezier transitions and shimmer effects
-  - Removed estimated remaining time display (not useful for variable-duration operations)
+  - Created `js/index-page.js` for index.html-specific functionality
+  - Consolidated CSS into utility classes and removed redundant rules
+- **Navigation Menu**: Streamlined menu labels ("Vulnerabilities" → "Vulns", "Dependencies" → "Deps", "Analysis" → "Home") and added "Repos" link
+- **Theme Support**: Enhanced dark mode with theme-aware CSS variables for table headers, footers, stat boxes, badges, and Bootstrap utility classes
+- **Progress Tracking**: Implemented phase-based progress tracking with weighted phases and enhanced status messages
+- **Audit Findings Display**: Streamlined display by removing redundant columns and consolidating finding descriptions
 
 ## [0.0.2] - 2025-11-08
 
