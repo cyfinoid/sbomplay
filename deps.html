@@ -2464,10 +2464,30 @@
                         // Check PURL for repository info
                         const purl = ref.referenceLocator;
                         // PURL might contain repository info in qualifiers
-                        if (purl.includes('github.com')) {
+                        // Securely validate github.com hostname to prevent attacks
+                        // Extract URLs from PURL string (may contain URLs in qualifiers)
+                        const urlMatch = purl.match(/https?:\/\/[^\s\)]+/gi);
+                        if (urlMatch) {
+                            // Check if any extracted URL is from github.com
+                            for (const url of urlMatch) {
+                                if (isUrlFromHostname(url, 'github.com')) {
+                                    const match = url.match(/github\.com[\/:]([^\/]+)\/([^\/\s]+)/i);
+                                    if (match) {
+                                        githubRepoUrl = `https://github.com/${match[1]}/${match[2]}`;
+                                        break;
+                                    }
+                                }
+                            }
+                        } else {
+                            // Fallback: if PURL doesn't contain full URLs, check for github.com pattern
+                            // but only if it looks like a valid github.com reference
                             const match = purl.match(/github\.com[\/:]([^\/]+)\/([^\/\s]+)/i);
                             if (match) {
-                                githubRepoUrl = `https://github.com/${match[1]}/${match[2]}`;
+                                // Validate by constructing URL and checking hostname
+                                const testUrl = `https://github.com/${match[1]}/${match[2]}`;
+                                if (isUrlFromHostname(testUrl, 'github.com')) {
+                                    githubRepoUrl = testUrl;
+                                }
                             }
                         }
                     }

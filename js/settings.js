@@ -1569,10 +1569,20 @@ class SettingsApp {
     showAlert(message, type) {
         const alertDiv = document.createElement('div');
         alertDiv.className = `alert alert-${type} alert-dismissible fade show`;
-        alertDiv.innerHTML = `
-            ${message}
-            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
-        `;
+        // Escape HTML to prevent XSS attacks
+        const escapedMessage = escapeHtml(message);
+        // Use safeSetHTML if available, otherwise use innerHTML with escaped content
+        if (window.viewManager && typeof window.viewManager.safeSetHTML === 'function') {
+            window.viewManager.safeSetHTML(alertDiv, `
+                ${escapedMessage}
+                <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+            `);
+        } else {
+            alertDiv.innerHTML = `
+                ${escapedMessage}
+                <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+            `;
+        }
         
         // Insert at the top of the container
         const container = document.querySelector('.container');
