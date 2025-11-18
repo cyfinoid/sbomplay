@@ -7,6 +7,64 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Enhanced Dependency Resolution Progress**: Secondary progress bar now displays detailed package-level progress during dependency tree resolution
+  - Shows current package name being processed (extracted from package key)
+  - Displays countdown with "X/Y processed" badge and "(Z remaining)" count
+  - Progress bar fills incrementally as each package completes
+  - Shows ecosystem name (e.g., npm, PyPI, RubyGems) being processed
+  - Real-time feedback during dependency resolution phase
+- **Latest Version Fallback**: When package version is missing from SBOM, automatically fetch and use latest version from registry
+  - Stores both `version` (null) and `assumedVersion` (latest) in dependency objects
+  - Displays "latest (assumed)" instead of "version unknown" for better data completeness
+  - Ensures depth information is captured during dependency tree resolution
+- **Version Drift Analysis During Scan**: Version drift data is now fetched and stored during initial analysis phase
+  - Version drift information available immediately after analysis completes
+  - No longer requires visiting deps.html page to trigger version drift calculation
+- **RubyGems ecosyste.ms Integration**: Added ecosyste.ms API support for RubyGems dependencies and author data
+  - Uses `https://packages.ecosyste.ms/api/v1/registries/rubygems.org/packages` as primary source
+  - Bypasses RubyGems API CORS limitations (verified via HEAD requests) by using ecosyste.ms proxy
+  - Improved RubyGems dependency resolution and author information
+- **GitHub Actions License Extraction**: Enhanced license detection for GitHub Actions
+  - Fetches license from GitHub repository API (similar to Go modules)
+  - Attempts to extract license from LICENSE file at specific tag/ref when available
+  - Falls back to default branch if tag doesn't exist
+  - Improved license coverage for GitHub Actions dependencies
+- **Bot Account Detection**: Separate handling and display of bot accounts in author analysis
+  - Detects bot accounts based on name patterns (e.g., `[bot]` suffix) and metadata
+  - New "Active Bots in the Environments" table in authors.html
+  - Bot accounts excluded from regular author statistics
+  - Bot-specific metadata and purpose tracking
+- **Dual License Support**: Enhanced license processing to detect and classify dual licenses
+  - Detects dual licenses containing "OR", "|", or "/" separators
+  - Classifies under least restrictive license from the set
+  - Marks dependencies with `isDualLicense: true` flag
+  - Displays both licenses in UI with "Dual" badge and full license text in tooltips
+- **Independent Entity Detection**: Identifies and marks dependencies with no dependencies of their own
+  - Independent entities marked with special flag and "Independent" badge
+  - Stale independent entities styled with blue color (instead of red/yellow) to indicate different risk profile
+  - Independent entities can remain stale longer without concern
+- **GitHub Actions Dependency Graph**: Enhanced workflow parsing to capture complete dependency graph
+  - Tracks action lineages (which actions use which other actions)
+  - Captures reusable workflows in addition to action steps
+  - Stores complete dependency graph with direct dependencies, transitive dependencies, lineage, ancestors, and descendants
+  - Improved nested action detection and tracking
+- **License Normalization**: Fixed false positives in license change detection
+  - Added `normalizeLicenseName()` function to handle license variants (e.g., "GPL-3" vs "GPL-3-only" vs "GPL-3.0")
+  - Maps license variants to canonical forms before comparison
+  - Prevents false positives when comparing similar license versions
+
+### Changed
+- **Default API Timeout**: Increased default API request timeout from 5 seconds to 10 seconds
+  - Updated in `js/utils.js`, `settings.html`, and `js/settings.js`
+  - Reduces timeout errors during dependency resolution
+  - Still configurable via Settings page
+
+### Fixed
+- **deps.html Load More Button**: Fixed null reference error when loadMoreBtn element doesn't exist
+  - Added defensive null check before attaching event listener
+  - Prevents JavaScript errors when button is not present in DOM
+
 ## [0.0.3] - 2025-11-17
 
 ### Added
