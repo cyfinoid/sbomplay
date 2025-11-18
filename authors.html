@@ -290,7 +290,7 @@
                     return author; // Skip - already enriched and persisted
                 }
                 
-                // If no location, can't geocode
+                // If no location, can't get country code
                 const location = author.metadata?.location || author.metadata?.company || null;
                 if (!location || !locationService) {
                     return author;
@@ -309,15 +309,9 @@
                             continue; // Skip invalid locations
                         }
                         
-                        // Check if location was already geocoded (from cache)
-                        let geocoded = await locationService.geocode(normalizedLocation, false, false);
-                        
-                        // If cached geocoded data exists but doesn't have countryCode, force refresh
-                        // This handles cases where locations were geocoded before country code extraction was added
-                        if (geocoded && !geocoded.countryCode) {
-                            console.log(`🔄 Re-geocoding "${normalizedLocation}" to extract country code`);
-                            geocoded = await locationService.geocode(normalizedLocation, true, false); // Force refresh
-                        }
+                        // Load from cache only (locations are already geocoded during analysis phase)
+                        // Use getFromCache() to prevent API calls - only loads from cache
+                        const geocoded = await locationService.getFromCache(normalizedLocation);
                         
                         if (geocoded && geocoded.countryCode) {
                             countryCodes.add(geocoded.countryCode);
@@ -2113,7 +2107,6 @@
                                     <th>Location</th>
                                     <th class="text-center">Social</th>
                                     <th class="text-center">Sponsorship</th>
-                                    <th>Package List</th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -2216,7 +2209,13 @@
                                 </a>
                             </td>
                             <td><span class="badge bg-info">${author.ecosystem}</span></td>
-                            <td><span class="badge bg-primary">${uniquePackageCount}</span></td>
+                            <td>
+                                <a href="#" class="text-decoration-none packages-link" data-author-index="${startIndex + index}">
+                                    ${uniquePackageCount === 1 
+                                        ? `<span class="badge bg-primary">${escapeHtml(uniquePackages[0])}</span>`
+                                        : `<span class="badge bg-primary">${uniquePackageCount}</span>`}
+                                </a>
+                            </td>
                             <td>
                                 <span class="badge bg-secondary">${repositoryCount} repo${repositoryCount !== 1 ? 's' : ''}</span>
                                 ${riskBadge}
@@ -2224,12 +2223,6 @@
                             ${locationCell}
                             ${socialCell}
                             ${sponsorshipCell}
-                            <td>
-                                <a href="#" class="text-decoration-none package-list-link" data-author-index="${startIndex + index}">
-                                    <small>${samplePackages}${uniquePackages.length > 3 ? ` <strong>+ ${uniquePackages.length - 3} more</strong>` : ''}</small>
-                                    <i class="fas fa-external-link-alt ms-1 small"></i>
-                                </a>
-                            </td>
                         </tr>
                     `;
                 });
@@ -2411,8 +2404,8 @@
                     });
                 });
                 
-                // Package list links
-                document.querySelectorAll('.package-list-link').forEach(link => {
+                // Packages column links (clickable)
+                document.querySelectorAll('.packages-link').forEach(link => {
                     link.addEventListener('click', function(e) {
                         e.preventDefault();
                         const index = parseInt(this.getAttribute('data-author-index'));

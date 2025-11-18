@@ -244,6 +244,49 @@
             </div>
         </div>
 
+        <!-- API Settings -->
+        <div class="card mb-4">
+            <div class="card-header">
+                <h5><i class="fas fa-network-wired me-2"></i>API Settings</h5>
+            </div>
+            <div class="card-body">
+                <div class="row mb-3">
+                    <div class="col-md-6">
+                        <label for="apiTimeout" class="form-label">API Request Timeout (seconds)</label>
+                        <input type="number" class="form-control" id="apiTimeout" min="1" max="300" value="5">
+                        <small class="text-muted">Timeout for all API requests in seconds (default: 5)</small>
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label">Current Value</label>
+                        <div class="p-3 border rounded bg-light">
+                            <p class="mb-0"><strong id="currentApiTimeout">5</strong> seconds</p>
+                        </div>
+                    </div>
+                </div>
+                <div class="row mb-3">
+                    <div class="col-md-12">
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" id="debugUrlLogging">
+                            <label class="form-check-label" for="debugUrlLogging">
+                                Enable Debug URL Logging
+                            </label>
+                            <small class="form-text text-muted d-block">When enabled, all API request URLs will be logged to the browser console</small>
+                        </div>
+                    </div>
+                </div>
+                <div class="row">
+                    <div class="col-md-12">
+                        <button class="btn btn-primary" id="saveApiSettingsBtn">
+                            <i class="fas fa-save me-2"></i>Save API Settings
+                        </button>
+                        <button class="btn btn-outline-secondary" id="resetApiSettingsBtn">
+                            <i class="fas fa-undo me-2"></i>Reset to Defaults
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
         <!-- Sanctioned Countries Settings -->
         <div class="card mb-4">
             <div class="card-header">

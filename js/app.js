@@ -418,8 +418,11 @@ class SBOMPlayApp {
         // Save to sessionStorage so it persists across page reloads
         if (token) {
             sessionStorage.setItem('github_token', token);
+            const maskedToken = token.length > 8 ? `${token.substring(0, 4)}...${token.substring(token.length - 4)}` : '****';
+            console.log(`🔑 GitHub token saved to sessionStorage: ${maskedToken}`);
         } else {
             sessionStorage.removeItem('github_token');
+            console.log('🔑 GitHub token removed from sessionStorage');
         }
         
         this.githubClient.setToken(token);
@@ -798,11 +801,24 @@ class SBOMPlayApp {
                 return;
             }
 
+            // Warn if no token is set and organization has many repositories
+            if (!this.githubClient.token && repositories.length > 50) {
+                console.warn(`⚠️  No GitHub token detected. Analyzing ${repositories.length} repositories without authentication.`);
+                console.warn(`   Unauthenticated requests are limited to 60/hour, which may cause rate limit errors.`);
+                console.warn(`   Consider adding a GitHub token in Settings for 5000 requests/hour.`);
+                this.showAlert(
+                    `⚠️ No GitHub token detected. Analyzing ${repositories.length} repositories may hit rate limits (60/hour unauthenticated). Consider adding a token in Settings for 5000 requests/hour.`,
+                    'warning'
+                );
+            }
+
             this.sbomProcessor.setTotalRepositories(repositories.length);
             this.updateProgress(20, `Found ${repositories.length} repositories. Starting SBOM analysis...`, 'fetching-sbom');
 
             // Process repositories in parallel with concurrency limit
-            const CONCURRENCY_LIMIT = 8; // Process 8 repositories concurrently
+            // Reduced to 3 to prevent secondary rate limits (abuse detection)
+            // GitHub allows ~30-60 requests/minute, so 3 concurrent with 1.5s throttling = ~40/min
+            const CONCURRENCY_LIMIT = 3; // Process 3 repositories concurrently
             let successfulRepos = 0;
             let failedRepos = 0;
             let reposWithDeps = 0;
@@ -3112,10 +3128,10 @@ class SBOMPlayApp {
                 try {
                     // Fetch license from deps.dev API
                     const url = `https://api.deps.dev/v3alpha/systems/pypi/packages/${encodeURIComponent(dep.name)}/versions/${encodeURIComponent(dep.version)}`;
-                    console.log(`🌐 [DEBUG] Fetching URL: ${url}`);
-                    console.log(`   Reason: Fetching deps.dev API for PyPI package ${dep.name}@${dep.version} to extract license information`);
+                    debugLogUrl(`🌐 [DEBUG] Fetching URL: ${url}`);
+                    debugLogUrl(`   Reason: Fetching deps.dev API for PyPI package ${dep.name}@${dep.version} to extract license information`);
                     
-                    const response = await fetch(url);
+                    const response = await fetchWithTimeout(url);
                     if (!response.ok) {
                         console.log(`   ❌ Response: Status ${response.status} ${response.statusText}`);
                         return;
@@ -3202,10 +3218,10 @@ class SBOMPlayApp {
                 try {
                     // Fetch license from deps.dev API
                     const url = `https://api.deps.dev/v3alpha/systems/go/packages/${encodeURIComponent(dep.name)}/versions/${encodeURIComponent(dep.version)}`;
-                    console.log(`🌐 [DEBUG] Fetching URL: ${url}`);
-                    console.log(`   Reason: Fetching deps.dev API for Go package ${dep.name}@${dep.version} to extract license information`);
+                    debugLogUrl(`🌐 [DEBUG] Fetching URL: ${url}`);
+                    debugLogUrl(`   Reason: Fetching deps.dev API for Go package ${dep.name}@${dep.version} to extract license information`);
                     
-                    const response = await fetch(url);
+                    const response = await fetchWithTimeout(url);
                     if (!response.ok) {
                         console.log(`   ❌ Response: Status ${response.status} ${response.statusText}`);
                         return;
@@ -3302,24 +3318,35 @@ class SBOMPlayApp {
         const uniquePackageVersions = new Map(); // Key: packageKey, Value: Set of versions
         
         // Collect unique package versions from dependencies
+        let skippedCount = 0;
         dependencies.forEach(dep => {
-            if (dep.name && dep.version && dep.category?.ecosystem) {
-                let ecosystem = dep.category.ecosystem.toLowerCase();
-                // Normalize ecosystem aliases
-                if (ecosystem === 'rubygems' || ecosystem === 'gem') {
-                    ecosystem = 'gem';
-                } else if (ecosystem === 'go' || ecosystem === 'golang') {
-                    ecosystem = 'golang';
-                } else if (ecosystem === 'packagist' || ecosystem === 'composer') {
-                    ecosystem = 'composer';
-                }
-                const packageKey = `${ecosystem}:${dep.name}`;
-                if (!uniquePackageVersions.has(packageKey)) {
-                    uniquePackageVersions.set(packageKey, new Set());
-                }
-                uniquePackageVersions.get(packageKey).add(dep.version);
+            // Handle both dep.category?.ecosystem and dep.ecosystem (dependencies can have either structure)
+            const ecosystemValue = dep.category?.ecosystem || dep.ecosystem;
+            // Skip dependencies without required fields or with unknown version
+            if (!dep.name || !dep.version || dep.version === 'version unknown' || !ecosystemValue) {
+                skippedCount++;
+                return;
             }
+            
+            let ecosystem = ecosystemValue.toLowerCase();
+            // Normalize ecosystem aliases
+            if (ecosystem === 'rubygems' || ecosystem === 'gem') {
+                ecosystem = 'gem';
+            } else if (ecosystem === 'go' || ecosystem === 'golang') {
+                ecosystem = 'golang';
+            } else if (ecosystem === 'packagist' || ecosystem === 'composer') {
+                ecosystem = 'composer';
+            }
+            const packageKey = `${ecosystem}:${dep.name}`;
+            if (!uniquePackageVersions.has(packageKey)) {
+                uniquePackageVersions.set(packageKey, new Set());
+            }
+            uniquePackageVersions.get(packageKey).add(dep.version);
         });
+        
+        if (skippedCount > 0) {
+            console.log(`📦 Skipped ${skippedCount} dependencies (missing name/version/ecosystem or version unknown)`);
+        }
         
         const totalVersions = Array.from(uniquePackageVersions.values()).reduce((sum, versions) => sum + versions.size, 0);
         console.log(`📦 Fetching version drift for ${uniquePackageVersions.size} packages (${totalVersions} versions)...`);
@@ -3439,6 +3466,58 @@ class SBOMPlayApp {
                 this.updateProgress(96 + (processed / total * 2), `Fetching authors: ${processed}/${total}`);
             }
         );
+        
+        // Batch geocode all author locations during analysis phase
+        if (window.LocationService && authorResults && authorResults.size > 0) {
+            try {
+                console.log('📍 Geocoding author locations during analysis phase...');
+                const locationService = new window.LocationService();
+                const locations = new Set();
+                
+                // Fetch author entities from cache to get all locations
+                // authorResults is a Map where keys are authorKeys and values are author objects
+                if (window.cacheManager) {
+                    const authorKeys = Array.from(authorResults.keys());
+                    console.log(`📍 Collecting locations from ${authorKeys.length} author entities...`);
+                    
+                    for (const authorKey of authorKeys) {
+                        try {
+                            const authorEntity = await window.cacheManager.getAuthorEntity(authorKey);
+                            if (authorEntity?.metadata?.location) {
+                                const normalized = locationService.normalizeLocationString(authorEntity.metadata.location);
+                                if (normalized) {
+                                    locations.add(normalized);
+                                }
+                            }
+                            if (authorEntity?.metadata?.company) {
+                                const normalized = locationService.normalizeLocationString(authorEntity.metadata.company);
+                                if (normalized) {
+                                    locations.add(normalized);
+                                }
+                            }
+                        } catch (e) {
+                            // Skip if entity not found
+                        }
+                    }
+                }
+                
+                if (locations.size > 0) {
+                    console.log(`📍 Geocoding ${locations.size} unique author locations...`);
+                    await locationService.batchGeocode(
+                        Array.from(locations),
+                        (processed, total) => {
+                            console.log(`📍 Geocoding progress: ${processed}/${total}`);
+                        }
+                    );
+                    console.log(`✅ Completed geocoding ${locations.size} author locations`);
+                } else {
+                    console.log('📍 No author locations found to geocode');
+                }
+            } catch (error) {
+                console.warn('⚠️ Failed to geocode author locations during analysis:', error);
+                // Don't fail the entire analysis if geocoding fails
+            }
+        }
         
         // Fetch version drift data for all unique package versions in background
         // This populates the cache so deps.html can read from it instead of fetching at runtime

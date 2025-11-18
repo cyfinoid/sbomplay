@@ -61,72 +61,66 @@ class DependencyTreeResolver {
     }
     
     /**
-     * Fetch with timeout
+     * Fetch with timeout (uses shared utility)
      */
-    async fetchWithTimeout(url, options = {}, timeout = this.requestTimeout) {
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), timeout);
+    async fetchWithTimeout(url, options = {}, timeout = null) {
+        // Use shared utility, but allow timeout override
+        const timeoutOverride = timeout !== null ? timeout : (parseInt(localStorage.getItem('apiTimeout'), 10) || this.requestTimeout);
         
-        try {
-            // Debug: Log URL call with context
-            console.log(`🌐 [DEBUG] Fetching URL: ${url}`);
-            const caller = new Error().stack.split('\n')[2]?.trim() || 'unknown';
-            if (isUrlFromHostname(url, 'deps.dev')) {
-                console.log(`   Reason: Querying deps.dev API for package dependency information (called from: ${caller})`);
-            } else if (isUrlFromHostname(url, 'ecosyste.ms')) {
-                console.log(`   Reason: Querying ecosyste.ms API for package dependency information (called from: ${caller})`);
-            } else if (isUrlFromHostname(url, 'registry.npmjs.org')) {
-                console.log(`   Reason: Querying npm registry for package dependency information (called from: ${caller})`);
-            } else if (isUrlFromHostname(url, 'pypi.org')) {
-                console.log(`   Reason: Querying PyPI registry for package dependency information (called from: ${caller})`);
-            } else if (isUrlFromHostname(url, 'crates.io')) {
-                console.log(`   Reason: Querying crates.io registry for package dependency information (called from: ${caller})`);
-            } else if (isUrlFromHostname(url, 'rubygems.org')) {
-                console.log(`   Reason: Querying RubyGems registry for package dependency information (called from: ${caller})`);
-            } else {
-                console.log(`   Reason: Fetching dependency information (called from: ${caller})`);
-            }
-            
-            const response = await fetch(url, {
-                ...options,
-                signal: controller.signal
-            });
-            clearTimeout(timeoutId);
-            
-            // Debug: Log response and extract information
-            if (response.ok) {
-                try {
-                    const data = await response.clone().json(); // Clone to avoid consuming the stream
-                    let extractedInfo = `Status: ${response.status}`;
-                    
-                    if (isUrlFromHostname(url, 'deps.dev')) {
-                        const depCount = data.nodes?.filter(n => n.relation === 'DIRECT')?.length || 0;
-                        extractedInfo += `, Extracted: ${depCount} direct dependency/dependencies`;
-                    } else if (isUrlFromHostname(url, 'ecosyste.ms')) {
-                        const depCount = data.dependencies?.length || 0;
-                        extractedInfo += `, Extracted: ${depCount} dependency/dependencies`;
-                    } else if (isUrlFromHostname(url, 'registry.npmjs.org') || isUrlFromHostname(url, 'pypi.org') || isUrlFromHostname(url, 'crates.io') || isUrlFromHostname(url, 'rubygems.org')) {
-                        const depCount = data.dependencies ? Object.keys(data.dependencies).length : 0;
-                        extractedInfo += `, Extracted: Package metadata with ${depCount} dependency/dependencies`;
-                    }
-                    
-                    console.log(`   ✅ Response: ${extractedInfo}`);
-                } catch (e) {
-                    // If JSON parsing fails, just log status
-                    console.log(`   ✅ Response: Status ${response.status}`);
-                }
-            } else {
-                console.log(`   ❌ Response: Status ${response.status} ${response.statusText}`);
-            }
-            
-            return response;
-        } catch (error) {
-            clearTimeout(timeoutId);
-            if (error.name === 'AbortError') {
-                throw new Error(`Request timeout after ${timeout}ms`);
-            }
-            throw error;
+        // Debug: Log URL call with context
+        const caller = new Error().stack.split('\n')[2]?.trim() || 'unknown';
+        if (isUrlFromHostname(url, 'deps.dev')) {
+            debugLogUrl(`🌐 [DEBUG] Fetching URL: ${url}`);
+            debugLogUrl(`   Reason: Querying deps.dev API for package dependency information (called from: ${caller})`);
+        } else if (isUrlFromHostname(url, 'ecosyste.ms')) {
+            debugLogUrl(`🌐 [DEBUG] Fetching URL: ${url}`);
+            debugLogUrl(`   Reason: Querying ecosyste.ms API for package dependency information (called from: ${caller})`);
+        } else if (isUrlFromHostname(url, 'registry.npmjs.org')) {
+            debugLogUrl(`🌐 [DEBUG] Fetching URL: ${url}`);
+            debugLogUrl(`   Reason: Querying npm registry for package dependency information (called from: ${caller})`);
+        } else if (isUrlFromHostname(url, 'pypi.org')) {
+            debugLogUrl(`🌐 [DEBUG] Fetching URL: ${url}`);
+            debugLogUrl(`   Reason: Querying PyPI registry for package dependency information (called from: ${caller})`);
+        } else if (isUrlFromHostname(url, 'crates.io')) {
+            debugLogUrl(`🌐 [DEBUG] Fetching URL: ${url}`);
+            debugLogUrl(`   Reason: Querying crates.io registry for package dependency information (called from: ${caller})`);
+        } else if (isUrlFromHostname(url, 'rubygems.org')) {
+            debugLogUrl(`🌐 [DEBUG] Fetching URL: ${url}`);
+            debugLogUrl(`   Reason: Querying RubyGems registry for package dependency information (called from: ${caller})`);
+        } else {
+            debugLogUrl(`🌐 [DEBUG] Fetching URL: ${url}`);
+            debugLogUrl(`   Reason: Fetching dependency information (called from: ${caller})`);
         }
+        
+        const response = await window.fetchWithTimeout(url, options, timeoutOverride);
+        
+        // Debug: Log response and extract information
+        if (response.ok) {
+            try {
+                const data = await response.clone().json(); // Clone to avoid consuming the stream
+                let extractedInfo = `Status: ${response.status}`;
+                
+                if (isUrlFromHostname(url, 'deps.dev')) {
+                    const depCount = data.nodes?.filter(n => n.relation === 'DIRECT')?.length || 0;
+                    extractedInfo += `, Extracted: ${depCount} direct dependency/dependencies`;
+                } else if (isUrlFromHostname(url, 'ecosyste.ms')) {
+                    const depCount = data.dependencies?.length || 0;
+                    extractedInfo += `, Extracted: ${depCount} dependency/dependencies`;
+                } else if (isUrlFromHostname(url, 'registry.npmjs.org') || isUrlFromHostname(url, 'pypi.org') || isUrlFromHostname(url, 'crates.io') || isUrlFromHostname(url, 'rubygems.org')) {
+                    const depCount = data.dependencies ? Object.keys(data.dependencies).length : 0;
+                    extractedInfo += `, Extracted: Package metadata with ${depCount} dependency/dependencies`;
+                }
+                
+                debugLogUrl(`   ✅ Response: ${extractedInfo}`);
+            } catch (e) {
+                // If JSON parsing fails, just log status
+                debugLogUrl(`   ✅ Response: Status ${response.status}`);
+            }
+        } else {
+            debugLogUrl(`   ❌ Response: Status ${response.status} ${response.statusText}`);
+        }
+        
+        return response;
     }
     
     /**

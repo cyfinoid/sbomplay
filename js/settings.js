@@ -181,6 +181,18 @@ class SettingsApp {
             resetAnalysisSettingsBtn.addEventListener('click', () => this.resetAnalysisSettings());
         }
 
+        // API settings
+        this.loadApiSettings();
+        const saveApiSettingsBtn = document.getElementById('saveApiSettingsBtn');
+        if (saveApiSettingsBtn) {
+            saveApiSettingsBtn.addEventListener('click', () => this.saveApiSettings());
+        }
+
+        const resetApiSettingsBtn = document.getElementById('resetApiSettingsBtn');
+        if (resetApiSettingsBtn) {
+            resetApiSettingsBtn.addEventListener('click', () => this.resetApiSettings());
+        }
+
         // Redo author detection
         const redoOrgSelect = document.getElementById('redoOrgSelect');
         const redoAuthorDetectionBtn = document.getElementById('redoAuthorDetectionBtn');
@@ -280,6 +292,64 @@ class SettingsApp {
             }
             
             this.showAlert('Settings reset to defaults', 'success');
+        }
+    }
+
+    /**
+     * Load API settings from localStorage
+     */
+    loadApiSettings() {
+        const apiTimeout = localStorage.getItem('apiTimeout');
+        const timeoutSeconds = apiTimeout ? parseInt(apiTimeout, 10) / 1000 : 5;
+        const apiTimeoutInput = document.getElementById('apiTimeout');
+        if (apiTimeoutInput) {
+            apiTimeoutInput.value = timeoutSeconds.toString();
+            document.getElementById('currentApiTimeout').textContent = timeoutSeconds.toString();
+        }
+
+        const debugUrlLogging = localStorage.getItem('debugUrlLogging') === 'true';
+        const debugUrlLoggingCheckbox = document.getElementById('debugUrlLogging');
+        if (debugUrlLoggingCheckbox) {
+            debugUrlLoggingCheckbox.checked = debugUrlLogging;
+        }
+    }
+
+    /**
+     * Save API settings
+     */
+    saveApiSettings() {
+        const apiTimeoutInput = document.getElementById('apiTimeout');
+        const timeoutSeconds = parseInt(apiTimeoutInput.value, 10);
+        
+        if (isNaN(timeoutSeconds) || timeoutSeconds < 1 || timeoutSeconds > 300) {
+            this.showAlert('API timeout must be between 1 and 300 seconds', 'warning');
+            return;
+        }
+
+        const timeoutMs = timeoutSeconds * 1000;
+        localStorage.setItem('apiTimeout', timeoutMs.toString());
+        document.getElementById('currentApiTimeout').textContent = timeoutSeconds.toString();
+
+        const debugUrlLoggingCheckbox = document.getElementById('debugUrlLogging');
+        const debugUrlLogging = debugUrlLoggingCheckbox.checked;
+        localStorage.setItem('debugUrlLogging', debugUrlLogging.toString());
+
+        this.showAlert('API settings saved!', 'success');
+    }
+
+    /**
+     * Reset API settings to defaults
+     */
+    resetApiSettings() {
+        if (confirm('Reset all API settings to defaults?')) {
+            localStorage.removeItem('apiTimeout');
+            localStorage.removeItem('debugUrlLogging');
+            
+            document.getElementById('apiTimeout').value = '5';
+            document.getElementById('currentApiTimeout').textContent = '5';
+            document.getElementById('debugUrlLogging').checked = false;
+            
+            this.showAlert('API settings reset to defaults', 'success');
         }
     }
 
@@ -669,7 +739,11 @@ class SettingsApp {
         if (savedToken) {
             document.getElementById('githubToken').value = savedToken;
             this.githubClient.setToken(savedToken);
+            const maskedToken = savedToken.length > 8 ? `${savedToken.substring(0, 4)}...${savedToken.substring(savedToken.length - 4)}` : '****';
+            console.log(`🔑 Loaded GitHub token from sessionStorage: ${maskedToken}`);
             this.updateTokenStatus('Token loaded from session', 'success');
+        } else {
+            console.log('🔑 No GitHub token found in sessionStorage');
         }
     }
 
@@ -687,6 +761,8 @@ class SettingsApp {
             
             // Save to session storage (not persistent)
             sessionStorage.setItem('github_token', token);
+            const maskedToken = token.length > 8 ? `${token.substring(0, 4)}...${token.substring(token.length - 4)}` : '****';
+            console.log(`🔑 GitHub token saved to sessionStorage: ${maskedToken}`);
             this.githubClient.setToken(token);
             this.updateTokenStatus('Token saved to session (not persistent)', 'success');
             
@@ -695,6 +771,7 @@ class SettingsApp {
         } else {
             // Clear token
             sessionStorage.removeItem('github_token');
+            console.log('🔑 GitHub token removed from sessionStorage');
             this.githubClient.setToken(null);
             this.updateTokenStatus('Token cleared', 'info');
             this.loadRateLimitInfo();

@@ -62,10 +62,10 @@ class OSVService {
             console.log(`🔍 OSV: Query payload:`, query);
 
             const url = `${this.baseUrl}/v1/query`;
-            console.log(`🌐 [DEBUG] Fetching URL: ${url}`);
-            console.log(`   Reason: Querying OSV API for vulnerabilities for package ${cleanName}@${cleanVersion} (ecosystem: ${mappedEcosystem || 'auto-detected'})`);
+            debugLogUrl(`🌐 [DEBUG] Fetching URL: ${url}`);
+            debugLogUrl(`   Reason: Querying OSV API for vulnerabilities for package ${cleanName}@${cleanVersion} (ecosystem: ${mappedEcosystem || 'auto-detected'})`);
 
-            const response = await fetch(url, {
+            const response = await fetchWithTimeout(url, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json'
@@ -154,10 +154,10 @@ class OSVService {
                 console.log(`🔍 OSV: Sending chunk ${idx + 1}/${chunks.length} with ${chunk.length} queries`);
                 
                 const url = `${this.baseUrl}/v1/querybatch`;
-                console.log(`🌐 [DEBUG] Fetching URL: ${url}`);
-                console.log(`   Reason: Batch querying OSV API for ${chunk.length} packages (chunk ${idx + 1}/${chunks.length})`);
+                debugLogUrl(`🌐 [DEBUG] Fetching URL: ${url}`);
+                debugLogUrl(`   Reason: Batch querying OSV API for ${chunk.length} packages (chunk ${idx + 1}/${chunks.length})`);
                 
-                const response = await fetch(url, {
+                const response = await fetchWithTimeout(url, {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json'

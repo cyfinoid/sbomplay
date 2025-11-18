@@ -542,56 +542,48 @@ class VersionDriftAnalyzer {
     }
 
     /**
-     * Fetch with timeout
+     * Fetch with timeout (uses shared utility)
      */
-    async fetchWithTimeout(url, options = {}, timeout = 10000) {
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), timeout);
+    async fetchWithTimeout(url, options = {}, timeout = null) {
+        // Use shared utility, but allow timeout override
+        const timeoutOverride = timeout !== null ? timeout : (parseInt(localStorage.getItem('apiTimeout'), 10) || this.requestTimeout);
         
-        try {
-            // Debug: Log URL call with context
-            console.log(`🌐 [DEBUG] Fetching URL: ${url}`);
-            const caller = new Error().stack.split('\n')[2]?.trim() || 'unknown';
-            if (isUrlFromHostname(url, 'rubygems.org')) {
-                console.log(`   Reason: Fetching RubyGems package metadata for latest version information (called from: ${caller})`);
-            } else if (isUrlFromHostname(url, 'registry.npmjs.org')) {
-                console.log(`   Reason: Fetching npm package metadata for latest version information (called from: ${caller})`);
-            } else if (isUrlFromHostname(url, 'pypi.org')) {
-                console.log(`   Reason: Fetching PyPI package metadata for latest version information (called from: ${caller})`);
-            } else if (isUrlFromHostname(url, 'crates.io')) {
-                console.log(`   Reason: Fetching crates.io package metadata for latest version information (called from: ${caller})`);
-            } else {
-                console.log(`   Reason: Fetching package metadata for version information (called from: ${caller})`);
-            }
-            
-            const response = await fetch(url, {
-                ...options,
-                signal: controller.signal
-            });
-            clearTimeout(timeoutId);
-            
-            // Debug: Log response and extract information
-            if (response.ok) {
-                try {
-                    const data = await response.clone().json(); // Clone to avoid consuming the stream
-                    const version = data.version || data.info?.version || data.crate?.max_version || null;
-                    console.log(`   ✅ Response: Status ${response.status}, Extracted: Latest version: ${version || 'unknown'}`);
-                } catch (e) {
-                    // If JSON parsing fails, just log status
-                    console.log(`   ✅ Response: Status ${response.status}`);
-                }
-            } else {
-                console.log(`   ❌ Response: Status ${response.status} ${response.statusText}`);
-            }
-            
-            return response;
-        } catch (error) {
-            clearTimeout(timeoutId);
-            if (error.name === 'AbortError') {
-                throw new Error('Request timeout');
-            }
-            throw error;
+        // Debug: Log URL call with context
+        const caller = new Error().stack.split('\n')[2]?.trim() || 'unknown';
+        if (isUrlFromHostname(url, 'rubygems.org')) {
+            debugLogUrl(`🌐 [DEBUG] Fetching URL: ${url}`);
+            debugLogUrl(`   Reason: Fetching RubyGems package metadata for latest version information (called from: ${caller})`);
+        } else if (isUrlFromHostname(url, 'registry.npmjs.org')) {
+            debugLogUrl(`🌐 [DEBUG] Fetching URL: ${url}`);
+            debugLogUrl(`   Reason: Fetching npm package metadata for latest version information (called from: ${caller})`);
+        } else if (isUrlFromHostname(url, 'pypi.org')) {
+            debugLogUrl(`🌐 [DEBUG] Fetching URL: ${url}`);
+            debugLogUrl(`   Reason: Fetching PyPI package metadata for latest version information (called from: ${caller})`);
+        } else if (isUrlFromHostname(url, 'crates.io')) {
+            debugLogUrl(`🌐 [DEBUG] Fetching URL: ${url}`);
+            debugLogUrl(`   Reason: Fetching crates.io package metadata for latest version information (called from: ${caller})`);
+        } else {
+            debugLogUrl(`🌐 [DEBUG] Fetching URL: ${url}`);
+            debugLogUrl(`   Reason: Fetching package metadata for version information (called from: ${caller})`);
         }
+        
+        const response = await window.fetchWithTimeout(url, options, timeoutOverride);
+        
+        // Debug: Log response and extract information
+        if (response.ok) {
+            try {
+                const data = await response.clone().json(); // Clone to avoid consuming the stream
+                const version = data.version || data.info?.version || data.crate?.max_version || null;
+                debugLogUrl(`   ✅ Response: Status ${response.status}, Extracted: Latest version: ${version || 'unknown'}`);
+            } catch (e) {
+                // If JSON parsing fails, just log status
+                debugLogUrl(`   ✅ Response: Status ${response.status}`);
+            }
+        } else {
+            debugLogUrl(`   ❌ Response: Status ${response.status} ${response.statusText}`);
+        }
+        
+        return response;
     }
 
     /**

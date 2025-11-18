@@ -28,10 +28,10 @@ class RegistryManager {
         this.registryPromise = (async () => {
             try {
                 const url = `${this.ecosystemsBaseUrl}/registries/`;
-                console.log(`🌐 [DEBUG] Fetching URL: ${url}`);
-                console.log(`   Reason: Fetching ecosyste.ms registry list to initialize registry mappings`);
+                debugLogUrl(`🌐 [DEBUG] Fetching URL: ${url}`);
+                debugLogUrl(`   Reason: Fetching ecosyste.ms registry list to initialize registry mappings`);
                 
-                const response = await fetch(url);
+                const response = await fetchWithTimeout(url);
                 if (!response.ok) {
                     console.warn('Failed to fetch registry list from ecosyste.ms');
                     console.log(`   ❌ Response: Status ${response.status} ${response.statusText}`);

@@ -216,10 +216,10 @@ class LocationService {
                 });
 
                 const url = `${this.baseUrl}?${params.toString()}`;
-                console.log(`🌐 [DEBUG] Fetching URL: ${url}`);
-                console.log(`   Reason: Geocoding location string "${normalizedLocation}" to lat/lng coordinates using Nominatim API`);
+                debugLogUrl(`🌐 [DEBUG] Fetching URL: ${url}`);
+                debugLogUrl(`   Reason: Geocoding location string "${normalizedLocation}" to lat/lng coordinates using Nominatim API`);
 
-                const response = await fetch(url, {
+                const response = await fetchWithTimeout(url, {
                     headers: {
                         'User-Agent': 'SBOM Play - Open Source Supply Chain Analysis Tool (https://github.com/cyfinoid/sbomplay)'
                     }
@@ -294,6 +294,47 @@ class LocationService {
         this.inFlightRequests.set(normalizedLocation, geocodePromise);
         
         return await geocodePromise;
+    }
+
+    /**
+     * Get geocoded location from cache only (no API calls)
+     * @param {string} locationString - Location string to look up
+     * @returns {Promise<Object|null>} - Geocoded data if found in cache, null otherwise
+     */
+    async getFromCache(locationString) {
+        const normalizedLocation = this.normalizeLocationString(locationString);
+        if (!normalizedLocation) {
+            return null;
+        }
+
+        // Check in-memory cache first
+        const cached = this.geocodeCache.get(normalizedLocation);
+        if (cached && Date.now() - cached.timestamp < this.cacheExpiry) {
+            // Check if this is a failed attempt marker
+            if (cached.data && cached.data.failed === true) {
+                return null;
+            }
+            return cached.data;
+        }
+
+        // Check IndexedDB cache
+        if (window.indexedDBManager && window.indexedDBManager.isInitialized()) {
+            const dbCached = await window.indexedDBManager.getLocation(normalizedLocation);
+            if (dbCached) {
+                // Check if this is a failed attempt marker
+                if (dbCached.failed === true) {
+                    return null;
+                }
+                // Update in-memory cache
+                this.geocodeCache.set(normalizedLocation, {
+                    data: dbCached,
+                    timestamp: Date.now()
+                });
+                return dbCached;
+            }
+        }
+
+        return null;
     }
 
     /**

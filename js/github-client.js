@@ -26,6 +26,11 @@ class GitHubClient {
         this.sbomCache = new Map();
         // Cache for repository data
         this.repoCache = new Map();
+        
+        // Request throttling to prevent secondary rate limits
+        // GitHub allows ~30-60 requests/minute, so we'll use 1 request per 1.5 seconds (40/min)
+        this.lastRequestTime = 0;
+        this.minRequestInterval = 1500; // 1.5 seconds between requests (40 requests/minute)
     }
 
     /**
@@ -53,15 +58,46 @@ class GitHubClient {
      * Set GitHub token (not persisted)
      */
     setToken(token) {
+        const hadToken = !!this.token;
         this.token = token;
         if (token) {
             this.headers['Authorization'] = `token ${token}`;
             this.graphqlHeaders['Authorization'] = `bearer ${token}`;
+            // Log token set (mask token for security)
+            const maskedToken = token.length > 8 ? `${token.substring(0, 4)}...${token.substring(token.length - 4)}` : '****';
+            if (!hadToken) {
+                console.log(`🔑 GitHub token set: ${maskedToken}`);
+                // Verify token by checking rate limits (async, don't await)
+                this.verifyToken().catch(() => {
+                    // Silently fail - token verification is optional
+                });
+            }
         } else {
             delete this.headers['Authorization'];
             delete this.graphqlHeaders['Authorization'];
+            if (hadToken) {
+                console.log('🔑 GitHub token cleared');
+            }
         }
         // Don't save to localStorage
+    }
+
+    /**
+     * Verify token by checking rate limit info
+     */
+    async verifyToken() {
+        try {
+            const rateLimitInfo = await this.getRateLimitInfo();
+            if (rateLimitInfo.limit === 5000) {
+                console.log(`✅ Token verified: Rate limit is ${rateLimitInfo.limit}/hour (authenticated)`);
+            } else if (rateLimitInfo.limit === 60) {
+                console.warn(`⚠️  Token may be invalid or missing scopes: Rate limit is ${rateLimitInfo.limit}/hour (unauthenticated)`);
+            } else {
+                console.log(`ℹ️  Token status: Rate limit is ${rateLimitInfo.limit}/hour, ${rateLimitInfo.remaining} remaining`);
+            }
+        } catch (error) {
+            // Silently fail - verification is optional
+        }
     }
 
     /**
@@ -77,7 +113,7 @@ class GitHubClient {
         
         try {
             console.log(`🔷 [GraphQL] Executing query`);
-            const response = await fetch(this.graphqlUrl, {
+            const response = await fetchWithTimeout(this.graphqlUrl, {
                 method: 'POST',
                 headers: this.graphqlHeaders,
                 body: JSON.stringify({ query, variables })
@@ -677,12 +713,25 @@ class GitHubClient {
         }
         
         try {
+            // Throttle requests to prevent secondary rate limits
+            // Only throttle for dependency-graph API calls (most rate-limited)
+            if (url.includes('/dependency-graph/sbom')) {
+                const now = Date.now();
+                const timeSinceLastRequest = now - this.lastRequestTime;
+                if (timeSinceLastRequest < this.minRequestInterval) {
+                    const waitTime = this.minRequestInterval - timeSinceLastRequest;
+                    await this.sleep(waitTime / 1000); // sleep expects seconds
+                }
+                this.lastRequestTime = Date.now();
+            }
+            
             // Debug: Log URL call with context
             const caller = new Error().stack.split('\n')[2]?.trim() || 'unknown';
-            console.log(`🌐 [DEBUG] Fetching URL: ${url}`);
-            console.log(`   Reason: GitHub API call (called from: ${caller})`);
+            debugLogUrl(`🌐 [DEBUG] Fetching URL: ${url}`);
+            debugLogUrl(`   Reason: GitHub API call (called from: ${caller})`);
+            debugLogUrl(`   Authorization: ${this.headers['Authorization'] ? 'Yes (token set)' : 'No (unauthenticated)'}`);
             
-            const response = await fetch(url, {
+            const response = await fetchWithTimeout(url, {
                 method: 'GET',
                 headers: this.headers
             });
@@ -714,7 +763,7 @@ class GitHubClient {
                 console.log(`   ❌ Response: Status ${response.status} ${response.statusText}`);
             }
             
-            // Handle rate limiting
+            // Handle rate limiting (403 Forbidden with rate limit headers)
             if (response.status === 403) {
                 const remaining = response.headers.get('X-RateLimit-Remaining');
                 const reset = response.headers.get('X-RateLimit-Reset');
@@ -748,6 +797,59 @@ class GitHubClient {
                         console.log('✅ Rate limit reset. Continuing...');
                         return this.makeRequest(url, retryCount + 1);
                     }
+                }
+            }
+            
+            // Handle 429 Too Many Requests (explicit rate limit response)
+            if (response.status === 429) {
+                // Check for Retry-After header (seconds to wait)
+                const retryAfter = response.headers.get('Retry-After');
+                // Also check X-RateLimit-Reset header
+                const reset = response.headers.get('X-RateLimit-Reset');
+                
+                let waitTime = 0;
+                
+                if (retryAfter) {
+                    waitTime = parseInt(retryAfter, 10);
+                } else if (reset) {
+                    const resetTime = parseInt(reset, 10);
+                    waitTime = resetTime - Math.floor(Date.now() / 1000);
+                } else {
+                    // Default wait time if no header provided (exponential backoff)
+                    waitTime = Math.min(60 * (retryCount + 1), 3600); // Max 1 hour
+                }
+                
+                if (waitTime > 0) {
+                    // Warn if no token is set
+                    if (!this.token) {
+                        console.warn(`⚠️  Rate limit exceeded (429). No GitHub token detected. Unauthenticated requests are limited to 60/hour.`);
+                        console.warn(`   Consider adding a GitHub token in Settings for 5000 requests/hour.`);
+                    }
+                    
+                    // Save rate limit state
+                    const resetTime = reset ? parseInt(reset, 10) : Math.floor(Date.now() / 1000) + waitTime;
+                    this.saveRateLimitState(waitTime, resetTime);
+                    
+                    // Dispatch rate limit event
+                    this.dispatchEvent(new CustomEvent('rateLimitExceeded', {
+                        detail: {
+                            waitTime,
+                            resetTime,
+                            resetDate: new Date(resetTime * 1000)
+                        }
+                    }));
+                    
+                    console.log(`⏳ Rate limit exceeded (429). Waiting ${waitTime} seconds before retry...`);
+                    await this.sleep(waitTime + 2); // Add 2 second buffer
+                    
+                    // Clear rate limit state after waiting
+                    this.clearRateLimitState();
+                    
+                    // Dispatch rate limit reset event
+                    this.dispatchEvent(new CustomEvent('rateLimitReset'));
+                    
+                    console.log('✅ Rate limit wait complete. Retrying request...');
+                    return this.makeRequest(url, retryCount + 1);
                 }
             }
             
