@@ -300,7 +300,7 @@ class SettingsApp {
      */
     loadApiSettings() {
         const apiTimeout = localStorage.getItem('apiTimeout');
-        const timeoutSeconds = apiTimeout ? parseInt(apiTimeout, 10) / 1000 : 5;
+        const timeoutSeconds = apiTimeout ? parseInt(apiTimeout, 10) / 1000 : 10;
         const apiTimeoutInput = document.getElementById('apiTimeout');
         if (apiTimeoutInput) {
             apiTimeoutInput.value = timeoutSeconds.toString();
@@ -345,8 +345,8 @@ class SettingsApp {
             localStorage.removeItem('apiTimeout');
             localStorage.removeItem('debugUrlLogging');
             
-            document.getElementById('apiTimeout').value = '5';
-            document.getElementById('currentApiTimeout').textContent = '5';
+            document.getElementById('apiTimeout').value = '10';
+            document.getElementById('currentApiTimeout').textContent = '10';
             document.getElementById('debugUrlLogging').checked = false;
             
             this.showAlert('API settings reset to defaults', 'success');

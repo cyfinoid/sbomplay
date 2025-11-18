@@ -2054,6 +2054,16 @@ body {
 }
 
 /* Independent Sections */
+/* Independent entities (no dependencies) styling */
+.independent-entity {
+    background-color: rgba(13, 110, 253, 0.1) !important;
+    border-left: 3px solid rgba(13, 110, 253, 0.5);
+}
+
+.independent-entity:hover {
+    background-color: rgba(13, 110, 253, 0.15) !important;
+}
+
 .independent-section {
     margin-top: 2rem;
     padding: 1.5rem;

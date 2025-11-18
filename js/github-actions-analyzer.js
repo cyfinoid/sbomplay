@@ -246,6 +246,7 @@ class GitHubActionsAnalyzer {
 
     /**
      * Scan a single workflow file
+     * Enhanced to capture reusable workflows and their dependencies
      */
     async scanWorkflow(repository, workflowPath, content) {
         try {
@@ -258,15 +259,35 @@ class GitHubActionsAnalyzer {
                     ...use,
                     ...classified,
                     workflow: workflowPath,
-                    repository
+                    repository,
+                    // Preserve type (action vs reusable-workflow)
+                    dependencyType: use.type || 'action'
                 };
             });
+
+            // Extract reusable workflows for dependency graph
+            const reusableWorkflows = [];
+            if (parsed.jobs && typeof parsed.jobs === 'object') {
+                for (const [jobId, job] of Object.entries(parsed.jobs)) {
+                    if (job.uses) {
+                        const classified = this.classifyAction(job.uses);
+                        reusableWorkflows.push({
+                            jobId,
+                            uses: job.uses,
+                            ...classified,
+                            workflow: workflowPath,
+                            repository
+                        });
+                    }
+                }
+            }
 
             return {
                 repository,
                 workflow: workflowPath,
                 parsed,
-                uses: classified
+                uses: classified,
+                reusableWorkflows: reusableWorkflows
             };
         } catch (error) {
             console.warn(`Failed to scan workflow ${workflowPath}:`, error);
@@ -275,6 +296,7 @@ class GitHubActionsAnalyzer {
                 workflow: workflowPath,
                 parsed: null,
                 uses: [],
+                reusableWorkflows: [],
                 error: error.message
             };
         }
@@ -282,11 +304,13 @@ class GitHubActionsAnalyzer {
 
     /**
      * Extract unique actions from workflow scans
+     * Enhanced to include reusable workflows in dependency graph
      */
     extractUniqueActions(workflowScans) {
         const uniqueActions = new Map();
 
         for (const scan of workflowScans) {
+            // Extract regular actions
             for (const use of scan.uses || []) {
                 if (use.type === 'remote') {
                     const key = `${use.owner}/${use.repo}${use.path ? '/' + use.path : ''}@${use.ref}`;
@@ -297,12 +321,37 @@ class GitHubActionsAnalyzer {
                             path: use.path || '',
                             ref: use.ref,
                             uses: use.uses,
-                            locations: []
+                            locations: [],
+                            dependencyType: use.dependencyType || 'action'
                         });
                     }
                     uniqueActions.get(key).locations.push({
                         workflow: use.workflow,
-                        line: use.line
+                        line: use.line,
+                        type: use.dependencyType || 'action'
+                    });
+                }
+            }
+            
+            // Extract reusable workflows
+            for (const reusable of scan.reusableWorkflows || []) {
+                if (reusable.type === 'remote') {
+                    const key = `${reusable.owner}/${reusable.repo}${reusable.path ? '/' + reusable.path : ''}@${reusable.ref}`;
+                    if (!uniqueActions.has(key)) {
+                        uniqueActions.set(key, {
+                            owner: reusable.owner,
+                            repo: reusable.repo,
+                            path: reusable.path || '',
+                            ref: reusable.ref,
+                            uses: reusable.uses,
+                            locations: [],
+                            dependencyType: 'reusable-workflow'
+                        });
+                    }
+                    uniqueActions.get(key).locations.push({
+                        workflow: reusable.workflow,
+                        jobId: reusable.jobId,
+                        type: 'reusable-workflow'
                     });
                 }
             }
@@ -422,6 +471,45 @@ class GitHubActionsAnalyzer {
                 }
             }
 
+            // Build complete dependency graph information
+            const dependencyGraph = {
+                // Direct dependencies (actions used by this action)
+                directDependencies: nestedActions.map(n => ({
+                    action: `${n.owner}/${n.repo}${n.path ? '/' + n.path : ''}@${n.ref}`,
+                    owner: n.owner,
+                    repo: n.repo,
+                    ref: n.ref,
+                    path: n.path || '',
+                    type: n.type || 'action'
+                })),
+                // Transitive dependencies (all nested actions recursively)
+                transitiveDependencies: [],
+                // Lineage (path from root to this action)
+                lineage: parentAction ? this.buildLineage(parentAction) : [cacheKey],
+                // All ancestors (all parent actions up to root)
+                ancestors: parentAction ? this.buildAncestors(parentAction) : [],
+                // All descendants (all nested actions recursively)
+                descendants: []
+            };
+            
+            // Build transitive dependencies and descendants from nested results
+            nestedResults.forEach(nested => {
+                dependencyGraph.transitiveDependencies.push({
+                    action: nested.action,
+                    owner: nested.owner,
+                    repo: nested.repo,
+                    ref: nested.ref,
+                    path: nested.path || '',
+                    depth: nested.depth || depth + 1
+                });
+                
+                // Add nested's descendants to this action's descendants
+                if (nested.dependencyGraph && nested.dependencyGraph.descendants) {
+                    dependencyGraph.descendants.push(...nested.dependencyGraph.descendants);
+                }
+                dependencyGraph.descendants.push(nested.action);
+            });
+            
             const result = {
                 action: cacheKey,
                 owner,
@@ -431,7 +519,8 @@ class GitHubActionsAnalyzer {
                 findings,
                 nested: nestedResults,
                 depth,
-                parentAction
+                parentAction,
+                dependencyGraph: dependencyGraph
             };
 
             // Cache result
@@ -453,25 +542,164 @@ class GitHubActionsAnalyzer {
                     action: cacheKey
                 }],
                 nested: [],
+                depth,
+                parentAction,
+                dependencyGraph: {
+                    directDependencies: [],
+                    transitiveDependencies: [],
+                    lineage: parentAction ? this.buildLineage(parentAction) : [cacheKey],
+                    ancestors: parentAction ? this.buildAncestors(parentAction) : [],
+                    descendants: []
+                },
                 error: error.message
             };
         }
     }
 
     /**
+     * Detect license from LICENSE file content
+     * @param {string} content - LICENSE file content
+     * @returns {string|null} - Detected license SPDX ID or null
+     */
+    detectLicenseFromContent(content) {
+        if (!content) return null;
+        
+        const contentUpper = content.toUpperCase();
+        
+        // Common license patterns
+        const licensePatterns = [
+            { pattern: /MIT\s+LICENSE|THE\s+MIT\s+LICENSE/i, spdx: 'MIT' },
+            { pattern: /APACHE\s+LICENSE|APACHE\s+2\.0/i, spdx: 'Apache-2.0' },
+            { pattern: /GNU\s+GENERAL\s+PUBLIC\s+LICENSE\s+VERSION\s+3|GPL-3|GPL\s+3\.0/i, spdx: 'GPL-3.0' },
+            { pattern: /GNU\s+GENERAL\s+PUBLIC\s+LICENSE\s+VERSION\s+2|GPL-2|GPL\s+2\.0/i, spdx: 'GPL-2.0' },
+            { pattern: /BSD\s+3-CLAUSE|BSD-3/i, spdx: 'BSD-3-Clause' },
+            { pattern: /BSD\s+2-CLAUSE|BSD-2/i, spdx: 'BSD-2-Clause' },
+            { pattern: /ISC\s+LICENSE/i, spdx: 'ISC' },
+            { pattern: /MOZILLA\s+PUBLIC\s+LICENSE|MPL/i, spdx: 'MPL-2.0' }
+        ];
+        
+        for (const { pattern, spdx } of licensePatterns) {
+            if (pattern.test(contentUpper)) {
+                return spdx;
+            }
+        }
+        
+        return null;
+    }
+
+    /**
+     * Build lineage path from root to current action
+     * @param {string} parentAction - Parent action key
+     * @returns {Array<string>} - Array of action keys from root to parent
+     */
+    buildLineage(parentAction) {
+        const lineage = [];
+        let current = parentAction;
+        
+        // Traverse up the parent chain
+        while (current) {
+            lineage.unshift(current);
+            const cached = this.analysisCache.get(current);
+            if (cached && cached.parentAction) {
+                current = cached.parentAction;
+            } else {
+                break;
+            }
+        }
+        
+        return lineage;
+    }
+    
+    /**
+     * Build ancestors list (all parent actions up to root)
+     * @param {string} parentAction - Parent action key
+     * @returns {Array<string>} - Array of ancestor action keys
+     */
+    buildAncestors(parentAction) {
+        const ancestors = [];
+        let current = parentAction;
+        
+        while (current) {
+            ancestors.push(current);
+            const cached = this.analysisCache.get(current);
+            if (cached && cached.parentAction) {
+                current = cached.parentAction;
+            } else {
+                break;
+            }
+        }
+        
+        return ancestors;
+    }
+
+    /**
      * Enrich action metadata with license and authors
      */
     async enrichActionMetadata(actionResult) {
-        const { owner, repo } = actionResult;
+        const { owner, repo, ref } = actionResult;
 
         if (!owner || !repo) {
             return actionResult;
         }
 
         try {
-            // Fetch repository info for license
-            const repoInfo = await this.githubClient.getRepository(owner, repo);
-            const license = repoInfo?.license?.spdx_id || repoInfo?.license?.key || null;
+            // Parse ref to extract tag version (e.g., v1.2.3, 1.2.3, v2, etc.)
+            let tagRef = ref;
+            if (ref && (ref.startsWith('v') || /^\d+\./.test(ref))) {
+                // This looks like a version tag
+                tagRef = ref;
+            } else if (ref && ref !== 'main' && ref !== 'master' && ref !== 'HEAD') {
+                // Try to use ref as-is (might be a tag or branch)
+                tagRef = ref;
+            } else {
+                tagRef = null;
+            }
+            
+            // Fetch repository info for license (default branch)
+            let repoInfo = await this.githubClient.getRepository(owner, repo);
+            let license = repoInfo?.license?.spdx_id || repoInfo?.license?.key || null;
+            
+            // If we have a tag/version ref, try to get repository info at that specific tag
+            // GitHub API allows fetching repository info at a specific ref using tags API
+            if (tagRef && !license) {
+                try {
+                    // Try to get tag information first
+                    const tagInfo = await this.githubClient.getTag(owner, repo, tagRef);
+                    if (tagInfo && tagInfo.commit) {
+                        // Fetch repository at specific commit SHA
+                        const commitSha = tagInfo.commit.sha;
+                        // Try to get LICENSE file at this commit
+                        const licenseContent = await this.githubClient.getFileContent(owner, repo, 'LICENSE', commitSha);
+                        if (licenseContent) {
+                            // Try to detect license from LICENSE file content
+                            const detectedLicense = this.detectLicenseFromContent(licenseContent);
+                            if (detectedLicense) {
+                                license = detectedLicense;
+                                console.log(`   ✅ Detected license from LICENSE file at ${tagRef} for ${owner}/${repo}: ${license}`);
+                            }
+                        }
+                    }
+                } catch (error) {
+                    // If tag doesn't exist or LICENSE file not found, fall back to default branch license
+                    console.debug(`Could not fetch LICENSE file at ${tagRef} for ${owner}/${repo}: ${error.message}`);
+                }
+            }
+            
+            // If still no license, try fetching LICENSE file from default branch
+            if (!license) {
+                try {
+                    const licenseContent = await this.githubClient.getFileContent(owner, repo, 'LICENSE');
+                    if (licenseContent) {
+                        const detectedLicense = this.detectLicenseFromContent(licenseContent);
+                        if (detectedLicense) {
+                            license = detectedLicense;
+                            console.log(`   ✅ Detected license from LICENSE file for ${owner}/${repo}: ${license}`);
+                        }
+                    }
+                } catch (error) {
+                    console.debug(`Could not fetch LICENSE file for ${owner}/${repo}: ${error.message}`);
+                }
+            }
 
             // Fetch authors - for GitHub repos, extract from repo info
             let authors = [];
@@ -719,6 +947,7 @@ class GitHubActionsAnalyzer {
 
     /**
      * Extract all uses references from a workflow or action
+     * Enhanced to capture reusable workflows and complete dependency graph
      */
     extractUsesReferences(parsed, path = '') {
         const uses = [];
@@ -727,16 +956,28 @@ class GitHubActionsAnalyzer {
             return uses;
         }
 
-        // Extract from jobs
+        // Extract reusable workflows (workflow_call)
         if (parsed.jobs && typeof parsed.jobs === 'object') {
             for (const [jobId, job] of Object.entries(parsed.jobs)) {
+                // Check for reusable workflow calls
+                if (job.uses) {
+                    uses.push({
+                        uses: job.uses,
+                        location: `${path}.jobs.${jobId}`,
+                        line: job._line || null,
+                        type: 'reusable-workflow'
+                    });
+                }
+                
+                // Extract from job steps
                 if (job.steps && Array.isArray(job.steps)) {
                     for (const step of job.steps) {
                         if (step.uses) {
                             uses.push({
                                 uses: step.uses,
                                 location: `${path}.jobs.${jobId}.steps`,
-                                line: step._line || null
+                                line: step._line || null,
+                                type: 'action'
                             });
                         }
                     }
@@ -751,7 +992,8 @@ class GitHubActionsAnalyzer {
                     uses.push({
                         uses: step.uses,
                         location: `${path}.runs.steps`,
-                        line: step._line || null
+                        line: step._line || null,
+                        type: 'action'
                     });
                 }
             }

@@ -1996,6 +1996,30 @@
                     return;
                 }
                 
+                // Helper function to detect bot accounts
+                function isBotAccount(author) {
+                    // Check for [bot] suffix in username
+                    if (author.author && /\[bot\]$/i.test(author.author)) {
+                        return true;
+                    }
+                    // Check metadata type
+                    if (author.metadata?.type === 'Bot' || author.metadata?.type === 'bot') {
+                        return true;
+                    }
+                    // Check GitHub type
+                    if (author.metadata?.github_type === 'Bot') {
+                        return true;
+                    }
+                    // Check common bot patterns
+                    const botPatterns = ['dependabot', 'renovate', 'snyk-bot', 'greenkeeper', 'codecov', 'coveralls', 'allcontributors'];
+                    const authorLower = (author.author || '').toLowerCase();
+                    return botPatterns.some(pattern => authorLower.includes(pattern));
+                }
+                
+                // Separate bots from regular authors
+                const botAuthors = filtered.filter(isBotAccount);
+                const regularAuthors = filtered.filter(a => !isBotAccount(a));
+                
                 // When sanctions filter is active, show ALL authors (including single-package-single-repo)
                 // Otherwise, separate authors as before
                 let allVisibleAuthors;
@@ -2003,25 +2027,25 @@
                 
                 if (sanctionsFilterActive) {
                     // Show all authors when filtering by sanctions (compliance risk)
-                    allVisibleAuthors = filtered;
+                    allVisibleAuthors = regularAuthors;
                     singlePackageSingleRepo = [];
                 } else {
                 // Separate authors:
                 // 1. Multi-package authors (2+ packages) -> Always show in main table
                 // 2. Single-package authors with multiple repos (1 package, 2+ repos) -> Show in main table (risk)
                 // 3. Single-package authors with single repo (1 package, 1 repo) -> Hide behind section (low risk)
-                const multiPackageAuthors = filtered.filter(a => {
+                const multiPackageAuthors = regularAuthors.filter(a => {
                     const uniquePackages = [...new Set(a.packages || [])];
                     return uniquePackages.length > 1;
                 });
                 
-                const singlePackageMultipleRepos = filtered.filter(a => {
+                const singlePackageMultipleRepos = regularAuthors.filter(a => {
                     const uniquePackages = [...new Set(a.packages || [])];
                     const repoCount = a.repositoryCount || 0;
                     return uniquePackages.length === 1 && repoCount > 1;
                 });
                 
-                    singlePackageSingleRepo = filtered.filter(a => {
+                    singlePackageSingleRepo = regularAuthors.filter(a => {
                     const uniquePackages = [...new Set(a.packages || [])];
                     const repoCount = a.repositoryCount || 0;
                     return uniquePackages.length === 1 && repoCount === 1;
@@ -2254,6 +2278,109 @@
                 
                 container.innerHTML = html;
                 updatePaginationControls(filteredAuthors.length, totalPages);
+                
+                // Add bot accounts table (separate section)
+                if (botAuthors.length > 0) {
+                    // Sort bots by repository count
+                    botAuthors.sort((a, b) => {
+                        const aRepoCount = a.repositoryCount || 0;
+                        const bRepoCount = b.repositoryCount || 0;
+                        if (bRepoCount !== aRepoCount) {
+                            return bRepoCount - aRepoCount;
+                        }
+                        const aPkgCount = [...new Set(a.packages || [])].length;
+                        const bPkgCount = [...new Set(b.packages || [])].length;
+                        return bPkgCount - aPkgCount;
+                    });
+                    
+                    let botHtml = `
+                        <div class="card mt-4">
+                            <div class="card-header bg-secondary text-white">
+                                <h5 class="mb-0"><i class="fas fa-robot me-2"></i>Active Bots in the Environments (${botAuthors.length})</h5>
+                            </div>
+                            <div class="card-body">
+                                <div class="alert alert-info">
+                                    <i class="fas fa-info-circle me-2"></i>
+                                    These are automated bot accounts (e.g., Dependabot, Renovate) that maintain packages or workflows in your environments.
+                                </div>
+                                <div class="table-responsive">
+                                    <table class="table table-hover table-sm">
+                                        <thead>
+                                            <tr>
+                                                <th>#</th>
+                                                <th>Bot Name</th>
+                                                <th>Ecosystem</th>
+                                                <th>Packages</th>
+                                                <th>Repository Usage</th>
+                                                <th>Type</th>
+                                                <th class="text-center">Social</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                    `;
+                    
+                    botAuthors.forEach((bot, index) => {
+                        const uniquePackages = [...new Set(bot.packages || [])];
+                        const uniquePackageCount = uniquePackages.length;
+                        const repositoryCount = bot.repositoryCount || 0;
+                        const samplePackages = uniquePackages.slice(0, 3).join(', ');
+                        
+                        // Determine bot type
+                        let botType = 'Unknown';
+                        const botName = (bot.author || '').toLowerCase();
+                        if (botName.includes('dependabot')) {
+                            botType = 'Dependabot';
+                        } else if (botName.includes('renovate')) {
+                            botType = 'Renovate';
+                        } else if (botName.includes('snyk')) {
+                            botType = 'Snyk';
+                        } else if (bot.metadata?.type === 'Bot') {
+                            botType = 'GitHub Bot';
+                        } else if (/\[bot\]$/i.test(bot.author)) {
+                            botType = 'GitHub Bot';
+                        }
+                        
+                        // Build social profile icons cell
+                        const socialIcons = getSocialProfileIcons(bot);
+                        let socialCell = '<td class="text-center">—</td>';
+                        if (socialIcons.length > 0) {
+                            const iconLinks = socialIcons.map(icon => 
+                                `<a href="${icon.url}" target="_blank" rel="noreferrer noopener" title="${icon.title}" class="text-decoration-none ${icon.color} me-2"><i class="${icon.icon}"></i></a>`
+                            ).join('');
+                            socialCell = `<td class="text-center">${iconLinks}</td>`;
+                        }
+                        
+                        botHtml += `
+                            <tr>
+                                <td>${index + 1}</td>
+                                <td>
+                                    <strong><i class="fas fa-robot me-1"></i>${escapeHtml(bot.author)}</strong>
+                                </td>
+                                <td><span class="badge bg-info">${bot.ecosystem}</span></td>
+                                <td>
+                                    ${uniquePackageCount === 1 
+                                        ? `<span class="badge bg-primary">${escapeHtml(uniquePackages[0])}</span>`
+                                        : `<span class="badge bg-primary" title="${escapeHtml(samplePackages)}">${uniquePackageCount}</span>`}
+                                </td>
+                                <td>
+                                    <span class="badge bg-secondary">${repositoryCount} repo${repositoryCount !== 1 ? 's' : ''}</span>
+                                </td>
+                                <td><span class="badge bg-dark">${botType}</span></td>
+                                ${socialCell}
+                            </tr>
+                        `;
+                    });
+                    
+                    botHtml += `
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+                    `;
+                    
+                    container.innerHTML += botHtml;
+                }
                 
                 // Add single-package-single-repo authors summary with toggle (low-risk, hidden by default)
                 if (singlePackageSingleRepo.length > 0) {

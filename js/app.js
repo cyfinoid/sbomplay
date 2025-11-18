@@ -589,7 +589,7 @@ class SBOMPlayApp {
             this.sbomProcessor.setTotalRepositories(1);
             // Extract repository license from GitHub API response
             const repositoryLicense = repoData.license?.spdx_id || repoData.license?.key || null;
-            const success = this.sbomProcessor.processSBOM(owner, repo, sbomData, repositoryLicense);
+            const success = await this.sbomProcessor.processSBOM(owner, repo, sbomData, repositoryLicense);
             
             if (!success) {
                 this.showAlert(`Failed to process SBOM data for ${repoKey}`, 'danger');
@@ -602,7 +602,20 @@ class SBOMPlayApp {
             try {
                 console.log('🌲 Resolving full dependency trees with registry APIs...');
                 await this.sbomProcessor.resolveFullDependencyTrees((progress) => {
-                    if (progress.phase === 'resolving-tree') {
+                    if (progress.phase === 'resolving-package') {
+                        // Package-level progress updates with detailed info
+                        this.updateProgress(75, 
+                            `Resolving dependencies...`, 
+                            'resolving-package',
+                            {
+                                processed: progress.processed,
+                                total: progress.total,
+                                ecosystem: progress.ecosystem || null,
+                                packageName: progress.packageName || progress.package || null,
+                                remaining: progress.remaining || (progress.total && progress.processed !== undefined ? progress.total - progress.processed : null)
+                            });
+                    } else if (progress.phase === 'resolving-tree') {
+                        // Ecosystem-level progress updates
                         const subProgressPercent = (progress.processed / progress.total) * 100;
                         this.updateProgress(75, 
                             `Resolving ${progress.ecosystem} dependencies...`, 
@@ -611,7 +624,8 @@ class SBOMPlayApp {
                                 processed: progress.processed,
                                 total: progress.total,
                                 ecosystem: progress.ecosystem,
-                                packageName: progress.packageName
+                                packageName: progress.packageProgress?.packageName || null,
+                                remaining: progress.packageProgress?.remaining || null
                             });
                     }
                 });
@@ -838,7 +852,7 @@ class SBOMPlayApp {
                         const repositoryLicense = repo.license?.spdx_id || repo.license?.key || null;
                         // Extract archived status from GitHub API response
                         const archived = repo.archived || false;
-                        const success = this.sbomProcessor.processSBOM(owner, name, sbomData, repositoryLicense, archived);
+                        const success = await this.sbomProcessor.processSBOM(owner, name, sbomData, repositoryLicense, archived);
                         this.sbomProcessor.updateProgress(success);
                         if (success) {
                             result.success = true;
@@ -929,8 +943,20 @@ class SBOMPlayApp {
             try {
                 console.log('🌲 Resolving full dependency trees with registry APIs...');
                 await this.sbomProcessor.resolveFullDependencyTrees((progress) => {
-                    if (progress.phase === 'resolving-tree') {
-                        // Use sub-progress for detailed status
+                    if (progress.phase === 'resolving-package') {
+                        // Package-level progress updates with detailed info
+                        this.updateProgress(75, 
+                            `Resolving dependencies...`, 
+                            'resolving-package',
+                            {
+                                processed: progress.processed,
+                                total: progress.total,
+                                ecosystem: progress.ecosystem || null,
+                                packageName: progress.packageName || progress.package || null,
+                                remaining: progress.remaining || (progress.total && progress.processed !== undefined ? progress.total - progress.processed : null)
+                            });
+                    } else if (progress.phase === 'resolving-tree') {
+                        // Ecosystem-level progress updates
                         this.updateProgress(75, 
                             `Resolving ${progress.ecosystem} dependencies...`, 
                             'resolving-trees',
@@ -938,7 +964,8 @@ class SBOMPlayApp {
                                 processed: progress.processed || (progress.packageProgress?.processed || 0),
                                 total: progress.total || (progress.packageProgress?.total || 1),
                                 ecosystem: progress.ecosystem,
-                                packageName: progress.packageProgress?.packageName
+                                packageName: progress.packageProgress?.packageName || null,
+                                remaining: progress.packageProgress?.remaining || null
                             });
                     }
                 });
@@ -1129,6 +1156,63 @@ class SBOMPlayApp {
     updateProgress(percentage, message, phaseName = null, subProgress = null) {
         const progressBar = document.getElementById('progressBar');
         const progressText = document.getElementById('progressText');
+        const dependencyProgressSection = document.getElementById('dependencyProgressSection');
+        const dependencyProgressBar = document.getElementById('dependencyProgressBar');
+        const dependencyProgressText = document.getElementById('dependencyProgressText');
+        
+        // Show/hide secondary progress bar for dependency resolution
+        if ((phaseName === 'resolving-trees' || phaseName === 'resolving-package') && subProgress) {
+            if (dependencyProgressSection) {
+                dependencyProgressSection.classList.remove('d-none');
+            }
+            
+            // Update secondary progress bar with per-package/ecosystem details
+            if (dependencyProgressBar && dependencyProgressText && subProgress) {
+                const subPercent = subProgress.processed && subProgress.total 
+                    ? Math.round((subProgress.processed / subProgress.total) * 100)
+                    : 0;
+                
+                dependencyProgressBar.style.width = `${subPercent}%`;
+                dependencyProgressBar.textContent = `${subPercent}%`;
+                dependencyProgressBar.setAttribute('aria-valuenow', subPercent);
+                
+                // Build detailed message with package name and countdown
+                let detailMessage = '';
+                const remaining = subProgress.remaining !== undefined 
+                    ? subProgress.remaining 
+                    : (subProgress.total && subProgress.processed !== undefined 
+                        ? subProgress.total - subProgress.processed 
+                        : null);
+                
+                if (subProgress.ecosystem) {
+                    detailMessage = `<strong>${subProgress.ecosystem}</strong>`;
+                }
+                
+                if (subProgress.packageName) {
+                    // Extract just the package name (before @) for cleaner display
+                    const packageDisplay = subProgress.packageName.split('@')[0];
+                    const escapedPackage = window.escapeHtml ? window.escapeHtml(packageDisplay) : packageDisplay.replace(/</g, '&lt;').replace(/>/g, '&gt;');
+                    detailMessage += `: <code>${escapedPackage}</code>`;
+                }
+                
+                if (subProgress.processed !== undefined && subProgress.total !== undefined) {
+                    detailMessage += ` <span class="badge bg-secondary">${subProgress.processed}/${subProgress.total}</span>`;
+                    
+                    if (remaining !== null && remaining > 0) {
+                        detailMessage += ` <span class="text-muted">(${remaining} remaining)</span>`;
+                    }
+                }
+                
+                if (dependencyProgressText) {
+                    dependencyProgressText.innerHTML = `<i class="fas fa-spinner fa-spin me-1"></i>${detailMessage || 'Processing dependencies...'}`;
+                }
+            }
+        } else {
+            // Hide secondary progress bar for other phases
+            if (dependencyProgressSection) {
+                dependencyProgressSection.classList.add('d-none');
+            }
+        }
         
         // If phase name provided, track it
         if (phaseName && phaseName !== this.progressTracker.currentPhase) {

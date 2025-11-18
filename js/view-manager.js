@@ -3382,16 +3382,21 @@ class ViewManager {
                 const current = versions[i];
                 const next = versions[i + 1];
                 
-                // Only report if licenses are different
-                if (current.license !== next.license && current.license !== 'Unknown' && next.license !== 'Unknown') {
+                // Normalize licenses before comparison to avoid false positives
+                const licenseProcessor = window.LicenseProcessor ? new window.LicenseProcessor() : null;
+                const normalizedCurrent = licenseProcessor ? licenseProcessor.normalizeLicenseName(current.license) : current.license;
+                const normalizedNext = licenseProcessor ? licenseProcessor.normalizeLicenseName(next.license) : next.license;
+                
+                // Only report if licenses are different after normalization
+                if (normalizedCurrent !== normalizedNext && normalizedCurrent !== 'Unknown' && normalizedNext !== 'Unknown') {
                     // Combine repositories from both versions
                     const allRepos = new Set([...(current.repositories || []), ...(next.repositories || [])]);
                     
                     transitions.push({
                         type: 'license-transition',
                         packageName: packageName,
-                        fromLicense: current.license,
-                        toLicense: next.license,
+                        fromLicense: normalizedCurrent,
+                        toLicense: normalizedNext,
                         fromVersion: current.version,
                         toVersion: next.version,
                         fromCategory: current.category,

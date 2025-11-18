@@ -126,13 +126,14 @@ class DependencyTreeResolver {
     /**
      * Update progress if callback is available
      */
-    updateProgress(message) {
+    updateProgress(message, packageName = null) {
         this.processedPackages++;
         if (this.onProgress && this.totalPackages > 0) {
             const percent = (this.processedPackages / this.totalPackages) * 100;
             this.onProgress({
                 phase: 'resolving-package',
                 message: message,
+                packageName: packageName,
                 processed: this.processedPackages,
                 total: this.totalPackages,
                 percent: percent
@@ -171,8 +172,10 @@ class DependencyTreeResolver {
                     phase: 'resolving-package',
                     message: progressMsg,
                     package: depKey,
+                    packageName: depKey, // Package name for display
                     processed: processedDirect,
-                    total: totalDirect
+                    total: totalDirect,
+                    remaining: totalDirect - processedDirect
                 });
             }
             
@@ -214,7 +217,7 @@ class DependencyTreeResolver {
         }
         
         resolved.add(packageKey);
-        this.updateProgress(`Processing ${packageKey} (depth ${depth})...`);
+        this.updateProgress(`Processing ${packageKey} (depth ${depth})...`, packageKey);
         
         // Try to get dependencies from various sources with timeout handling
         let dependencies = null;
@@ -248,8 +251,10 @@ class DependencyTreeResolver {
                 }
             }
             
-            // 3. Try ecosyste.ms as fallback
-            if (!dependencies || dependencies.length === 0) {
+            // 3. Try ecosyste.ms as fallback (or primary for RubyGems)
+            // For RubyGems, prioritize ecosyste.ms since RubyGems API lacks CORS
+            const isRubyGems = ecosystem.toLowerCase() === 'rubygems' || ecosystem.toLowerCase() === 'gem';
+            if (isRubyGems || (!dependencies || dependencies.length === 0)) {
                 try {
                     dependencies = await Promise.race([
                         this.getDependenciesFromEcosystems(packageName, version, ecosystem),
@@ -562,14 +567,41 @@ class DependencyTreeResolver {
     }
     
     /**
+     * Check CORS support for RubyGems API
+     * @returns {Promise<boolean>} - True if CORS is supported, false otherwise
+     */
+    async checkRubyGemsCORS() {
+        const testUrl = 'https://rubygems.org/api/v1/gems/rails.json';
+        try {
+            const response = await this.fetchWithTimeout(testUrl, { method: 'HEAD' });
+            const corsHeader = response.headers.get('Access-Control-Allow-Origin');
+            const hasCORS = corsHeader !== null;
+            console.log(`      ℹ️  RubyGems CORS check: ${hasCORS ? 'Supported' : 'Not supported'} (header: ${corsHeader || 'none'})`);
+            return hasCORS;
+        } catch (error) {
+            console.log(`      ⚠️  RubyGems CORS check failed: ${error.message}`);
+            return false;
+        }
+    }
+
+    /**
      * Get RubyGems package dependencies
      * NOTE: RubyGems API doesn't support CORS, so we skip it and rely on ecosyste.ms and deps.dev
      */
     async getRubyGemsDependencies(packageName, version) {
         // RubyGems API doesn't support CORS, so we can't use it directly from the browser
-        // Return null to fall back to ecosyste.ms and deps.dev which do support CORS
-        console.log(`      🔍 RubyGems: Skipping direct API (no CORS), will use ecosyste.ms/deps.dev for ${packageName}@${version}`);
-            return null;
+        // Check CORS status (will be cached after first check)
+        const corsCacheKey = 'rubygems_cors_check';
+        if (!this.cache.has(corsCacheKey)) {
+            const hasCORS = await this.checkRubyGemsCORS();
+            this.cache.set(corsCacheKey, hasCORS);
+        }
+        const hasCORS = this.cache.get(corsCacheKey);
+        
+        if (!hasCORS) {
+            console.log(`      🔍 RubyGems: Skipping direct API (no CORS), will use ecosyste.ms/deps.dev for ${packageName}@${version}`);
+        }
+        return null;  // Always return null to use ecosyste.ms/deps.dev
     }
     
     /**
@@ -620,11 +652,22 @@ class DependencyTreeResolver {
             
             const data = await response.json();
             
+            // For RubyGems, ecosyste.ms returns package data with versions array
             // Find the specific version
-            const versionData = data.versions?.find(v => 
-                v.number === version || 
-                v.number === this.normalizeVersion(version)
-            );
+            let versionData = null;
+            if (data.versions && Array.isArray(data.versions)) {
+                versionData = data.versions.find(v => 
+                    v.number === version || 
+                    v.number === this.normalizeVersion(version) ||
+                    v.number === `v${version}` ||
+                    v.number === `v${this.normalizeVersion(version)}`
+                );
+            }
+            
+            // If version not found, try to get latest version dependencies (for RubyGems)
+            if (!versionData && ecosystem.toLowerCase() === 'rubygems' && data.latest_release_number) {
+                versionData = data.versions?.find(v => v.number === data.latest_release_number);
+            }
             
             if (!versionData || !versionData.dependencies) {
                 this.ecosystemsApiCache.set(cacheKey, []);
@@ -634,10 +677,19 @@ class DependencyTreeResolver {
             // Parse dependencies
             const dependencies = [];
             for (const dep of versionData.dependencies) {
-                if (dep.kind === 'runtime' || dep.kind === 'normal') {
+                if (dep.kind === 'runtime' || dep.kind === 'normal' || !dep.kind) {
+                    // Extract version from requirements (e.g., ">= 1.0" -> "1.0")
+                    let depVersion = dep.requirements || 'unknown';
+                    if (depVersion.includes('>=') || depVersion.includes('~>')) {
+                        // Extract version number from requirement string
+                        const match = depVersion.match(/(\d+\.\d+\.\d+|\d+\.\d+|\d+)/);
+                        if (match) {
+                            depVersion = match[1];
+                        }
+                    }
                     dependencies.push({
                         name: dep.package_name,
-                        version: dep.requirements || 'unknown'
+                        version: depVersion
                     });
                 }
             }
@@ -668,6 +720,108 @@ class DependencyTreeResolver {
             .replace(/\s+-\s+[\d.]+.*$/, '')  // Only remove ranges with spaces around dash
             .replace(/\s*\|\|.*$/, '')
             .replace(/\s+/g, '') || 'unknown';
+    }
+    
+    /**
+     * Fetch latest version for a package in an ecosystem
+     * @param {string} packageName - Package name
+     * @param {string} ecosystem - Ecosystem
+     * @returns {Promise<string|null>} - Latest version string or null
+     */
+    async fetchLatestVersion(packageName, ecosystem) {
+        const normalizedEcosystem = ecosystem.toLowerCase();
+        const cacheKey = `latest:${normalizedEcosystem}:${packageName}`;
+        
+        // Check cache first
+        if (this.cache.has(cacheKey)) {
+            return this.cache.get(cacheKey);
+        }
+        
+        try {
+            await this.rateLimit();
+            let latestVersion = null;
+            
+            switch (normalizedEcosystem) {
+                case 'npm':
+                    latestVersion = await this.fetchNpmLatestVersion(packageName);
+                    break;
+                case 'pypi':
+                    latestVersion = await this.fetchPyPiLatestVersion(packageName);
+                    break;
+                case 'cargo':
+                    latestVersion = await this.fetchCargoLatestVersion(packageName);
+                    break;
+                case 'rubygems':
+                case 'gem':
+                    // Use ecosyste.ms for RubyGems (no CORS on RubyGems API)
+                    latestVersion = await this.fetchRubyGemsLatestVersion(packageName);
+                    break;
+                default:
+                    console.log(`      ⚠️  Latest version fetch: Unsupported ecosystem ${ecosystem}`);
+                    return null;
+            }
+            
+            // Cache the result (even if null to avoid repeated failed requests)
+            this.cache.set(cacheKey, latestVersion);
+            return latestVersion;
+        } catch (error) {
+            console.log(`      ⚠️  Failed to fetch latest version for ${ecosystem}:${packageName}: ${error.message}`);
+            this.cache.set(cacheKey, null);
+            return null;
+        }
+    }
+    
+    /**
+     * Fetch latest version from npm registry
+     */
+    async fetchNpmLatestVersion(packageName) {
+        const url = this.registryAPIs.npm.replace('{package}', encodeURIComponent(packageName));
+        const response = await this.fetchWithTimeout(url);
+        if (!response.ok) return null;
+        const data = await response.json();
+        return data['dist-tags']?.latest || data.version || null;
+    }
+    
+    /**
+     * Fetch latest version from PyPI
+     */
+    async fetchPyPiLatestVersion(packageName) {
+        const url = this.registryAPIs.pypi.replace('{package}', encodeURIComponent(packageName));
+        const response = await this.fetchWithTimeout(url);
+        if (!response.ok) return null;
+        const data = await response.json();
+        return data.info?.version || null;
+    }
+    
+    /**
+     * Fetch latest version from crates.io
+     */
+    async fetchCargoLatestVersion(packageName) {
+        const url = this.registryAPIs.cargo.replace('{package}', encodeURIComponent(packageName));
+        const response = await this.fetchWithTimeout(url);
+        if (!response.ok) return null;
+        const data = await response.json();
+        return data.crate?.max_version || null;
+    }
+    
+    /**
+     * Fetch latest version from RubyGems via ecosyste.ms
+     */
+    async fetchRubyGemsLatestVersion(packageName) {
+        try {
+            const registryName = await this.getRegistryName('rubygems');
+            if (!registryName) return null;
+            
+            const url = this.ecosystemsAPI
+                .replace('{registry}', registryName)
+                .replace('{package}', encodeURIComponent(packageName));
+            const response = await this.fetchWithTimeout(url);
+            if (!response.ok) return null;
+            const data = await response.json();
+            return data.latest_release_number || null;
+        } catch (error) {
+            return null;
+        }
     }
     
     /**

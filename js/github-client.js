@@ -861,6 +861,62 @@ class GitHubClient {
     }
 
     /**
+     * Get tag information
+     * @param {string} owner - Repository owner
+     * @param {string} repo - Repository name
+     * @param {string} tag - Tag name (e.g., 'v1.2.3' or '1.2.3')
+     * @returns {Promise<Object|null>} - Tag information or null if not found
+     */
+    async getTag(owner, repo, tag) {
+        try {
+            // Try with 'v' prefix if not present
+            let tagName = tag;
+            if (!tag.startsWith('v') && /^\d+/.test(tag)) {
+                tagName = `v${tag}`;
+            }
+            
+            // Try both with and without 'v' prefix
+            const tagsToTry = [tag, tagName];
+            if (tag.startsWith('v')) {
+                tagsToTry.push(tag.substring(1));
+            }
+            
+            for (const tryTag of tagsToTry) {
+                try {
+                    const url = `${this.baseUrl}/repos/${owner}/${repo}/git/refs/tags/${encodeURIComponent(tryTag)}`;
+                    const response = await this.makeRequest(url);
+                    
+                    if (response.ok) {
+                        const data = await response.json();
+                        // If it's a tag ref, get the actual tag object
+                        if (data.object && data.object.type === 'tag') {
+                            const tagUrl = `${this.baseUrl}/repos/${owner}/${repo}/git/tags/${data.object.sha}`;
+                            const tagResponse = await this.makeRequest(tagUrl);
+                            if (tagResponse.ok) {
+                                return await tagResponse.json();
+                            }
+                        } else if (data.object && data.object.type === 'commit') {
+                            // Direct commit reference
+                            return {
+                                commit: { sha: data.object.sha },
+                                tag: tryTag
+                            };
+                        }
+                    }
+                } catch (error) {
+                    // Try next tag variant
+                    continue;
+                }
+            }
+            
+            return null;
+        } catch (error) {
+            console.debug(`Failed to get tag ${tag} for ${owner}/${repo}: ${error.message}`);
+            return null;
+        }
+    }
+
+    /**
      * Sleep utility function
      */
     sleep(seconds) {

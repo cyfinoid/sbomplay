@@ -610,7 +610,10 @@
                 exportCSV(); // Fallback to local function
             }
         });
-        document.getElementById('loadMoreBtn').addEventListener('click', loadMoreEntries);
+        const loadMoreBtn = document.getElementById('loadMoreBtn');
+        if (loadMoreBtn) {
+            loadMoreBtn.addEventListener('click', loadMoreEntries);
+        }
         
         // Sort handlers
         document.querySelectorAll('.sortable').forEach(header => {
@@ -1227,6 +1230,11 @@
                 const licenseInfo = dep._licenseProcessor.parseLicense(dep.raw.originalPackage);
                 if (licenseInfo.license && licenseInfo.license !== 'NOASSERTION') {
                     licenseFull = licenseInfo.license;
+                    // Store dual license info if present
+                    if (licenseInfo.isDualLicense) {
+                        dep._isDualLicense = true;
+                        dep._dualLicenseInfo = licenseInfo.dualLicenseInfo;
+                    }
                     // Better abbreviation: show first part of license name, but handle "Apache-2.0 AND MIT" properly
                     if (licenseFull.includes(' AND ')) {
                         // For compound licenses, show first license name
@@ -1264,7 +1272,13 @@
             dep.licenseFull = licenseFull;
             dep._licenseEnriched = isEnriched;
             dep._licenseCached = true;
-            return { license: licenseText, licenseFull: licenseFull, isEnriched: isEnriched };
+            return { 
+                license: licenseText, 
+                licenseFull: licenseFull, 
+                isEnriched: isEnriched,
+                isDualLicense: dep._isDualLicense || false,
+                dualLicenseInfo: dep._dualLicenseInfo || null
+            };
         }
         
         // Helper function to get enriched license from GitHub Actions analysis
@@ -2119,7 +2133,18 @@
                 // Build license cell (lazy evaluation)
                 const licenseInfo = getLicenseInfo(dep);
                 const enrichedBadge = licenseInfo.isEnriched ? '<span class="badge bg-success bg-opacity-25 ms-1" title="Enriched license data from GitHub Actions analysis">✓</span>' : '';
-                const licenseCell = `<td><span title="${escapeHtml(licenseInfo.licenseFull)}${licenseInfo.isEnriched ? ' (Enriched)' : ''}">${escapeHtml(licenseInfo.license)}</span>${enrichedBadge}</td>`;
+                
+                // Check if this is a dual license
+                let licenseDisplay = escapeHtml(licenseInfo.license);
+                let licenseTitle = escapeHtml(licenseInfo.licenseFull);
+                if (licenseInfo.isDualLicense && licenseInfo.dualLicenseInfo) {
+                    // Show both licenses with dual badge
+                    const dualBadge = '<span class="badge bg-info ms-1" title="Dual license">Dual</span>';
+                    licenseDisplay = escapeHtml(licenseInfo.license) + dualBadge;
+                    licenseTitle = `Dual license: ${licenseInfo.dualLicenseInfo.licenses.join(` ${licenseInfo.dualLicenseInfo.operators[0] || 'AND'} `)}`;
+                }
+                
+                const licenseCell = `<td><span title="${licenseTitle}${licenseInfo.isEnriched ? ' (Enriched)' : ''}">${licenseDisplay}</span>${enrichedBadge}</td>`;
                 
                 // Note: SBOM Quality is not shown for individual dependencies
                 // SBOM quality scores are only meaningful at the repository level,
@@ -2127,6 +2152,13 @@
                 
                 const tr = document.createElement('tr');
                 tr.setAttribute('data-dep-index', startIndex + idx); // Store dependency index for easy lookup
+                
+                // Check if this is an independent entity (no dependencies) for initial styling
+                const isIndependent = !dep.children || dep.children.length === 0;
+                if (isIndependent) {
+                    tr.classList.add('independent-entity');
+                }
+                
                 const versionDisplay = formatVersionForDisplay(dep.version);
                 const packageNameEscaped = escapeHtml(dep.name);
                 // For GitHub Actions and some other packages, the name already includes @version
@@ -2268,6 +2300,18 @@
                                                 
                                                 if (staleness && staleness.isStale) {
                                                     badgeHtml = `<span class="badge bg-warning" title="Stale: Last release ${staleness.monthsSinceRelease} months ago"><i class="fas fa-clock"></i> Stale (${staleness.monthsSinceRelease}m)</span>`;
+                                                }
+                                                
+                                                // Check if this is an independent entity (no dependencies)
+                                                // Independent entities have no children/dependencies
+                                                const isIndependent = !dep.children || dep.children.length === 0;
+                                                if (isIndependent && !badgeHtml) {
+                                                    badgeHtml = `<span class="badge bg-info" title="Independent entity: No dependencies"><i class="fas fa-circle-notch"></i> Independent</span>`;
+                                                    // Mark row as independent for styling (if not already marked)
+                                                    const row = badgeElement.closest('tr');
+                                                    if (row && !row.classList.contains('independent-entity')) {
+                                                        row.classList.add('independent-entity');
+                                                    }
                                                 }
                                             } catch (e) {
                                                 // Ignore staleness check errors

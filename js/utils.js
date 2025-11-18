@@ -142,7 +142,7 @@ function generateAlert(message, type = 'info', iconClass = '') {
  */
 async function fetchWithTimeout(url, options = {}, timeout = null) {
     // Get timeout from localStorage or use default
-    const defaultTimeout = timeout !== null ? timeout : (parseInt(localStorage.getItem('apiTimeout'), 10) || 5000);
+    const defaultTimeout = timeout !== null ? timeout : (parseInt(localStorage.getItem('apiTimeout'), 10) || 10000);
     
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), defaultTimeout);

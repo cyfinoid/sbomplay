@@ -123,7 +123,7 @@ class SBOMProcessor {
      * @param {string} repositoryLicense - Repository's own license (SPDX identifier, e.g., 'GPL-3.0', 'MIT')
      * @param {boolean} archived - Whether the repository is archived
      */
-    processSBOM(owner, repo, sbomData, repositoryLicense = null, archived = false) {
+    async processSBOM(owner, repo, sbomData, repositoryLicense = null, archived = false) {
         if (!sbomData || !sbomData.sbom || !sbomData.sbom.packages) {
             console.log(`⚠️  Invalid SBOM data for ${owner}/${repo}`);
             return false;
@@ -175,7 +175,8 @@ class SBOMProcessor {
         let skippedPackages = 0;
 
         // Process each package in the SBOM
-        sbomData.sbom.packages.forEach((pkg, index) => {
+        for (let index = 0; index < sbomData.sbom.packages.length; index++) {
+            const pkg = sbomData.sbom.packages[index];
             // GitHub SBOM uses 'versionInfo' instead of 'version'
             let version = pkg.versionInfo || pkg.version;
             
@@ -201,17 +202,39 @@ class SBOMProcessor {
                 return;
             }
             
-            // Use "version unknown" as placeholder when version is missing
-            // This ensures dependencies without versions are still tracked and displayed
-            const displayVersion = version || 'version unknown';
+            // Categorize the dependency first (needed for version fetching)
+            const category = this.categorizeDependency(pkg);
+            
+            // When version is missing, try to fetch latest version from registry
+            let displayVersion = version;
+            let assumedVersion = null;
+            if (!version) {
+                console.log(`⚠️  Package missing version in ${owner}/${repo}: ${pkg.name} (attempting to fetch latest version)`);
+                // Try to fetch latest version from registry
+                const ecosystem = category?.ecosystem?.toLowerCase();
+                if (ecosystem && window.DependencyTreeResolver) {
+                    try {
+                        const resolver = new window.DependencyTreeResolver();
+                        const latestVersion = await resolver.fetchLatestVersion(pkg.name, ecosystem);
+                        if (latestVersion) {
+                            displayVersion = latestVersion;
+                            assumedVersion = latestVersion;
+                            console.log(`   ✅ Found latest version for ${pkg.name}: ${latestVersion} (assumed)`);
+                        } else {
+                            displayVersion = 'version unknown';
+                            console.log(`   ⚠️  Could not fetch latest version for ${pkg.name}, using "version unknown"`);
+                        }
+                    } catch (error) {
+                        displayVersion = 'version unknown';
+                        console.log(`   ⚠️  Failed to fetch latest version for ${pkg.name}: ${error.message}`);
+                    }
+                } else {
+                    displayVersion = 'version unknown';
+                }
+            }
             const depKey = `${pkg.name}@${displayVersion}`;
             repoData.dependencies.add(depKey);
             processedPackages++;
-            
-            // Log warning if version is missing
-            if (!version) {
-                console.log(`⚠️  Package missing version in ${owner}/${repo}: ${pkg.name} (using "version unknown")`);
-            }
             
             // Check if this is a direct dependency (directly from main package)
             const isDirect = repoData.relationships.some(rel => 
@@ -220,9 +243,6 @@ class SBOMProcessor {
             if (isDirect) {
                 repoData.directDependencies.add(depKey);
             }
-            
-            // Categorize the dependency
-            const category = this.categorizeDependency(pkg);
             repoData.languages.add(category.language);
             
             // Add to appropriate category
@@ -238,7 +258,9 @@ class SBOMProcessor {
             if (!this.dependencies.has(depKey)) {
                 this.dependencies.set(depKey, {
                     name: pkg.name,
-                    version: displayVersion,
+                    version: version || null,  // Store original version (null if missing)
+                    displayVersion: displayVersion,  // Display version (may be assumed)
+                    assumedVersion: assumedVersion,  // Latest version if assumed
                     repositories: new Set(),
                     count: 0,
                     category: category,
@@ -247,7 +269,7 @@ class SBOMProcessor {
                     directIn: new Set(),  // Track which repos use this as direct dependency
                     transitiveIn: new Set(),  // Track which repos use this as transitive dependency
                     githubActionInfo: githubActionInfo,  // Store parsed GitHub Action info
-                    versionUnknown: !version  // Flag to indicate version was missing
+                    versionUnknown: !version && !assumedVersion  // Flag to indicate version was missing and not assumed
                 });
             }
             
@@ -272,7 +294,7 @@ class SBOMProcessor {
             if (index < 3) {
                 console.log(`  📦 Package ${index + 1}: ${pkg.name}@${displayVersion} (${category.type}/${category.language})`);
             }
-        });
+        }
 
         repoData.totalDependencies = repoData.dependencies.size;
         
@@ -366,7 +388,8 @@ class SBOMProcessor {
         
         return sortedDeps.map(dep => ({
             name: dep.name,
-            version: dep.version,
+            version: dep.displayVersion || dep.version,  // Use displayVersion (may be assumed)
+            assumedVersion: dep.assumedVersion || null,  // Latest version if assumed
             count: dep.count,
             repositories: Array.from(dep.repositories),
             category: dep.category,
@@ -560,10 +583,12 @@ class SBOMProcessor {
                             // Map package-level progress to ecosystem-level progress
                             const ecosystemProgress = index + (progress.processed / progress.total);
                             onProgress({
-                                phase: 'resolving-tree',
+                                phase: 'resolving-package',
                                 ecosystem: ecosystem,
-                                processed: index,
-                                total: ecosystemEntries.length,
+                                processed: progress.processed,
+                                total: progress.total,
+                                packageName: progress.packageName || progress.package || null,
+                                remaining: progress.remaining || (progress.total - progress.processed),
                                 packageProgress: progress,
                                 ecosystemProgress: ecosystemProgress
                             });
@@ -654,7 +679,8 @@ class SBOMProcessor {
             
             return {
                 name: dep.name,
-                version: dep.version,
+                version: dep.displayVersion || dep.version,  // Use displayVersion (may be assumed)
+                assumedVersion: dep.assumedVersion || null,  // Latest version if assumed
                 count: dep.count,
                 repositories: Array.from(dep.repositories),
                 directIn: Array.from(dep.directIn || []),  // Repos using as direct dependency
@@ -992,7 +1018,8 @@ class SBOMProcessor {
                 
                 return {
                     name: dep.name,
-                    version: dep.version,
+                    version: dep.displayVersion || dep.version,  // Use displayVersion (may be assumed)
+                    assumedVersion: dep.assumedVersion || null,  // Latest version if assumed
                     count: dep.count,
                     repositories: Array.from(dep.repositories),
                     category: dep.category,
