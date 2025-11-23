@@ -95,6 +95,59 @@ document.addEventListener('DOMContentLoaded', async function() {
     }
     
     /**
+     * Generate repository list HTML with modal support for many repos
+     * @param {Array} repositories - Array of repository names (e.g., ['owner/repo1', 'owner/repo2'])
+     * @returns {string} HTML string with repository links, and modal if needed
+     */
+    function generateRepoListHTML(repositories) {
+        const repoCount = repositories.length;
+        const repoLinks = repositories.map(r => 
+            `<a href="https://github.com/${r}" target="_blank" rel="noreferrer noopener" class="text-decoration-none"><i class="fab fa-github me-1"></i>${escapeHtml(r)}</a>`
+        );
+        
+        if (repoCount <= 3) {
+            // Show all repositories if 3 or fewer
+            return repoLinks.join(', ');
+        } else {
+            // Show first 3 with clickable link to modal for 4+ repos
+            const modalId = `repos-modal-${Math.random().toString(36).substr(2, 9)}`;
+            const visibleRepos = repoLinks.slice(0, 3).join(', ');
+            
+            return `${visibleRepos} 
+                <a href="#" class="text-primary" data-bs-toggle="modal" data-bs-target="#${modalId}" onclick="event.preventDefault();">
+                    and ${repoCount - 3} more
+                </a>
+                <div class="modal fade" id="${modalId}" tabindex="-1" aria-hidden="true">
+                    <div class="modal-dialog modal-lg">
+                        <div class="modal-content">
+                            <div class="modal-header">
+                                <h5 class="modal-title">All Repositories (${repoCount})</h5>
+                                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                            </div>
+                            <div class="modal-body">
+                                <div class="list-group">
+                                    ${repositories.map((repo, idx) => `
+                                        <div class="list-group-item">
+                                            <div class="d-flex align-items-center gap-2">
+                                                <span class="badge bg-secondary">${idx + 1}</span>
+                                                <a href="https://github.com/${repo}" target="_blank" rel="noreferrer noopener" class="text-decoration-none">
+                                                    <i class="fab fa-github me-1"></i>${escapeHtml(repo)}
+                                                </a>
+                                            </div>
+                                        </div>
+                                    `).join('')}
+                                </div>
+                            </div>
+                            <div class="modal-footer">
+                                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>`;
+        }
+    }
+    
+    /**
      * Populate repository filter dropdown
      */
     function populateRepoFilter(orgData) {
@@ -684,11 +737,44 @@ document.addEventListener('DOMContentLoaded', async function() {
                                     locationCell = `<div class="d-flex flex-wrap align-items-center gap-1" style="font-size: 0.85em;">
                                         ${locationParts[0]}
                                     </div>`;
+                                } else if (locationParts.length <= 3) {
+                                    // Show all locations if there are 2-3 total
+                                    locationCell = `<div class="d-flex flex-column gap-1" style="font-size: 0.85em;">
+                                        ${locationParts.join('<br>')}
+                                    </div>`;
                                 } else {
-                                    // Show first location with count of additional locations
+                                    // Show first location with clickable link to modal for 4+ locations
+                                    const modalId = `locations-modal-${Math.random().toString(36).substr(2, 9)}`;
                                     locationCell = `<div class="d-flex flex-column gap-1" style="font-size: 0.85em;">
                                         ${locationParts[0]}
-                                        <small class="text-muted">+ ${locationParts.length - 1} more location${locationParts.length - 1 > 1 ? 's' : ''}</small>
+                                        <a href="#" class="text-primary small" data-bs-toggle="modal" data-bs-target="#${modalId}">
+                                            <i class="fas fa-list me-1"></i>+ ${locationParts.length - 1} more location${locationParts.length - 1 > 1 ? 's' : ''}
+                                        </a>
+                                    </div>
+                                    <div class="modal fade" id="${modalId}" tabindex="-1" aria-hidden="true">
+                                        <div class="modal-dialog modal-lg">
+                                            <div class="modal-content">
+                                                <div class="modal-header">
+                                                    <h5 class="modal-title">All Locations (${locationParts.length})</h5>
+                                                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                                                </div>
+                                                <div class="modal-body">
+                                                    <div class="list-group">
+                                                        ${locationParts.map((loc, idx) => `
+                                                            <div class="list-group-item">
+                                                                <div class="d-flex align-items-center gap-2">
+                                                                    <span class="badge bg-secondary">${idx + 1}</span>
+                                                                    <div>${loc}</div>
+                                                                </div>
+                                                            </div>
+                                                        `).join('')}
+                                                    </div>
+                                                </div>
+                                                <div class="modal-footer">
+                                                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                                                </div>
+                                            </div>
+                                        </div>
                                     </div>`;
                                 }
                             }
@@ -1100,10 +1186,7 @@ document.addEventListener('DOMContentLoaded', async function() {
         
         // Show major drift first
         filteredMajor.slice(0, 100).forEach(pkg => {
-            const repoCount = pkg.repositories.length;
-            const repoList = repoCount > 3 
-                ? `${pkg.repositories.slice(0, 3).map(r => `<a href="https://github.com/${r}" target="_blank" rel="noreferrer noopener" class="text-decoration-none"><i class="fab fa-github me-1"></i>${escapeHtml(r)}</a>`).join(', ')} and ${repoCount - 3} more`
-                : pkg.repositories.map(r => `<a href="https://github.com/${r}" target="_blank" rel="noreferrer noopener" class="text-decoration-none"><i class="fab fa-github me-1"></i>${escapeHtml(r)}</a>`).join(', ');
+            const repoList = generateRepoListHTML(pkg.repositories);
             
             html += `<tr>
                 <td><span class="badge bg-danger">HIGH</span></td>
@@ -1117,10 +1200,7 @@ document.addEventListener('DOMContentLoaded', async function() {
         
         // Then minor drift
         filteredMinor.slice(0, Math.max(0, 100 - filteredMajor.length)).forEach(pkg => {
-            const repoCount = pkg.repositories.length;
-            const repoList = repoCount > 3 
-                ? `${pkg.repositories.slice(0, 3).map(r => `<a href="https://github.com/${r}" target="_blank" rel="noreferrer noopener" class="text-decoration-none"><i class="fab fa-github me-1"></i>${escapeHtml(r)}</a>`).join(', ')} and ${repoCount - 3} more`
-                : pkg.repositories.map(r => `<a href="https://github.com/${r}" target="_blank" rel="noreferrer noopener" class="text-decoration-none"><i class="fab fa-github me-1"></i>${escapeHtml(r)}</a>`).join(', ');
+            const repoList = generateRepoListHTML(pkg.repositories);
             
             html += `<tr>
                 <td><span class="badge bg-warning text-dark">MEDIUM</span></td>
@@ -1132,11 +1212,58 @@ document.addEventListener('DOMContentLoaded', async function() {
             </tr>`;
         });
         
+        html += '</tbody></table></div>';
+        
         if (allDrift.length > 100) {
-            html += `<tr><td colspan="6" class="text-center text-muted py-3"><em>... and ${allDrift.length - 100} more packages</em></td></tr>`;
+            const modalId = `all-drift-modal-${Math.random().toString(36).substr(2, 9)}`;
+            html += `<div class="text-center mt-3">
+                <button class="btn btn-outline-primary" data-bs-toggle="modal" data-bs-target="#${modalId}">
+                    <i class="fas fa-list me-2"></i>Show All ${allDrift.length} Packages with Version Drift
+                </button>
+            </div>
+            <div class="modal fade" id="${modalId}" tabindex="-1" aria-hidden="true">
+                <div class="modal-dialog modal-xl">
+                    <div class="modal-content">
+                        <div class="modal-header">
+                            <h5 class="modal-title">All Packages with Version Drift (${allDrift.length})</h5>
+                            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                        </div>
+                        <div class="modal-body" style="max-height: 70vh; overflow-y: auto;">
+                            <table class="table table-striped table-hover">
+                                <thead>
+                                    <tr>
+                                        <th style="width: 100px;">Severity</th>
+                                        <th>Package</th>
+                                        <th style="width: 120px;">Current</th>
+                                        <th style="width: 120px;">Latest</th>
+                                        <th style="width: 120px;">Ecosystem</th>
+                                        <th>Affected Repositories</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    ${allDrift.map(pkg => {
+                                        const badge = pkg.hasMajorUpdate ? '<span class="badge bg-danger">HIGH</span>' : '<span class="badge bg-warning text-dark">MEDIUM</span>';
+                                        const repoList = generateRepoListHTML(pkg.repositories);
+                                        return `<tr>
+                                            <td>${badge}</td>
+                                            <td><code class="small">${escapeHtml(pkg.name)}</code></td>
+                                            <td><span class="text-muted">${escapeHtml(pkg.version)}</span></td>
+                                            <td><strong class="text-success">${escapeHtml(pkg.latestVersion)}</strong></td>
+                                            <td><span class="badge bg-secondary">${escapeHtml(pkg.ecosystem)}</span></td>
+                                            <td><small>${repoList}</small></td>
+                                        </tr>`;
+                                    }).join('')}
+                                </tbody>
+                            </table>
+                        </div>
+                        <div class="modal-footer">
+                            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                        </div>
+                    </div>
+                </div>
+            </div>`;
         }
         
-        html += '</tbody></table></div>';
         html += '</div></div>';
         
         return html;

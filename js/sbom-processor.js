@@ -572,7 +572,9 @@ class SBOMProcessor {
      */
     getRepositoryStats() {
         const repos = Array.from(this.repositories.values());
-        const totalDeps = repos.reduce((sum, repo) => sum + repo.totalDependencies, 0);
+        // Use the actual global dependency count (includes transitive dependencies from deep resolution)
+        // instead of summing per-repo counts which are set before deep resolution runs
+        const totalDeps = this.dependencies.size;
         
         // Calculate category breakdown
         const categoryBreakdown = {

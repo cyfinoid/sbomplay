@@ -7,6 +7,53 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **License Data Persistence (CRITICAL)**: Fixed key format mismatch preventing license data from being saved to database
+  - License fetching was successful (1200+ licenses fetched from APIs) but updates failed due to key mismatch
+  - Updated `fetchLicensesForAllEcosystems()`, `fetchPyPILicenses()`, and `fetchGoLicenses()` to use correct dependency key format (`name@version` instead of `ecosystem:name@version`)
+  - Licenses now properly persist to IndexedDB and display correctly on all pages
+  - **Impact**: Resolves 100% license data loss issue
+- **Statistics Count Accuracy**: Fixed mismatch between reported and actual dependency counts
+  - `statistics.totalDependencies` now uses actual global dependency count (includes transitive dependencies)
+  - Previously showed only direct SBOM dependencies (e.g., 126) instead of full count including deep resolution (e.g., 1888)
+  - Updated `getRepositoryStats()` to use `this.dependencies.size` instead of stale per-repository counts
+  - **Impact**: Resolves 93% undercounting of dependencies in reports and logs
+- **Audit Page UI Improvements**: Enhanced "more items" display with interactive modals
+  - Multiple locations (2-3): Now shows all locations inline instead of "+ X more location(s)" text
+  - Many locations (4+): Displays clickable link that opens modal with complete list
+  - Repository lists: Shows all repos (≤3) or modal with all repos (>3)
+  - Version drift: Button to view all packages when more than 100 results
+  - **Impact**: Eliminates non-interactive "+ X more" text, improves UX with proper modals
+- **Authors Page Profile URLs**: Fixed 404 errors on npm, RubyGems, Cargo, and PyPI profile links
+  - Profile URLs now only generated when verified username is available in metadata
+  - Previously fell back to display names (e.g., "Sindre Sorhus") which caused 404s
+  - Now requires `npm_username`, `rubygems_username`, `cargo_username`, or `pypi_username` from metadata
+  - Ecosyste.ms links also require verified usernames
+  - **Impact**: Eliminates broken profile links, shows only valid URLs that work
+
+### Fixed
+- **PyPI Username Extraction (CRITICAL)**: Fixed incorrect PyPI profile URLs (404 errors)
+  - **Problem**: PyPI usernames were incorrectly extracted from email addresses (e.g., "marcelo" from "marcelo@trylesinski.com")
+  - **Example**: Marcelo Trylesinski's profile generated as `/user/marcelo/` instead of correct `/user/Kludex/`
+  - **Root Cause**: PyPI JSON API doesn't provide usernames, code was inferring from email prefix (unreliable)
+  - **Solution**: Removed email-based username extraction, only use verified usernames from ecosyste.ms API
+  - PyPI profile links now only appear when ecosyste.ms has provided the actual PyPI username
+  - **Impact**: Eliminates all PyPI profile 404 errors, ensures only working links are shown
+- **Authors Page Function Call Error**: Fixed `authorService.isUrlFromHostname is not a function` error
+  - Changed `authorService.isUrlFromHostname()` to `isUrlFromHostname()` (utility function from utils.js)
+  - Affects funding URL validation in author details modal and table cells
+  - **Impact**: Funding platform detection now works correctly without console errors
+
+### Changed
+- **Authors Page Display**: Replaced pagination with simple "Show Top 25 / Show All" toggle
+  - Removed complex pagination controls (page size selector, prev/next buttons)
+  - Default shows top 25 authors (by repository usage and package count)
+  - Toggle buttons in filter section with clear icons and labels
+  - Quick-access "Show All X Authors" button appears directly in results when limited
+  - Clicking quick-access button switches to "All Authors" view and scrolls to top
+  - Preference saved to localStorage
+  - **Impact**: Simpler, cleaner UI with faster access to all authors
+
 ### Added
 - **Enhanced Dependency Resolution Progress**: Secondary progress bar now displays detailed package-level progress during dependency tree resolution
   - Shows current package name being processed (extracted from package key)

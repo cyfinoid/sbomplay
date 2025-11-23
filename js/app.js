@@ -657,6 +657,9 @@ class SBOMPlayApp {
             this.updateProgress(80, 'Generating analysis results...', 'generating-results');
             let results = this.sbomProcessor.exportData();
             
+            // Add timing and enhanced statistics metadata
+            results = this.enrichResultsWithMetadata(results);
+            
             // Run license compliance analysis
             const repoStats = this.sbomProcessor.repositories.get(repoKey);
             if (repoStats && repoStats.totalDependencies > 0) {
@@ -1020,6 +1023,9 @@ class SBOMPlayApp {
             // Generate results (use let so we can reload after author analysis)
             this.updateProgress(80, 'Generating analysis results...', 'generating-results');
             let results = this.sbomProcessor.exportData();
+            
+            // Add timing and enhanced statistics metadata
+            results = this.enrichResultsWithMetadata(results);
 
             // Run license compliance analysis
             if (reposWithDeps > 0) {
@@ -3316,6 +3322,25 @@ class SBOMPlayApp {
                             dep.originalPackage.licenseDeclared = licenseFull;
                         }
                         
+                        // Also update the original dependency object in sbomProcessor.dependencies Map
+                        // This ensures licenses persist when exportData() is called again
+                        if (this.sbomProcessor && this.sbomProcessor.dependencies) {
+                            const versionToUse = dep.displayVersion || dep.version;
+                            const packageKey = `${dep.name}@${versionToUse}`;
+                            const originalDep = this.sbomProcessor.dependencies.get(packageKey);
+                            if (originalDep) {
+                                originalDep.license = licenseText;
+                                originalDep.licenseFull = licenseFull;
+                                originalDep._licenseEnriched = true;
+                                
+                                // Also update originalPackage if it exists
+                                if (originalDep.originalPackage) {
+                                    originalDep.originalPackage.licenseConcluded = licenseFull;
+                                    originalDep.originalPackage.licenseDeclared = licenseFull;
+                                }
+                            }
+                        }
+                        
                         fetched++;
                         
                         if (fetched % 10 === 0) {
@@ -3413,6 +3438,25 @@ class SBOMPlayApp {
                         if (dep.originalPackage) {
                             dep.originalPackage.licenseConcluded = licenseFull;
                             dep.originalPackage.licenseDeclared = licenseFull;
+                        }
+                        
+                        // Also update the original dependency object in sbomProcessor.dependencies Map
+                        // This ensures licenses persist when exportData() is called again
+                        if (this.sbomProcessor && this.sbomProcessor.dependencies) {
+                            const versionToUse = dep.displayVersion || dep.version;
+                            const packageKey = `${dep.name}@${versionToUse}`;
+                            const originalDep = this.sbomProcessor.dependencies.get(packageKey);
+                            if (originalDep) {
+                                originalDep.license = licenseText;
+                                originalDep.licenseFull = licenseFull;
+                                originalDep._licenseEnriched = true;
+                                
+                                // Also update originalPackage if it exists
+                                if (originalDep.originalPackage) {
+                                    originalDep.originalPackage.licenseConcluded = licenseFull;
+                                    originalDep.originalPackage.licenseDeclared = licenseFull;
+                                }
+                            }
                         }
                         
                         // Save to cache via cacheManager if available
@@ -3614,20 +3658,19 @@ class SBOMPlayApp {
                             // Also update the original dependency object in sbomProcessor.dependencies Map
                             // This ensures licenses persist when exportData() is called again
                             if (this.sbomProcessor && this.sbomProcessor.dependencies) {
-                                const ecosystem = (dep.category?.ecosystem || dep.ecosystem)?.toLowerCase();
-                                if (ecosystem && dep.name && dep.version) {
-                                    const packageKey = `${ecosystem}:${dep.name}@${dep.version}`;
-                                    const originalDep = this.sbomProcessor.dependencies.get(packageKey);
-                                    if (originalDep) {
-                                        originalDep.license = licenseText;
-                                        originalDep.licenseFull = licenseFull;
-                                        originalDep._licenseEnriched = true;
-                                        
-                                        // Also update originalPackage if it exists
-                                        if (originalDep.originalPackage) {
-                                            originalDep.originalPackage.licenseConcluded = licenseFull;
-                                            originalDep.originalPackage.licenseDeclared = licenseFull;
-                                        }
+                                // Use displayVersion if available (matches sbom-processor key format)
+                                const versionToUse = dep.displayVersion || dep.version;
+                                const packageKey = `${dep.name}@${versionToUse}`;
+                                const originalDep = this.sbomProcessor.dependencies.get(packageKey);
+                                if (originalDep) {
+                                    originalDep.license = licenseText;
+                                    originalDep.licenseFull = licenseFull;
+                                    originalDep._licenseEnriched = true;
+                                    
+                                    // Also update originalPackage if it exists
+                                    if (originalDep.originalPackage) {
+                                        originalDep.originalPackage.licenseConcluded = licenseFull;
+                                        originalDep.originalPackage.licenseDeclared = licenseFull;
                                     }
                                 }
                             }

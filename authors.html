@@ -115,15 +115,18 @@
                         </div>
                     </div>
                     <div class="col-md-6">
-                        <label class="form-label">Page Size</label>
-                        <select class="form-select" id="pageSizeSelect">
-                            <option value="10">10 per page</option>
-                            <option value="25" selected>25 per page</option>
-                            <option value="50">50 per page</option>
-                            <option value="100">100 per page</option>
-                            <option value="250">250 per page</option>
-                            <option value="500">500 per page</option>
-                        </select>
+                        <label class="form-label"><i class="fas fa-list-ol me-1"></i>Display Limit</label>
+                        <div class="btn-group w-100" role="group" aria-label="Author display limit">
+                            <input type="radio" class="btn-check" name="displayLimit" id="displayLimit25" value="25" checked>
+                            <label class="btn btn-outline-primary" for="displayLimit25">
+                                <i class="fas fa-filter me-1"></i>Top 25 Authors
+                            </label>
+                            
+                            <input type="radio" class="btn-check" name="displayLimit" id="displayLimitAll" value="all">
+                            <label class="btn btn-outline-primary" for="displayLimitAll">
+                                <i class="fas fa-list me-1"></i>All Authors
+                            </label>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -218,8 +221,7 @@
             let currentAuthors = [];
             let filteredAuthors = [];
             let allFilteredAuthors = []; // All authors after filters (including single-package-single-repo) - used for map
-            let currentPage = 1;
-            let pageSize = parseInt(localStorage.getItem('authorsPageSize') || '25', 10);
+            let displayLimit = localStorage.getItem('authorsDisplayLimit') || '25'; // '25' or 'all'
             let authorMap = null; // Leaflet map instance
             let locationService = null; // LocationService instance
             
@@ -231,36 +233,6 @@
                     .trim()
                     .substring(0, 200) // Limit length
                     .replace(/[<>\"'&]/g, ''); // Remove HTML/script injection chars
-            }
-            
-            // Function to update pagination controls
-            function updatePaginationControls(totalItems, totalPages) {
-                const paginationInfo = document.getElementById('paginationInfo');
-                const prevBtn = document.getElementById('prevPageBtn');
-                const nextBtn = document.getElementById('nextPageBtn');
-                
-                if (!paginationInfo || !prevBtn || !nextBtn) return;
-                
-                const startItem = totalItems === 0 ? 0 : (currentPage - 1) * pageSize + 1;
-                const endItem = Math.min(currentPage * pageSize, totalItems);
-                
-                paginationInfo.textContent = `Showing ${startItem}-${endItem} of ${totalItems}`;
-                
-                // Update Previous button
-                if (currentPage > 1) {
-                    prevBtn.classList.remove('disabled');
-                    prevBtn.querySelector('a').removeAttribute('tabindex');
-                } else {
-                    prevBtn.classList.add('disabled');
-                    prevBtn.querySelector('a').setAttribute('tabindex', '-1');
-                }
-                
-                // Update Next button
-                if (currentPage < totalPages && totalPages > 0) {
-                    nextBtn.classList.remove('disabled');
-                } else {
-                    nextBtn.classList.add('disabled');
-                }
             }
             
             // Create AuthorService instance for secure URL validation
@@ -411,39 +383,33 @@
             document.getElementById('fundingFilter').addEventListener('change', loadAuthorData);
             document.getElementById('sanctionsFilter').addEventListener('change', loadAuthorData);
             
-            // Page size selector
-            const pageSizeSelect = document.getElementById('pageSizeSelect');
-            if (pageSizeSelect) {
-                pageSizeSelect.value = pageSize.toString();
-                pageSizeSelect.addEventListener('change', (e) => {
-                    pageSize = parseInt(e.target.value, 10);
-                    localStorage.setItem('authorsPageSize', pageSize.toString());
-                    currentPage = 1;
-                    loadAuthorData();
-                });
+            // Display limit radio buttons
+            const displayLimit25 = document.getElementById('displayLimit25');
+            const displayLimitAll = document.getElementById('displayLimitAll');
+            
+            // Set initial state from localStorage
+            if (displayLimit === 'all') {
+                displayLimitAll.checked = true;
+            } else {
+                displayLimit25.checked = true;
             }
             
-            // Pagination controls
-            const prevPageBtn = document.getElementById('prevPageBtn');
-            const nextPageBtn = document.getElementById('nextPageBtn');
-            
-            if (prevPageBtn) {
-                prevPageBtn.addEventListener('click', (e) => {
-                    e.preventDefault();
-                    if (currentPage > 1) {
-                        currentPage--;
-                        renderAuthorsTable();
+            if (displayLimit25) {
+                displayLimit25.addEventListener('change', (e) => {
+                    if (e.target.checked) {
+                        displayLimit = '25';
+                        localStorage.setItem('authorsDisplayLimit', '25');
+                        loadAuthorData();
                     }
                 });
             }
             
-            if (nextPageBtn) {
-                nextPageBtn.addEventListener('click', (e) => {
-                    e.preventDefault();
-                    const totalPages = Math.ceil(filteredAuthors.length / pageSize);
-                    if (currentPage < totalPages) {
-                        currentPage++;
-                        renderAuthorsTable();
+            if (displayLimitAll) {
+                displayLimitAll.addEventListener('change', (e) => {
+                    if (e.target.checked) {
+                        displayLimit = 'all';
+                        localStorage.setItem('authorsDisplayLimit', 'all');
+                        loadAuthorData();
                     }
                 });
             }
@@ -1401,15 +1367,13 @@
         async function getVerifiedProfileLinks(author) {
             const links = [];
             
-            // Only show npm profile if we know they're a maintainer (from our author extraction)
+            // Only show npm profile if we have verified username from metadata
             // npm profiles use the username (from maintainers[].name), not the display name (from author.name)
             // e.g., username "tmpvar" not display name "Elijah Insua", or "shama" not "Kyle Robinson Young"
-            if (author.ecosystem === 'npm' && author.author) {
-                // Use npm_username from metadata if available (from maintainers[].name or ecosyste.ms login)
-                // This is critical: author.author might be display name (e.g., "Kyle Robinson Young")
-                // but npm_username is the actual username (e.g., "shama")
-                const npmUsername = author.metadata?.npm_username || author.author;
-                // Only show if we have a valid username (not empty and doesn't look like a display name with spaces)
+            if (author.ecosystem === 'npm' && author.metadata?.npm_username) {
+                // Use verified npm_username from metadata (from maintainers[].name or ecosyste.ms login)
+                const npmUsername = author.metadata.npm_username;
+                // Only show if username looks valid (no spaces, not empty)
                 if (npmUsername && !npmUsername.includes(' ')) {
                     links.push({
                         url: `https://www.npmjs.com/~${encodeURIComponent(npmUsername)}`,
@@ -1446,32 +1410,33 @@
                 // Only generate URLs when we have verified metadata (pypi_organization or pypi_username)
             }
             
-            // Crates.io profile (from login)
-            if (author.ecosystem === 'cargo' && author.author) {
-                links.push({
-                    url: `https://crates.io/users/${encodeURIComponent(author.author)}`,
-                    icon: 'fas fa-box',
-                    label: 'Crates.io Profile',
-                    class: 'btn-outline-warning'
-                });
+            // Crates.io profile - only show if we have verified username
+            if (author.ecosystem === 'cargo' && author.metadata?.cargo_username) {
+                const cargoUsername = author.metadata.cargo_username;
+                if (cargoUsername && !cargoUsername.includes(' ')) {
+                    links.push({
+                        url: `https://crates.io/users/${encodeURIComponent(cargoUsername)}`,
+                        icon: 'fas fa-box',
+                        label: 'Crates.io Profile',
+                        class: 'btn-outline-warning'
+                    });
+                }
             }
             
             // RubyGems profile
-            // RubyGems uses lowercase usernames (e.g., "parker" not "Parker Moore")
-            // Use rubygems_username from metadata if available, otherwise normalize author name
-            if (author.ecosystem === 'gem' && author.author) {
-                let rubygemsUsername = author.metadata?.rubygems_username;
-                if (!rubygemsUsername) {
-                    // Normalize author name: lowercase, remove spaces and special characters
-                    // RubyGems usernames are typically lowercase with no spaces
-                    rubygemsUsername = author.author.toLowerCase().trim().replace(/\s+/g, '');
+            // RubyGems uses lowercase usernames (e.g., "parkr" not "Parker Moore")
+            // Only show if we have verified username from metadata (ecosyste.ms login)
+            if (author.ecosystem === 'gem' && author.metadata?.rubygems_username) {
+                const rubygemsUsername = author.metadata.rubygems_username;
+                // Only show if username looks valid (no spaces, not empty)
+                if (rubygemsUsername && !rubygemsUsername.includes(' ')) {
+                    links.push({
+                        url: `https://rubygems.org/profiles/${encodeURIComponent(rubygemsUsername)}`,
+                        icon: 'fas fa-gem',
+                        label: 'RubyGems Profile',
+                        class: 'btn-outline-danger'
+                    });
                 }
-                links.push({
-                    url: `https://rubygems.org/profiles/${encodeURIComponent(rubygemsUsername)}`,
-                    icon: 'fas fa-gem',
-                    label: 'RubyGems Profile',
-                    class: 'btn-outline-danger'
-                });
             }
             
             // GitHub profile (only if we extracted from repo or it's a github: prefixed author)
@@ -1551,9 +1516,9 @@
                 }
             }
             
-            // npm profile
-            if (author.ecosystem === 'npm' && author.author) {
-                const npmUsername = author.metadata?.npm_username || author.author;
+            // npm profile - only show if we have verified username
+            if (author.ecosystem === 'npm' && author.metadata?.npm_username) {
+                const npmUsername = author.metadata.npm_username;
                 if (npmUsername && !npmUsername.includes(' ')) {
                     icons.push({
                         url: `https://www.npmjs.com/~${encodeURIComponent(npmUsername)}`,
@@ -1587,18 +1552,17 @@
                 // Only generate URLs when we have verified metadata (pypi_organization or pypi_username)
             }
             
-            // RubyGems profile
-            if (author.ecosystem === 'gem' && author.author) {
-                let rubygemsUsername = author.metadata?.rubygems_username;
-                if (!rubygemsUsername) {
-                    rubygemsUsername = author.author.toLowerCase().trim().replace(/\s+/g, '');
+            // RubyGems profile - only show if we have verified username
+            if (author.ecosystem === 'gem' && author.metadata?.rubygems_username) {
+                const rubygemsUsername = author.metadata.rubygems_username;
+                if (rubygemsUsername && !rubygemsUsername.includes(' ')) {
+                    icons.push({
+                        url: `https://rubygems.org/profiles/${encodeURIComponent(rubygemsUsername)}`,
+                        icon: 'fas fa-gem',
+                        title: 'RubyGems Profile',
+                        color: 'text-danger'
+                    });
                 }
-                icons.push({
-                    url: `https://rubygems.org/profiles/${encodeURIComponent(rubygemsUsername)}`,
-                    icon: 'fas fa-gem',
-                    title: 'RubyGems Profile',
-                    color: 'text-danger'
-                });
             }
             
             return icons;
@@ -1676,26 +1640,35 @@
                 const registryName = ecosystemMap[author.ecosystem.toLowerCase()];
                 if (registryName) {
                     // For ecosyste.ms, use the correct identifier for each ecosystem
-                    let maintainerIdentifier = author.author;
+                    // Only generate link if we have verified username (not display name)
+                    let maintainerIdentifier = null;
                     
-                    // For PyPI, prefer username from metadata (e.g., "gastlygem" not "Weiwei Wang")
+                    // For PyPI, use pypi_username from metadata
                     if (author.ecosystem === 'pypi' && author.metadata?.pypi_username) {
                         maintainerIdentifier = author.metadata.pypi_username;
                     }
-                    // For npm, ecosyste.ms uses the username (from maintainers[].name), not display name
-                    // Use npm_username from metadata if available, otherwise fall back to author.author
-                    else if (author.ecosystem === 'npm') {
-                        // npm maintainer identifier is the username (e.g., "tmpvar"), not display name
-                        // ecosyste.ms expects the username format
-                        maintainerIdentifier = author.metadata?.npm_username || author.author;
+                    // For npm, use npm_username from metadata (not display name)
+                    else if (author.ecosystem === 'npm' && author.metadata?.npm_username) {
+                        maintainerIdentifier = author.metadata.npm_username;
+                    }
+                    // For RubyGems, use rubygems_username from metadata
+                    else if (author.ecosystem === 'gem' && author.metadata?.rubygems_username) {
+                        maintainerIdentifier = author.metadata.rubygems_username;
+                    }
+                    // For Cargo, use cargo_username from metadata
+                    else if (author.ecosystem === 'cargo' && author.metadata?.cargo_username) {
+                        maintainerIdentifier = author.metadata.cargo_username;
                     }
                     
-                    html += `
-                        <a href="https://packages.ecosyste.ms/registries/${registryName}/maintainers/${encodeURIComponent(maintainerIdentifier)}" target="_blank" class="btn btn-sm btn-outline-info">
-                            <i class="fas fa-chart-bar me-1"></i>
-                            Package Statistics
-                        </a>
-                    `;
+                    // Only show link if we have verified username
+                    if (maintainerIdentifier) {
+                        html += `
+                            <a href="https://packages.ecosyste.ms/registries/${registryName}/maintainers/${encodeURIComponent(maintainerIdentifier)}" target="_blank" class="btn btn-sm btn-outline-info">
+                                <i class="fas fa-chart-bar me-1"></i>
+                                Package Statistics
+                            </a>
+                        `;
+                    }
                 }
                 
                 html += '</div></div>';
@@ -1834,7 +1807,7 @@
                     `;
                     
                     // Show platform-specific links if available (using secure URL validation)
-                    if (author.funding.github || (author.funding.url && authorService.isUrlFromHostname(author.funding.url, 'github.com', '/sponsors'))) {
+                    if (author.funding.github || (author.funding.url && isUrlFromHostname(author.funding.url, 'github.com', '/sponsors'))) {
                         const githubSponsorUsername = normalizeGitHubUsername(author.metadata?.github || author.author);
                         html += `
                             <a href="https://github.com/sponsors/${encodeURIComponent(githubSponsorUsername)}" target="_blank" class="btn btn-sm btn-outline-danger">
@@ -1843,10 +1816,10 @@
                         `;
                     }
                     
-                    if (author.funding.opencollective || (author.funding.url && authorService.isUrlFromHostname(author.funding.url, 'opencollective.com'))) {
+                    if (author.funding.opencollective || (author.funding.url && isUrlFromHostname(author.funding.url, 'opencollective.com'))) {
                         // Securely extract Open Collective username from URL
                         let ocUsername = author.author;
-                        if (author.funding.url && authorService.isUrlFromHostname(author.funding.url, 'opencollective.com')) {
+                        if (author.funding.url && isUrlFromHostname(author.funding.url, 'opencollective.com')) {
                             try {
                                 const url = new URL(author.funding.url.startsWith('http') ? author.funding.url : 'https://' + author.funding.url);
                                 const pathParts = url.pathname.split('/').filter(p => p);
@@ -1865,7 +1838,7 @@
                         `;
                     }
                     
-                    if (author.funding.patreon || (author.funding.url && authorService.isUrlFromHostname(author.funding.url, 'patreon.com'))) {
+                    if (author.funding.patreon || (author.funding.url && isUrlFromHostname(author.funding.url, 'patreon.com'))) {
                         html += `
                             <a href="${author.funding.url || `https://patreon.com/${encodeURIComponent(author.author)}`}" target="_blank" class="btn btn-sm btn-outline-danger">
                                 <i class="fab fa-patreon me-1"></i>Patreon
@@ -2175,15 +2148,13 @@
                     return (b.count || 0) - (a.count || 0);
                 });
                 
-                // Store filtered human authors for pagination
+                // Store filtered human authors
                 filteredAuthors = allVisibleHumanAuthors;
-                currentPage = 1; // Reset to first page when filtering
                 
-                // Calculate pagination for human authors
-                const totalPages = Math.ceil(filteredAuthors.length / pageSize);
-                const startIndex = (currentPage - 1) * pageSize;
-                const endIndex = Math.min(startIndex + pageSize, filteredAuthors.length);
-                const visibleAuthors = filteredAuthors.slice(startIndex, endIndex);
+                // Apply display limit
+                const visibleAuthors = displayLimit === 'all' 
+                    ? allVisibleHumanAuthors 
+                    : allVisibleHumanAuthors.slice(0, 25);
                 
                 // Sort single-package-single-repo authors by occurrence count (descending)
                 singlePackageSingleRepo.sort((a, b) => {
@@ -2196,7 +2167,7 @@
                 window.currentOrganizations = organizationAuthors; // Store organizations globally
                 
                 if (sanctionsFilterActive) {
-                    console.log(`🎨 Authors Page - Sanctions filter active: Showing ${allVisibleHumanAuthors.length} human authors from sanctioned countries, ${organizationAuthors.length} organizations, ${botAuthors.length} bots, Showing page ${currentPage} of ${totalPages}`);
+                    console.log(`🎨 Authors Page - Sanctions filter active: Showing ${visibleAuthors.length} of ${allVisibleHumanAuthors.length} human authors from sanctioned countries, ${organizationAuthors.length} organizations, ${botAuthors.length} bots`);
                 } else {
                     const multiPackageCount = humanAuthors.filter(a => {
                         const uniquePackages = [...new Set(a.packages || [])];
@@ -2207,14 +2178,14 @@
                         const repoCount = a.repositoryCount || 0;
                         return uniquePackages.length === 1 && repoCount > 1;
                     }).length;
-                    console.log(`🎨 Authors Page - Human Authors: ${allVisibleHumanAuthors.length} (${multiPackageCount} multi-package + ${singlePackageMultiRepoCount} single-package-multi-repo), Organizations: ${organizationAuthors.length}, Bots: ${botAuthors.length}, Hidden: ${singlePackageSingleRepo.length} (single-package-single-repo), Showing page ${currentPage} of ${totalPages}`);
+                    console.log(`🎨 Authors Page - Human Authors: ${allVisibleHumanAuthors.length} (${multiPackageCount} multi-package + ${singlePackageMultiRepoCount} single-package-multi-repo), Organizations: ${organizationAuthors.length}, Bots: ${botAuthors.length}, Hidden: ${singlePackageSingleRepo.length} (single-package-single-repo), Displaying: ${visibleAuthors.length} (limit: ${displayLimit})`);
                 }
                 
                 let html = `
                     <div class="alert ${sanctionsFilterActive ? 'alert-danger' : 'alert-info'}">
                         <i class="fas ${sanctionsFilterActive ? 'fa-ban' : 'fa-info-circle'} me-2"></i>
                         ${sanctionsFilterActive ? '<strong>⚠️ Sanctioned Countries Filter Active:</strong> ' : ''}
-                        Showing <strong>${allVisibleHumanAuthors.length}</strong> human author${allVisibleHumanAuthors.length !== 1 ? 's' : ''} from <strong>${new Set(allVisibleHumanAuthors.map(a => a.ecosystem)).size}</strong> ecosystem${new Set(allVisibleHumanAuthors.map(a => a.ecosystem)).size !== 1 ? 's' : ''}
+                        Showing <strong>${visibleAuthors.length}</strong>${visibleAuthors.length < allVisibleHumanAuthors.length ? ` of <strong>${allVisibleHumanAuthors.length}</strong>` : ''} human author${allVisibleHumanAuthors.length !== 1 ? 's' : ''} from <strong>${new Set(allVisibleHumanAuthors.map(a => a.ecosystem)).size}</strong> ecosystem${new Set(allVisibleHumanAuthors.map(a => a.ecosystem)).size !== 1 ? 's' : ''}
                         ${sanctionsFilterActive ? 'from sanctioned countries' : ''}
                         ${!sanctionsFilterActive && allVisibleHumanAuthors.length > 0 ? `(${humanAuthors.filter(a => {
                             const uniquePackages = [...new Set(a.packages || [])];
@@ -2224,6 +2195,11 @@
                             const repoCount = a.repositoryCount || 0;
                             return uniquePackages.length === 1 && repoCount > 1;
                         }).length} with single package across multiple repos)` : ''}
+                        ${visibleAuthors.length < allVisibleHumanAuthors.length ? `
+                            <br><a href="#" class="btn btn-sm btn-primary mt-2" id="showAllAuthorsBtn">
+                                <i class="fas fa-list me-1"></i>Show All ${allVisibleHumanAuthors.length} Authors
+                            </a>
+                        ` : ''}
                     </div>
                     <div class="table-responsive">
                         <table class="table table-hover">
@@ -2243,6 +2219,9 @@
                 `;
                 
                 visibleAuthors.forEach((author, index) => {
+                    // Find the actual index in allVisibleHumanAuthors for the data-author-index attribute
+                    const actualIndex = allVisibleHumanAuthors.indexOf(author);
+                    
                     const uniquePackages = [...new Set(author.packages)];
                     const uniquePackageCount = uniquePackages.length;
                     const repositoryCount = author.repositoryCount || 0;
@@ -2298,7 +2277,7 @@
                         if (author.funding.opencollective) {
                             // Securely extract Open Collective username from URL
                             let ocUsername = author.author;
-                            if (author.funding.url && authorService.isUrlFromHostname(author.funding.url, 'opencollective.com')) {
+                            if (author.funding.url && isUrlFromHostname(author.funding.url, 'opencollective.com')) {
                                 try {
                                     const url = new URL(author.funding.url.startsWith('http') ? author.funding.url : 'https://' + author.funding.url);
                                     const pathParts = url.pathname.split('/').filter(p => p);
@@ -2332,15 +2311,15 @@
                     
                     html += `
                         <tr>
-                            <td>${startIndex + index + 1}</td>
+                            <td>${index + 1}</td>
                             <td>
-                                <a href="#" class="text-decoration-none author-details-link" data-author-index="${startIndex + index}">
+                                <a href="#" class="text-decoration-none author-details-link" data-author-index="${actualIndex}">
                                     <strong><i class="fas fa-user me-1"></i>${author.author}</strong>
                                 </a>
                             </td>
                             <td><span class="badge bg-info">${author.ecosystem}</span></td>
                             <td>
-                                <a href="#" class="text-decoration-none packages-link" data-author-index="${startIndex + index}">
+                                <a href="#" class="text-decoration-none packages-link" data-author-index="${actualIndex}">
                                     ${uniquePackageCount === 1 
                                         ? `<span class="badge bg-primary">${escapeHtml(uniquePackages[0])}</span>`
                                         : `<span class="badge bg-primary">${uniquePackageCount}</span>`}
@@ -2361,29 +2340,9 @@
                             </tbody>
                         </table>
                     </div>
-                    <div class="card-footer">
-                        <div class="d-flex justify-content-between align-items-center">
-                            <div>
-                                <span class="text-muted" id="paginationInfo">Showing 0-0 of 0</span>
-                            </div>
-                            <div>
-                                <nav aria-label="Page navigation">
-                                    <ul class="pagination pagination-sm mb-0" id="paginationControls">
-                                        <li class="page-item disabled" id="prevPageBtn">
-                                            <a class="page-link" href="#" tabindex="-1">Previous</a>
-                                        </li>
-                                        <li class="page-item disabled" id="nextPageBtn">
-                                            <a class="page-link" href="#">Next</a>
-                                        </li>
-                                    </ul>
-                                </nav>
-                            </div>
-                        </div>
-                    </div>
                 `;
                 
                 container.innerHTML = html;
-                updatePaginationControls(filteredAuthors.length, totalPages);
                 
                 // Add single-package-single-repo authors section (before organizations and bots)
                 if (singlePackageSingleRepo.length > 0) {
@@ -2451,7 +2410,7 @@
                             if (author.funding.opencollective) {
                                 // Securely extract Open Collective username from URL
                                 let ocUsername = author.author;
-                                if (author.funding.url && authorService.isUrlFromHostname(author.funding.url, 'opencollective.com')) {
+                                if (author.funding.url && isUrlFromHostname(author.funding.url, 'opencollective.com')) {
                                     try {
                                         const url = new URL(author.funding.url.startsWith('http') ? author.funding.url : 'https://' + author.funding.url);
                                         const pathParts = url.pathname.split('/').filter(p => p);
@@ -2733,6 +2692,24 @@
             }
             
             function attachEventListeners() {
+                // "Show All Authors" button in alert
+                const showAllAuthorsBtn = document.getElementById('showAllAuthorsBtn');
+                if (showAllAuthorsBtn) {
+                    showAllAuthorsBtn.addEventListener('click', function(e) {
+                        e.preventDefault();
+                        // Trigger the "Show All" radio button
+                        const displayLimitAll = document.getElementById('displayLimitAll');
+                        if (displayLimitAll) {
+                            displayLimitAll.checked = true;
+                            displayLimit = 'all';
+                            localStorage.setItem('authorsDisplayLimit', 'all');
+                            loadAuthorData();
+                            // Scroll to top to show the toggle selection
+                            window.scrollTo({ top: 0, behavior: 'smooth' });
+                        }
+                    });
+                }
+                
                 // Author details links
                 document.querySelectorAll('.author-details-link').forEach(link => {
                     link.addEventListener('click', function(e) {

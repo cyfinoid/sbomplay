@@ -1894,17 +1894,17 @@ class AuthorService {
         if (match) {
             const name = match[1].trim();
             const email = match[2].trim();
-            // Extract username from email (part before @)
-            const username = email.split('@')[0];
-            return { name, email, username };
+            // DON'T extract username from email - it's unreliable
+            // PyPI usernames should come from ecosyste.ms API only
+            return { name, email, username: null };
         }
         
         // Check if it's just an email
         const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
         if (emailPattern.test(authorEmailString.trim())) {
             const email = authorEmailString.trim();
-            const username = email.split('@')[0];
-            return { name: null, email, username };
+            // DON'T extract username from email - it's unreliable
+            return { name: null, email, username: null };
         }
         
         // Otherwise, treat as name only
