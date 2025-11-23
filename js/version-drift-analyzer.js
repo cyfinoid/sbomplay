@@ -471,6 +471,21 @@ class VersionDriftAnalyzer {
                 case 'rubygems':
                 case 'gem':
                     return await this.fetchRubyGemsLatestVersion(packageName);
+                case 'maven':
+                    return await this.fetchMavenLatestVersion(packageName);
+                case 'composer':
+                case 'packagist':
+                    return await this.fetchComposerLatestVersion(packageName);
+                case 'nuget':
+                    return await this.fetchNuGetLatestVersion(packageName);
+                case 'go':
+                case 'golang':
+                    return await this.fetchGoLatestVersion(packageName);
+                case 'github actions':
+                case 'githubactions':
+                    // GitHub Actions don't have a traditional registry, skip for now
+                    // Version drift for actions is handled differently (checking for newer tags)
+                    return null;
                 default:
                     console.log(`⚠️ Version drift: Unsupported ecosystem ${ecosystem}`);
                     return null;
@@ -539,6 +554,103 @@ class VersionDriftAnalyzer {
         
         const data = await response.json();
         return data.version || null;
+    }
+
+    /**
+     * Fetch latest version from Maven Central
+     * Maven packages use format: groupId:artifactId (e.g., org.apache.maven.plugins:maven-jar-plugin)
+     */
+    async fetchMavenLatestVersion(packageName) {
+        // Parse groupId:artifactId format
+        const parts = packageName.split(':');
+        if (parts.length < 2) {
+            console.warn(`⚠️ Invalid Maven package format: ${packageName} (expected groupId:artifactId)`);
+            return null;
+        }
+        
+        const groupId = parts[0];
+        const artifactId = parts.slice(1).join(':'); // Handle cases where artifactId might contain colons
+        
+        // Maven Central Search API
+        const url = `${this.registryUrls.maven}?q=g:${encodeURIComponent(groupId)}+AND+a:${encodeURIComponent(artifactId)}&rows=1&wt=json`;
+        const response = await this.fetchWithTimeout(url, {}, this.requestTimeout);
+        
+        if (!response.ok) {
+            return null;
+        }
+        
+        const data = await response.json();
+        if (data.response && data.response.docs && data.response.docs.length > 0) {
+            return data.response.docs[0].latestVersion || data.response.docs[0].v || null;
+        }
+        
+        return null;
+    }
+
+    /**
+     * Fetch latest version from Packagist (Composer)
+     */
+    async fetchComposerLatestVersion(packageName) {
+        // Packagist API: https://packagist.org/packages/{vendor}/{package}.json
+        const url = `https://packagist.org/packages/${encodeURIComponent(packageName)}.json`;
+        const response = await this.fetchWithTimeout(url, {}, this.requestTimeout);
+        
+        if (!response.ok) {
+            return null;
+        }
+        
+        const data = await response.json();
+        // Packagist returns package info with versions
+        if (data.package && data.package.versions) {
+            // Get the latest stable version (not dev-master, etc.)
+            const versions = Object.keys(data.package.versions)
+                .filter(v => !v.includes('dev') && !v.includes('alpha') && !v.includes('beta') && !v.includes('rc'))
+                .sort((a, b) => {
+                    // Simple version comparison (can be improved)
+                    return b.localeCompare(a, undefined, { numeric: true });
+                });
+            return versions[0] || null;
+        }
+        
+        return null;
+    }
+
+    /**
+     * Fetch latest version from NuGet
+     */
+    async fetchNuGetLatestVersion(packageName) {
+        // NuGet API v3: https://api.nuget.org/v3-flatcontainer/{package}/index.json
+        const url = `${this.registryUrls.nuget}/${encodeURIComponent(packageName.toLowerCase())}/index.json`;
+        const response = await this.fetchWithTimeout(url, {}, this.requestTimeout);
+        
+        if (!response.ok) {
+            return null;
+        }
+        
+        const data = await response.json();
+        if (data.versions && data.versions.length > 0) {
+            // Return the latest version (last in array, versions are sorted)
+            return data.versions[data.versions.length - 1] || null;
+        }
+        
+        return null;
+    }
+
+    /**
+     * Fetch latest version for Go packages
+     * Go packages use module paths (e.g., github.com/user/repo)
+     */
+    async fetchGoLatestVersion(packageName) {
+        // Go proxy API: https://proxy.golang.org/{module}/@latest
+        const url = `https://proxy.golang.org/${encodeURIComponent(packageName)}/@latest`;
+        const response = await this.fetchWithTimeout(url, {}, this.requestTimeout);
+        
+        if (!response.ok) {
+            return null;
+        }
+        
+        const data = await response.json();
+        return data.Version || null;
     }
 
     /**

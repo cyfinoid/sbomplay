@@ -111,6 +111,114 @@ class SBOMProcessor {
                 }
             }
         }
+        
+        // Fallback: If no PURL found and still Unknown, try to detect from package name patterns
+        if (category.ecosystem === 'Unknown' && pkg.name) {
+            const name = pkg.name.toLowerCase();
+            
+            // GitHub Actions (e.g., "actions/checkout", "github/codeql-action/init")
+            if (name.startsWith('actions/') || name.startsWith('github/') || name.includes('/action')) {
+                const githubActionsTypeInfo = window.ecosystemMapper?.getCategoryInfo('githubactions') || this.purlTypeMap['githubactions'];
+                if (githubActionsTypeInfo) {
+                    category = {
+                        ...githubActionsTypeInfo,
+                        isWorkflow: true,
+                        isInfrastructure: false,
+                        isCode: false
+                    };
+                }
+            }
+            // Maven packages use groupId:artifactId format (e.g., "org.codehaus.plexus:plexus-utils")
+            else if (pkg.name.includes(':') && !pkg.name.startsWith('@')) {
+                const mavenTypeInfo = window.ecosystemMapper?.getCategoryInfo('maven') || this.purlTypeMap['maven'];
+                if (mavenTypeInfo) {
+                    category = {
+                        ...mavenTypeInfo,
+                        isWorkflow: false,
+                        isInfrastructure: false,
+                        isCode: true
+                    };
+                } else {
+                    // Fallback if ecosystemMapper not available
+                    category = {
+                        type: 'code',
+                        language: 'Java',
+                        ecosystem: 'Maven',
+                        isWorkflow: false,
+                        isInfrastructure: false,
+                        isCode: true
+                    };
+                }
+            }
+            // npm scoped packages start with @
+            else if (pkg.name.startsWith('@')) {
+                const npmTypeInfo = window.ecosystemMapper?.getCategoryInfo('npm') || this.purlTypeMap['npm'];
+                if (npmTypeInfo) {
+                    category = {
+                        ...npmTypeInfo,
+                        isWorkflow: false,
+                        isInfrastructure: false,
+                        isCode: true
+                    };
+                }
+            }
+            // Go modules (e.g., "github.com/user/repo", "golang.org/x/...")
+            else if (name.includes('github.com/') || name.includes('golang.org/') || name.includes('go.') || 
+                     (name.includes('/') && (name.endsWith('.go') || name.match(/^[a-z0-9.-]+\/[a-z0-9.-]+$/i)))) {
+                const goTypeInfo = window.ecosystemMapper?.getCategoryInfo('go') || this.purlTypeMap['go'];
+                if (goTypeInfo) {
+                    category = {
+                        ...goTypeInfo,
+                        isWorkflow: false,
+                        isInfrastructure: false,
+                        isCode: true
+                    };
+                }
+            }
+            // Docker images (e.g., "alpine", "node", "python", or contain "/" and common docker patterns)
+            else if (name.includes('docker') || name.includes('container') || 
+                     (name.includes('/') && (name.includes('alpine') || name.includes('ubuntu') || 
+                      name.includes('debian') || name.includes('centos') || name.includes('fedora')))) {
+                const dockerTypeInfo = window.ecosystemMapper?.getCategoryInfo('docker') || this.purlTypeMap['docker'];
+                if (dockerTypeInfo) {
+                    category = {
+                        ...dockerTypeInfo,
+                        isWorkflow: false,
+                        isInfrastructure: true,
+                        isCode: false
+                    };
+                }
+            }
+            // PyPI packages (common Python package naming patterns)
+            else if (name.match(/^[a-z0-9_-]+$/) && !name.includes('/') && !name.includes('@') && 
+                     (name.includes('_') || name.includes('-') || name.length > 3)) {
+                // Check if it looks like a Python package (common patterns)
+                // This is a heuristic - PyPI packages are often lowercase with underscores/hyphens
+                const pypiTypeInfo = window.ecosystemMapper?.getCategoryInfo('pypi') || this.purlTypeMap['pypi'];
+                if (pypiTypeInfo) {
+                    category = {
+                        ...pypiTypeInfo,
+                        isWorkflow: false,
+                        isInfrastructure: false,
+                        isCode: true
+                    };
+                }
+            }
+            // RubyGems (common gem naming patterns - lowercase, may have hyphens)
+            else if (name.match(/^[a-z0-9_-]+$/) && !name.includes('/') && !name.includes('@') && 
+                     (name.includes('-') || name.length > 3)) {
+                // This is a heuristic - RubyGems often use lowercase with hyphens
+                const gemTypeInfo = window.ecosystemMapper?.getCategoryInfo('gem') || window.ecosystemMapper?.getCategoryInfo('rubygems') || this.purlTypeMap['rubygems'];
+                if (gemTypeInfo) {
+                    category = {
+                        ...gemTypeInfo,
+                        isWorkflow: false,
+                        isInfrastructure: false,
+                        isCode: true
+                    };
+                }
+            }
+        }
 
         return category;
     }

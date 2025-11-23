@@ -141,17 +141,29 @@ class GitHubClient {
      * @returns {Promise<Object|null>} - User profile data, or null if not found
      */
     async getUserGraphQL(username) {
+        // Use a union query to handle both User and Organization types correctly
         const query = `
             query($username: String!) {
-                user(login: $username) {
-                    login
-                    name
-                    location
-                    company
-                    bio
-                    avatarUrl
-                    url
+                user: user(login: $username) {
                     __typename
+                    ... on User {
+                        login
+                        name
+                        location
+                        company
+                        bio
+                        avatarUrl
+                        url
+                    }
+                    ... on Organization {
+                        login
+                        name
+                        location
+                        company
+                        description
+                        avatarUrl
+                        url
+                    }
                 }
             }
         `;
@@ -163,16 +175,19 @@ class GitHubClient {
             }
             
             const user = data.user;
+            // __typename will be 'User' or 'Organization'
+            const isUser = user.__typename === 'User';
+            
             return {
                 login: user.login,
                 name: user.name || null,
                 location: user.location || null,
                 company: user.company || null,
                 email: null, // GraphQL requires user:email scope
-                bio: user.bio || null,
+                bio: isUser ? (user.bio || null) : (user.description || null),
                 avatar_url: user.avatarUrl || null,
                 html_url: user.url || null,
-                type: user.__typename === 'User' ? 'User' : 'Organization'
+                type: isUser ? 'User' : 'Organization'
             };
         } catch (error) {
             // If GraphQL fails, return null to trigger REST fallback
@@ -186,17 +201,24 @@ class GitHubClient {
      * @param {string} username - GitHub username
      * @returns {Promise<Object|null>} - User profile data with location and company, or null if not found
      */
-    async getUser(username) {
-        // Check cache first
+    async getUser(username, forceRefresh = false) {
+        // Check cache first (unless force refresh is requested)
         const cacheKey = username.toLowerCase();
-        if (this.userCache.has(cacheKey)) {
+        if (!forceRefresh && this.userCache.has(cacheKey)) {
             const cached = this.userCache.get(cacheKey);
             if (cached === null) {
                 console.log(`📦 Cache: User ${username} not found (cached failure)`);
             } else {
-                console.log(`📦 Cache: Using cached user profile for ${username}`);
+                // Verify cached type is valid (should be 'User' or 'Organization')
+                if (cached.type && cached.type !== 'User' && cached.type !== 'Organization') {
+                    console.warn(`⚠️  Cached user ${username} has invalid type "${cached.type}", refreshing...`);
+                    // Clear cache and fetch fresh
+                    this.userCache.delete(cacheKey);
+                } else {
+                    console.log(`📦 Cache: Using cached ${cached.type || 'user'} profile for ${username}`);
+                    return cached;
+                }
             }
-            return cached;
         }
         
         // Try GraphQL first if enabled and token is available
@@ -239,7 +261,12 @@ class GitHubClient {
         }
         
         const userData = await response.json();
-        console.log(`✅ Found user (REST): ${username}`);
+        
+        // GitHub REST API returns 'type' field: 'User' or 'Organization'
+        // Ensure we use the exact value from the API, defaulting to 'User' if missing
+        const userType = userData.type === 'Organization' ? 'Organization' : 'User';
+        
+        console.log(`✅ Found ${userType.toLowerCase()} (REST): ${username}`);
         const userProfile = {
             login: userData.login,
             name: userData.name,
@@ -249,11 +276,12 @@ class GitHubClient {
             bio: userData.bio || null,
             avatar_url: userData.avatar_url || null,
             html_url: userData.html_url || null,
-            type: userData.type || 'User' // Include type to distinguish User vs Organization
+            type: userType // Explicitly set type to distinguish User vs Organization
         };
         
-        // Cache the result
+        // Cache the result (always cache, even if type is missing - will be set to 'User' by default)
         this.userCache.set(cacheKey, userProfile);
+        console.log(`💾 Cached ${userProfile.type} profile for ${username}`);
         return userProfile;
     }
 

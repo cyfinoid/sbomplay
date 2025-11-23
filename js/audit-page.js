@@ -298,7 +298,11 @@ document.addEventListener('DOMContentLoaded', async function() {
                     file: finding.file || null,
                     line: finding.line || null,
                     message: finding.message || '',
-                    details: finding.details || ''
+                    details: finding.details || '',
+                    // Preserve Docker finding context
+                    workflowLocations: finding.workflowLocations || null,
+                    actionRepository: finding.actionRepository || null,
+                    actionDockerfile: finding.actionDockerfile || null
                 });
             });
         }
@@ -511,7 +515,7 @@ document.addEventListener('DOMContentLoaded', async function() {
             html += '<thead class="table-light"><tr>';
             if (typeData.category === 'github-actions') {
                 html += '<th style="width: 250px;">Action</th>';
-                html += '<th>Location</th>';
+                html += '<th>Used In Repository → Workflow File</th>';
             } else {
                 html += '<th style="width: 250px;">Repository</th>';
                 html += '<th>Affected Component</th>';
@@ -520,46 +524,204 @@ document.addEventListener('DOMContentLoaded', async function() {
             
             typeData.instances.slice(0, 100).forEach(instance => {
                 if (typeData.category === 'github-actions') {
-                    const actionLink = instance.action ? 
-                        `<a href="https://github.com/${instance.action.split('@')[0]}" target="_blank" rel="noreferrer noopener" class="text-decoration-none">
-                            <i class="fab fa-github me-1"></i>${escapeHtml(instance.action)}
-                        </a>` : 
-                        '<span class="text-muted">N/A</span>';
+                    // Check if this is a Docker finding (Docker image, not GitHub action)
+                    // Note: instance.type contains the rule_id (see line 292 where findings are converted)
+                    const isDockerFinding = instance.type && (
+                        instance.type.startsWith('DOCKER_') || 
+                        instance.type === 'DOCKERFILE_FLOATING_BASE_IMAGE'
+                    );
+                    
+                    // Build action link - extract owner/repo from action name
+                    // Action format: owner/repo@ref or owner/repo/path@ref
+                    // For links, we want just owner/repo (remove path component)
+                    // For Docker findings, show the Docker image name as text (not a link)
+                    let actionLink = '<span class="text-muted">N/A</span>';
+                    if (instance.action) {
+                        if (isDockerFinding) {
+                            // For Docker findings, show the image name/action as text
+                            // Check if it's a Docker image name (contains : or is a known Docker image format)
+                            const isDockerImage = instance.action.includes(':') || 
+                                                  instance.action.includes('/') ||
+                                                  instance.action === 'Dockerfile';
+                            if (isDockerImage) {
+                                actionLink = `<span class="text-muted"><i class="fab fa-docker me-1"></i>${escapeHtml(instance.action)}</span>`;
+                            } else {
+                                actionLink = `<span class="text-muted">${escapeHtml(instance.action)}</span>`;
+                            }
+                        } else {
+                            // For GitHub actions, create a link
+                            const actionName = instance.action.split('@')[0]; // Get part before @
+                            // Extract owner/repo (first two parts, remove any path components)
+                            const actionParts = actionName.split('/');
+                            if (actionParts.length >= 2) {
+                                const owner = actionParts[0];
+                                const repo = actionParts[1];
+                                const actionRepoUrl = `https://github.com/${owner}/${repo}`;
+                                actionLink = `<a href="${actionRepoUrl}" target="_blank" rel="noreferrer noopener" class="text-decoration-none">
+                                    <i class="fab fa-github me-1"></i>${escapeHtml(instance.action)}
+                                </a>`;
+                            } else {
+                                // Fallback if format is unexpected
+                                actionLink = `<span class="text-muted">${escapeHtml(instance.action)}</span>`;
+                            }
+                        }
+                    }
                     
                     // Build location cell with file and line link if available
                     let locationCell = '<small class="text-muted">—</small>';
-                    if (instance.repository && instance.file) {
-                        // Parse repository to get owner/repo
-                        const repoParts = instance.repository.split('/');
-                        if (repoParts.length === 2) {
-                            const [owner, repo] = repoParts;
-                            // Get ref from action if available, otherwise use 'HEAD'
-                            // Try to get ref from action (format: owner/repo@ref or owner/repo/path@ref)
-                            let ref = 'HEAD';
-                            if (instance.action && instance.action.includes('@')) {
-                                const actionParts = instance.action.split('@');
-                                if (actionParts.length > 1) {
-                                    ref = actionParts[actionParts.length - 1]; // Get last part after @
+                    
+                    // For Docker findings, show the full path: Repository → Workflow → Action → Dockerfile
+                    if (isDockerFinding) {
+                        const workflowLocations = instance.workflowLocations || [];
+                        const actionRepository = instance.actionRepository || instance.action?.split('@')[0] || null;
+                        const actionDockerfile = instance.actionDockerfile || 'Dockerfile';
+                        
+                        if (workflowLocations.length > 0 && actionRepository) {
+                            // Build the full path chain
+                            const pathParts = [];
+                            const links = [];
+                            
+                            // Get the first workflow location (primary one)
+                            const primaryLocation = workflowLocations[0];
+                            const workflowRepo = primaryLocation.repository || instance.repository;
+                            const workflowFile = primaryLocation.workflow;
+                            const workflowLine = primaryLocation.line;
+                            
+                            // Parse repositories
+                            const workflowRepoParts = workflowRepo?.split('/');
+                            const actionRepoParts = actionRepository.split('/');
+                            
+                            if (workflowRepoParts && workflowRepoParts.length === 2 && actionRepoParts.length === 2) {
+                                const [workflowOwner, workflowRepoName] = workflowRepoParts;
+                                const [actionOwner, actionRepoName] = actionRepoParts;
+                                
+                                // Build path: Repository → Workflow File → Action → Dockerfile
+                                // 1. Repository (where workflow is)
+                                const workflowRepoUrl = `https://github.com/${workflowOwner}/${workflowRepoName}`;
+                                pathParts.push(`<a href="${workflowRepoUrl}" target="_blank" rel="noreferrer noopener" class="text-decoration-none"><code>${escapeHtml(workflowRepo)}</code></a>`);
+                                
+                                // 2. Workflow File
+                                if (workflowFile) {
+                                    const workflowFileUrl = `https://github.com/${workflowOwner}/${workflowRepoName}/blob/HEAD/${workflowFile}${workflowLine ? `#L${workflowLine}` : ''}`;
+                                    const workflowFileName = workflowFile.split('/').pop();
+                                    pathParts.push(`<a href="${workflowFileUrl}" target="_blank" rel="noreferrer noopener" class="text-decoration-none"><code>${escapeHtml(workflowFileName)}${workflowLine ? `:${workflowLine}` : ''}</code></a>`);
+                                }
+                                
+                                // 3. Action
+                                const actionUrl = `https://github.com/${actionOwner}/${actionRepoName}`;
+                                pathParts.push(`<a href="${actionUrl}" target="_blank" rel="noreferrer noopener" class="text-decoration-none"><code>${escapeHtml(actionRepository)}</code></a>`);
+                                
+                                // 4. Dockerfile (in action repository)
+                                const dockerfileUrl = `https://github.com/${actionOwner}/${actionRepoName}/blob/HEAD/${actionDockerfile}${instance.line ? `#L${instance.line}` : ''}`;
+                                const dockerfileName = actionDockerfile.split('/').pop();
+                                pathParts.push(`<a href="${dockerfileUrl}" target="_blank" rel="noreferrer noopener" class="text-decoration-none"><code>${escapeHtml(dockerfileName)}${instance.line ? `:${instance.line}` : ''}</code></a>`);
+                                
+                                // Build the full path display
+                                locationCell = `<div class="d-flex flex-wrap align-items-center gap-1" style="font-size: 0.85em;">
+                                    ${pathParts.join(' <i class="fas fa-arrow-right text-muted" style="font-size: 0.7em;"></i> ')}
+                                </div>`;
+                            } else {
+                                // Fallback: just show action repository Dockerfile link
+                                if (actionRepoParts.length === 2) {
+                                    const [actionOwner, actionRepoName] = actionRepoParts;
+                                    const dockerfileUrl = `https://github.com/${actionOwner}/${actionRepoName}/blob/HEAD/${actionDockerfile}${instance.line ? `#L${instance.line}` : ''}`;
+                                    const dockerfileName = actionDockerfile.split('/').pop();
+                                    locationCell = `<a href="${dockerfileUrl}" target="_blank" rel="noreferrer noopener" class="text-decoration-none">
+                                        <i class="fas fa-code me-1"></i><code class="small">${escapeHtml(actionRepository)}/${escapeHtml(dockerfileName)}${instance.line ? `:${instance.line}` : ''}</code>
+                                    </a>`;
                                 }
                             }
-                            
-                            // Build GitHub URL with line number
-                            // GitHub URL format: https://github.com/owner/repo/blob/ref/path/to/file#L123
-                            let githubUrl = `https://github.com/${owner}/${repo}/blob/${ref}/${instance.file}`;
-                            if (instance.line) {
-                                githubUrl += `#L${instance.line}`;
+                        } else if (actionRepository) {
+                            // Fallback: just link to action repository Dockerfile
+                            const actionRepoParts = actionRepository.split('/');
+                            if (actionRepoParts.length === 2) {
+                                const [actionOwner, actionRepoName] = actionRepoParts;
+                                const dockerfileUrl = `https://github.com/${actionOwner}/${actionRepoName}/blob/HEAD/${actionDockerfile}${instance.line ? `#L${instance.line}` : ''}`;
+                                const dockerfileName = actionDockerfile.split('/').pop();
+                                locationCell = `<a href="${dockerfileUrl}" target="_blank" rel="noreferrer noopener" class="text-decoration-none">
+                                    <i class="fas fa-code me-1"></i><code class="small">${escapeHtml(actionRepository)}/${escapeHtml(dockerfileName)}${instance.line ? `:${instance.line}` : ''}</code>
+                                </a>`;
                             }
-                            
-                            const fileDisplay = instance.file.split('/').pop(); // Show just filename
-                            const lineDisplay = instance.line ? `:${instance.line}` : '';
-                            locationCell = `<a href="${githubUrl}" target="_blank" rel="noreferrer noopener" class="text-decoration-none">
-                                <i class="fas fa-code me-1"></i><code class="small">${escapeHtml(fileDisplay)}${lineDisplay}</code>
-                            </a>`;
-                        } else {
-                            locationCell = `<small class="text-muted"><code>${escapeHtml(instance.file)}${instance.line ? ':' + instance.line : ''}</code></small>`;
                         }
-                    } else if (instance.message) {
-                        locationCell = `<small class="text-muted">${escapeHtml(instance.message)}</small>`;
+                    } else {
+                        // For non-Docker findings, show repository and workflow file information
+                        const workflowLocations = instance.workflowLocations || [];
+                        
+                        if (workflowLocations.length > 0) {
+                            // Show all workflow locations where this action is used
+                            const locationParts = [];
+                            
+                            workflowLocations.forEach((loc, idx) => {
+                                const workflowRepo = loc.repository || instance.repository;
+                                const workflowFile = loc.workflow;
+                                const workflowLine = loc.line;
+                                
+                                if (workflowRepo && workflowFile) {
+                                    const repoParts = workflowRepo.split('/');
+                                    if (repoParts.length === 2) {
+                                        const [owner, repo] = repoParts;
+                                        const ref = 'HEAD';
+                                        
+                                        // Build repository link
+                                        const repoUrl = `https://github.com/${owner}/${repo}`;
+                                        const repoLink = `<a href="${repoUrl}" target="_blank" rel="noreferrer noopener" class="text-decoration-none"><code>${escapeHtml(workflowRepo)}</code></a>`;
+                                        
+                                        // Build workflow file link
+                                        const fileUrl = `https://github.com/${owner}/${repo}/blob/${ref}/${workflowFile}${workflowLine ? `#L${workflowLine}` : ''}`;
+                                        const fileDisplay = workflowFile.split('/').pop();
+                                        const lineDisplay = workflowLine ? `:${workflowLine}` : '';
+                                        const fileLink = `<a href="${fileUrl}" target="_blank" rel="noreferrer noopener" class="text-decoration-none"><code class="small">${escapeHtml(fileDisplay)}${lineDisplay}</code></a>`;
+                                        
+                                        // Combine: Repository → Workflow File
+                                        locationParts.push(`${repoLink} <i class="fas fa-arrow-right text-muted" style="font-size: 0.7em;"></i> ${fileLink}`);
+                                    }
+                                }
+                            });
+                            
+                            if (locationParts.length > 0) {
+                                // Show multiple locations if there are multiple workflows using this action
+                                if (locationParts.length === 1) {
+                                    locationCell = `<div class="d-flex flex-wrap align-items-center gap-1" style="font-size: 0.85em;">
+                                        ${locationParts[0]}
+                                    </div>`;
+                                } else {
+                                    // Show first location with count of additional locations
+                                    locationCell = `<div class="d-flex flex-column gap-1" style="font-size: 0.85em;">
+                                        ${locationParts[0]}
+                                        <small class="text-muted">+ ${locationParts.length - 1} more location${locationParts.length - 1 > 1 ? 's' : ''}</small>
+                                    </div>`;
+                                }
+                            }
+                        } else if (instance.repository && instance.file) {
+                            // Fallback: use repository and file if workflowLocations not available
+                            const repoParts = instance.repository.split('/');
+                            if (repoParts.length === 2) {
+                                const [owner, repo] = repoParts;
+                                const ref = 'HEAD';
+                                
+                                // Build repository link
+                                const repoUrl = `https://github.com/${owner}/${repo}`;
+                                const repoLink = `<a href="${repoUrl}" target="_blank" rel="noreferrer noopener" class="text-decoration-none"><code>${escapeHtml(instance.repository)}</code></a>`;
+                                
+                                // Build workflow file link
+                                let githubUrl = `https://github.com/${owner}/${repo}/blob/${ref}/${instance.file}`;
+                                if (instance.line) {
+                                    githubUrl += `#L${instance.line}`;
+                                }
+                                
+                                const fileDisplay = instance.file.split('/').pop();
+                                const lineDisplay = instance.line ? `:${instance.line}` : '';
+                                const fileLink = `<a href="${githubUrl}" target="_blank" rel="noreferrer noopener" class="text-decoration-none"><code class="small">${escapeHtml(fileDisplay)}${lineDisplay}</code></a>`;
+                                
+                                locationCell = `<div class="d-flex flex-wrap align-items-center gap-1" style="font-size: 0.85em;">
+                                    ${repoLink} <i class="fas fa-arrow-right text-muted" style="font-size: 0.7em;"></i> ${fileLink}
+                                </div>`;
+                            } else {
+                                locationCell = `<small class="text-muted"><code>${escapeHtml(instance.file)}${instance.line ? ':' + instance.line : ''}</code></small>`;
+                            }
+                        } else if (instance.message) {
+                            locationCell = `<small class="text-muted">${escapeHtml(instance.message)}</small>`;
+                        }
                     }
                     
                     html += `<tr>
@@ -1154,11 +1316,52 @@ document.addEventListener('DOMContentLoaded', async function() {
         
         // Check license conflicts for each dependency
         filteredDependencies.forEach(dep => {
-            if (!dep.originalPackage) {
+            // Skip dependencies without any package information
+            if (!dep.originalPackage && !dep.license && !dep.licenseFull) {
                 return;
             }
             
-            const licenseInfo = licenseProcessor.parseLicense(dep.originalPackage);
+            // Try to get license from multiple sources (in order of preference)
+            let dependencyLicense = null;
+            
+            // 1. Check dep.licenseFull (most complete, from deps.dev API)
+            if (dep.licenseFull && 
+                dep.licenseFull !== 'Unknown' && 
+                dep.licenseFull !== 'NOASSERTION' && 
+                String(dep.licenseFull).trim() !== '') {
+                dependencyLicense = dep.licenseFull;
+            }
+            // 2. Check dep.license (short form, from deps.dev API) - only if licenseFull not found
+            if (!dependencyLicense && dep.license && 
+                dep.license !== 'Unknown' && 
+                dep.license !== 'NOASSERTION' && 
+                String(dep.license).trim() !== '') {
+                dependencyLicense = dep.license;
+            }
+            // 3. Parse from originalPackage (from SBOM) - always check this as fallback
+            if (!dependencyLicense && dep.originalPackage) {
+                const licenseInfo = licenseProcessor.parseLicense(dep.originalPackage);
+                if (licenseInfo.license && 
+                    licenseInfo.license !== 'NOASSERTION' && 
+                    licenseInfo.license !== 'Unknown' &&
+                    String(licenseInfo.license).trim() !== '') {
+                    dependencyLicense = licenseInfo.license;
+                }
+            }
+            
+            // Skip if no license found after checking all sources
+            if (!dependencyLicense || dependencyLicense === 'NOASSERTION' || dependencyLicense === 'Unknown' || dependencyLicense.trim() === '') {
+                return;
+            }
+            
+            // Parse license to get category for severity determination
+            // Create a temporary package object for parsing if needed
+            const tempPackage = dep.originalPackage || {
+                licenseConcluded: dependencyLicense,
+                licenseDeclared: dependencyLicense
+            };
+            const licenseInfo = licenseProcessor.parseLicense(tempPackage);
+            
             const depRepos = dep.repositories || [];
             
             // Filter repositories if repo filter is specified
@@ -1171,7 +1374,7 @@ document.addEventListener('DOMContentLoaded', async function() {
                 const repo = allRepositories.find(r => `${r.owner}/${r.name}` === repoKey);
                 if (repo && repo.license) {
                     const compatibility = licenseProcessor.isDependencyCompatibleWithRepository(
-                        licenseInfo.license,
+                        dependencyLicense,
                         repo.license
                     );
                     
@@ -1179,10 +1382,10 @@ document.addEventListener('DOMContentLoaded', async function() {
                         conflicts.push({
                             dependency: dep.name,
                             dependencyVersion: dep.version,
-                            dependencyLicense: licenseInfo.license,
+                            dependencyLicense: dependencyLicense,
                             repository: repoKey,
                             repositoryLicense: repo.license,
-                            ecosystem: dep.ecosystem || 'unknown',
+                            ecosystem: dep.ecosystem || dep.category?.ecosystem || 'unknown',
                             severity: licenseInfo.category === 'copyleft' ? 'high' : 'medium'
                         });
                     }

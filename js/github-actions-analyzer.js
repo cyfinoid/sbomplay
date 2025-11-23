@@ -76,11 +76,30 @@ class GitHubActionsAnalyzer {
                         action.ref,
                         action.path || '',
                         0,
-                        null
+                        null,
+                        action.locations || [] // Pass workflow locations for context
                     );
 
                     // Extract license and authors
                     const enrichedResult = await this.enrichActionMetadata(result);
+                    
+                    // Enrich findings with workflow location information
+                    if (enrichedResult.findings && action.locations && action.locations.length > 0) {
+                        enrichedResult.findings.forEach(finding => {
+                            // Add workflow context to findings
+                            if (!finding.workflowLocations) {
+                                finding.workflowLocations = action.locations.map(loc => ({
+                                    workflow: loc.workflow,
+                                    line: loc.line,
+                                    repository: repoKey // The repository where the workflow is located
+                                }));
+                            }
+                            // Store action repository info for Docker findings
+                            if (!finding.actionRepository) {
+                                finding.actionRepository = `${action.owner}/${action.repo}`;
+                            }
+                        });
+                    }
                     
                     // Also enrich nested actions recursively (only if they have owner/repo)
                     if (enrichedResult.nested && enrichedResult.nested.length > 0) {
@@ -363,7 +382,7 @@ class GitHubActionsAnalyzer {
     /**
      * Analyze a single action recursively
      */
-    async analyzeAction(owner, repo, ref, path = '', depth = 0, parentAction = null) {
+    async analyzeAction(owner, repo, ref, path = '', depth = 0, parentAction = null, workflowLocations = []) {
         // Check depth limit
         if (depth > this.maxDepth) {
             return {
@@ -408,7 +427,7 @@ class GitHubActionsAnalyzer {
                 const actionType = metadata.actionType || 'unknown';
 
                 if (actionType === 'docker') {
-                    const dockerFindings = await this.checkDockerAction(owner, repo, ref, path, metadata);
+                    const dockerFindings = await this.checkDockerAction(owner, repo, ref, path, metadata, workflowLocations);
                     findings.push(...dockerFindings);
                 } else if (actionType === 'composite') {
                     const compositeFindings = await this.checkCompositeAction(owner, repo, ref, path, metadata);
@@ -451,7 +470,8 @@ class GitHubActionsAnalyzer {
                         nested.ref,
                         nested.path,
                         depth + 1,
-                        cacheKey
+                        cacheKey,
+                        [] // Nested actions don't have workflow locations
                     );
                     nestedResults.push(nestedResult);
 
@@ -895,8 +915,8 @@ class GitHubActionsAnalyzer {
             return ref;
         }
 
+        // Try branch first
         try {
-            // Try to get the ref
             const url = `${this.githubClient.baseUrl}/repos/${owner}/${repo}/git/ref/heads/${ref}`;
             const response = await this.githubClient.makeRequest(url);
             if (response.ok) {
@@ -904,29 +924,46 @@ class GitHubActionsAnalyzer {
                 return data.object.sha;
             }
         } catch (error) {
-            // If branch doesn't exist, try tag
-            try {
-                const tagUrl = `${this.githubClient.baseUrl}/repos/${owner}/${repo}/git/ref/tags/${ref}`;
-                const tagResponse = await this.githubClient.makeRequest(tagUrl);
-                if (tagResponse.ok) {
-                    const tagData = await tagResponse.json();
+            // Branch doesn't exist or request failed, continue to try tag
+        }
+
+        // Try tag (most common for GitHub Actions like v2, v3, etc.)
+        try {
+            const tagUrl = `${this.githubClient.baseUrl}/repos/${owner}/${repo}/git/ref/tags/${ref}`;
+            const tagResponse = await this.githubClient.makeRequest(tagUrl);
+            if (tagResponse.ok) {
+                const tagData = await tagResponse.json();
+                // Handle both direct commit refs and annotated tag refs
+                if (tagData.object.type === 'commit') {
                     return tagData.object.sha;
-                }
-            } catch (tagError) {
-                // If tag doesn't exist, try commit directly
-                try {
-                    const commitUrl = `${this.githubClient.baseUrl}/repos/${owner}/${repo}/commits/${ref}`;
-                    const commitResponse = await this.githubClient.makeRequest(commitUrl);
-                    if (commitResponse.ok) {
-                        const commitData = await commitResponse.json();
-                        return commitData.sha;
+                } else if (tagData.object.type === 'tag') {
+                    // For annotated tags, need to fetch the tag object to get the commit SHA
+                    const tagObjectUrl = `${this.githubClient.baseUrl}/repos/${owner}/${repo}/git/tags/${tagData.object.sha}`;
+                    const tagObjectResponse = await this.githubClient.makeRequest(tagObjectUrl);
+                    if (tagObjectResponse.ok) {
+                        const tagObject = await tagObjectResponse.json();
+                        return tagObject.object.sha;
                     }
-                } catch (commitError) {
-                    throw new Error(`Could not resolve ref: ${ref}`);
                 }
             }
+        } catch (tagError) {
+            // Tag doesn't exist or request failed, continue to try commit
         }
-        throw new Error(`Could not resolve ref: ${ref}`);
+
+        // Try commit SHA directly (in case ref is a partial SHA or commit)
+        try {
+            const commitUrl = `${this.githubClient.baseUrl}/repos/${owner}/${repo}/commits/${ref}`;
+            const commitResponse = await this.githubClient.makeRequest(commitUrl);
+            if (commitResponse.ok) {
+                const commitData = await commitResponse.json();
+                return commitData.sha;
+            }
+        } catch (commitError) {
+            // Commit doesn't exist or request failed
+        }
+
+        // If all methods failed, throw error with more context
+        throw new Error(`Could not resolve ref: ${ref} for ${owner}/${repo} (tried branch, tag, and commit)`);
     }
 
     // ========== YAML Parsing Methods ==========
@@ -1253,17 +1290,32 @@ class GitHubActionsAnalyzer {
     /**
      * Check Docker action for unpinnable issues
      */
-    async checkDockerAction(owner, repo, ref, path, metadata) {
+    async checkDockerAction(owner, repo, ref, path, metadata, workflowLocations = []) {
         const findings = [];
 
         if (!metadata || metadata.available === false) {
             return findings;
         }
 
+        // Determine the Dockerfile path in the ACTION repository
+        const dockerfilePath = path ? `${path}/Dockerfile` : 'Dockerfile';
+        const actionRepository = `${owner}/${repo}`;
+
         // Check Docker image reference
         const image = this.getDockerImage(metadata);
         if (image) {
-            findings.push(...this.checkDockerImage(image));
+            const imageFindings = this.checkDockerImage(image);
+            // Enrich findings with action repository, Dockerfile path, and workflow locations
+            imageFindings.forEach(finding => {
+                findings.push({
+                    ...finding,
+                    actionRepository: actionRepository, // The action repository (where Dockerfile is)
+                    actionDockerfile: dockerfilePath,  // Path to Dockerfile in action repo
+                    workflowLocations: workflowLocations, // Where this action is used
+                    // Keep repository for backward compatibility (workflow repository)
+                    repository: workflowLocations.length > 0 ? workflowLocations[0].repository : null
+                });
+            });
         }
 
         // Check Dockerfile if available
@@ -1271,14 +1323,25 @@ class GitHubActionsAnalyzer {
         if (!dockerfile) {
             try {
                 const refToUse = metadata.ref || ref;
-                dockerfile = await this.githubClient.getFileContent(owner, repo, path ? `${path}/Dockerfile` : 'Dockerfile', refToUse);
+                dockerfile = await this.githubClient.getFileContent(owner, repo, dockerfilePath, refToUse);
             } catch (error) {
                 // Dockerfile not found, continue without it
             }
         }
         
         if (dockerfile) {
-            findings.push(...this.checkDockerfile(dockerfile, owner, repo, ref, path, metadata));
+            const dockerfileFindings = this.checkDockerfile(dockerfile, owner, repo, ref, path, metadata);
+            // Enrich Dockerfile findings with action repository and workflow locations
+            dockerfileFindings.forEach(finding => {
+                finding.actionRepository = actionRepository;
+                finding.actionDockerfile = dockerfilePath;
+                finding.workflowLocations = workflowLocations;
+                // Keep repository for backward compatibility
+                if (!finding.repository && workflowLocations.length > 0) {
+                    finding.repository = workflowLocations[0].repository;
+                }
+            });
+            findings.push(...dockerfileFindings);
         }
 
         return findings;

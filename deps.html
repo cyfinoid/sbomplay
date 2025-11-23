@@ -941,6 +941,12 @@
             });
             
             allDeps.forEach(dep => {
+                // Skip dependencies with empty or invalid names
+                // These are malformed entries that shouldn't be displayed
+                if (!dep.name || dep.name.trim() === '') {
+                    return; // Skip this dependency
+                }
+                
                 // Get parent dependencies with repository context
                 const parents = new Set();
                 const parentsByRepo = {}; // Track which repo has which parent
@@ -2159,11 +2165,40 @@
                     tr.classList.add('independent-entity');
                 }
                 
-                const versionDisplay = formatVersionForDisplay(dep.version);
-                const packageNameEscaped = escapeHtml(dep.name);
+                // Handle empty or invalid names gracefully
+                let displayName = dep.name;
+                let displayVersion = dep.version;
+                
+                // If name is empty but version contains package info, try to extract it
+                if (!displayName || displayName.trim() === '') {
+                    // Try to extract package name from version field if it contains a path
+                    // Format: "package@version" or "path>package@version"
+                    if (displayVersion && displayVersion.includes('@')) {
+                        // Extract the last part after @ (the actual version)
+                        const parts = displayVersion.split('@');
+                        if (parts.length >= 2) {
+                            displayVersion = parts[parts.length - 1];
+                            // Try to extract package name from the path
+                            const beforeVersion = parts.slice(0, -1).join('@');
+                            if (beforeVersion.includes('>')) {
+                                // Path format: "parent>package" - extract last part
+                                displayName = beforeVersion.split('>').pop() || 'Unknown';
+                            } else {
+                                displayName = beforeVersion || 'Unknown';
+                            }
+                        } else {
+                            displayName = 'Unknown';
+                        }
+                    } else {
+                        displayName = 'Unknown';
+                    }
+                }
+                
+                const versionDisplay = formatVersionForDisplay(displayVersion);
+                const packageNameEscaped = escapeHtml(displayName);
                 // For GitHub Actions and some other packages, the name already includes @version
                 // Check if name already ends with the version (with or without @) to avoid duplication
-                const versionInName = dep.name.endsWith(`@${dep.version}`) || dep.name.endsWith(dep.version);
+                const versionInName = displayName.endsWith(`@${displayVersion}`) || displayName.endsWith(displayVersion);
                 const packageLink = versionInName ? packageNameEscaped : `${packageNameEscaped}@${versionDisplay}`;
                 // Version drift badge placeholder (will be populated asynchronously)
                 const driftBadgeId = `drift-${startIndex + idx}`;
@@ -2173,8 +2208,8 @@
                     <td>
                         <a href="#" class="package-link text-primary text-decoration-none" 
                            data-package-key="${escapeHtml(dep.packageKey || '')}" 
-                           data-package-name="${escapeHtml(dep.name)}" 
-                           data-package-version="${escapeHtml(dep.version)}"
+                           data-package-name="${escapeHtml(displayName)}" 
+                           data-package-version="${escapeHtml(displayVersion)}"
                            data-package-ecosystem="${escapeHtml(dep.ecosystem)}"
                            data-package-repos='${JSON.stringify(dep.repositories)}'
                            data-package-raw='${JSON.stringify({...dep.raw, _gaMetadata: dep._gaMetadata}).replace(/'/g, '&apos;')}'>

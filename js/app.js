@@ -3488,27 +3488,52 @@ class SBOMPlayApp {
         
         // Group dependencies by ecosystem
         const depsByEcosystem = new Map();
+        let skippedNoEcosystem = 0;
+        let skippedHasLicense = 0;
+        let skippedNoNameVersion = 0;
+        let skippedUnsupported = 0;
+        
         dependencies.forEach(dep => {
             // Check both dep.category?.ecosystem and dep.ecosystem (dependencies can have either structure)
             const ecosystem = (dep.category?.ecosystem || dep.ecosystem)?.toLowerCase();
-            if (!ecosystem) return;
+            if (!ecosystem) {
+                skippedNoEcosystem++;
+                return;
+            }
             
             // Skip PyPI and Go (already handled separately)
-            if (ecosystem === 'pypi' || ecosystem === 'go' || ecosystem === 'golang') return;
+            if (ecosystem === 'pypi' || ecosystem === 'go' || ecosystem === 'golang') {
+                return;
+            }
             
             // Skip if already has license (check both licenseFull and license fields)
-            if ((dep.licenseFull && dep.licenseFull !== 'Unknown' && dep.licenseFull !== 'NOASSERTION') ||
-                (dep.license && dep.license !== 'Unknown' && dep.license !== 'NOASSERTION')) {
+            // Also check for empty strings and null values
+            const hasLicense = (dep.licenseFull && 
+                               dep.licenseFull !== 'Unknown' && 
+                               dep.licenseFull !== 'NOASSERTION' &&
+                               dep.licenseFull !== '' &&
+                               dep.licenseFull !== null) ||
+                              (dep.license && 
+                               dep.license !== 'Unknown' && 
+                               dep.license !== 'NOASSERTION' &&
+                               dep.license !== '' &&
+                               dep.license !== null);
+            if (hasLicense) {
+                skippedHasLicense++;
                 return;
             }
             
             // Skip if missing name or version
-            if (!dep.name || !dep.version || dep.version === 'version unknown') return;
+            if (!dep.name || !dep.version || dep.version === 'version unknown' || dep.version === '') {
+                skippedNoNameVersion++;
+                return;
+            }
             
             // Map ecosystem to deps.dev system name
             const depsDevSystem = ecosystemMap[ecosystem];
             if (!depsDevSystem) {
                 // Ecosystem not supported by deps.dev
+                skippedUnsupported++;
                 return;
             }
             
@@ -3517,6 +3542,11 @@ class SBOMPlayApp {
             }
             depsByEcosystem.get(depsDevSystem).push(dep);
         });
+        
+        // Log detailed statistics
+        if (skippedNoEcosystem > 0 || skippedHasLicense > 0 || skippedNoNameVersion > 0 || skippedUnsupported > 0) {
+            console.log(`🔍 License fetch filter stats: ${skippedNoEcosystem} no ecosystem, ${skippedHasLicense} has license, ${skippedNoNameVersion} missing name/version, ${skippedUnsupported} unsupported ecosystem`);
+        }
         
         console.log(`🔍 fetchLicensesForAllEcosystems: Found packages in ${depsByEcosystem.size} ecosystems needing licenses (out of ${dependencies.length} total dependencies)`);
         if (depsByEcosystem.size === 0) {
@@ -3864,51 +3894,72 @@ class SBOMPlayApp {
                         console.log(`✅ Completed fetching author locations`);
                     }
                     
-                    // Second pass: Collect all locations from author entities (after fetching)
+                    // Collect locations that still need geocoding (missing countryCode)
+                    // Most locations should already be geocoded during fetchAuthorLocation()
+                    const locationsNeedingGeocoding = new Set();
                     for (const authorKey of authorKeys) {
                         try {
                             const authorEntity = await window.cacheManager.getAuthorEntity(authorKey);
                             if (authorEntity) {
-                                if (authorEntity.metadata?.location) {
+                                // Only collect locations that don't have geocoding data yet
+                                if (authorEntity.metadata?.location && !authorEntity.metadata?.countryCode) {
                                     const normalized = locationService.normalizeLocationString(authorEntity.metadata.location);
                                     if (normalized) {
-                                        locations.add(normalized);
+                                        locationsNeedingGeocoding.add(normalized);
                                     }
                                 }
-                                if (authorEntity.metadata?.company) {
-                                    const normalized = locationService.normalizeLocationString(authorEntity.metadata.company);
-                                    if (normalized) {
-                                        locations.add(normalized);
-                                    }
-                                }
+                                // Note: We don't geocode company names as locations
                             }
                         } catch (e) {
                             // Skip if entity not found
                         }
                     }
-                }
-                
-                if (locations.size > 0) {
-                    console.log(`📍 Batch geocoding ${locations.size} unique author locations...`);
-                    this.updateProgress(95, `Geocoding ${locations.size} author locations...`, 'geocoding-locations');
-                    try {
-                        const geocodeResults = await locationService.batchGeocode(
-                            Array.from(locations),
-                            (processed, total) => {
-                                const percent = 95 + (processed / total * 2);
-                                this.updateProgress(percent, `Geocoding locations: ${processed}/${total}`, 'geocoding-locations');
-                                console.log(`📍 Geocoding progress: ${processed}/${total}`);
+                    
+                    // Only batch geocode locations that weren't geocoded during fetchAuthorLocation()
+                    // This should be rare - only for locations from non-GitHub sources
+                    if (locationsNeedingGeocoding.size > 0) {
+                        console.log(`📍 Batch geocoding ${locationsNeedingGeocoding.size} locations that weren't geocoded during fetch (likely from non-GitHub sources)...`);
+                        this.updateProgress(95, `Geocoding ${locationsNeedingGeocoding.size} remaining locations...`, 'geocoding-locations');
+                        try {
+                            const geocodeResults = await locationService.batchGeocode(
+                                Array.from(locationsNeedingGeocoding),
+                                (processed, total) => {
+                                    const percent = 95 + (processed / total * 2);
+                                    this.updateProgress(percent, `Geocoding locations: ${processed}/${total}`, 'geocoding-locations');
+                                    console.log(`📍 Geocoding progress: ${processed}/${total}`);
+                                }
+                            );
+                            const geocodedCount = Array.from(geocodeResults.values()).filter(r => r && !r.failed).length;
+                            const failedCount = Array.from(geocodeResults.values()).filter(r => r && r.failed).length;
+                            console.log(`✅ Completed geocoding remaining locations: ${geocodedCount} successful, ${failedCount} failed`);
+                            
+                            // Update author entities with geocoding data from batch results
+                            for (const authorKey of authorKeys) {
+                                try {
+                                    const authorEntity = await window.cacheManager.getAuthorEntity(authorKey);
+                                    if (authorEntity?.metadata?.location && !authorEntity.metadata?.countryCode) {
+                                        const normalized = locationService.normalizeLocationString(authorEntity.metadata.location);
+                                        const geocoded = geocodeResults.get(normalized);
+                                        if (geocoded && geocoded.countryCode) {
+                                            authorEntity.metadata = {
+                                                ...authorEntity.metadata,
+                                                countryCode: geocoded.countryCode,
+                                                ...(geocoded.country && { country: geocoded.country })
+                                            };
+                                            await window.cacheManager.saveAuthorEntity(authorKey, authorEntity);
+                                        }
+                                    }
+                                } catch (e) {
+                                    // Skip if entity not found
+                                }
                             }
-                        );
-                        const geocodedCount = Array.from(geocodeResults.values()).filter(r => r && !r.failed).length;
-                        const failedCount = Array.from(geocodeResults.values()).filter(r => r && r.failed).length;
-                        console.log(`✅ Completed geocoding: ${geocodedCount} successful, ${failedCount} failed, ${locations.size - geocodedCount - failedCount} missing`);
-                    } catch (geocodeError) {
-                        console.error('❌ Error during batch geocoding:', geocodeError);
-                        // Continue even if geocoding fails - locations can be geocoded later when map loads
+                        } catch (geocodeError) {
+                            console.error('❌ Error during batch geocoding:', geocodeError);
+                            // Continue even if geocoding fails - locations can be geocoded later when map loads
+                        }
+                    } else {
+                        console.log('📍 All author locations were geocoded during fetch - no batch geocoding needed');
                     }
-                } else {
-                    console.log('📍 No author locations found to geocode');
                 }
             } catch (error) {
                 console.warn('⚠️ Failed to geocode author locations during analysis:', error);

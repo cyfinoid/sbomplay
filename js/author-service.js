@@ -935,8 +935,38 @@ class AuthorService {
             authorEntity = await window.cacheManager?.getAuthorEntity(authorKey);
         }
         
-        // If author already has location data in DB, don't refetch
-        if (authorEntity?.metadata?.location || authorEntity?.metadata?.company) {
+        // If author already has location data AND geocoding (countryCode), don't refetch
+        const hasLocation = authorEntity?.metadata?.location || authorEntity?.metadata?.company;
+        const hasGeocoding = authorEntity?.metadata?.countryCode;
+        
+        if (hasLocation && hasGeocoding) {
+            return {
+                location: authorEntity.metadata.location || null,
+                company: authorEntity.metadata.company || null
+            };
+        }
+        
+        // If author has location but no geocoding, geocode it now
+        if (hasLocation && !hasGeocoding && authorEntity.metadata?.location && window.LocationService) {
+            try {
+                const locationService = new window.LocationService();
+                const geocoded = await locationService.geocode(authorEntity.metadata.location);
+                if (geocoded && geocoded.countryCode) {
+                    // Update author entity with geocoding data
+                    const existingMetadata = authorEntity.metadata || {};
+                    authorEntity.metadata = {
+                        ...existingMetadata,
+                        countryCode: geocoded.countryCode,
+                        ...(geocoded.country && { country: geocoded.country })
+                    };
+                    await window.cacheManager.saveAuthorEntity(authorKey, authorEntity);
+                    console.log(`📍 Geocoded existing location for ${authorKey}: ${geocoded.countryCode}`);
+                }
+            } catch (error) {
+                console.debug(`Could not geocode existing location "${authorEntity.metadata.location}" for ${authorKey}:`, error.message);
+            }
+            
+            // Return existing location data
             return {
                 location: authorEntity.metadata.location || null,
                 company: authorEntity.metadata.company || null
