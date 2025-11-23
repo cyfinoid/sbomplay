@@ -352,6 +352,12 @@ class DependencyTreeResolver {
             // Normalize version
             const normalizedVersion = this.normalizeVersion(version);
             
+            // Skip if version is unknown or empty (to avoid unnecessary 404 errors)
+            if (!normalizedVersion || normalizedVersion === 'unknown' || normalizedVersion === '') {
+                console.log(`      ⏭️  Skipping deps.dev query for ${packageName}@${version} (unknown version)`);
+                return null;
+            }
+            
             const url = this.depsDevAPI
                 .replace('{system}', system)
                 .replace('{package}', encodeURIComponent(packageName))
@@ -481,6 +487,27 @@ class DependencyTreeResolver {
      * Get PyPI package dependencies
      */
     async getPyPIDependencies(packageName, version) {
+        // Skip built-in Python modules (they're not PyPI packages)
+        // Common built-in modules from Python standard library
+        const builtInModules = new Set([
+            'json', 'sys', 'os', 're', 'math', 'datetime', 'collections', 'itertools',
+            'functools', 'operator', 'string', 'random', 'hashlib', 'base64', 'urllib',
+            'urllib2', 'http', 'socket', 'ssl', 'email', 'csv', 'xml', 'html', 'sqlite3',
+            'threading', 'multiprocessing', 'queue', 'time', 'calendar', 'locale', 'gettext',
+            'codecs', 'unicodedata', 'copy', 'pickle', 'shelve', 'marshal', 'dbm', 'gdbm',
+            'zlib', 'gzip', 'bz2', 'lzma', 'zipfile', 'tarfile', 'shutil', 'glob', 'fnmatch',
+            'linecache', 'tempfile', 'fileinput', 'stat', 'filecmp', 'pathlib', 'io',
+            'argparse', 'getopt', 'logging', 'warnings', 'traceback', 'errno', 'ctypes',
+            'struct', 'stringprep', 'readline', 'rlcompleter', 'cmd', 'shlex', 'configparser',
+            'netrc', 'xdrlib', 'plistlib', 'secrets', 'hmac', 'uuid', 'ipaddress',
+            'binascii', 'quopri', 'uu', 'binhex'
+        ]);
+        
+        if (builtInModules.has(packageName.toLowerCase())) {
+            console.log(`      ⏭️  Skipping PyPI query for ${packageName} (built-in Python module)`);
+            return [];
+        }
+        
         const url = this.registryAPIs.pypi.replace('{package}', encodeURIComponent(packageName));
         
         console.log(`      🔍 Querying PyPI: ${packageName}@${version}`);

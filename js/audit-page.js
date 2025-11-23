@@ -558,7 +558,7 @@ document.addEventListener('DOMContentLoaded', async function() {
                                 const repo = actionParts[1];
                                 const actionRepoUrl = `https://github.com/${owner}/${repo}`;
                                 actionLink = `<a href="${actionRepoUrl}" target="_blank" rel="noreferrer noopener" class="text-decoration-none">
-                                    <i class="fab fa-github me-1"></i>${escapeHtml(instance.action)}
+                            <i class="fab fa-github me-1"></i>${escapeHtml(instance.action)}
                                 </a>`;
                             } else {
                                 // Fallback if format is unexpected
@@ -658,8 +658,8 @@ document.addEventListener('DOMContentLoaded', async function() {
                                 
                                 if (workflowRepo && workflowFile) {
                                     const repoParts = workflowRepo.split('/');
-                                    if (repoParts.length === 2) {
-                                        const [owner, repo] = repoParts;
+                        if (repoParts.length === 2) {
+                            const [owner, repo] = repoParts;
                                         const ref = 'HEAD';
                                         
                                         // Build repository link
@@ -704,23 +704,23 @@ document.addEventListener('DOMContentLoaded', async function() {
                                 const repoLink = `<a href="${repoUrl}" target="_blank" rel="noreferrer noopener" class="text-decoration-none"><code>${escapeHtml(instance.repository)}</code></a>`;
                                 
                                 // Build workflow file link
-                                let githubUrl = `https://github.com/${owner}/${repo}/blob/${ref}/${instance.file}`;
-                                if (instance.line) {
-                                    githubUrl += `#L${instance.line}`;
-                                }
-                                
+                            let githubUrl = `https://github.com/${owner}/${repo}/blob/${ref}/${instance.file}`;
+                            if (instance.line) {
+                                githubUrl += `#L${instance.line}`;
+                            }
+                            
                                 const fileDisplay = instance.file.split('/').pop();
-                                const lineDisplay = instance.line ? `:${instance.line}` : '';
+                            const lineDisplay = instance.line ? `:${instance.line}` : '';
                                 const fileLink = `<a href="${githubUrl}" target="_blank" rel="noreferrer noopener" class="text-decoration-none"><code class="small">${escapeHtml(fileDisplay)}${lineDisplay}</code></a>`;
                                 
                                 locationCell = `<div class="d-flex flex-wrap align-items-center gap-1" style="font-size: 0.85em;">
                                     ${repoLink} <i class="fas fa-arrow-right text-muted" style="font-size: 0.7em;"></i> ${fileLink}
                                 </div>`;
-                            } else {
-                                locationCell = `<small class="text-muted"><code>${escapeHtml(instance.file)}${instance.line ? ':' + instance.line : ''}</code></small>`;
-                            }
-                        } else if (instance.message) {
-                            locationCell = `<small class="text-muted">${escapeHtml(instance.message)}</small>`;
+                        } else {
+                            locationCell = `<small class="text-muted"><code>${escapeHtml(instance.file)}${instance.line ? ':' + instance.line : ''}</code></small>`;
+                        }
+                    } else if (instance.message) {
+                        locationCell = `<small class="text-muted">${escapeHtml(instance.message)}</small>`;
                         }
                     }
                     
@@ -1340,7 +1340,7 @@ document.addEventListener('DOMContentLoaded', async function() {
             }
             // 3. Parse from originalPackage (from SBOM) - always check this as fallback
             if (!dependencyLicense && dep.originalPackage) {
-                const licenseInfo = licenseProcessor.parseLicense(dep.originalPackage);
+            const licenseInfo = licenseProcessor.parseLicense(dep.originalPackage);
                 if (licenseInfo.license && 
                     licenseInfo.license !== 'NOASSERTION' && 
                     licenseInfo.license !== 'Unknown' &&

@@ -111,7 +111,7 @@ class SBOMProcessor {
                 }
             }
         }
-        
+
         // Fallback: If no PURL found and still Unknown, try to detect from package name patterns
         if (category.ecosystem === 'Unknown' && pkg.name) {
             const name = pkg.name.toLowerCase();
@@ -730,8 +730,26 @@ class SBOMProcessor {
                             const [name, ...versionParts] = packageKey.split('@');
                             const version = versionParts.join('@');
                             
-                            // Try to infer ecosystem from the ecosystem being resolved
-                            const category = this.categorizeDependency({ name });
+                            // Use the ecosystem we're currently resolving to categorize this dependency
+                            // This is more reliable than trying to infer from name patterns
+                            let category;
+                            if (window.ecosystemMapper) {
+                                const typeInfo = window.ecosystemMapper.getCategoryInfo(ecosystem);
+                                if (typeInfo) {
+                                    category = {
+                                        ...typeInfo,
+                                        isWorkflow: typeInfo.type === 'workflow',
+                                        isInfrastructure: typeInfo.type === 'infrastructure',
+                                        isCode: typeInfo.type === 'code'
+                                    };
+                                } else {
+                                    // Fallback to categorizeDependency if ecosystem not found in mapper
+                                    category = this.categorizeDependency({ name });
+                                }
+                            } else {
+                                // Fallback: try to infer from name patterns
+                                category = this.categorizeDependency({ name });
+                            }
                             
                             dep = {
                                 name: name,
@@ -749,7 +767,7 @@ class SBOMProcessor {
                                 versionUnknown: !version
                             };
                             this.dependencies.set(packageKey, dep);
-                            console.log(`    📦 Added newly discovered transitive dependency: ${packageKey} (depth ${treeNode.depth})`);
+                            console.log(`    📦 Added newly discovered transitive dependency: ${packageKey} (depth ${treeNode.depth}, ecosystem: ${ecosystem})`);
                         }
                         
                         dep.depth = treeNode.depth;
@@ -881,7 +899,9 @@ class SBOMProcessor {
                 originalPackage: dep.originalPackage,  // Include original package data
                 depth: dep.depth || null,  // Depth in dependency tree (1 = direct, 2+ = transitive)
                 parents: dep.parents || [],  // Parent dependencies (what brings this in)
-                children: dep.children || []  // Child dependencies (what this brings in)
+                children: dep.children || [],  // Child dependencies (what this brings in)
+                license: dep.license || null,  // Include license (short form)
+                licenseFull: dep.licenseFull || null  // Include license (full form)
             };
         });
         const allRepos = Array.from(this.repositories.values()).map(repo => ({

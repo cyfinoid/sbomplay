@@ -1725,52 +1725,8 @@ class ViewManager {
                 return;
             }
             
-            // Try to get license from multiple sources (in order of preference)
-            let licenseInfo = null;
-            
-            // 1. Check dep.licenseFull (most complete, from deps.dev API)
-            if (dep.licenseFull && 
-                dep.licenseFull !== 'Unknown' && 
-                dep.licenseFull !== 'NOASSERTION' && 
-                String(dep.licenseFull).trim() !== '') {
-                licenseInfo = licenseProcessor.parseLicense({
-                    licenseConcluded: dep.licenseFull,
-                    licenseDeclared: dep.licenseFull
-                });
-            }
-            // 2. Check dep.license (short form, from deps.dev API)
-            else if (dep.license && 
-                     dep.license !== 'Unknown' && 
-                     dep.license !== 'NOASSERTION' && 
-                     String(dep.license).trim() !== '') {
-                licenseInfo = licenseProcessor.parseLicense({
-                    licenseConcluded: dep.license,
-                    licenseDeclared: dep.license
-                });
-            }
-            // 3. Check GitHub Actions analysis metadata (for GitHub Actions dependencies)
-            else if (dep.category?.ecosystem === 'GitHub Actions' || dep.ecosystem === 'GitHub Actions') {
-                // Check dep._gaMetadata first (if set during processing)
-                if (dep._gaMetadata && dep._gaMetadata.license) {
-                    licenseInfo = licenseProcessor.parseLicense({
-                        licenseConcluded: dep._gaMetadata.license,
-                        licenseDeclared: dep._gaMetadata.license
-                    });
-                } else {
-                    // Fallback: search githubActionsAnalysis
-                    const enrichedLicense = this.getEnrichedGitHubActionLicense(dep, orgData);
-                    if (enrichedLicense) {
-                        licenseInfo = licenseProcessor.parseLicense({
-                            licenseConcluded: enrichedLicense,
-                            licenseDeclared: enrichedLicense
-                        });
-                    }
-                }
-            }
-            // 4. Parse from originalPackage (from SBOM) - always check this as fallback
-            if (!licenseInfo && dep.originalPackage) {
-                licenseInfo = licenseProcessor.parseLicense(dep.originalPackage);
-            }
+            // Use unified method to get license info
+            const { licenseInfo } = this.getDependencyLicenseInfo(dep, orgData);
             
             // If no license info found, skip for repository matching
             if (!licenseInfo || !licenseInfo.license || licenseInfo.license === 'NOASSERTION') {
@@ -1829,19 +1785,22 @@ class ViewManager {
      * Get count of repositories for a license type
      */
     getLicenseRepositoriesCount(orgData, licenseType) {
-        const licenseProcessor = new LicenseProcessor();
         const repositories = orgData.data.allRepositories;
         const dependencies = orgData.data.allDependencies;
         
         let matchingRepos = new Set();
         
         dependencies.forEach(dep => {
-            // Skip dependencies without originalPackage data
-            if (!dep.originalPackage) {
-                console.warn('Dependency missing originalPackage data:', dep.name);
+            // Skip dependencies without any package information
+            if (!dep.originalPackage && !dep.license && !dep.licenseFull) {
                 return;
             }
-            const licenseInfo = licenseProcessor.parseLicense(dep.originalPackage);
+            
+            // Use unified method to get license info
+            const { licenseInfo } = this.getDependencyLicenseInfo(dep, orgData);
+            if (!licenseInfo) {
+                return;
+            }
             let shouldInclude = false;
             
             switch (licenseType) {
@@ -1881,19 +1840,22 @@ class ViewManager {
      * Get list of repositories for a license type
      */
     getLicenseRepositoriesList(orgData, licenseType) {
-        const licenseProcessor = new LicenseProcessor();
         const repositories = orgData.data.allRepositories;
         const dependencies = orgData.data.allDependencies;
         
         let matchingRepos = new Set();
         
         dependencies.forEach(dep => {
-            // Skip dependencies without originalPackage data
-            if (!dep.originalPackage) {
-                console.warn('Dependency missing originalPackage data:', dep.name);
+            // Skip dependencies without any package information
+            if (!dep.originalPackage && !dep.license && !dep.licenseFull) {
                 return;
             }
-            const licenseInfo = licenseProcessor.parseLicense(dep.originalPackage);
+            
+            // Use unified method to get license info
+            const { licenseInfo } = this.getDependencyLicenseInfo(dep, orgData);
+            if (!licenseInfo) {
+                return;
+            }
             let shouldInclude = false;
             
             switch (licenseType) {
@@ -1944,12 +1906,16 @@ class ViewManager {
         const licenseRepos = new Map(); // Map of repo -> dependencies with this license
 
         dependencies.forEach(dep => {
-            // Skip dependencies without originalPackage data
-            if (!dep.originalPackage) {
-                console.warn('Dependency missing originalPackage data:', dep.name);
+            // Skip dependencies without any package information
+            if (!dep.originalPackage && !dep.license && !dep.licenseFull) {
                 return;
             }
-            const licenseInfo = licenseProcessor.parseLicense(dep.originalPackage);
+            
+            // Use unified method to get license info
+            const { licenseInfo } = this.getDependencyLicenseInfo(dep, orgData);
+            if (!licenseInfo) {
+                return;
+            }
             let matches = false;
 
             switch (licenseType) {
@@ -2112,12 +2078,16 @@ class ViewManager {
         const affectedRepos = new Map();
 
         dependencies.forEach(dep => {
-            // Skip dependencies without originalPackage data
-            if (!dep.originalPackage) {
-                console.warn('Dependency missing originalPackage data:', dep.name);
+            // Skip dependencies without any package information
+            if (!dep.originalPackage && !dep.license && !dep.licenseFull) {
                 return;
             }
-            const licenseInfo = licenseProcessor.parseLicense(dep.originalPackage);
+            
+            // Use unified method to get license info
+            const { licenseInfo } = this.getDependencyLicenseInfo(dep, orgData);
+            if (!licenseInfo) {
+                return;
+            }
             if (conflict.licenses.includes(licenseInfo.license)) {
                 conflictDeps.push({
                     name: dep.name,
@@ -2330,19 +2300,22 @@ class ViewManager {
         }
 
         // Find dependencies related to this recommendation
-        const licenseProcessor = new LicenseProcessor();
         const dependencies = orgData.data.allDependencies;
         const relatedDeps = [];
         const affectedRepos = new Map();
 
         // Determine which dependencies are related based on recommendation type
         dependencies.forEach(dep => {
-            // Skip dependencies without originalPackage data
-            if (!dep.originalPackage) {
-                console.warn('Dependency missing originalPackage data:', dep.name);
+            // Skip dependencies without any package information
+            if (!dep.originalPackage && !dep.license && !dep.licenseFull) {
                 return;
             }
-            const licenseInfo = licenseProcessor.parseLicense(dep.originalPackage);
+            
+            // Use unified method to get license info
+            const { licenseInfo } = this.getDependencyLicenseInfo(dep, orgData);
+            if (!licenseInfo) {
+                return;
+            }
             let isRelated = false;
 
             switch (recommendation.type) {
@@ -2697,6 +2670,70 @@ class ViewManager {
      * Get list of dependencies for a license type
      */
     /**
+     * Unified method to extract license information from a dependency
+     * Checks all possible sources: licenseFull, license, GitHub Actions metadata, originalPackage
+     * Returns: { licenseInfo: LicenseInfo object, source: string }
+     */
+    getDependencyLicenseInfo(dep, orgData = null) {
+        const licenseProcessor = new LicenseProcessor();
+        let licenseInfo = null;
+        let source = null;
+        
+        // 1. Check dep.licenseFull (most complete, from deps.dev API)
+        if (dep.licenseFull && 
+            dep.licenseFull !== 'Unknown' && 
+            dep.licenseFull !== 'NOASSERTION' && 
+            String(dep.licenseFull).trim() !== '') {
+            licenseInfo = licenseProcessor.parseLicense({
+                licenseConcluded: dep.licenseFull,
+                licenseDeclared: dep.licenseFull
+            });
+            source = 'licenseFull';
+        }
+        // 2. Check dep.license (short form, from deps.dev API)
+        else if (dep.license && 
+                 dep.license !== 'Unknown' && 
+                 dep.license !== 'NOASSERTION' && 
+                 String(dep.license).trim() !== '') {
+            licenseInfo = licenseProcessor.parseLicense({
+                licenseConcluded: dep.license,
+                licenseDeclared: dep.license
+            });
+            source = 'license';
+        }
+        // 3. Check GitHub Actions analysis metadata (for GitHub Actions dependencies)
+        else if (dep.category?.ecosystem === 'GitHub Actions' || dep.ecosystem === 'GitHub Actions') {
+            // Check dep._gaMetadata first (if set during processing)
+            if (dep._gaMetadata && dep._gaMetadata.license) {
+                licenseInfo = licenseProcessor.parseLicense({
+                    licenseConcluded: dep._gaMetadata.license,
+                    licenseDeclared: dep._gaMetadata.license
+                });
+                source = 'gaMetadata';
+            } else if (orgData) {
+                // Fallback: search githubActionsAnalysis
+                const enrichedLicense = this.getEnrichedGitHubActionLicense(dep, orgData);
+                if (enrichedLicense) {
+                    licenseInfo = licenseProcessor.parseLicense({
+                        licenseConcluded: enrichedLicense,
+                        licenseDeclared: enrichedLicense
+                    });
+                    source = 'githubActionsAnalysis';
+                }
+            }
+        }
+        // 4. Parse from originalPackage (from SBOM) - always check this as fallback
+        if (!licenseInfo && dep.originalPackage) {
+            licenseInfo = licenseProcessor.parseLicense(dep.originalPackage);
+            if (licenseInfo && licenseInfo.license && licenseInfo.license !== 'NOASSERTION') {
+                source = 'originalPackage';
+            }
+        }
+        
+        return { licenseInfo, source };
+    }
+
+    /**
      * Get enriched GitHub Actions license from githubActionsAnalysis
      */
     getEnrichedGitHubActionLicense(dep, orgData) {
@@ -2768,57 +2805,8 @@ class ViewManager {
                 return;
             }
             
-            // Try to get license from multiple sources (in order of preference)
-            let licenseInfo = null;
-            let licenseSource = null;
-            
-            // 1. Check dep.licenseFull (most complete, from deps.dev API)
-            if (dep.licenseFull && 
-                dep.licenseFull !== 'Unknown' && 
-                dep.licenseFull !== 'NOASSERTION' && 
-                String(dep.licenseFull).trim() !== '') {
-                licenseInfo = licenseProcessor.parseLicense({
-                    licenseConcluded: dep.licenseFull,
-                    licenseDeclared: dep.licenseFull
-                });
-                licenseSource = dep.licenseFull;
-            }
-            // 2. Check dep.license (short form, from deps.dev API)
-            else if (dep.license && 
-                     dep.license !== 'Unknown' && 
-                     dep.license !== 'NOASSERTION' && 
-                     String(dep.license).trim() !== '') {
-                licenseInfo = licenseProcessor.parseLicense({
-                    licenseConcluded: dep.license,
-                    licenseDeclared: dep.license
-                });
-                licenseSource = dep.license;
-            }
-            // 3. Check GitHub Actions analysis metadata (for GitHub Actions dependencies)
-            else if (dep.category?.ecosystem === 'GitHub Actions' || dep.ecosystem === 'GitHub Actions') {
-                // Check dep._gaMetadata first (if set during processing)
-                if (dep._gaMetadata && dep._gaMetadata.license) {
-                    licenseSource = dep._gaMetadata.license;
-                    licenseInfo = licenseProcessor.parseLicense({
-                        licenseConcluded: licenseSource,
-                        licenseDeclared: licenseSource
-                    });
-                } else {
-                    // Fallback: search githubActionsAnalysis
-                    const enrichedLicense = this.getEnrichedGitHubActionLicense(dep, orgData);
-                    if (enrichedLicense) {
-                        licenseSource = enrichedLicense;
-                        licenseInfo = licenseProcessor.parseLicense({
-                            licenseConcluded: enrichedLicense,
-                            licenseDeclared: enrichedLicense
-                        });
-                    }
-                }
-            }
-            // 4. Parse from originalPackage (from SBOM) - always check this as fallback
-            if (!licenseInfo && dep.originalPackage) {
-                licenseInfo = licenseProcessor.parseLicense(dep.originalPackage);
-            }
+            // Use unified method to get license info
+            const { licenseInfo } = this.getDependencyLicenseInfo(dep, orgData);
             
             // If no license info found, treat as unlicensed/unknown
             if (!licenseInfo || !licenseInfo.license || licenseInfo.license === 'NOASSERTION') {
@@ -2892,12 +2880,16 @@ class ViewManager {
         const affectedRepos = new Map();
 
         dependencies.forEach(dep => {
-            // Skip dependencies without originalPackage data
-            if (!dep.originalPackage) {
-                console.warn('Dependency missing originalPackage data:', dep.name);
+            // Skip dependencies without any package information
+            if (!dep.originalPackage && !dep.license && !dep.licenseFull) {
                 return;
             }
-            const licenseInfo = licenseProcessor.parseLicense(dep.originalPackage);
+            
+            // Use unified method to get license info
+            const { licenseInfo } = this.getDependencyLicenseInfo(dep, orgData);
+            if (!licenseInfo) {
+                return;
+            }
             if (conflict.licenses.includes(licenseInfo.license)) {
                 conflictDeps.push({
                     name: dep.name,
@@ -3432,52 +3424,8 @@ class ViewManager {
         const licenseMap = new Map(); // license name -> { category, risk, packages: Set, repositories: Set }
 
         allDependencies.forEach(dep => {
-            // Check for enriched license data first (from deps.dev API or GitHub Actions analysis)
-            let licenseInfo = null;
-            
-            // 1. Check dep.licenseFull (most complete, from deps.dev API)
-            if (dep.licenseFull && 
-                dep.licenseFull !== 'Unknown' && 
-                dep.licenseFull !== 'NOASSERTION' && 
-                String(dep.licenseFull).trim() !== '') {
-                licenseInfo = licenseProcessor.parseLicense({
-                    licenseConcluded: dep.licenseFull,
-                    licenseDeclared: dep.licenseFull
-                });
-            }
-            // 2. Check dep.license (short form, from deps.dev API)
-            else if (dep.license && 
-                     dep.license !== 'Unknown' && 
-                     dep.license !== 'NOASSERTION' && 
-                     String(dep.license).trim() !== '') {
-                licenseInfo = licenseProcessor.parseLicense({
-                    licenseConcluded: dep.license,
-                    licenseDeclared: dep.license
-                });
-            }
-            // 3. Check GitHub Actions analysis metadata (for GitHub Actions dependencies)
-            else if (dep.category?.ecosystem === 'GitHub Actions' || dep.ecosystem === 'GitHub Actions') {
-                // Check dep._gaMetadata first (if set during processing)
-                if (dep._gaMetadata && dep._gaMetadata.license) {
-                    licenseInfo = licenseProcessor.parseLicense({
-                        licenseConcluded: dep._gaMetadata.license,
-                        licenseDeclared: dep._gaMetadata.license
-                    });
-                } else if (orgData) {
-                    // Fallback: search githubActionsAnalysis if orgData is available
-                    const enrichedLicense = this.getEnrichedGitHubActionLicense(dep, orgData);
-                    if (enrichedLicense) {
-                        licenseInfo = licenseProcessor.parseLicense({
-                            licenseConcluded: enrichedLicense,
-                            licenseDeclared: enrichedLicense
-                        });
-                    }
-                }
-            }
-            // 4. Parse from originalPackage (from SBOM) - always check this as fallback
-            if (!licenseInfo && dep.originalPackage) {
-                licenseInfo = licenseProcessor.parseLicense(dep.originalPackage);
-            }
+            // Use unified method to get license info
+            const { licenseInfo } = this.getDependencyLicenseInfo(dep, orgData);
             
             if (!licenseInfo) return;
             
@@ -5319,14 +5267,16 @@ class ViewManager {
             if (processedDeps.length > 0) {
                 // Render each dependency item inline
                 const depItems = processedDeps.map(depData => {
-                    // Build version upgrade badges
+                    // Build version upgrade badges (inline with package name)
+                    // Show both major and minor badges if both are available
                     const versionBadges = [];
                     if (depData.hasMajorUpdate && depData.latestVersion) {
-                        versionBadges.push(`<span class="badge bg-danger ms-1" title="Major version upgrade available"><i class="fas fa-arrow-up me-1"></i>Major: ${escapeHtml(depData.latestVersion)}</span>`);
-                    } else if (depData.hasMinorUpdate && depData.latestVersion) {
-                        versionBadges.push(`<span class="badge bg-warning text-dark ms-1" title="Minor version upgrade available"><i class="fas fa-arrow-up me-1"></i>Minor: ${escapeHtml(depData.latestVersion)}</span>`);
+                        versionBadges.push(`<span class="badge bg-danger ms-2" title="Major version upgrade available"><i class="fas fa-arrow-up me-1"></i>Major: ${escapeHtml(depData.latestVersion)}</span>`);
                     }
-                    const versionBadgesHTML = versionBadges.length > 0 ? `<div class="mt-2">${versionBadges.join('')}</div>` : '';
+                    if (depData.hasMinorUpdate && depData.latestVersion) {
+                        versionBadges.push(`<span class="badge bg-warning text-dark ms-2" title="Minor version upgrade available"><i class="fas fa-arrow-up me-1"></i>Minor: ${escapeHtml(depData.latestVersion)}</span>`);
+                    }
+                    const versionBadgesHTML = versionBadges.join('');
                     
                     const usageHTML = depData.hasUsage 
                         ? `<div class="vuln-repo-usage mt-3 p-2 bg-light rounded">
@@ -5352,7 +5302,9 @@ class ViewManager {
                     
                     return `<div class="vulnerable-dep-item mb-3" style="border-left: 3px solid #dc3545; padding-left: 15px;">
     <div class="vuln-dep-info">
-        <div class="vuln-dep-name" style="font-weight: bold; font-size: 1.1em;">${escapeHtml(depData.name)}@${escapeHtml(depData.version)}</div>
+        <div class="vuln-dep-name d-flex align-items-center flex-wrap" style="font-weight: bold; font-size: 1.1em;">
+            <span>${escapeHtml(depData.name)}@${escapeHtml(depData.version)}</span>${versionBadgesHTML}
+        </div>
         <div class="vuln-dep-count mb-2">${depData.vulnerabilityCount} ${depData.vulnerabilityCount !== 1 ? 'vulnerabilities' : 'vulnerability'}</div>
         <div class="vuln-severity-badges mb-2">
             ${depData.vulnerabilities.map(vuln => `
@@ -5362,7 +5314,6 @@ class ViewManager {
                 ${escapeHtml(vuln.severity)}
             </span>`).join('')}
         </div>
-        ${versionBadgesHTML}
         ${usageHTML}
     </div>
     <div class="vuln-dep-actions mt-2">

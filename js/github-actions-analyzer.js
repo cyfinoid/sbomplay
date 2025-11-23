@@ -928,11 +928,11 @@ class GitHubActionsAnalyzer {
         }
 
         // Try tag (most common for GitHub Actions like v2, v3, etc.)
-        try {
-            const tagUrl = `${this.githubClient.baseUrl}/repos/${owner}/${repo}/git/ref/tags/${ref}`;
-            const tagResponse = await this.githubClient.makeRequest(tagUrl);
-            if (tagResponse.ok) {
-                const tagData = await tagResponse.json();
+            try {
+                const tagUrl = `${this.githubClient.baseUrl}/repos/${owner}/${repo}/git/ref/tags/${ref}`;
+                const tagResponse = await this.githubClient.makeRequest(tagUrl);
+                if (tagResponse.ok) {
+                    const tagData = await tagResponse.json();
                 // Handle both direct commit refs and annotated tag refs
                 if (tagData.object.type === 'commit') {
                     return tagData.object.sha;
@@ -945,20 +945,20 @@ class GitHubActionsAnalyzer {
                         return tagObject.object.sha;
                     }
                 }
-            }
-        } catch (tagError) {
+                }
+            } catch (tagError) {
             // Tag doesn't exist or request failed, continue to try commit
         }
 
         // Try commit SHA directly (in case ref is a partial SHA or commit)
-        try {
-            const commitUrl = `${this.githubClient.baseUrl}/repos/${owner}/${repo}/commits/${ref}`;
-            const commitResponse = await this.githubClient.makeRequest(commitUrl);
-            if (commitResponse.ok) {
-                const commitData = await commitResponse.json();
-                return commitData.sha;
-            }
-        } catch (commitError) {
+                try {
+                    const commitUrl = `${this.githubClient.baseUrl}/repos/${owner}/${repo}/commits/${ref}`;
+                    const commitResponse = await this.githubClient.makeRequest(commitUrl);
+                    if (commitResponse.ok) {
+                        const commitData = await commitResponse.json();
+                        return commitData.sha;
+                    }
+                } catch (commitError) {
             // Commit doesn't exist or request failed
         }
 

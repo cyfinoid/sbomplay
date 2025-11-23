@@ -141,54 +141,68 @@ class GitHubClient {
      * @returns {Promise<Object|null>} - User profile data, or null if not found
      */
     async getUserGraphQL(username) {
-        // Use a union query to handle both User and Organization types correctly
+        // Query both user and organization separately to handle both types correctly
         const query = `
             query($username: String!) {
                 user: user(login: $username) {
                     __typename
-                    ... on User {
-                        login
-                        name
-                        location
-                        company
-                        bio
-                        avatarUrl
-                        url
-                    }
-                    ... on Organization {
-                        login
-                        name
-                        location
-                        company
-                        description
-                        avatarUrl
-                        url
-                    }
+                    login
+                    name
+                    location
+                    company
+                    bio
+                    avatarUrl
+                    url
+                }
+                organization: organization(login: $username) {
+                    __typename
+                    login
+                    name
+                    location
+                    description
+                    avatarUrl
+                    url
                 }
             }
         `;
         
         try {
             const data = await this.makeGraphQLRequest(query, { username });
-            if (!data || !data.user) {
+            if (!data) {
                 return null;
             }
             
-            const user = data.user;
-            // __typename will be 'User' or 'Organization'
-            const isUser = user.__typename === 'User';
+            // Check if user exists
+            if (data.user) {
+                return {
+                    login: data.user.login,
+                    name: data.user.name || null,
+                    location: data.user.location || null,
+                    company: data.user.company || null,
+                    email: null, // GraphQL requires user:email scope
+                    bio: data.user.bio || null,
+                    avatar_url: data.user.avatarUrl || null,
+                    html_url: data.user.url || null,
+                    type: 'User'
+                };
+            }
             
-            return {
-                login: user.login,
-                name: user.name || null,
-                location: user.location || null,
-                company: user.company || null,
-                email: null, // GraphQL requires user:email scope
-                bio: isUser ? (user.bio || null) : (user.description || null),
-                avatar_url: user.avatarUrl || null,
-                html_url: user.url || null,
-                type: isUser ? 'User' : 'Organization'
-            };
+            // Check if organization exists
+            if (data.organization) {
+                return {
+                    login: data.organization.login,
+                    name: data.organization.name || null,
+                    location: data.organization.location || null,
+                    company: null, // Organization type doesn't have company field
+                    email: null,
+                    bio: data.organization.description || null,
+                    avatar_url: data.organization.avatarUrl || null,
+                    html_url: data.organization.url || null,
+                    type: 'Organization'
+                };
+            }
+            
+            return null;
         } catch (error) {
             // If GraphQL fails, return null to trigger REST fallback
             console.log(`⚠️  GraphQL user fetch failed, will use REST: ${error.message}`);
@@ -216,7 +230,7 @@ class GitHubClient {
                     this.userCache.delete(cacheKey);
                 } else {
                     console.log(`📦 Cache: Using cached ${cached.type || 'user'} profile for ${username}`);
-                    return cached;
+            return cached;
                 }
             }
         }
@@ -525,7 +539,7 @@ class GitHubClient {
             const response = await this.makeRequest(url);
             
             if (response.ok) {
-                const repos = await this.getAllPages(url, response);
+            const repos = await this.getAllPages(url, response);
                 // Filter: Only include public repos AND repos owned by this organization
                 const filteredRepos = repos.filter(repo => {
                     const isPublic = repo.visibility === 'public';
@@ -601,9 +615,9 @@ class GitHubClient {
                 return filteredRepos;
             } else if (response.status === 404) {
                 throw new Error(`User '${ownerName}' not found`);
-            } else if (response.status === 403) {
+        } else if (response.status === 403) {
                 throw new Error('Access denied. The user might be private or require authentication.');
-            } else {
+        } else {
                 throw new Error(`Failed to fetch user repositories: ${response.status} ${response.statusText}`);
             }
         }

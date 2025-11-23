@@ -83,7 +83,7 @@ class LocationService {
             // Note: Changed "Co" to "Co\." to require period, avoiding false matches with state abbreviations
             if (companyNamePattern.test(normalized) && normalized.length < 60 && !normalized.match(/,\s*(USA|US|UK|Canada|Australia|Germany|France|Spain|Italy|Japan|China|India|Brazil|Mexico)/i)) {
                 // Only skip if it looks like a company name (not too long, contains company suffix, and no country indicator)
-                console.log(`⚠️ Skipping geocoding for company name: "${normalized}"`);
+            console.log(`⚠️ Skipping geocoding for company name: "${normalized}"`);
                 return null;
             }
         }

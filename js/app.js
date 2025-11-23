@@ -1134,6 +1134,9 @@ class SBOMPlayApp {
                     // Fetch version drift for all packages (already saves to cache/IndexedDB)
                     await this.fetchVersionDriftData(results.allDependencies);
                     
+                    // Re-export data to include fetched licenses in results
+                    results = this.sbomProcessor.exportData();
+                    
                     console.log('✅ License and version drift fetching complete');
                 } catch (error) {
                     console.error('❌ License/version drift fetching failed:', error);
@@ -3608,6 +3611,27 @@ class SBOMPlayApp {
                                 dep.originalPackage.licenseDeclared = licenseFull;
                             }
                             
+                            // Also update the original dependency object in sbomProcessor.dependencies Map
+                            // This ensures licenses persist when exportData() is called again
+                            if (this.sbomProcessor && this.sbomProcessor.dependencies) {
+                                const ecosystem = (dep.category?.ecosystem || dep.ecosystem)?.toLowerCase();
+                                if (ecosystem && dep.name && dep.version) {
+                                    const packageKey = `${ecosystem}:${dep.name}@${dep.version}`;
+                                    const originalDep = this.sbomProcessor.dependencies.get(packageKey);
+                                    if (originalDep) {
+                                        originalDep.license = licenseText;
+                                        originalDep.licenseFull = licenseFull;
+                                        originalDep._licenseEnriched = true;
+                                        
+                                        // Also update originalPackage if it exists
+                                        if (originalDep.originalPackage) {
+                                            originalDep.originalPackage.licenseConcluded = licenseFull;
+                                            originalDep.originalPackage.licenseDeclared = licenseFull;
+                                        }
+                                    }
+                                }
+                            }
+                            
                             fetched++;
                             
                             if (fetched % 10 === 0) {
@@ -3920,17 +3944,17 @@ class SBOMPlayApp {
                     if (locationsNeedingGeocoding.size > 0) {
                         console.log(`📍 Batch geocoding ${locationsNeedingGeocoding.size} locations that weren't geocoded during fetch (likely from non-GitHub sources)...`);
                         this.updateProgress(95, `Geocoding ${locationsNeedingGeocoding.size} remaining locations...`, 'geocoding-locations');
-                        try {
-                            const geocodeResults = await locationService.batchGeocode(
+                    try {
+                        const geocodeResults = await locationService.batchGeocode(
                                 Array.from(locationsNeedingGeocoding),
-                                (processed, total) => {
-                                    const percent = 95 + (processed / total * 2);
-                                    this.updateProgress(percent, `Geocoding locations: ${processed}/${total}`, 'geocoding-locations');
-                                    console.log(`📍 Geocoding progress: ${processed}/${total}`);
-                                }
-                            );
-                            const geocodedCount = Array.from(geocodeResults.values()).filter(r => r && !r.failed).length;
-                            const failedCount = Array.from(geocodeResults.values()).filter(r => r && r.failed).length;
+                            (processed, total) => {
+                                const percent = 95 + (processed / total * 2);
+                                this.updateProgress(percent, `Geocoding locations: ${processed}/${total}`, 'geocoding-locations');
+                                console.log(`📍 Geocoding progress: ${processed}/${total}`);
+                            }
+                        );
+                        const geocodedCount = Array.from(geocodeResults.values()).filter(r => r && !r.failed).length;
+                        const failedCount = Array.from(geocodeResults.values()).filter(r => r && r.failed).length;
                             console.log(`✅ Completed geocoding remaining locations: ${geocodedCount} successful, ${failedCount} failed`);
                             
                             // Update author entities with geocoding data from batch results
@@ -3953,11 +3977,11 @@ class SBOMPlayApp {
                                     // Skip if entity not found
                                 }
                             }
-                        } catch (geocodeError) {
-                            console.error('❌ Error during batch geocoding:', geocodeError);
-                            // Continue even if geocoding fails - locations can be geocoded later when map loads
-                        }
-                    } else {
+                    } catch (geocodeError) {
+                        console.error('❌ Error during batch geocoding:', geocodeError);
+                        // Continue even if geocoding fails - locations can be geocoded later when map loads
+                    }
+                } else {
                         console.log('📍 All author locations were geocoded during fetch - no batch geocoding needed');
                     }
                 }
