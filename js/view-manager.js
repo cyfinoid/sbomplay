@@ -5106,20 +5106,55 @@ class ViewManager {
         const repos = orgData.data.allRepositories || [];
         
         // Find the dependency in allDependencies
-        const fullDep = allDeps.find(d => 
+        // Try exact match first, then try matching by displayVersion or assumedVersion
+        // This handles cases where vulnerability analysis used dep.version but exportData used displayVersion
+        let fullDep = allDeps.find(d => 
             d.name === vulnDep.name && d.version === vulnDep.version
         );
+        
+        // If not found, try matching by displayVersion or assumedVersion
+        if (!fullDep) {
+            fullDep = allDeps.find(d => 
+                d.name === vulnDep.name && (
+                    d.displayVersion === vulnDep.version ||
+                    d.assumedVersion === vulnDep.version ||
+                    d.version === vulnDep.version
+                )
+            );
+        }
+        
+        // If still not found, try fuzzy matching (normalize versions)
+        if (!fullDep && window.normalizeVersion) {
+            const normalizedVulnVersion = window.normalizeVersion(vulnDep.version);
+            fullDep = allDeps.find(d => {
+                if (d.name !== vulnDep.name) return false;
+                const normalizedDepVersion = window.normalizeVersion(d.version || '');
+                const normalizedDisplayVersion = window.normalizeVersion(d.displayVersion || '');
+                return normalizedDepVersion === normalizedVulnVersion || 
+                       normalizedDisplayVersion === normalizedVulnVersion;
+            });
+        }
 
         if (!fullDep) {
+            console.warn(`⚠️ Could not find dependency ${vulnDep.name}@${vulnDep.version} in allDependencies for repository usage`);
             return [];
         }
 
         const usage = [];
         const repoKeys = fullDep.repositories || [];
+        
+        // If no repositories found, this is a data integrity issue
+        if (repoKeys.length === 0) {
+            console.warn(`⚠️ Dependency ${vulnDep.name}@${vulnDep.version} found but has no repositories linked`);
+            return [];
+        }
 
         repoKeys.forEach(repoKey => {
             const repo = repos.find(r => `${r.owner}/${r.name}` === repoKey);
-            if (!repo) return;
+            if (!repo) {
+                console.warn(`⚠️ Repository ${repoKey} not found in allRepositories for dependency ${vulnDep.name}@${vulnDep.version}`);
+                return;
+            }
 
             const pathInfo = this.buildDependencyPath(repo, vulnDep, allDeps);
             if (pathInfo) {

@@ -148,6 +148,41 @@ Update when logical flow changes occur:
 - [ ] External links have security attributes
 - [ ] New markdown files placed in `mdfiles/` folder (except core files)
 
+## API Integration Patterns
+
+### GitHub GraphQL API
+- **User vs Organization**: Query separately (`user(login:)` and `organization(login:)`), don't use fragments
+- **Organization fields**: Organization type doesn't have `company` field (only User has it)
+- **Error handling**: GraphQL errors fall back to REST API automatically
+
+### External API Queries
+- **Skip unknown versions**: Don't query deps.dev API for `version === 'unknown'` or `version === null` (causes 404s)
+- **Built-in modules**: Skip PyPI queries for built-in Python modules (json, sys, os, etc.) - they're not PyPI packages
+- **Version normalization**: Use `normalizeVersion()` for flexible version matching
+
+## Data Consistency Patterns
+
+### License Fetching
+- **Update both sources**: When fetching licenses, update both `results.allDependencies` array AND `sbomProcessor.dependencies` Map
+- **Re-export after fetching**: Call `exportData()` again after license fetching to include fetched licenses in results
+- **Include in export**: `exportData()` must include `license` and `licenseFull` fields for persistence
+
+### Version Matching
+- **Flexible matching**: When matching vulnerabilities to dependencies, check `version`, `displayVersion`, `assumedVersion`, and normalized versions
+- **Reason**: Vulnerability analysis uses `dep.version` but `exportData()` uses `displayVersion || dep.version`
+- **Transitive dependencies**: Use ecosystem context when categorizing (don't infer from name only)
+
+### Vulnerability-Repository Linking
+- **Always has repo**: Vulnerabilities always come from repositories - if "Repository usage information not available", it's a data integrity issue
+- **Matching logic**: Use flexible version matching (see above) to find dependency in `allDependencies`
+- **Logging**: Add warnings when dependency/repository not found for debugging
+
+## UI Patterns
+
+### Badge Placement
+- **Inline badges**: Version upgrade badges should be inline with package name (use flexbox: `d-flex align-items-center`)
+- **Show both**: Display both major AND minor badges if both `hasMajorUpdate` and `hasMinorUpdate` are true (use separate `if` statements, not `else if`)
+
 ## Common Mistakes to Avoid
 
 1. **Hardcoded colors** → Use CSS variables (`var(--bg-primary)`)
@@ -159,4 +194,7 @@ Update when logical flow changes occur:
 7. **Inline styles/scripts** → Extract to separate files
 8. **Duplicate utility functions** → Consolidate in `utils.js`
 9. **Markdown files in wrong location** → Place documentation/reports in `mdfiles/` folder
+10. **GraphQL fragments on unions** → Query User and Organization separately
+11. **Version mismatch** → Use flexible version matching (version, displayVersion, normalized)
+12. **License not persisting** → Update both results array and original dependency objects, then re-export
 
