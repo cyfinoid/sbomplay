@@ -23,7 +23,7 @@ body {
 
 .navbar-brand {
     font-weight: bold;
-    color: white !important;
+    /* Color handled by themes.css for theme-aware support */
 }
 
 /* Cards */
@@ -40,8 +40,7 @@ body {
 }
 
 .card-header {
-    background: var(--secondary-color);
-    color: var(--primary-color);
+    /* Background and color handled by themes.css for theme-aware support */
     border-radius: 0.5rem 0.5rem 0 0 !important;
     border: none;
 }
@@ -80,6 +79,15 @@ body {
     border-radius: 0.75rem;
     background-color: var(--light-bg);
     overflow: hidden;
+}
+
+/* Progress bar height variants */
+.progress-standard {
+    height: 1rem;
+}
+
+.progress-tall {
+    height: 1.5rem;
 }
 
 .progress-bar {
@@ -370,6 +378,33 @@ body {
 .alert-sm {
     padding: 0.5rem 1rem;
     font-size: 0.875rem;
+}
+
+/* Alert Container - Fixed position to prevent layout displacement */
+.alert-container {
+    position: fixed;
+    top: 70px; /* Below navbar */
+    left: 50%;
+    transform: translateX(-50%);
+    width: 100%;
+    max-width: 1200px;
+    z-index: 1050; /* Above Bootstrap navbar (z-index 1030) */
+    pointer-events: none; /* Allow clicks to pass through container */
+    padding: 0 15px;
+}
+
+.alert-container .alert {
+    pointer-events: auto; /* Re-enable clicks on alerts */
+    margin-bottom: 0.5rem;
+    box-shadow: 0 0.25rem 0.5rem rgba(0, 0, 0, 0.15);
+}
+
+/* Responsive adjustment for alert container */
+@media (max-width: 768px) {
+    .alert-container {
+        top: 60px;
+        padding: 0 10px;
+    }
 }
 
 /* Dependency Chart */
@@ -1420,7 +1455,7 @@ body {
 }
 
 .license-breakdown h3 {
-    color: #495057;
+    color: var(--text-primary);
     margin-bottom: 1.5rem;
     font-weight: 600;
 }
@@ -1681,19 +1716,19 @@ body {
     margin: 0 0 0.5rem 0;
     font-size: 0.9rem;
     font-weight: 600;
-    color: #495057;
+    color: var(--text-primary);
 }
 
 .license-number {
     font-size: 1.5rem;
     font-weight: 700;
-    color: #212529;
+    color: var(--text-primary);
     margin-bottom: 0.25rem;
 }
 
 .license-detail {
     font-size: 0.8rem;
-    color: #6c757d;
+    color: var(--text-secondary);
     font-weight: 500;
 }
 
@@ -1702,7 +1737,7 @@ body {
 }
 
 .license-conflicts h4 {
-    color: #dc3545;
+    color: var(--color-red);
     margin-bottom: 1rem;
     font-weight: 600;
 }
@@ -1722,7 +1757,7 @@ body {
 }
 
 .license-conflict-item:hover {
-    background: #e9ecef;
+    background: var(--bg-secondary);
     transform: translateX(5px);
 }
 
@@ -1763,7 +1798,7 @@ body {
 }
 
 .high-risk-licenses h4 {
-    color: #dc3545;
+    color: var(--color-red);
     margin-bottom: 1rem;
     font-weight: 600;
 }
@@ -1914,7 +1949,7 @@ body {
 
 .license-details strong {
     min-width: 100px;
-    color: #495057;
+    color: var(--text-primary);
 }
 
 .license-warnings ul {
@@ -2085,7 +2120,7 @@ body {
 .independent-section .vulnerability-breakdown h3,
 .independent-section .license-breakdown h3 {
     margin-bottom: 1.5rem;
-    color: #495057;
+    color: var(--text-primary);
     font-weight: 600;
 }
 
@@ -3282,6 +3317,17 @@ body {
 }
 
 /* Cursor utilities */
+/* Collapsible card headers */
+.card-header.cursor-pointer {
+    cursor: pointer;
+    user-select: none;
+    transition: background-color 0.2s ease;
+}
+
+.card-header.cursor-pointer:hover {
+    opacity: 0.9;
+}
+
 .cursor-pointer {
     cursor: pointer !important;
 }

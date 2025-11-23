@@ -588,7 +588,25 @@ class SBOMPlayApp {
             this.updateProgress(50, 'Processing SBOM data and extracting dependencies...', 'processing-sbom');
             this.sbomProcessor.setTotalRepositories(1);
             // Extract repository license from GitHub API response
-            const repositoryLicense = repoData.license?.spdx_id || repoData.license?.key || null;
+            let repositoryLicense = repoData.license?.spdx_id || repoData.license?.key || null;
+            
+            // If GitHub API didn't return a license, try fetching LICENSE file
+            if (!repositoryLicense || repositoryLicense === 'NOASSERTION') {
+                try {
+                    const licenseContent = await this.githubClient.getFileContent(owner, repo, 'LICENSE');
+                    if (licenseContent) {
+                        // Use the same license detection logic as GitHub Actions analyzer
+                        const detectedLicense = this.detectLicenseFromContent(licenseContent);
+                        if (detectedLicense) {
+                            repositoryLicense = detectedLicense;
+                            console.log(`   ✅ Detected repository license from LICENSE file for ${owner}/${repo}: ${repositoryLicense}`);
+                        }
+                    }
+                } catch (error) {
+                    console.debug(`Could not fetch LICENSE file for ${owner}/${repo}: ${error.message}`);
+                }
+            }
+            
             const success = await this.sbomProcessor.processSBOM(owner, repo, sbomData, repositoryLicense);
             
             if (!success) {
@@ -731,6 +749,12 @@ class SBOMPlayApp {
                     // Fetch licenses for PyPI packages missing license info
                     await this.fetchPyPILicenses(results.allDependencies, repoKey);
                     
+                    // Fetch licenses for Go packages missing license info
+                    await this.fetchGoLicenses(results.allDependencies, repoKey);
+                    
+                    // Fetch licenses for other ecosystems (npm, maven, cargo, etc.)
+                    await this.fetchLicensesForAllEcosystems(results.allDependencies, repoKey);
+                    
                     // Fetch version drift for all packages (already saves to cache/IndexedDB)
                     await this.fetchVersionDriftData(results.allDependencies);
                     
@@ -849,7 +873,25 @@ class SBOMPlayApp {
                     
                     if (sbomData) {
                         // Extract repository license from GitHub API response
-                        const repositoryLicense = repo.license?.spdx_id || repo.license?.key || null;
+                        let repositoryLicense = repo.license?.spdx_id || repo.license?.key || null;
+                        
+                        // If GitHub API didn't return a license, try fetching LICENSE file
+                        if (!repositoryLicense || repositoryLicense === 'NOASSERTION') {
+                            try {
+                                const licenseContent = await this.githubClient.getFileContent(owner, name, 'LICENSE');
+                                if (licenseContent) {
+                                    // Use the same license detection logic as GitHub Actions analyzer
+                                    const detectedLicense = app.detectLicenseFromContent(licenseContent);
+                                    if (detectedLicense) {
+                                        repositoryLicense = detectedLicense;
+                                        console.log(`   ✅ Detected repository license from LICENSE file for ${owner}/${name}: ${repositoryLicense}`);
+                                    }
+                                }
+                            } catch (error) {
+                                console.debug(`Could not fetch LICENSE file for ${owner}/${name}: ${error.message}`);
+                            }
+                        }
+                        
                         // Extract archived status from GitHub API response
                         const archived = repo.archived || false;
                         const success = await this.sbomProcessor.processSBOM(owner, name, sbomData, repositoryLicense, archived);
@@ -1085,6 +1127,9 @@ class SBOMPlayApp {
                     
                     // Fetch licenses for Go packages missing license info
                     await this.fetchGoLicenses(results.allDependencies, ownerName);
+                    
+                    // Fetch licenses for other ecosystems (npm, maven, cargo, etc.)
+                    await this.fetchLicensesForAllEcosystems(results.allDependencies, ownerName);
                     
                     // Fetch version drift for all packages (already saves to cache/IndexedDB)
                     await this.fetchVersionDriftData(results.allDependencies);
@@ -3154,6 +3199,25 @@ class SBOMPlayApp {
      * Show alert message
      */
     showAlert(message, type) {
+        // Get or create alert container
+        let alertContainer = document.getElementById('alertContainer');
+        if (!alertContainer) {
+            // Create alert container if it doesn't exist (fallback)
+            alertContainer = document.createElement('div');
+            alertContainer.id = 'alertContainer';
+            alertContainer.className = 'alert-container';
+            // Insert after navbar
+            const navbar = document.querySelector('nav');
+            if (navbar && navbar.nextSibling) {
+                navbar.parentNode.insertBefore(alertContainer, navbar.nextSibling);
+            } else if (navbar) {
+                navbar.parentNode.appendChild(alertContainer);
+            } else {
+                // Last resort: insert at body start
+                document.body.insertBefore(alertContainer, document.body.firstChild);
+            }
+        }
+
         const alertDiv = document.createElement('div');
         alertDiv.className = `alert alert-${type} alert-dismissible fade show`;
         alertDiv.innerHTML = `
@@ -3161,20 +3225,15 @@ class SBOMPlayApp {
             <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
         `;
         
-        const container = document.querySelector('.container');
-        if (container) {
-            container.insertBefore(alertDiv, container.firstChild);
-            
-            // Auto-remove after 5 seconds
-            setTimeout(() => {
-                if (alertDiv.parentNode) {
-                    alertDiv.remove();
-                }
-            }, 5000);
-        } else {
-            // Fallback: just log to console if no container found
-            console.log(`[${type.toUpperCase()}] ${message}`);
-        }
+        // Insert at the top of the alert container
+        alertContainer.insertBefore(alertDiv, alertContainer.firstChild);
+        
+        // Auto-remove after 5 seconds
+        setTimeout(() => {
+            if (alertDiv.parentNode) {
+                alertDiv.remove();
+            }
+        }, 5000);
     }
 
     /**
@@ -3274,7 +3333,11 @@ class SBOMPlayApp {
      * Fetch licenses for Go packages from deps.dev API
      */
     async fetchGoLicenses(dependencies, identifier) {
-        if (!dependencies || dependencies.length === 0) return;
+        console.log('🔍 fetchGoLicenses called');
+        if (!dependencies || dependencies.length === 0) {
+            console.log('ℹ️ fetchGoLicenses: No dependencies provided');
+            return;
+        }
         
         // Filter Go packages that need licenses
         const goDeps = dependencies.filter(dep => 
@@ -3284,6 +3347,7 @@ class SBOMPlayApp {
             (!dep.licenseFull || dep.licenseFull === 'Unknown' || dep.licenseFull === 'NOASSERTION')
         );
         
+        console.log(`🔍 fetchGoLicenses: Found ${goDeps.length} Go packages needing licenses (out of ${dependencies.length} total dependencies)`);
         if (goDeps.length === 0) {
             console.log('ℹ️ No Go packages need license fetching');
             return;
@@ -3390,6 +3454,137 @@ class SBOMPlayApp {
         // Note: Licenses are updated in-place in the dependencies array
         // The caller should save the updated results to IndexedDB after this function completes
         console.log(`✅ Go license fetching complete: ${fetched} licenses fetched${saved > 0 ? `, ${saved} saved to cache` : ''}`);
+    }
+    
+    /**
+     * Fetch licenses for all ecosystems (npm, maven, cargo, composer, rubygems, nuget) from deps.dev API
+     */
+    async fetchLicensesForAllEcosystems(dependencies, identifier) {
+        console.log('🔍 fetchLicensesForAllEcosystems called');
+        if (!dependencies || dependencies.length === 0) {
+            console.log('ℹ️ fetchLicensesForAllEcosystems: No dependencies provided');
+            return;
+        }
+        
+        // Map of ecosystem names to deps.dev system names
+        const ecosystemMap = {
+            'npm': 'npm',
+            'maven': 'maven',
+            'cargo': 'cargo',
+            'composer': 'packagist',
+            'packagist': 'packagist',
+            'rubygems': 'rubygems',
+            'gem': 'rubygems',
+            'nuget': 'nuget'
+        };
+        
+        // Group dependencies by ecosystem
+        const depsByEcosystem = new Map();
+        dependencies.forEach(dep => {
+            const ecosystem = dep.category?.ecosystem?.toLowerCase();
+            if (!ecosystem) return;
+            
+            // Skip PyPI and Go (already handled separately)
+            if (ecosystem === 'pypi' || ecosystem === 'go' || ecosystem === 'golang') return;
+            
+            // Skip if already has license
+            if (dep.licenseFull && dep.licenseFull !== 'Unknown' && dep.licenseFull !== 'NOASSERTION') return;
+            
+            // Skip if missing name or version
+            if (!dep.name || !dep.version || dep.version === 'version unknown') return;
+            
+            // Map ecosystem to deps.dev system name
+            const depsDevSystem = ecosystemMap[ecosystem];
+            if (!depsDevSystem) {
+                // Ecosystem not supported by deps.dev
+                return;
+            }
+            
+            if (!depsByEcosystem.has(depsDevSystem)) {
+                depsByEcosystem.set(depsDevSystem, []);
+            }
+            depsByEcosystem.get(depsDevSystem).push(dep);
+        });
+        
+        console.log(`🔍 fetchLicensesForAllEcosystems: Found packages in ${depsByEcosystem.size} ecosystems needing licenses (out of ${dependencies.length} total dependencies)`);
+        if (depsByEcosystem.size === 0) {
+            console.log('ℹ️ No packages from other ecosystems need license fetching');
+            return;
+        }
+        
+        const totalDeps = Array.from(depsByEcosystem.values()).reduce((sum, deps) => sum + deps.length, 0);
+        console.log(`📄 Fetching licenses for ${totalDeps} packages from ${depsByEcosystem.size} ecosystems...`);
+        
+        // Process each ecosystem
+        for (const [depsDevSystem, deps] of depsByEcosystem.entries()) {
+            console.log(`📄 Fetching licenses for ${deps.length} ${depsDevSystem} packages...`);
+            
+            const batchSize = 20;
+            let fetched = 0;
+            
+            for (let i = 0; i < deps.length; i += batchSize) {
+                const batch = deps.slice(i, i + batchSize);
+                await Promise.all(batch.map(async (dep) => {
+                    try {
+                        // Fetch license from deps.dev API
+                        const url = `https://api.deps.dev/v3alpha/systems/${depsDevSystem}/packages/${encodeURIComponent(dep.name)}/versions/${encodeURIComponent(dep.version)}`;
+                        debugLogUrl(`🌐 [DEBUG] Fetching URL: ${url}`);
+                        debugLogUrl(`   Reason: Fetching deps.dev API for ${depsDevSystem} package ${dep.name}@${dep.version} to extract license information`);
+                        
+                        const response = await fetchWithTimeout(url);
+                        if (!response.ok) {
+                            console.log(`   ❌ Response: Status ${response.status} ${response.statusText}`);
+                            return;
+                        }
+                        
+                        const data = await response.json();
+                        const licenseCount = data.licenses?.length || 0;
+                        console.log(`   ✅ Response: Status ${response.status}, Extracted: ${licenseCount} license/licenses`);
+                        
+                        if (data.licenses && data.licenses.length > 0) {
+                            const licenseFull = data.licenses.join(' AND ');
+                            let licenseText = licenseFull;
+                            
+                            // Format license text
+                            if (licenseFull.includes(' AND ')) {
+                                const firstLicense = licenseFull.split(' AND ')[0];
+                                licenseText = firstLicense.startsWith('Apache') ? 'Apache' : (firstLicense.length > 8 ? firstLicense.substring(0, 8) + '...' : firstLicense);
+                            } else if (licenseFull.startsWith('Apache')) {
+                                licenseText = 'Apache';
+                            } else {
+                                licenseText = licenseFull.length > 8 ? licenseFull.substring(0, 8) + '...' : licenseFull;
+                            }
+                            
+                            // Update dependency object (both top-level and in originalPackage for persistence)
+                            dep.license = licenseText;
+                            dep.licenseFull = licenseFull;
+                            dep._licenseEnriched = true;
+                            
+                            // Also update originalPackage to ensure license persists when saved to IndexedDB
+                            if (dep.originalPackage) {
+                                dep.originalPackage.licenseConcluded = licenseFull;
+                                dep.originalPackage.licenseDeclared = licenseFull;
+                            }
+                            
+                            fetched++;
+                            
+                            if (fetched % 10 === 0) {
+                                console.log(`📄 Licenses (${depsDevSystem}): ${fetched}/${deps.length} fetched`);
+                            }
+                        }
+                    } catch (e) {
+                        console.debug(`Failed to fetch license for ${dep.name}@${dep.version}:`, e);
+                    }
+                }));
+                
+                // Small delay between batches
+                await new Promise(resolve => setTimeout(resolve, 50));
+            }
+            
+            console.log(`✅ ${depsDevSystem} license fetching complete: ${fetched} licenses fetched`);
+        }
+        
+        console.log(`✅ License fetching for all ecosystems complete`);
     }
     
     /**
@@ -3543,40 +3738,99 @@ class SBOMPlayApp {
             });
         }
         
-        // Fetch authors with progress callback (includes repository tracking)
-        const authorResults = await authorService.fetchAuthorsForPackages(
-            packages,
-            (processed, total) => {
-                this.updateProgress(96 + (processed / total * 2), `Fetching authors: ${processed}/${total}`);
-            }
-        );
+        // Set up rate limit listener for author analysis
+        const rateLimitHandler = (event) => {
+            const { waitTime, resetDate } = event.detail;
+            const waitMinutes = Math.ceil(waitTime / 60);
+            const resetTimeStr = resetDate.toLocaleTimeString();
+            this.updateProgress(93, 
+                `Rate limit exceeded. Waiting ${waitMinutes} minutes for reset at ${resetTimeStr}...`, 
+                'author-analysis');
+        };
+        const rateLimitResetHandler = () => {
+            this.updateProgress(93, 'Rate limit reset. Continuing author analysis...', 'author-analysis');
+        };
+        this.githubClient.addEventListener('rateLimitExceeded', rateLimitHandler);
+        this.githubClient.addEventListener('rateLimitReset', rateLimitResetHandler);
+        
+        let authorResults;
+        try {
+            // Fetch authors with progress callback (includes repository tracking)
+            authorResults = await authorService.fetchAuthorsForPackages(
+                packages,
+                (processed, total) => {
+                    this.updateProgress(93 + (processed / total * 3), `Fetching authors: ${processed}/${total}`);
+                }
+            );
+        } finally {
+            // Remove rate limit listeners
+            this.githubClient.removeEventListener('rateLimitExceeded', rateLimitHandler);
+            this.githubClient.removeEventListener('rateLimitReset', rateLimitResetHandler);
+        }
         
         // Batch geocode all author locations during analysis phase
+        // IMPORTANT: Ensure all location data is fetched before batch geocoding
+        console.log(`📍 Geocoding check: LocationService=${!!window.LocationService}, authorResults=${!!authorResults}, authorResults.size=${authorResults?.size || 0}`);
         if (window.LocationService && authorResults && authorResults.size > 0) {
             try {
-                console.log('📍 Geocoding author locations during analysis phase...');
+                console.log('📍 Fetching and geocoding author locations during analysis phase...');
                 const locationService = new window.LocationService();
                 const locations = new Set();
                 
-                // Fetch author entities from cache to get all locations
+                // Fetch author entities from cache and ensure all locations are fetched
                 // authorResults is a Map where keys are authorKeys and values are author objects
                 if (window.cacheManager) {
                     const authorKeys = Array.from(authorResults.keys());
-                    console.log(`📍 Collecting locations from ${authorKeys.length} author entities...`);
+                    console.log(`📍 Processing ${authorKeys.length} author entities for location data...`);
                     
+                    // First pass: Collect locations and identify authors that need location fetching
+                    const locationFetchPromises = [];
+                    for (const authorKey of authorKeys) {
+                        try {
+                            let authorEntity = await window.cacheManager.getAuthorEntity(authorKey);
+                            if (authorEntity) {
+                                // If author has GitHub username but no location, fetch it now
+                                if (authorEntity.metadata?.github && 
+                                    !authorEntity.metadata?.location && 
+                                    !authorEntity.metadata?.company) {
+                                    console.log(`📍 Queueing location fetch for ${authorKey} (GitHub: ${authorEntity.metadata.github})`);
+                                    locationFetchPromises.push(
+                                        authorService.fetchAuthorLocation(authorKey, authorEntity)
+                                            .catch(err => {
+                                                console.debug(`Failed to fetch location for ${authorKey}:`, err.message);
+                                                return null;
+                                            })
+                                    );
+                                }
+                            }
+                        } catch (e) {
+                            // Skip if entity not found
+                        }
+                    }
+                    
+                    // Wait for all location fetches to complete
+                    if (locationFetchPromises.length > 0) {
+                        console.log(`📍 Fetching locations for ${locationFetchPromises.length} authors...`);
+                        await Promise.allSettled(locationFetchPromises);
+                        console.log(`✅ Completed fetching author locations`);
+                    }
+                    
+                    // Second pass: Collect all locations from author entities (after fetching)
                     for (const authorKey of authorKeys) {
                         try {
                             const authorEntity = await window.cacheManager.getAuthorEntity(authorKey);
-                            if (authorEntity?.metadata?.location) {
-                                const normalized = locationService.normalizeLocationString(authorEntity.metadata.location);
-                                if (normalized) {
-                                    locations.add(normalized);
+                            if (authorEntity) {
+                                if (authorEntity.metadata?.location) {
+                                    const normalized = locationService.normalizeLocationString(authorEntity.metadata.location);
+                                    if (normalized) {
+                                        locations.add(normalized);
+                                    }
                                 }
-                            }
-                            if (authorEntity?.metadata?.company) {
-                                const normalized = locationService.normalizeLocationString(authorEntity.metadata.company);
-                                if (normalized) {
-                                    locations.add(normalized);
+                                if (authorEntity.metadata?.company) {
+                                    const normalized = locationService.normalizeLocationString(authorEntity.metadata.company);
+                                    if (normalized) {
+                                        locations.add(normalized);
+                                    }
                                 }
                             }
                         } catch (e) {
@@ -3586,14 +3840,24 @@ class SBOMPlayApp {
                 }
                 
                 if (locations.size > 0) {
-                    console.log(`📍 Geocoding ${locations.size} unique author locations...`);
-                    await locationService.batchGeocode(
-                        Array.from(locations),
-                        (processed, total) => {
-                            console.log(`📍 Geocoding progress: ${processed}/${total}`);
-                        }
-                    );
-                    console.log(`✅ Completed geocoding ${locations.size} author locations`);
+                    console.log(`📍 Batch geocoding ${locations.size} unique author locations...`);
+                    this.updateProgress(95, `Geocoding ${locations.size} author locations...`, 'geocoding-locations');
+                    try {
+                        const geocodeResults = await locationService.batchGeocode(
+                            Array.from(locations),
+                            (processed, total) => {
+                                const percent = 95 + (processed / total * 2);
+                                this.updateProgress(percent, `Geocoding locations: ${processed}/${total}`, 'geocoding-locations');
+                                console.log(`📍 Geocoding progress: ${processed}/${total}`);
+                            }
+                        );
+                        const geocodedCount = Array.from(geocodeResults.values()).filter(r => r && !r.failed).length;
+                        const failedCount = Array.from(geocodeResults.values()).filter(r => r && r.failed).length;
+                        console.log(`✅ Completed geocoding: ${geocodedCount} successful, ${failedCount} failed, ${locations.size - geocodedCount - failedCount} missing`);
+                    } catch (geocodeError) {
+                        console.error('❌ Error during batch geocoding:', geocodeError);
+                        // Continue even if geocoding fails - locations can be geocoded later when map loads
+                    }
                 } else {
                     console.log('📍 No author locations found to geocode');
                 }
@@ -3601,6 +3865,8 @@ class SBOMPlayApp {
                 console.warn('⚠️ Failed to geocode author locations during analysis:', error);
                 // Don't fail the entire analysis if geocoding fails
             }
+        } else {
+            console.warn(`⚠️ Geocoding skipped: LocationService=${!!window.LocationService}, authorResults=${!!authorResults}, authorResults.size=${authorResults?.size || 0}`);
         }
         
         // Fetch version drift data for all unique package versions in background
@@ -3722,6 +3988,38 @@ class SBOMPlayApp {
         
         await this.storageManager.saveAnalysisData(identifier, data.data);
         console.log(`✅ Saved ${authorsList.length} unique authors for ${identifier}`);
+    }
+
+    /**
+     * Detect license from LICENSE file content
+     * Similar to GitHubActionsAnalyzer.detectLicenseFromContent
+     */
+    detectLicenseFromContent(content) {
+        if (!content) return null;
+        
+        const contentUpper = content.toUpperCase();
+        
+        // Common license patterns
+        const licensePatterns = [
+            { pattern: /MIT\s+LICENSE|THE\s+MIT\s+LICENSE/i, spdx: 'MIT' },
+            { pattern: /APACHE\s+LICENSE|APACHE\s+2\.0/i, spdx: 'Apache-2.0' },
+            { pattern: /GNU\s+GENERAL\s+PUBLIC\s+LICENSE\s+VERSION\s+3|GPL-3|GPL\s+3\.0|GPL\s+3/i, spdx: 'GPL-3.0' },
+            { pattern: /GNU\s+GENERAL\s+PUBLIC\s+LICENSE\s+VERSION\s+2|GPL-2|GPL\s+2\.0/i, spdx: 'GPL-2.0' },
+            { pattern: /BSD\s+3-CLAUSE|BSD-3/i, spdx: 'BSD-3-Clause' },
+            { pattern: /BSD\s+2-CLAUSE|BSD-2/i, spdx: 'BSD-2-Clause' },
+            { pattern: /ISC\s+LICENSE/i, spdx: 'ISC' },
+            { pattern: /MOZILLA\s+PUBLIC\s+LICENSE|MPL/i, spdx: 'MPL-2.0' },
+            { pattern: /GNU\s+AFFERO\s+GENERAL\s+PUBLIC\s+LICENSE|AGPL/i, spdx: 'AGPL-3.0' },
+            { pattern: /LGPL|LESSER\s+GENERAL\s+PUBLIC\s+LICENSE/i, spdx: 'LGPL-3.0' }
+        ];
+        
+        for (const { pattern, spdx } of licensePatterns) {
+            if (pattern.test(contentUpper)) {
+                return spdx;
+            }
+        }
+        
+        return null;
     }
 
     /**

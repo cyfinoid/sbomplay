@@ -297,16 +297,29 @@ document.addEventListener('DOMContentLoaded', async function() {
                            (authorRefs.length > 0 && authorRefs[0].authorKey);
         
         if (isNewFormat) {
-            // New format: Use packageRepositories from author refs
+            // New format: Use both packageRepositories and repositories array
             authorRefs.forEach(ref => {
+                const authorKey = ref.authorKey || `${ref.ecosystem}:${ref.author}`;
+                
+                // First, use packageRepositories if available
                 if (ref.packageRepositories) {
                     Object.keys(ref.packageRepositories).forEach(pkg => {
                         (ref.packageRepositories[pkg] || []).forEach(repo => {
                             if (!authorRepoMap.has(repo)) {
                                 authorRepoMap.set(repo, new Set());
                             }
-                            authorRepoMap.get(repo).add(ref.authorKey || `${ref.ecosystem}:${ref.author}`);
+                            authorRepoMap.get(repo).add(authorKey);
                         });
+                    });
+                }
+                
+                // Also use repositories array as fallback/supplement
+                if (ref.repositories && Array.isArray(ref.repositories)) {
+                    ref.repositories.forEach(repo => {
+                        if (!authorRepoMap.has(repo)) {
+                            authorRepoMap.set(repo, new Set());
+                        }
+                        authorRepoMap.get(repo).add(authorKey);
                     });
                 }
             });

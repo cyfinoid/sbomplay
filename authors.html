@@ -9,7 +9,7 @@
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin=""/>
     <link rel="stylesheet" href="css/style.css?v=0.0.3">
     <link rel="stylesheet" href="css/themes.css?v=0.0.3">
-    <script src="js/theme-manager.js?v=0.0.3"></script>
+    <script src="js/theme-manager.js?v=0.0.3&cb=1732345678901"></script>
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
 </head>
 <body>
@@ -200,16 +200,16 @@
     </div>
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
-    <script src="js/indexeddb-manager.js?v=0.0.3"></script>
-    <script src="js/utils.js?v=0.0.3"></script>
-    <script src="js/registry-utils.js?v=0.0.3"></script>
-    <script src="js/version-utils.js?v=0.0.3"></script>
-    <script src="js/ecosystem-utils.js?v=0.0.3"></script>
-    <script src="js/cache-manager.js?v=0.0.3"></script>
-    <script src="js/storage-manager.js?v=0.0.3"></script>
-    <script src="js/location-service.js?v=0.0.3"></script>
-    <script src="js/sanctions-service.js?v=0.0.3"></script>
-    <script src="js/author-service.js?v=0.0.3"></script>
+    <script src="js/indexeddb-manager.js?v=0.0.3&cb=1732345678901"></script>
+    <script src="js/utils.js?v=0.0.3&cb=1732345678901"></script>
+    <script src="js/registry-utils.js?v=0.0.3&cb=1732345678901"></script>
+    <script src="js/version-utils.js?v=0.0.3&cb=1732345678901"></script>
+    <script src="js/ecosystem-utils.js?v=0.0.3&cb=1732345678901"></script>
+    <script src="js/cache-manager.js?v=0.0.3&cb=1732345678901"></script>
+    <script src="js/storage-manager.js?v=0.0.3&cb=1732345678901"></script>
+    <script src="js/location-service.js?v=0.0.3&cb=1732345678901"></script>
+    <script src="js/sanctions-service.js?v=0.0.3&cb=1732345678901"></script>
+    <script src="js/author-service.js?v=0.0.3&cb=1732345678901"></script>
     <script type="module">
         document.addEventListener('DOMContentLoaded', async function() {
             console.log('👥 Authors Page - Initializing...');
@@ -1295,8 +1295,110 @@
             return username.replace(/\[bot\]$/i, '-bot');
         }
         
+        // Cache for validated URLs to avoid repeated checks
+        const urlValidationCache = new Map();
+        
+        // Validate URL exists (check HEAD request)
+        async function validateUrl(url) {
+            if (!url || typeof url !== 'string') return false;
+            
+            // Check cache first
+            if (urlValidationCache.has(url)) {
+                return urlValidationCache.get(url);
+            }
+            
+            try {
+                // Use HEAD request to check if URL exists without downloading content
+                const response = await fetch(url, {
+                    method: 'HEAD',
+                    mode: 'no-cors', // CORS might fail, but we can still check
+                    cache: 'no-cache'
+                });
+                
+                // For no-cors mode, we can't read status, so assume it's valid
+                // For same-origin or CORS-enabled, check status
+                const isValid = response.ok || response.status === 0;
+                urlValidationCache.set(url, isValid);
+                return isValid;
+            } catch (error) {
+                // If fetch fails, try a different approach: check if it's a known pattern
+                // For GitHub, check if it's a known organization/user pattern
+                if (url.includes('github.com/')) {
+                    const githubMatch = url.match(/github\.com\/([^\/]+)/);
+                    if (githubMatch) {
+                        const username = githubMatch[1];
+                        // Known GitHub organizations that exist
+                        const knownOrgs = ['actions', 'google', 'microsoft', 'facebook', 'apple', 'amazon', 'netflix', 'twitter', 'github'];
+                        if (knownOrgs.includes(username.toLowerCase())) {
+                            urlValidationCache.set(url, true);
+                            return true;
+                        }
+                    }
+                }
+                
+                // For PyPI, check known patterns
+                if (url.includes('pypi.org/')) {
+                    // PyPI URLs are generally valid if they follow the pattern
+                    // We'll be conservative and only exclude obviously invalid ones
+                    urlValidationCache.set(url, true);
+                    return true;
+                }
+                
+                // Default: assume invalid if fetch fails
+                urlValidationCache.set(url, false);
+                return false;
+            }
+        }
+        
+        // Validate GitHub user/organization exists
+        async function validateGitHubUser(username) {
+            if (!username) return false;
+            const normalized = normalizeGitHubUsername(username);
+            const url = `https://github.com/${encodeURIComponent(normalized)}`;
+            return await validateUrl(url);
+        }
+        
+        // Validate PyPI user/organization exists
+        async function validatePyPIUser(username, isOrg = false) {
+            if (!username) return false;
+            const url = isOrg 
+                ? `https://pypi.org/org/${encodeURIComponent(username)}/`
+                : `https://pypi.org/user/${encodeURIComponent(username)}/`;
+            return await validateUrl(url);
+        }
+        
+        // Check if author is an organization
+        function isOrganization(author) {
+            // Check metadata type
+            if (author.metadata?.type === 'Organization' || author.metadata?.type === 'organization') {
+                return true;
+            }
+            // Check GitHub type
+            if (author.metadata?.github_type === 'Organization') {
+                return true;
+            }
+            // Check if marked as PyPI organization
+            if (author.metadata?.pypi_organization) {
+                return true;
+            }
+            // Check common organization names (GitHub Actions organizations)
+            const orgNames = ['actions', 'google', 'microsoft', 'facebook', 'apple', 'amazon', 'netflix', 'twitter', 'github'];
+            const authorLower = (author.author || '').toLowerCase();
+            if (orgNames.includes(authorLower)) {
+                return true;
+            }
+            // Check if ecosystem is GitHub Actions and name is single word (likely org)
+            if (author.ecosystem === 'githubactions' || author.ecosystem === 'GitHub Actions') {
+                const authorName = (author.author || '').trim();
+                if (authorName && !authorName.includes(' ') && !authorName.includes(',') && authorName.length > 0) {
+                    return true;
+                }
+            }
+            return false;
+        }
+        
         // Generate registry profile URLs only if we have verified data
-        function getVerifiedProfileLinks(author) {
+        async function getVerifiedProfileLinks(author) {
             const links = [];
             
             // Only show npm profile if we know they're a maintainer (from our author extraction)
@@ -1339,42 +1441,9 @@
                         label: 'PyPI Profile',
                         class: 'btn-outline-primary'
                     });
-                } else {
-                    // Fallback: try to infer from author name/email patterns
-                    const authorName = author.author.trim();
-                    const isLikelyOrg = !authorName.includes(' ') && !authorName.includes(',') && 
-                                       authorName.length > 0;
-                    
-                    if (isLikelyOrg) {
-                        // Try organization URL format as fallback
-                        links.push({
-                            url: `https://pypi.org/org/${encodeURIComponent(authorName.toLowerCase())}/`,
-                            icon: 'fas fa-cube',
-                            label: 'PyPI Organization',
-                            class: 'btn-outline-primary'
-                        });
-                    } else {
-                        // Try to extract username from author string if it contains email format
-                        const emailMatch = author.author.match(/<([^>]+)>/);
-                        if (emailMatch) {
-                            const username = emailMatch[1].split('@')[0];
-                            links.push({
-                                url: `https://pypi.org/user/${encodeURIComponent(username)}/`,
-                                icon: 'fas fa-cube',
-                                label: 'PyPI Profile',
-                                class: 'btn-outline-primary'
-                            });
-                        } else if (author.author.includes('@')) {
-                            const username = author.author.split('@')[0];
-                            links.push({
-                                url: `https://pypi.org/user/${encodeURIComponent(username)}/`,
-                                icon: 'fas fa-cube',
-                                label: 'PyPI Profile',
-                                class: 'btn-outline-primary'
-                            });
-                        }
-                    }
                 }
+                // NOTE: Removed fallback URL generation to prevent 404s
+                // Only generate URLs when we have verified metadata (pypi_organization or pypi_username)
             }
             
             // Crates.io profile (from login)
@@ -1408,30 +1477,78 @@
             // GitHub profile (only if we extracted from repo or it's a github: prefixed author)
             if (author.ecosystem === 'github' || author.metadata?.github) {
                 const githubUsername = normalizeGitHubUsername(author.metadata?.github || author.author);
-                links.push({
-                    url: `https://github.com/${encodeURIComponent(githubUsername)}`,
-                    icon: 'fab fa-github',
-                    label: 'GitHub Profile',
-                    class: 'btn-outline-secondary'
-                });
+                // Only add if username is valid (not empty, not just spaces)
+                if (githubUsername && githubUsername.trim()) {
+                    const url = `https://github.com/${encodeURIComponent(githubUsername)}`;
+                    // Validate URL before adding (async validation will be done separately)
+                    links.push({
+                        url: url,
+                        icon: 'fab fa-github',
+                        label: author.metadata?.github_type === 'Organization' ? 'GitHub Organization' : 'GitHub Profile',
+                        class: 'btn-outline-secondary',
+                        needsValidation: true
+                    });
+                }
             }
             
             return links;
         }
+        
+        // Validate and open URL (called on link click)
+        async function validateAndOpenUrl(url) {
+            if (!url) return;
+            
+            // Check cache first
+            if (urlValidationCache.has(url)) {
+                const isValid = urlValidationCache.get(url);
+                if (isValid) {
+                    window.open(url, '_blank', 'noreferrer,noopener');
+                } else {
+                    alert(`⚠️ This URL appears to be invalid (404): ${url}`);
+                }
+                return;
+            }
+            
+            // Try to validate URL
+            try {
+                const isValid = await validateUrl(url);
+                urlValidationCache.set(url, isValid);
+                
+                if (isValid) {
+                    window.open(url, '_blank', 'noreferrer,noopener');
+                } else {
+                    // Still open the URL but warn user
+                    console.warn(`⚠️ URL validation failed for: ${url}`);
+                    const userConfirm = confirm(`⚠️ Warning: This URL may not exist (404).\n\n${url}\n\nDo you want to open it anyway?`);
+                    if (userConfirm) {
+                        window.open(url, '_blank', 'noreferrer,noopener');
+                    }
+                }
+            } catch (error) {
+                // If validation fails, still allow opening (might be CORS issue)
+                console.warn(`⚠️ URL validation error for ${url}:`, error);
+                window.open(url, '_blank', 'noreferrer,noopener');
+            }
+        }
 
         // Generate social profile icons for table display
+        // Note: URL validation happens on-demand when links are clicked to avoid blocking rendering
         function getSocialProfileIcons(author) {
             const icons = [];
             
             // GitHub profile (always check metadata.github, regardless of ecosystem)
             if (author.metadata?.github) {
                 const githubUsername = normalizeGitHubUsername(author.metadata.github);
-                icons.push({
-                    url: `https://github.com/${encodeURIComponent(githubUsername)}`,
-                    icon: 'fab fa-github',
-                    title: 'GitHub Profile',
-                    color: 'text-dark'
-                });
+                if (githubUsername && githubUsername.trim()) {
+                    // Only add if username looks valid (not empty, reasonable length)
+                    // Full validation happens on click via link handler
+                    icons.push({
+                        url: `https://github.com/${encodeURIComponent(githubUsername)}`,
+                        icon: 'fab fa-github',
+                        title: author.metadata?.github_type === 'Organization' ? 'GitHub Organization' : 'GitHub Profile',
+                        color: 'text-dark'
+                    });
+                }
             }
             
             // npm profile
@@ -1450,6 +1567,7 @@
             // PyPI profile
             if (author.ecosystem === 'pypi' && author.author) {
                 if (author.metadata?.pypi_organization) {
+                    // Only add if organization name looks valid
                     icons.push({
                         url: `https://pypi.org/org/${encodeURIComponent(author.metadata.pypi_organization)}/`,
                         icon: 'fas fa-cube',
@@ -1457,46 +1575,16 @@
                         color: 'text-primary'
                     });
                 } else if (author.metadata?.pypi_username) {
+                    // Only add if username looks valid
                     icons.push({
                         url: `https://pypi.org/user/${encodeURIComponent(author.metadata.pypi_username)}/`,
                         icon: 'fas fa-cube',
                         title: 'PyPI Profile',
                         color: 'text-primary'
                     });
-                } else {
-                    // Fallback: try to infer from author name/email patterns
-                    const authorName = author.author.trim();
-                    const isLikelyOrg = !authorName.includes(' ') && !authorName.includes(',') && 
-                                       authorName.length > 0;
-                    
-                    if (isLikelyOrg) {
-                        icons.push({
-                            url: `https://pypi.org/org/${encodeURIComponent(authorName.toLowerCase())}/`,
-                            icon: 'fas fa-cube',
-                            title: 'PyPI Organization',
-                            color: 'text-primary'
-                        });
-                    } else {
-                        const emailMatch = author.author.match(/<([^>]+)>/);
-                        if (emailMatch) {
-                            const username = emailMatch[1].split('@')[0];
-                            icons.push({
-                                url: `https://pypi.org/user/${encodeURIComponent(username)}/`,
-                                icon: 'fas fa-cube',
-                                title: 'PyPI Profile',
-                                color: 'text-primary'
-                            });
-                        } else if (author.author.includes('@')) {
-                            const username = author.author.split('@')[0];
-                            icons.push({
-                                url: `https://pypi.org/user/${encodeURIComponent(username)}/`,
-                                icon: 'fas fa-cube',
-                                title: 'PyPI Profile',
-                                color: 'text-primary'
-                            });
-                        }
-                    }
                 }
+                // NOTE: Removed fallback URL generation to prevent 404s
+                // Only generate URLs when we have verified metadata (pypi_organization or pypi_username)
             }
             
             // RubyGems profile
@@ -1966,8 +2054,34 @@
                     console.log(`🎨 Authors Page - After filtering by sanctioned countries: ${filtered.length} authors`);
                 }
                 
-                // Store all filtered authors (before separation) for map display
-                allFilteredAuthors = filtered;
+                // Helper function to detect bot accounts
+                function isBotAccount(author) {
+                    // Check for [bot] suffix in username
+                    if (author.author && /\[bot\]$/i.test(author.author)) {
+                        return true;
+                    }
+                    // Check metadata type
+                    if (author.metadata?.type === 'Bot' || author.metadata?.type === 'bot') {
+                        return true;
+                    }
+                    // Check GitHub type
+                    if (author.metadata?.github_type === 'Bot') {
+                        return true;
+                    }
+                    // Check common bot patterns
+                    const botPatterns = ['dependabot', 'renovate', 'snyk-bot', 'greenkeeper', 'codecov', 'coveralls', 'allcontributors'];
+                    const authorLower = (author.author || '').toLowerCase();
+                    return botPatterns.some(pattern => authorLower.includes(pattern));
+                }
+                
+                // Separate into: human authors, organizations, and bots
+                const botAuthors = filtered.filter(isBotAccount);
+                const organizationAuthors = filtered.filter(a => !isBotAccount(a) && isOrganization(a));
+                const humanAuthors = filtered.filter(a => !isBotAccount(a) && !isOrganization(a));
+                
+                // Store all filtered authors (after separation) for map display
+                // Include human authors, organizations, and bots for map
+                allFilteredAuthors = [...humanAuthors, ...organizationAuthors, ...botAuthors];
                 
                 // Update location filter dropdown with unique locations
                 updateLocationFilter(filtered);
@@ -1996,67 +2110,43 @@
                     return;
                 }
                 
-                // Helper function to detect bot accounts
-                function isBotAccount(author) {
-                    // Check for [bot] suffix in username
-                    if (author.author && /\[bot\]$/i.test(author.author)) {
-                        return true;
-                    }
-                    // Check metadata type
-                    if (author.metadata?.type === 'Bot' || author.metadata?.type === 'bot') {
-                        return true;
-                    }
-                    // Check GitHub type
-                    if (author.metadata?.github_type === 'Bot') {
-                        return true;
-                    }
-                    // Check common bot patterns
-                    const botPatterns = ['dependabot', 'renovate', 'snyk-bot', 'greenkeeper', 'codecov', 'coveralls', 'allcontributors'];
-                    const authorLower = (author.author || '').toLowerCase();
-                    return botPatterns.some(pattern => authorLower.includes(pattern));
-                }
-                
-                // Separate bots from regular authors
-                const botAuthors = filtered.filter(isBotAccount);
-                const regularAuthors = filtered.filter(a => !isBotAccount(a));
-                
-                // When sanctions filter is active, show ALL authors (including single-package-single-repo)
-                // Otherwise, separate authors as before
-                let allVisibleAuthors;
+                // When sanctions filter is active, show ALL human authors (including single-package-single-repo)
+                // Otherwise, separate human authors as before
+                let allVisibleHumanAuthors;
                 let singlePackageSingleRepo;
                 
                 if (sanctionsFilterActive) {
-                    // Show all authors when filtering by sanctions (compliance risk)
-                    allVisibleAuthors = regularAuthors;
+                    // Show all human authors when filtering by sanctions (compliance risk)
+                    allVisibleHumanAuthors = humanAuthors;
                     singlePackageSingleRepo = [];
                 } else {
-                // Separate authors:
+                // Separate human authors:
                 // 1. Multi-package authors (2+ packages) -> Always show in main table
                 // 2. Single-package authors with multiple repos (1 package, 2+ repos) -> Show in main table (risk)
                 // 3. Single-package authors with single repo (1 package, 1 repo) -> Hide behind section (low risk)
-                const multiPackageAuthors = regularAuthors.filter(a => {
+                const multiPackageAuthors = humanAuthors.filter(a => {
                     const uniquePackages = [...new Set(a.packages || [])];
                     return uniquePackages.length > 1;
                 });
                 
-                const singlePackageMultipleRepos = regularAuthors.filter(a => {
+                const singlePackageMultipleRepos = humanAuthors.filter(a => {
                     const uniquePackages = [...new Set(a.packages || [])];
                     const repoCount = a.repositoryCount || 0;
                     return uniquePackages.length === 1 && repoCount > 1;
                 });
                 
-                    singlePackageSingleRepo = regularAuthors.filter(a => {
+                    singlePackageSingleRepo = humanAuthors.filter(a => {
                     const uniquePackages = [...new Set(a.packages || [])];
                     const repoCount = a.repositoryCount || 0;
                     return uniquePackages.length === 1 && repoCount === 1;
                 });
                 
                 // Combine multi-package and single-package-multiple-repos for main display
-                    allVisibleAuthors = [...multiPackageAuthors, ...singlePackageMultipleRepos];
+                    allVisibleHumanAuthors = [...multiPackageAuthors, ...singlePackageMultipleRepos];
                 }
                 
-                // Sort visible authors by repository count (risk factor), then package count
-                allVisibleAuthors.sort((a, b) => {
+                // Sort visible human authors by repository count (risk factor), then package count
+                allVisibleHumanAuthors.sort((a, b) => {
                     const aRepoCount = a.repositoryCount || 0;
                     const bRepoCount = b.repositoryCount || 0;
                     if (bRepoCount !== aRepoCount) {
@@ -2070,11 +2160,26 @@
                     return (b.count || 0) - (a.count || 0);
                 });
                 
-                // Store filtered authors for pagination
-                filteredAuthors = allVisibleAuthors;
+                // Sort organizations by repository count, then package count
+                organizationAuthors.sort((a, b) => {
+                    const aRepoCount = a.repositoryCount || 0;
+                    const bRepoCount = b.repositoryCount || 0;
+                    if (bRepoCount !== aRepoCount) {
+                        return bRepoCount - aRepoCount;
+                    }
+                    const aPkgCount = [...new Set(a.packages || [])].length;
+                    const bPkgCount = [...new Set(b.packages || [])].length;
+                    if (bPkgCount !== aPkgCount) {
+                        return bPkgCount - aPkgCount;
+                    }
+                    return (b.count || 0) - (a.count || 0);
+                });
+                
+                // Store filtered human authors for pagination
+                filteredAuthors = allVisibleHumanAuthors;
                 currentPage = 1; // Reset to first page when filtering
                 
-                // Calculate pagination
+                // Calculate pagination for human authors
                 const totalPages = Math.ceil(filteredAuthors.length / pageSize);
                 const startIndex = (currentPage - 1) * pageSize;
                 const endIndex = Math.min(startIndex + pageSize, filteredAuthors.length);
@@ -2086,34 +2191,35 @@
                 });
                 
                 // Store for event handlers (store all visible, not just current page)
-                currentAuthors = allVisibleAuthors;
+                currentAuthors = allVisibleHumanAuthors;
                 window.currentSinglePackageAuthors = singlePackageSingleRepo; // Store globally for toggle (low-risk authors)
+                window.currentOrganizations = organizationAuthors; // Store organizations globally
                 
                 if (sanctionsFilterActive) {
-                    console.log(`🎨 Authors Page - Sanctions filter active: Showing ${allVisibleAuthors.length} authors from sanctioned countries, Showing page ${currentPage} of ${totalPages}`);
+                    console.log(`🎨 Authors Page - Sanctions filter active: Showing ${allVisibleHumanAuthors.length} human authors from sanctioned countries, ${organizationAuthors.length} organizations, ${botAuthors.length} bots, Showing page ${currentPage} of ${totalPages}`);
                 } else {
-                    const multiPackageCount = filtered.filter(a => {
+                    const multiPackageCount = humanAuthors.filter(a => {
                         const uniquePackages = [...new Set(a.packages || [])];
                         return uniquePackages.length > 1;
                     }).length;
-                    const singlePackageMultiRepoCount = filtered.filter(a => {
+                    const singlePackageMultiRepoCount = humanAuthors.filter(a => {
                         const uniquePackages = [...new Set(a.packages || [])];
                         const repoCount = a.repositoryCount || 0;
                         return uniquePackages.length === 1 && repoCount > 1;
                     }).length;
-                    console.log(`🎨 Authors Page - Visible: ${allVisibleAuthors.length} (${multiPackageCount} multi-package + ${singlePackageMultiRepoCount} single-package-multi-repo), Hidden: ${singlePackageSingleRepo.length} (single-package-single-repo), Showing page ${currentPage} of ${totalPages}`);
+                    console.log(`🎨 Authors Page - Human Authors: ${allVisibleHumanAuthors.length} (${multiPackageCount} multi-package + ${singlePackageMultiRepoCount} single-package-multi-repo), Organizations: ${organizationAuthors.length}, Bots: ${botAuthors.length}, Hidden: ${singlePackageSingleRepo.length} (single-package-single-repo), Showing page ${currentPage} of ${totalPages}`);
                 }
                 
                 let html = `
                     <div class="alert ${sanctionsFilterActive ? 'alert-danger' : 'alert-info'}">
                         <i class="fas ${sanctionsFilterActive ? 'fa-ban' : 'fa-info-circle'} me-2"></i>
                         ${sanctionsFilterActive ? '<strong>⚠️ Sanctioned Countries Filter Active:</strong> ' : ''}
-                        Showing <strong>${allVisibleAuthors.length}</strong> author${allVisibleAuthors.length !== 1 ? 's' : ''} from <strong>${new Set(allVisibleAuthors.map(a => a.ecosystem)).size}</strong> ecosystem${new Set(allVisibleAuthors.map(a => a.ecosystem)).size !== 1 ? 's' : ''}
+                        Showing <strong>${allVisibleHumanAuthors.length}</strong> human author${allVisibleHumanAuthors.length !== 1 ? 's' : ''} from <strong>${new Set(allVisibleHumanAuthors.map(a => a.ecosystem)).size}</strong> ecosystem${new Set(allVisibleHumanAuthors.map(a => a.ecosystem)).size !== 1 ? 's' : ''}
                         ${sanctionsFilterActive ? 'from sanctioned countries' : ''}
-                        ${!sanctionsFilterActive && allVisibleAuthors.length > 0 ? `(${filtered.filter(a => {
+                        ${!sanctionsFilterActive && allVisibleHumanAuthors.length > 0 ? `(${humanAuthors.filter(a => {
                             const uniquePackages = [...new Set(a.packages || [])];
                             return uniquePackages.length > 1;
-                        }).length} with multiple packages, ${filtered.filter(a => {
+                        }).length} with multiple packages, ${humanAuthors.filter(a => {
                             const uniquePackages = [...new Set(a.packages || [])];
                             const repoCount = a.repositoryCount || 0;
                             return uniquePackages.length === 1 && repoCount > 1;
@@ -2279,110 +2385,7 @@
                 container.innerHTML = html;
                 updatePaginationControls(filteredAuthors.length, totalPages);
                 
-                // Add bot accounts table (separate section)
-                if (botAuthors.length > 0) {
-                    // Sort bots by repository count
-                    botAuthors.sort((a, b) => {
-                        const aRepoCount = a.repositoryCount || 0;
-                        const bRepoCount = b.repositoryCount || 0;
-                        if (bRepoCount !== aRepoCount) {
-                            return bRepoCount - aRepoCount;
-                        }
-                        const aPkgCount = [...new Set(a.packages || [])].length;
-                        const bPkgCount = [...new Set(b.packages || [])].length;
-                        return bPkgCount - aPkgCount;
-                    });
-                    
-                    let botHtml = `
-                        <div class="card mt-4">
-                            <div class="card-header bg-secondary text-white">
-                                <h5 class="mb-0"><i class="fas fa-robot me-2"></i>Active Bots in the Environments (${botAuthors.length})</h5>
-                            </div>
-                            <div class="card-body">
-                                <div class="alert alert-info">
-                                    <i class="fas fa-info-circle me-2"></i>
-                                    These are automated bot accounts (e.g., Dependabot, Renovate) that maintain packages or workflows in your environments.
-                                </div>
-                                <div class="table-responsive">
-                                    <table class="table table-hover table-sm">
-                                        <thead>
-                                            <tr>
-                                                <th>#</th>
-                                                <th>Bot Name</th>
-                                                <th>Ecosystem</th>
-                                                <th>Packages</th>
-                                                <th>Repository Usage</th>
-                                                <th>Type</th>
-                                                <th class="text-center">Social</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody>
-                    `;
-                    
-                    botAuthors.forEach((bot, index) => {
-                        const uniquePackages = [...new Set(bot.packages || [])];
-                        const uniquePackageCount = uniquePackages.length;
-                        const repositoryCount = bot.repositoryCount || 0;
-                        const samplePackages = uniquePackages.slice(0, 3).join(', ');
-                        
-                        // Determine bot type
-                        let botType = 'Unknown';
-                        const botName = (bot.author || '').toLowerCase();
-                        if (botName.includes('dependabot')) {
-                            botType = 'Dependabot';
-                        } else if (botName.includes('renovate')) {
-                            botType = 'Renovate';
-                        } else if (botName.includes('snyk')) {
-                            botType = 'Snyk';
-                        } else if (bot.metadata?.type === 'Bot') {
-                            botType = 'GitHub Bot';
-                        } else if (/\[bot\]$/i.test(bot.author)) {
-                            botType = 'GitHub Bot';
-                        }
-                        
-                        // Build social profile icons cell
-                        const socialIcons = getSocialProfileIcons(bot);
-                        let socialCell = '<td class="text-center">—</td>';
-                        if (socialIcons.length > 0) {
-                            const iconLinks = socialIcons.map(icon => 
-                                `<a href="${icon.url}" target="_blank" rel="noreferrer noopener" title="${icon.title}" class="text-decoration-none ${icon.color} me-2"><i class="${icon.icon}"></i></a>`
-                            ).join('');
-                            socialCell = `<td class="text-center">${iconLinks}</td>`;
-                        }
-                        
-                        botHtml += `
-                            <tr>
-                                <td>${index + 1}</td>
-                                <td>
-                                    <strong><i class="fas fa-robot me-1"></i>${escapeHtml(bot.author)}</strong>
-                                </td>
-                                <td><span class="badge bg-info">${bot.ecosystem}</span></td>
-                                <td>
-                                    ${uniquePackageCount === 1 
-                                        ? `<span class="badge bg-primary">${escapeHtml(uniquePackages[0])}</span>`
-                                        : `<span class="badge bg-primary" title="${escapeHtml(samplePackages)}">${uniquePackageCount}</span>`}
-                                </td>
-                                <td>
-                                    <span class="badge bg-secondary">${repositoryCount} repo${repositoryCount !== 1 ? 's' : ''}</span>
-                                </td>
-                                <td><span class="badge bg-dark">${botType}</span></td>
-                                ${socialCell}
-                            </tr>
-                        `;
-                    });
-                    
-                    botHtml += `
-                                        </tbody>
-                                    </table>
-                                </div>
-                            </div>
-                        </div>
-                    `;
-                    
-                    container.innerHTML += botHtml;
-                }
-                
-                // Add single-package-single-repo authors summary with toggle (low-risk, hidden by default)
+                // Add single-package-single-repo authors section (before organizations and bots)
                 if (singlePackageSingleRepo.length > 0) {
                     let singlePackageHtml = `
                         <div class="alert alert-secondary mt-3 cursor-pointer" id="singlePackageAuthorsToggle">
@@ -2501,6 +2504,217 @@
                     container.insertAdjacentHTML('beforeend', singlePackageHtml);
                 }
                 
+                // Add organizations table (collapsible section, after single-package authors)
+                if (organizationAuthors.length > 0) {
+                    // Sort organizations by repository count
+                    organizationAuthors.sort((a, b) => {
+                        const aRepoCount = a.repositoryCount || 0;
+                        const bRepoCount = b.repositoryCount || 0;
+                        if (bRepoCount !== aRepoCount) {
+                            return bRepoCount - aRepoCount;
+                        }
+                        const aPkgCount = [...new Set(a.packages || [])].length;
+                        const bPkgCount = [...new Set(b.packages || [])].length;
+                        return bPkgCount - aPkgCount;
+                    });
+                    
+                    let orgHtml = `
+                        <div class="card mt-4">
+                            <div class="card-header bg-info text-white d-flex justify-content-between align-items-center cursor-pointer" id="organizationsToggle">
+                                <h5 class="mb-0"><i class="fas fa-building me-2"></i>Organizations (${organizationAuthors.length})</h5>
+                                <i class="fas fa-chevron-up" id="organizationsToggleIcon"></i>
+                            </div>
+                            <div class="card-body" id="organizationsList">
+                                <div class="alert alert-info">
+                                    <i class="fas fa-info-circle me-2"></i>
+                                    These are organizations (e.g., GitHub organizations, PyPI organizations) that maintain packages or workflows in your environments.
+                                </div>
+                                <div class="table-responsive">
+                                    <table class="table table-hover table-sm">
+                                        <thead>
+                                            <tr>
+                                                <th>#</th>
+                                                <th>Organization</th>
+                                                <th>Ecosystem</th>
+                                                <th>Packages</th>
+                                                <th>Repository Usage</th>
+                                                <th class="text-center">Social</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                    `;
+                    
+                    organizationAuthors.forEach((org, index) => {
+                        const uniquePackages = [...new Set(org.packages || [])];
+                        const uniquePackageCount = uniquePackages.length;
+                        const repositoryCount = org.repositoryCount || 0;
+                        const samplePackages = uniquePackages.slice(0, 3).join(', ');
+                        
+                        // Build social profile icons cell
+                        const socialIcons = [];
+                        if (org.metadata?.github) {
+                            const githubUsername = normalizeGitHubUsername(org.metadata.github);
+                            if (githubUsername && githubUsername.trim()) {
+                                socialIcons.push({
+                                    url: `https://github.com/${encodeURIComponent(githubUsername)}`,
+                                    icon: 'fab fa-github',
+                                    title: 'GitHub Organization',
+                                    color: 'text-dark'
+                                });
+                            }
+                        }
+                        if (org.ecosystem === 'pypi' && org.metadata?.pypi_organization) {
+                            socialIcons.push({
+                                url: `https://pypi.org/org/${encodeURIComponent(org.metadata.pypi_organization)}/`,
+                                icon: 'fas fa-cube',
+                                title: 'PyPI Organization',
+                                color: 'text-primary'
+                            });
+                        }
+                        
+                        let socialCell = '<td class="text-center">—</td>';
+                        if (socialIcons.length > 0) {
+                            const iconLinks = socialIcons.map(icon => 
+                                `<a href="${icon.url}" target="_blank" rel="noreferrer noopener" title="${icon.title}" class="text-decoration-none ${icon.color} me-2"><i class="${icon.icon}"></i></a>`
+                            ).join('');
+                            socialCell = `<td class="text-center">${iconLinks}</td>`;
+                        }
+                        
+                        orgHtml += `
+                            <tr>
+                                <td>${index + 1}</td>
+                                <td>
+                                    <strong><i class="fas fa-building me-1"></i>${escapeHtml(org.author)}</strong>
+                                </td>
+                                <td><span class="badge bg-info">${org.ecosystem}</span></td>
+                                <td>
+                                    ${uniquePackageCount === 1 
+                                        ? `<span class="badge bg-primary">${escapeHtml(uniquePackages[0])}</span>`
+                                        : `<span class="badge bg-primary" title="${escapeHtml(samplePackages)}">${uniquePackageCount}</span>`}
+                                </td>
+                                <td>
+                                    <span class="badge bg-secondary">${repositoryCount} repo${repositoryCount !== 1 ? 's' : ''}</span>
+                                </td>
+                                ${socialCell}
+                            </tr>
+                        `;
+                    });
+                    
+                    orgHtml += `
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+                    `;
+                    
+                    container.innerHTML += orgHtml;
+                }
+                
+                // Add bot accounts table (collapsible section, after organizations)
+                if (botAuthors.length > 0) {
+                    // Sort bots by repository count
+                    botAuthors.sort((a, b) => {
+                        const aRepoCount = a.repositoryCount || 0;
+                        const bRepoCount = b.repositoryCount || 0;
+                        if (bRepoCount !== aRepoCount) {
+                            return bRepoCount - aRepoCount;
+                        }
+                        const aPkgCount = [...new Set(a.packages || [])].length;
+                        const bPkgCount = [...new Set(b.packages || [])].length;
+                        return bPkgCount - aPkgCount;
+                    });
+                    
+                    let botHtml = `
+                        <div class="card mt-4">
+                            <div class="card-header bg-secondary text-white d-flex justify-content-between align-items-center cursor-pointer" id="botsToggle">
+                                <h5 class="mb-0"><i class="fas fa-robot me-2"></i>Active Bots in the Environments (${botAuthors.length})</h5>
+                                <i class="fas fa-chevron-up" id="botsToggleIcon"></i>
+                            </div>
+                            <div class="card-body" id="botsList">
+                                <div class="alert alert-info">
+                                    <i class="fas fa-info-circle me-2"></i>
+                                    These are automated bot accounts (e.g., Dependabot, Renovate) that maintain packages or workflows in your environments.
+                                </div>
+                                <div class="table-responsive">
+                                    <table class="table table-hover table-sm">
+                                        <thead>
+                                            <tr>
+                                                <th>#</th>
+                                                <th>Bot Name</th>
+                                                <th>Ecosystem</th>
+                                                <th>Packages</th>
+                                                <th>Repository Usage</th>
+                                                <th>Type</th>
+                                                <th class="text-center">Social</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                    `;
+                    
+                    botAuthors.forEach((bot, index) => {
+                        const uniquePackages = [...new Set(bot.packages || [])];
+                        const uniquePackageCount = uniquePackages.length;
+                        const repositoryCount = bot.repositoryCount || 0;
+                        const samplePackages = uniquePackages.slice(0, 3).join(', ');
+                        
+                        // Determine bot type
+                        let botType = 'Unknown';
+                        const botName = (bot.author || '').toLowerCase();
+                        if (botName.includes('dependabot')) {
+                            botType = 'Dependabot';
+                        } else if (botName.includes('renovate')) {
+                            botType = 'Renovate';
+                        } else if (botName.includes('snyk')) {
+                            botType = 'Snyk';
+                        } else if (bot.metadata?.type === 'Bot') {
+                            botType = 'GitHub Bot';
+                        } else if (/\[bot\]$/i.test(bot.author)) {
+                            botType = 'GitHub Bot';
+                        }
+                        
+                        // Build social profile icons cell
+                        const socialIcons = getSocialProfileIcons(bot);
+                        let socialCell = '<td class="text-center">—</td>';
+                        if (socialIcons.length > 0) {
+                            const iconLinks = socialIcons.map(icon => 
+                                `<a href="${icon.url}" target="_blank" rel="noreferrer noopener" title="${icon.title}" class="text-decoration-none ${icon.color} me-2"><i class="${icon.icon}"></i></a>`
+                            ).join('');
+                            socialCell = `<td class="text-center">${iconLinks}</td>`;
+                        }
+                        
+                        botHtml += `
+                            <tr>
+                                <td>${index + 1}</td>
+                                <td>
+                                    <strong><i class="fas fa-robot me-1"></i>${escapeHtml(bot.author)}</strong>
+                                </td>
+                                <td><span class="badge bg-info">${bot.ecosystem}</span></td>
+                                <td>
+                                    ${uniquePackageCount === 1 
+                                        ? `<span class="badge bg-primary">${escapeHtml(uniquePackages[0])}</span>`
+                                        : `<span class="badge bg-primary" title="${escapeHtml(samplePackages)}">${uniquePackageCount}</span>`}
+                                </td>
+                                <td>
+                                    <span class="badge bg-secondary">${repositoryCount} repo${repositoryCount !== 1 ? 's' : ''}</span>
+                                </td>
+                                <td><span class="badge bg-dark">${botType}</span></td>
+                                ${socialCell}
+                            </tr>
+                        `;
+                    });
+                    
+                    botHtml += `
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+                    `;
+                    
+                    container.innerHTML += botHtml;
+                }
+                
                 // Attach event listeners
                 attachEventListeners();
                 
@@ -2569,6 +2783,60 @@
                             iconElement.classList.remove('fa-chevron-up');
                             iconElement.classList.add('fa-chevron-down');
                             textElement.textContent = 'Click to show';
+                        }
+                    });
+                }
+                
+                // Organizations toggle (collapsible)
+                const organizationsToggle = document.getElementById('organizationsToggle');
+                if (organizationsToggle) {
+                    organizationsToggle.addEventListener('click', function(e) {
+                        e.preventDefault();
+                        const listElement = document.getElementById('organizationsList');
+                        const iconElement = document.getElementById('organizationsToggleIcon');
+                        
+                        if (!listElement || !iconElement) return;
+                        
+                        // Check if hidden using Bootstrap's d-none class
+                        const isHidden = listElement.classList.contains('d-none');
+                        
+                        if (isHidden) {
+                            // Show the list
+                            listElement.classList.remove('d-none');
+                            iconElement.classList.remove('fa-chevron-down');
+                            iconElement.classList.add('fa-chevron-up');
+                        } else {
+                            // Hide the list
+                            listElement.classList.add('d-none');
+                            iconElement.classList.remove('fa-chevron-up');
+                            iconElement.classList.add('fa-chevron-down');
+                        }
+                    });
+                }
+                
+                // Bots toggle (collapsible)
+                const botsToggle = document.getElementById('botsToggle');
+                if (botsToggle) {
+                    botsToggle.addEventListener('click', function(e) {
+                        e.preventDefault();
+                        const listElement = document.getElementById('botsList');
+                        const iconElement = document.getElementById('botsToggleIcon');
+                        
+                        if (!listElement || !iconElement) return;
+                        
+                        // Check if hidden using Bootstrap's d-none class
+                        const isHidden = listElement.classList.contains('d-none');
+                        
+                        if (isHidden) {
+                            // Show the list
+                            listElement.classList.remove('d-none');
+                            iconElement.classList.remove('fa-chevron-down');
+                            iconElement.classList.add('fa-chevron-up');
+                        } else {
+                            // Hide the list
+                            listElement.classList.add('d-none');
+                            iconElement.classList.remove('fa-chevron-up');
+                            iconElement.classList.add('fa-chevron-down');
                         }
                     });
                 }

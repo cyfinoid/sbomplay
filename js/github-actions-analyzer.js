@@ -509,7 +509,7 @@ class GitHubActionsAnalyzer {
                 }
                 dependencyGraph.descendants.push(nested.action);
             });
-            
+
             const result = {
                 action: cacheKey,
                 owner,
@@ -643,21 +643,42 @@ class GitHubActionsAnalyzer {
         }
 
         try {
-            // Parse ref to extract tag version (e.g., v1.2.3, 1.2.3, v2, etc.)
-            let tagRef = ref;
-            if (ref && (ref.startsWith('v') || /^\d+\./.test(ref))) {
-                // This looks like a version tag
-                tagRef = ref;
-            } else if (ref && ref !== 'main' && ref !== 'master' && ref !== 'HEAD') {
-                // Try to use ref as-is (might be a tag or branch)
-                tagRef = ref;
-            } else {
-                tagRef = null;
-            }
-            
             // Fetch repository info for license (default branch)
             let repoInfo = await this.githubClient.getRepository(owner, repo);
             let license = repoInfo?.license?.spdx_id || repoInfo?.license?.key || null;
+            
+            // Check if ref is a commit SHA (40 hex characters) or short SHA (7+ hex characters)
+            const isCommitSha = ref && /^[a-f0-9]{7,40}$/i.test(ref);
+            
+            // If ref is a commit SHA, try to get LICENSE file directly at that commit
+            if (isCommitSha && !license) {
+                try {
+                    const licenseContent = await this.githubClient.getFileContent(owner, repo, 'LICENSE', ref);
+                    if (licenseContent) {
+                        const detectedLicense = this.detectLicenseFromContent(licenseContent);
+                        if (detectedLicense) {
+                            license = detectedLicense;
+                            console.log(`   ✅ Detected license from LICENSE file at commit ${ref.substring(0, 7)} for ${owner}/${repo}: ${license}`);
+                        }
+                    }
+                } catch (error) {
+                    // If LICENSE file not found at commit, continue to try other methods
+                    console.debug(`Could not fetch LICENSE file at commit ${ref.substring(0, 7)} for ${owner}/${repo}: ${error.message}`);
+                }
+            }
+            
+            // Parse ref to extract tag version (e.g., v1.2.3, 1.2.3, v2, etc.)
+            // Only do this if ref is not a commit SHA
+            let tagRef = null;
+            if (!isCommitSha && ref) {
+                if (ref.startsWith('v') || /^\d+\./.test(ref)) {
+                    // This looks like a version tag
+                    tagRef = ref;
+                } else if (ref !== 'main' && ref !== 'master' && ref !== 'HEAD') {
+                    // Try to use ref as-is (might be a tag or branch)
+                    tagRef = ref;
+                }
+            }
             
             // If we have a tag/version ref, try to get repository info at that specific tag
             // GitHub API allows fetching repository info at a specific ref using tags API

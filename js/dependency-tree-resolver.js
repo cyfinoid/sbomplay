@@ -583,7 +583,7 @@ class DependencyTreeResolver {
             return false;
         }
     }
-
+    
     /**
      * Get RubyGems package dependencies
      * NOTE: RubyGems API doesn't support CORS, so we skip it and rely on ecosyste.ms and deps.dev
@@ -599,7 +599,7 @@ class DependencyTreeResolver {
         const hasCORS = this.cache.get(corsCacheKey);
         
         if (!hasCORS) {
-            console.log(`      🔍 RubyGems: Skipping direct API (no CORS), will use ecosyste.ms/deps.dev for ${packageName}@${version}`);
+        console.log(`      🔍 RubyGems: Skipping direct API (no CORS), will use ecosyste.ms/deps.dev for ${packageName}@${version}`);
         }
         return null;  // Always return null to use ecosyste.ms/deps.dev
     }
@@ -657,7 +657,7 @@ class DependencyTreeResolver {
             let versionData = null;
             if (data.versions && Array.isArray(data.versions)) {
                 versionData = data.versions.find(v => 
-                    v.number === version || 
+                v.number === version || 
                     v.number === this.normalizeVersion(version) ||
                     v.number === `v${version}` ||
                     v.number === `v${this.normalizeVersion(version)}`

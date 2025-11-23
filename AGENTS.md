@@ -6,6 +6,7 @@
 - **Never** add inline `style=""` attributes - use CSS classes in `css/style.css` or `css/themes.css`
 - **Never** add inline `<script>` blocks - extract to `js/` files
 - **Never** add inline `onclick=""` handlers - use `addEventListener` in JS files
+- **Note**: Dynamic style updates via JavaScript (e.g., `element.style.width = '50%'`) are acceptable for runtime values
 - Check with: `grep -r "style=" *.html` and `grep -r "onclick=" *.html`
 
 ### CSS Organization
@@ -23,7 +24,9 @@
 - **Always** use `safeSetHTML()` instead of `innerHTML` for user data
 - **Always** escape HTML: `escapeHtml()` before DOM insertion
 - **Always** escape JS strings: `escapeJsString()` for event handlers
-- **Always** validate URLs: `isUrlFromHostname()` instead of `.includes()` checks
+- **Always** validate URLs: `isUrlFromHostname()` instead of `.includes()` checks for hostname validation
+  - **Note**: Path checks (e.g., `url.includes('/dependency-graph/sbom')`) are acceptable for API endpoint detection
+  - Use `isUrlFromHostname()` when checking if a URL belongs to a specific domain/hostname
 - External links: `target="_blank" rel="noreferrer noopener"`
 
 ## Workflow Maintenance
@@ -43,6 +46,13 @@ On release, update cache-busting version strings:
 - Pattern: `?v=X.Y.Z` in all HTML files
 - Files: `index.html`, `licenses.html`, `vuln.html`, `deps.html`, `settings.html`, `authors.html`, `quality.html`, `repos.html`, `about.html`
 - Update CSS/JS references: `<link href="css/style.css?v=X.Y.Z">` and `<script src="js/*.js?v=X.Y.Z">`
+
+### Cache Busting
+**CRITICAL: NEVER use inline JavaScript for cache busting.**
+- **DO NOT** add `<script>` blocks to dynamically modify src attributes
+- **DO** directly modify the src attribute values in HTML files: `<script src="js/file.js?v=0.0.3&cb=1732345678901"></script>`
+- Add `&cb=<timestamp>` directly to each script tag's src attribute
+- This ensures browsers always load fresh JavaScript files without relying on JavaScript execution
 
 ## CHANGELOG Maintenance
 
@@ -111,6 +121,12 @@ Update when logical flow changes occur:
 
 ## File Structure
 
+### Markdown File Organization
+- **All markdown documentation files** → `mdfiles/` folder
+- **Exceptions** (keep in root): `README.md`, `CHANGELOG.md`, `flowchart.md`, `AGENTS.md`, `LICENSE`
+- When creating new markdown files (documentation, reports, analysis), place them in `mdfiles/`
+- Examples: `mdfiles/IMPLEMENTATION_SUMMARY.md`, `mdfiles/DEPENDENCY_RESOLUTION_STATUS.md`
+
 ### Required Files (per workflow validation)
 **HTML**: `index.html`, `licenses.html`, `vuln.html`, `deps.html`, `settings.html`, `authors.html`, `quality.html`, `repos.html`, `about.html`
 
@@ -130,6 +146,7 @@ Update when logical flow changes occur:
 - [ ] No unused functions (verify usage)
 - [ ] CSS uses variables, not hardcoded colors
 - [ ] External links have security attributes
+- [ ] New markdown files placed in `mdfiles/` folder (except core files)
 
 ## Common Mistakes to Avoid
 
@@ -141,4 +158,5 @@ Update when logical flow changes occur:
 6. **Flowchart not updated** → Update `flowchart.md` when flows change
 7. **Inline styles/scripts** → Extract to separate files
 8. **Duplicate utility functions** → Consolidate in `utils.js`
+9. **Markdown files in wrong location** → Place documentation/reports in `mdfiles/` folder
 

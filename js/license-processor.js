@@ -372,26 +372,26 @@ class LicenseProcessor {
                     }
                 } else {
                     // Fallback (shouldn't happen, but just in case)
-                    if (hasCopyleft) {
-                        licenseInfo.category = 'copyleft';
-                        licenseInfo.risk = 'high';
-                        licenseInfo.description = 'Complex license with copyleft components';
-                    } else if (hasLgpl) {
-                        licenseInfo.category = 'lgpl';
-                        licenseInfo.risk = 'medium';
-                        licenseInfo.description = 'Complex license with LGPL components';
-                    } else if (hasProprietary) {
-                        licenseInfo.category = 'proprietary';
-                        licenseInfo.risk = 'medium';
-                        licenseInfo.description = 'Complex license with proprietary components';
-                    } else if (hasPermissive) {
-                        licenseInfo.category = 'permissive';
-                        licenseInfo.risk = 'low';
-                        licenseInfo.description = 'Complex license with permissive components';
-                    } else {
-                        licenseInfo.category = 'unknown';
-                        licenseInfo.risk = 'high';
-                        licenseInfo.description = 'Complex license combination requiring investigation';
+                if (hasCopyleft) {
+                    licenseInfo.category = 'copyleft';
+                    licenseInfo.risk = 'high';
+                    licenseInfo.description = 'Complex license with copyleft components';
+                } else if (hasLgpl) {
+                    licenseInfo.category = 'lgpl';
+                    licenseInfo.risk = 'medium';
+                    licenseInfo.description = 'Complex license with LGPL components';
+                } else if (hasProprietary) {
+                    licenseInfo.category = 'proprietary';
+                    licenseInfo.risk = 'medium';
+                    licenseInfo.description = 'Complex license with proprietary components';
+                } else if (hasPermissive) {
+                    licenseInfo.category = 'permissive';
+                    licenseInfo.risk = 'low';
+                    licenseInfo.description = 'Complex license with permissive components';
+                } else {
+                    licenseInfo.category = 'unknown';
+                    licenseInfo.risk = 'high';
+                    licenseInfo.description = 'Complex license combination requiring investigation';
                     }
                 }
             } else {

@@ -192,14 +192,14 @@ class SBOMProcessor {
             if (pkg.name === `com.github.${owner}/${repo}` || pkg.name === `${owner}/${repo}`) {
                 console.log(`  ⏭️  Skipping main repository package: ${pkg.name} (not an external dependency)`);
                 skippedPackages++;
-                return;
+                continue;
             }
             
             // Skip packages without names (cannot identify dependency)
             if (!pkg.name) {
                 skippedPackages++;
                 console.log(`⚠️  Package missing name in ${owner}/${repo}`);
-                return;
+                continue;
             }
             
             // Categorize the dependency first (needed for version fetching)
@@ -603,12 +603,94 @@ class SBOMProcessor {
                     );
                     
                     // Update dependencies with depth information
+                    // Use depth to correctly classify dependencies as direct (depth=1) or transitive (depth>1)
+                    // Track which repos have direct dependencies in this ecosystem to propagate transitive status
+                    const reposWithDirectDeps = new Set();
+                    directDeps.forEach(depKey => {
+                        const directDep = this.dependencies.get(depKey);
+                        if (directDep) {
+                            directDep.directIn.forEach(repo => reposWithDirectDeps.add(repo));
+                        }
+                    });
+                    
                     for (const [packageKey, treeNode] of tree) {
-                        const dep = this.dependencies.get(packageKey);
-                        if (dep) {
-                            dep.depth = treeNode.depth;
-                            dep.parents = Array.from(treeNode.parents);
-                            dep.children = Array.from(treeNode.children);
+                        let dep = this.dependencies.get(packageKey);
+                        
+                        // If dependency doesn't exist yet (discovered during tree resolution), create it
+                        if (!dep) {
+                            // Parse package name and version from packageKey
+                            const [name, ...versionParts] = packageKey.split('@');
+                            const version = versionParts.join('@');
+                            
+                            // Try to infer ecosystem from the ecosystem being resolved
+                            const category = this.categorizeDependency({ name });
+                            
+                            dep = {
+                                name: name,
+                                version: version || null,
+                                displayVersion: version || 'version unknown',
+                                assumedVersion: null,
+                                repositories: new Set(),
+                                count: 0,
+                                category: category,
+                                languages: new Set([category.language]),
+                                originalPackage: null,
+                                directIn: new Set(),
+                                transitiveIn: new Set(),
+                                githubActionInfo: null,
+                                versionUnknown: !version
+                            };
+                            this.dependencies.set(packageKey, dep);
+                            console.log(`    📦 Added newly discovered transitive dependency: ${packageKey} (depth ${treeNode.depth})`);
+                        }
+                        
+                        dep.depth = treeNode.depth;
+                        dep.parents = Array.from(treeNode.parents);
+                        dep.children = Array.from(treeNode.children);
+                        
+                        // Update directIn/transitiveIn based on depth
+                        // Depth 1 = direct, depth 2+ = transitive
+                        // For transitive dependencies, add them to transitiveIn for all repos that have their parent as direct
+                        if (treeNode.depth === 1) {
+                            // Direct dependency - ensure repos are marked correctly
+                            reposWithDirectDeps.forEach(repoKey => {
+                                if (dep.repositories.has(repoKey)) {
+                                    dep.directIn.add(repoKey);
+                                    dep.transitiveIn.delete(repoKey);
+                                }
+                            });
+                        } else if (treeNode.depth > 1) {
+                            // Transitive dependency - mark as transitive in repos where parent is used
+                            // Trace back through parents to find which repos use this transitively
+                            const reposUsingTransitive = new Set();
+                            treeNode.parents.forEach(parentKey => {
+                                const parentDep = this.dependencies.get(parentKey);
+                                if (parentDep) {
+                                    // If parent is direct in a repo, then this transitive dep should be transitive in that repo
+                                    parentDep.directIn.forEach(repo => {
+                                        reposUsingTransitive.add(repo);
+                                        dep.repositories.add(repo);
+                                    });
+                                    // Also check if parent itself is transitive in some repos
+                                    parentDep.transitiveIn.forEach(repo => {
+                                        reposUsingTransitive.add(repo);
+                                        dep.repositories.add(repo);
+                                    });
+                                } else {
+                                    // Parent might be a direct dependency - check reposWithDirectDeps
+                                    reposWithDirectDeps.forEach(repo => reposUsingTransitive.add(repo));
+                                }
+                            });
+                            
+                            // Mark as transitive in all relevant repos
+                            reposUsingTransitive.forEach(repoKey => {
+                                dep.transitiveIn.add(repoKey);
+                                dep.directIn.delete(repoKey); // Ensure it's not marked as direct
+                                dep.repositories.add(repoKey);
+                            });
+                            
+                            // Update count to reflect all repositories
+                            dep.count = dep.repositories.size;
                         }
                     }
                     

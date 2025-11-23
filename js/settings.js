@@ -1644,6 +1644,25 @@ class SettingsApp {
      * Show alert message
      */
     showAlert(message, type) {
+        // Get or create alert container
+        let alertContainer = document.getElementById('alertContainer');
+        if (!alertContainer) {
+            // Create alert container if it doesn't exist (fallback)
+            alertContainer = document.createElement('div');
+            alertContainer.id = 'alertContainer';
+            alertContainer.className = 'alert-container';
+            // Insert after navbar
+            const navbar = document.querySelector('nav');
+            if (navbar && navbar.nextSibling) {
+                navbar.parentNode.insertBefore(alertContainer, navbar.nextSibling);
+            } else if (navbar) {
+                navbar.parentNode.appendChild(alertContainer);
+            } else {
+                // Last resort: insert at body start
+                document.body.insertBefore(alertContainer, document.body.firstChild);
+            }
+        }
+
         const alertDiv = document.createElement('div');
         alertDiv.className = `alert alert-${type} alert-dismissible fade show`;
         // Escape HTML to prevent XSS attacks
@@ -1661,9 +1680,8 @@ class SettingsApp {
             `;
         }
         
-        // Insert at the top of the container
-        const container = document.querySelector('.container');
-        container.insertBefore(alertDiv, container.firstChild);
+        // Insert at the top of the alert container
+        alertContainer.insertBefore(alertDiv, alertContainer.firstChild);
         
         // Auto-remove after 5 seconds
         setTimeout(() => {
