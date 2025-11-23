@@ -479,22 +479,49 @@ class GitHubClient {
 
     /**
      * Get repositories for an organization or user
+     * Only returns repositories owned by the specified owner (not repositories they have access to)
      */
     async getRepositories(ownerName) {
-        // Try organization endpoint first (REST only - GraphQL requires read:org scope)
-        let url = `${this.baseUrl}/orgs/${ownerName}/repos?per_page=100`;
-        let response = await this.makeRequest(url);
+        // Normalize owner name for comparison (case-insensitive)
+        const normalizedOwnerName = ownerName.toLowerCase();
         
-        if (response.ok) {
+        // First, determine if this is a user or organization by checking the type
+        // This prevents incorrectly classifying users as organizations
+        const userProfile = await this.getUser(ownerName);
+        const isOrganization = userProfile && userProfile.type === 'Organization';
+        
+        if (isOrganization) {
+            // Fetch repositories using organization endpoint
             console.log(`✅ Found organization: ${ownerName}`);
-            // Pass the response data directly to avoid duplicate fetch
-            const repos = await this.getAllPages(url, response);
-            return repos.filter(repo => repo.visibility === 'public');
-        }
-        
-        // If organization fails, try user endpoint
-        if (response.status === 404) {
-            console.log(`ℹ️  Not found as organization, trying as user: ${ownerName}`);
+            const url = `${this.baseUrl}/orgs/${ownerName}/repos?per_page=100`;
+            const response = await this.makeRequest(url);
+            
+            if (response.ok) {
+                const repos = await this.getAllPages(url, response);
+                // Filter: Only include public repos AND repos owned by this organization
+                const filteredRepos = repos.filter(repo => {
+                    const isPublic = repo.visibility === 'public';
+                    const ownerMatch = repo.owner && 
+                        (repo.owner.login?.toLowerCase() === normalizedOwnerName || 
+                         repo.full_name?.toLowerCase().startsWith(`${normalizedOwnerName}/`));
+                    return isPublic && ownerMatch;
+                });
+                
+                if (filteredRepos.length < repos.length) {
+                    console.log(`⚠️  Filtered out ${repos.length - filteredRepos.length} repositories not owned by ${ownerName}`);
+                }
+                
+                return filteredRepos;
+            } else if (response.status === 404) {
+                throw new Error(`Organization '${ownerName}' not found`);
+            } else if (response.status === 403) {
+                throw new Error('Access denied. The organization might be private or require authentication.');
+            } else {
+                throw new Error(`Failed to fetch organization repositories: ${response.status} ${response.statusText}`);
+            }
+        } else {
+            // Fetch repositories using user endpoint
+            console.log(`✅ Found user: ${ownerName}`);
             
             // Try GraphQL first for users if enabled and token is available
             if (this.useGraphQL && this.token) {
@@ -502,8 +529,20 @@ class GitHubClient {
                     console.log(`🔷 Attempting GraphQL fetch for user repositories: ${ownerName}`);
                     const repos = await this.getAllUserRepositoriesGraphQL(ownerName);
                     if (repos && repos.length > 0) {
-                        console.log(`✅ Found user (GraphQL): ${ownerName} - ${repos.length} repositories`);
-                        return repos;
+                        // Filter: Only include repos owned by this user
+                        const filteredRepos = repos.filter(repo => {
+                            const ownerMatch = repo.owner && 
+                                (repo.owner.login?.toLowerCase() === normalizedOwnerName || 
+                                 repo.full_name?.toLowerCase().startsWith(`${normalizedOwnerName}/`));
+                            return ownerMatch;
+                        });
+                        
+                        if (filteredRepos.length < repos.length) {
+                            console.log(`⚠️  Filtered out ${repos.length - filteredRepos.length} repositories not owned by ${ownerName}`);
+                        }
+                        
+                        console.log(`✅ Found user (GraphQL): ${ownerName} - ${filteredRepos.length} repositories`);
+                        return filteredRepos;
                     }
                 } catch (error) {
                     // Fall through to REST API
@@ -512,24 +551,33 @@ class GitHubClient {
             }
             
             // Fallback to REST API
-            url = `${this.baseUrl}/users/${ownerName}/repos?per_page=100`;
-            response = await this.makeRequest(url);
+            const url = `${this.baseUrl}/users/${ownerName}/repos?per_page=100`;
+            const response = await this.makeRequest(url);
             
             if (response.ok) {
                 console.log(`✅ Found user (REST): ${ownerName}`);
-                // Pass the response data directly to avoid duplicate fetch
                 const repos = await this.getAllPages(url, response);
-                return repos.filter(repo => repo.visibility === 'public');
+                // Filter: Only include public repos AND repos owned by this user
+                const filteredRepos = repos.filter(repo => {
+                    const isPublic = repo.visibility === 'public';
+                    const ownerMatch = repo.owner && 
+                        (repo.owner.login?.toLowerCase() === normalizedOwnerName || 
+                         repo.full_name?.toLowerCase().startsWith(`${normalizedOwnerName}/`));
+                    return isPublic && ownerMatch;
+                });
+                
+                if (filteredRepos.length < repos.length) {
+                    console.log(`⚠️  Filtered out ${repos.length - filteredRepos.length} repositories not owned by ${ownerName}`);
+                }
+                
+                return filteredRepos;
+            } else if (response.status === 404) {
+                throw new Error(`User '${ownerName}' not found`);
+            } else if (response.status === 403) {
+                throw new Error('Access denied. The user might be private or require authentication.');
+            } else {
+                throw new Error(`Failed to fetch user repositories: ${response.status} ${response.statusText}`);
             }
-        }
-        
-        // If both fail, throw appropriate error
-        if (response.status === 404) {
-            throw new Error(`Organization or user '${ownerName}' not found`);
-        } else if (response.status === 403) {
-            throw new Error('Access denied. The organization/user might be private or require authentication.');
-        } else {
-            throw new Error(`Failed to fetch repositories: ${response.status} ${response.statusText}`);
         }
     }
 

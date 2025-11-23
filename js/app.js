@@ -3246,12 +3246,16 @@ class SBOMPlayApp {
         if (!dependencies || dependencies.length === 0) return;
         
         // Filter PyPI packages that need licenses
-        const pypiDeps = dependencies.filter(dep => 
-            dep.category?.ecosystem === 'PyPI' && 
+        // Check both dep.category?.ecosystem and dep.ecosystem (dependencies can have either structure)
+        const pypiDeps = dependencies.filter(dep => {
+            const ecosystem = dep.category?.ecosystem || dep.ecosystem;
+            return (ecosystem === 'PyPI' || ecosystem === 'pypi') &&
             dep.name && 
             dep.version &&
-            (!dep.licenseFull || dep.licenseFull === 'Unknown' || dep.licenseFull === 'NOASSERTION')
-        );
+            dep.version !== 'version unknown' &&
+            (!dep.licenseFull || dep.licenseFull === 'Unknown' || dep.licenseFull === 'NOASSERTION') &&
+            (!dep.license || dep.license === 'Unknown' || dep.license === 'NOASSERTION');
+        });
         
         if (pypiDeps.length === 0) {
             console.log('ℹ️ No PyPI packages need license fetching');
@@ -3340,12 +3344,16 @@ class SBOMPlayApp {
         }
         
         // Filter Go packages that need licenses
-        const goDeps = dependencies.filter(dep => 
-            (dep.category?.ecosystem === 'Go' || dep.category?.ecosystem === 'golang') && 
+        // Check both dep.category?.ecosystem and dep.ecosystem (dependencies can have either structure)
+        const goDeps = dependencies.filter(dep => {
+            const ecosystem = dep.category?.ecosystem || dep.ecosystem;
+            return (ecosystem === 'Go' || ecosystem === 'golang' || ecosystem === 'go') &&
             dep.name && 
             dep.version &&
-            (!dep.licenseFull || dep.licenseFull === 'Unknown' || dep.licenseFull === 'NOASSERTION')
-        );
+            dep.version !== 'version unknown' &&
+            (!dep.licenseFull || dep.licenseFull === 'Unknown' || dep.licenseFull === 'NOASSERTION') &&
+            (!dep.license || dep.license === 'Unknown' || dep.license === 'NOASSERTION');
+        });
         
         console.log(`🔍 fetchGoLicenses: Found ${goDeps.length} Go packages needing licenses (out of ${dependencies.length} total dependencies)`);
         if (goDeps.length === 0) {
@@ -3481,14 +3489,18 @@ class SBOMPlayApp {
         // Group dependencies by ecosystem
         const depsByEcosystem = new Map();
         dependencies.forEach(dep => {
-            const ecosystem = dep.category?.ecosystem?.toLowerCase();
+            // Check both dep.category?.ecosystem and dep.ecosystem (dependencies can have either structure)
+            const ecosystem = (dep.category?.ecosystem || dep.ecosystem)?.toLowerCase();
             if (!ecosystem) return;
             
             // Skip PyPI and Go (already handled separately)
             if (ecosystem === 'pypi' || ecosystem === 'go' || ecosystem === 'golang') return;
             
-            // Skip if already has license
-            if (dep.licenseFull && dep.licenseFull !== 'Unknown' && dep.licenseFull !== 'NOASSERTION') return;
+            // Skip if already has license (check both licenseFull and license fields)
+            if ((dep.licenseFull && dep.licenseFull !== 'Unknown' && dep.licenseFull !== 'NOASSERTION') ||
+                (dep.license && dep.license !== 'Unknown' && dep.license !== 'NOASSERTION')) {
+                return;
+            }
             
             // Skip if missing name or version
             if (!dep.name || !dep.version || dep.version === 'version unknown') return;
@@ -3634,6 +3646,9 @@ class SBOMPlayApp {
         const batchSize = 10; // Process 10 packages at a time
         const packageKeys = Array.from(uniquePackageVersions.keys());
         
+        // Create a map to track which dependencies need version drift data attached
+        const depVersionDriftMap = new Map(); // Key: `${ecosystem}:${name}@${version}`, Value: driftData
+        
         for (let i = 0; i < packageKeys.length; i += batchSize) {
             const batch = packageKeys.slice(i, i + batchSize);
             await Promise.all(batch.map(async (packageKey) => {
@@ -3644,13 +3659,19 @@ class SBOMPlayApp {
                 for (const version of versions) {
                     try {
                         // Check cache first - only fetch if not cached
-                        const cached = await versionDriftAnalyzer.getVersionDriftFromCache(packageKey, version);
-                        if (!cached) {
-                            await versionDriftAnalyzer.checkVersionDrift(packageName, version, ecosystem);
+                        let driftData = await versionDriftAnalyzer.getVersionDriftFromCache(packageKey, version);
+                        if (!driftData) {
+                            driftData = await versionDriftAnalyzer.checkVersionDrift(packageName, version, ecosystem);
                             processed++;
                             if (processed % 10 === 0) {
                                 console.log(`📦 Version drift: ${processed}/${totalVersions} versions processed`);
                             }
+                        }
+                        
+                        // Store drift data for attachment to dependency objects
+                        if (driftData) {
+                            const depKey = `${packageKey}@${version}`;
+                            depVersionDriftMap.set(depKey, driftData);
                         }
                     } catch (e) {
                         console.debug(`Failed to fetch version drift for ${packageKey}@${version}:`, e);
@@ -3662,7 +3683,35 @@ class SBOMPlayApp {
             await new Promise(resolve => setTimeout(resolve, 100));
         }
         
-        console.log(`✅ Version drift fetching complete: ${processed} versions fetched`);
+        // Attach version drift data to dependency objects
+        let attachedCount = 0;
+        dependencies.forEach(dep => {
+            const ecosystemValue = dep.category?.ecosystem || dep.ecosystem;
+            if (!dep.name || !dep.version || dep.version === 'version unknown' || !ecosystemValue) {
+                return;
+            }
+            
+            let ecosystem = ecosystemValue.toLowerCase();
+            // Normalize ecosystem aliases (same as above)
+            if (ecosystem === 'rubygems' || ecosystem === 'gem') {
+                ecosystem = 'gem';
+            } else if (ecosystem === 'go' || ecosystem === 'golang') {
+                ecosystem = 'golang';
+            } else if (ecosystem === 'packagist' || ecosystem === 'composer') {
+                ecosystem = 'composer';
+            }
+            
+            const packageKey = `${ecosystem}:${dep.name}`;
+            const depKey = `${packageKey}@${dep.version}`;
+            const driftData = depVersionDriftMap.get(depKey);
+            
+            if (driftData) {
+                dep.versionDrift = driftData;
+                attachedCount++;
+            }
+        });
+        
+        console.log(`✅ Version drift fetching complete: ${processed} versions fetched, ${attachedCount} attached to dependencies`);
     }
 
     sleep(ms) {
