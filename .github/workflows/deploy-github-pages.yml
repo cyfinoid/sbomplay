@@ -30,7 +30,7 @@ jobs:
     
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
         with:
           # Don't fetch history, only need current state
           fetch-depth: 1
