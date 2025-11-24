@@ -1153,8 +1153,20 @@
             let licenseFull = 'Unknown';
             let isEnriched = false;
             
-            // Check for enriched GitHub Actions license data
-            if (dep.ecosystem === 'GitHub Actions') {
+            // 1. Check dep.licenseFull (from deps.dev API - most complete)
+            if (dep.licenseFull && dep.licenseFull !== 'Unknown' && dep.licenseFull !== 'NOASSERTION' && String(dep.licenseFull).trim() !== '') {
+                licenseFull = dep.licenseFull;
+                isEnriched = true;
+            }
+            
+            // 2. Check dep.license (from deps.dev API - short form)
+            else if (dep.license && dep.license !== 'Unknown' && dep.license !== 'NOASSERTION' && String(dep.license).trim() !== '') {
+                licenseFull = dep.license;
+                isEnriched = true;
+            }
+            
+            // 3. Check for enriched GitHub Actions license data
+            else if (dep.ecosystem === 'GitHub Actions') {
                 // First check metadata stored in dep
                 if (dep._gaMetadata && dep._gaMetadata.license) {
                     licenseFull = dep._gaMetadata.license;
@@ -1191,8 +1203,49 @@
                 }
             }
             
-            // Better abbreviation: show first part of license name, but handle "Apache-2.0 AND MIT" properly
-            if (isEnriched && licenseFull !== 'Unknown') {
+            // 4. Check dep.raw.licenseFull (from raw data, e.g., PyPI direct fetch)
+            else if (dep.raw?.licenseFull && dep.raw.licenseFull !== 'Unknown' && dep.raw.licenseFull !== 'NOASSERTION' && String(dep.raw.licenseFull).trim() !== '') {
+                licenseFull = dep.raw.licenseFull;
+                isEnriched = dep.raw._licenseEnriched || false;
+            }
+            
+            // 5. Check dep.raw.license (from raw data, e.g., PyPI direct fetch)
+            else if (dep.raw?.license && dep.raw.license !== 'Unknown' && dep.raw.license !== 'NOASSERTION' && String(dep.raw.license).trim() !== '') {
+                licenseFull = dep.raw.license;
+                isEnriched = dep.raw._licenseEnriched || false;
+            }
+            
+            // 6. Parse from originalPackage (from SBOM) - always check this as fallback
+            if (licenseFull === 'Unknown' && dep.raw && dep.raw.originalPackage && dep._licenseProcessor) {
+                const licenseInfo = dep._licenseProcessor.parseLicense(dep.raw.originalPackage);
+                if (licenseInfo.license && licenseInfo.license !== 'NOASSERTION') {
+                    licenseFull = licenseInfo.license;
+                    // Store dual license info if present
+                    if (licenseInfo.isDualLicense) {
+                        dep._isDualLicense = true;
+                        dep._dualLicenseInfo = licenseInfo.dualLicenseInfo;
+                    }
+                }
+            }
+            
+            // 7. Final fallback: Use repository license if available
+            if (licenseFull === 'Unknown' && window.currentData && dep.repositories && dep.repositories.length > 0) {
+                // Get license from first repository (most dependencies come from one repo)
+                const repoName = dep.repositories[0];
+                const allRepos = window.currentData.allRepositories || [];
+                const repo = allRepos.find(r => `${r.owner}/${r.name}` === repoName);
+                
+                if (repo && (repo.repositoryLicense || repo.license)) {
+                    const repoLicense = repo.repositoryLicense || repo.license;
+                    if (repoLicense && repoLicense !== 'NOASSERTION' && String(repoLicense).trim() !== '') {
+                        licenseFull = repoLicense;
+                        isEnriched = true;
+                    }
+                }
+            }
+            
+            // Generate abbreviated license text for display
+            if (licenseFull !== 'Unknown') {
                 if (licenseFull.includes(' AND ')) {
                     // For compound licenses, show first license name
                     const firstLicense = licenseFull.split(' AND ')[0];
@@ -1204,46 +1257,9 @@
                 }
             }
             
-            // Fallback to SBOM data if not enriched
-            if (!isEnriched && dep.raw && dep.raw.originalPackage && dep._licenseProcessor) {
-                const licenseInfo = dep._licenseProcessor.parseLicense(dep.raw.originalPackage);
-                if (licenseInfo.license && licenseInfo.license !== 'NOASSERTION') {
-                    licenseFull = licenseInfo.license;
-                    // Store dual license info if present
-                    if (licenseInfo.isDualLicense) {
-                        dep._isDualLicense = true;
-                        dep._dualLicenseInfo = licenseInfo.dualLicenseInfo;
-                    }
-                    // Better abbreviation: show first part of license name, but handle "Apache-2.0 AND MIT" properly
-                    if (licenseFull.includes(' AND ')) {
-                        // For compound licenses, show first license name
-                        const firstLicense = licenseFull.split(' AND ')[0];
-                        licenseText = firstLicense.startsWith('Apache') ? 'Apache' : (firstLicense.length > 8 ? firstLicense.substring(0, 8) + '...' : firstLicense);
-                    } else if (licenseFull.startsWith('Apache')) {
-                        licenseText = 'Apache';
-                    } else {
-                        licenseText = licenseFull.length > 8 ? licenseFull.substring(0, 8) + '...' : licenseFull;
-                    }
-                }
-            }
-            
-            // If still no license and this is a PyPI package, check if license is already stored
-            // If not stored, mark for async fetch
-            // Skip if version is unknown (cannot query PyPI API without version)
-            if (!isEnriched && licenseFull === 'Unknown' && dep.ecosystem === 'PyPI' && dep.name && dep.version && dep.version !== 'version unknown') {
-                // Check if license was already fetched and stored (check both raw and top-level)
-                // License data should be in dep.raw since fetchPyPILicenses updates the dependency objects before saving
-                const storedLicense = dep.raw?.licenseFull || dep.raw?.license;
-                if (storedLicense && storedLicense !== 'Unknown' && storedLicense !== 'NOASSERTION') {
-                    // Use stored license from raw data
-                    licenseFull = dep.raw.licenseFull || dep.raw.license || storedLicense;
-                    licenseText = dep.raw.license || licenseFull;
-                    isEnriched = dep.raw._licenseEnriched || false;
-                } else {
-                    // Only mark for async fetch if license was NOT fetched during initial analysis
-                    // This should be rare - licenses should be pre-fetched during initial scan
-                    dep._needsLicenseFetch = true;
-                }
+            // Mark for async fetch if still no license (should be rare)
+            if (licenseFull === 'Unknown' && dep.ecosystem === 'PyPI' && dep.name && dep.version && dep.version !== 'version unknown') {
+                dep._needsLicenseFetch = true;
             }
             
             // Cache the result

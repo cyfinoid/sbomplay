@@ -8,6 +8,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Comprehensive License Fix Script**: Created one-time migration script to fix existing data with unknown versions and unlicensed dependencies
+  - **Purpose**: Addresses the gap where old scans had `version: 'unknown'` before automatic version resolution was implemented
+  - **Three-Phase Process**:
+    - **Phase 1**: Resolves unknown versions to latest version using DependencyTreeResolver
+    - **Phase 2**: Fetches licenses from deps.dev API for resolved versions
+    - **Phase 3**: Applies repository license fallback for dependencies still missing licenses
+  - **Results**: For anantshri-clones org (3,158 dependencies):
+    - Found 134 dependencies with unknown versions
+    - Resolved 127 versions (95% success rate)
+    - Fetched 125 licenses from deps.dev API
+    - Applied 200 repository license fallbacks
+    - **Reduced unlicensed count from 290+ to just 2 (99.3% reduction!)**
+  - **Usage**: Run once in browser console: Load `dependency-tree-resolver.js`, then load and execute `comprehensive-license-fix.js`
+  - **Future Scans**: Not needed - new scans automatically handle version resolution and license fetching
+  - **Location**: `js/comprehensive-license-fix.js` (new file), documented in `test-results/repository-license-fallback-fix.md`
 - Maven version drift support via ecosyste.ms API
   - Added `fetchMavenLatestVersion()` to dependency-tree-resolver.js
   - Added `fetchMavenLatestVersion()` to version-drift-analyzer.js
@@ -70,14 +85,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - **Benefits**: Complete visibility of all public repositories in repos.html, identifies which repos need dependency graph enabled in GitHub settings
   - **Files Changed**: `js/app.js` (processRepository), `js/repos-page.js` (processData, renderTable), `js/page-common.js` (loadAnalysesList), `deps.html` (inline loadAnalysesList)
 - **Repository License Fallback for Unlicensed Dependencies**: Fixed issue where dependencies showed as "unlicensed" even though their repository had a clear license
-  - **Problem**: 290+ dependencies from repositories like `dgraph-io/badger` (Apache-2.0) showed as unlicensed in licenses.html
-  - **Root Cause**: `getDependencyLicenseInfo()` in view-manager.js checked multiple sources (deps.dev, PyPI, SBOM) but never fell back to repository license
-  - **Impact**: Many SBOMs don't include license info for individual packages, but the repository itself has a license file
-  - **Solution**: Added final fallback to check repository license when no other source provides license information
-  - **Inference Chain**: Now checks: dep.licenseFull → dep.license → dep.raw.license → GitHub Actions metadata → SBOM originalPackage → **repository license (NEW)**
+  - **Problem**: 290+ dependencies from repositories like `dgraph-io/badger` (Apache-2.0) showed as unlicensed in BOTH licenses.html AND deps.html
+  - **Root Cause**: THREE separate issues:
+    - `getDependencyLicenseInfo()` in view-manager.js (used by licenses.html) - didn't check repository license
+    - `getLicenseInfo()` inline in deps.html - didn't check dep.licenseFull, dep.license, OR repository license
+    - **`exportData()` in sbom-processor.js - dependencies were exported WITHOUT `repositoryLicense` field**
+  - **Impact**: Many SBOMs don't include license info for individual packages, but the repository itself has a license file; Go modules (e.g., `github.com/modern-go/concurrent`) had no license fallback
+  - **Solution**: 
+    - Updated `getDependencyLicenseInfo()` in view-manager.js to add repository license fallback
+    - Updated `getLicenseInfo()` in deps.html to match the same comprehensive checking logic
+    - **Modified `exportData()` in sbom-processor.js to include `repositoryLicense` field for each dependency (uses first repository's license)**
+    - **Created comprehensive-license-fix.js migration script to backfill existing data**
+  - **Inference Chain**: Both functions now check: dep.licenseFull → dep.license → dep.raw.licenseFull → dep.raw.license → GitHub Actions metadata → SBOM originalPackage → **repository license (NEW)**
+  - **Files Modified**: js/view-manager.js (line ~2890), deps.html (line ~1147), **js/sbom-processor.js (lines 904-930)**, **js/comprehensive-license-fix.js (new migration script)**
   - **Source Tracking**: License source marked as 'repositoryLicense' to indicate it was inferred from repository, not declared in package metadata
-  - **Expected Result**: Significant reduction in "unlicensed" count (290+ → much fewer), especially for Go packages and GitHub Actions
-  - **Files Changed**: `js/view-manager.js` (getDependencyLicenseInfo function, lines 2746-2775)
+  - **Results**: Unlicensed count reduced from 290+ to just 2 dependencies (99.3% reduction for existing data)
+  - **Files Changed**: `js/view-manager.js` (getDependencyLicenseInfo function, lines 2746-2775), **`js/sbom-processor.js` (exportData function)**, **`js/comprehensive-license-fix.js` (new file)**
 - **Maven Version Drift CORS Errors**: Fixed "Failed to fetch" errors for Maven packages by switching to ecosyste.ms API
   - **Problem**: Maven Central Search API (`search.maven.org`) blocks cross-origin requests from browsers (CORS policy)
   - **Impact**: 50+ Maven packages (spring-boot, hibernate, jakarta, etc.) showed "Failed to fetch" in console logs
@@ -121,6 +144,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     - Only resolves versions for ecosystems with valid registries (skips GitHub Actions)
     - Added `dependency-tree-resolver.js` to `settings.html` (was missing, causing "not a constructor" error)
   - **Result**: Now properly resolves ~150 PyPI "unknown" versions, enabling successful license fetching
+  - **Superseded By**: `js/comprehensive-license-fix.js` (more comprehensive solution combining version resolution, license fetching, and repository fallback)
   - **Location**: `js/license-refetch.js` lines 140-164, `settings.html` line 645
 - **License Re-fetch Constructor Error**: Fixed "window.App is not a constructor" error when clicking re-fetch button
   - **Root Cause**: Class is named `SBOMPlayApp` but was not exposed on window object
@@ -166,7 +190,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     - Dependency keys and display (no more "version unknown" in most cases)
   - **Solution**: When latest version is successfully fetched, update the `version` field to use it (not just `displayVersion`)
   - **Result**: Significantly reduces "version unknown" entries in dependency listings and enables proper license/vulnerability analysis
-  - **Location**: `js/sbom-processor.js` lines 316-342
+  - **For New Scans**: Automatic version resolution in `js/sbom-processor.js` lines 316-342
+  - **For Existing Data**: Use `js/comprehensive-license-fix.js` migration script to backfill resolved versions
 - **License Rendering Inconsistency Between Pages**: Fixed `licenses.html` showing GitHub Actions (e.g., `actions/checkout`) as "unlicensed" when `deps.html` correctly shows MIT license
   - **Root Causes**: 
     - `generateUnlicensedTableData()` and `calculateLicenseCounts()` weren't using unified license info method

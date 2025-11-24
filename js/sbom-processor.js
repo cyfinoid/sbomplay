@@ -909,6 +909,17 @@ class SBOMProcessor {
                 }
             }
             
+            // Determine repository license for this dependency
+            // For dependencies from repositories, use the first repository's license as fallback
+            let repositoryLicense = null;
+            if (dep.repositories && dep.repositories.size > 0) {
+                const firstRepoKey = Array.from(dep.repositories)[0];
+                const repoData = this.repositories.get(firstRepoKey);
+                if (repoData && repoData.license) {
+                    repositoryLicense = repoData.license;
+                }
+            }
+            
             return {
                 name: dep.name,
                 version: dep.displayVersion || dep.version,  // Use displayVersion (may be assumed)
@@ -925,7 +936,8 @@ class SBOMProcessor {
                 parents: dep.parents || [],  // Parent dependencies (what brings this in)
                 children: dep.children || [],  // Child dependencies (what this brings in)
                 license: dep.license || null,  // Include license (short form)
-                licenseFull: dep.licenseFull || null  // Include license (full form)
+                licenseFull: dep.licenseFull || null,  // Include license (full form)
+                repositoryLicense: repositoryLicense  // Include repository license as fallback
             };
         });
         const allRepos = Array.from(this.repositories.values()).map(repo => ({

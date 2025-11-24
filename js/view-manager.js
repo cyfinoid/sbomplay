@@ -2760,13 +2760,16 @@ class ViewManager {
             const allRepos = orgData.data?.allRepositories || [];
             const repo = allRepos.find(r => `${r.owner}/${r.name}` === repoName);
             
-            if (repo && repo.repositoryLicense && repo.repositoryLicense !== 'NOASSERTION') {
-                licenseInfo = licenseProcessor.parseLicense({
-                    licenseConcluded: repo.repositoryLicense,
-                    licenseDeclared: repo.repositoryLicense
-                });
-                if (licenseInfo && licenseInfo.license && licenseInfo.license !== 'NOASSERTION') {
-                    source = 'repositoryLicense';
+            if (repo && (repo.repositoryLicense || repo.license)) {
+                const repoLicense = repo.repositoryLicense || repo.license;
+                if (repoLicense && repoLicense !== 'NOASSERTION') {
+                    licenseInfo = licenseProcessor.parseLicense({
+                        licenseConcluded: repoLicense,
+                        licenseDeclared: repoLicense
+                    });
+                    if (licenseInfo && licenseInfo.license && licenseInfo.license !== 'NOASSERTION') {
+                        source = 'repositoryLicense';
+                    }
                 }
             }
         }
