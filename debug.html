@@ -1,0 +1,293 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SBOM Play - Debug Tools</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <link href="css/style.css?v=0.0.3" rel="stylesheet">
+    <link href="css/themes.css?v=0.0.3" rel="stylesheet">
+    <script src="js/theme-manager.js?v=0.0.3&cb=1732460000000"></script>
+    <script src="js/analytics.js?v=0.0.3&cb=1732460000000"></script>
+    <script defer data-domain="cyfinoid.github.io" src="https://plausible.io/js/script.outbound-links.js"></script>
+
+</head>
+<body>
+    <!-- Navigation -->
+    <nav class="navbar navbar-expand-lg navbar-dark bg-primary">
+        <div class="container">
+            <a class="navbar-brand" href="index.html">
+                <i class="fas fa-cubes me-2"></i>SBOM Play
+            </a>
+            <div class="navbar-nav ms-auto">
+                <a class="nav-link" href="index.html">Home</a>
+                <a class="nav-link" href="licenses.html">License</a>
+                <a class="nav-link" href="vuln.html">Vulns</a>
+                <a class="nav-link" href="audit.html">Audit</a>
+                <a class="nav-link" href="deps.html">Deps</a>
+                <a class="nav-link" href="repos.html">Repos</a>
+                <a class="nav-link" href="authors.html">Authors</a>
+                <a class="nav-link" href="about.html">About</a>
+                <a class="nav-link" href="settings.html">Settings</a>
+                <button class="btn btn-outline-secondary btn-sm ms-2 theme-toggle" title="Toggle theme">
+                    <i class="fas fa-sun"></i>
+                </button>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Main Content -->
+    <div class="container mt-4">
+        <!-- Header -->
+        <div class="row mb-4">
+            <div class="col-12">
+                <div class="d-flex justify-content-between align-items-center">
+                    <div>
+                        <h1><i class="fas fa-bug me-2"></i>Debug Tools</h1>
+                        <p class="text-muted">Advanced debugging and data management tools</p>
+                    </div>
+                    <div>
+                        <a href="settings.html" class="btn btn-outline-primary">
+                            <i class="fas fa-arrow-left me-2"></i>Back to Settings
+                        </a>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="alert alert-warning">
+            <i class="fas fa-exclamation-triangle me-2"></i>
+            <strong>Advanced Tools:</strong> These tools are intended for debugging and advanced data management. 
+            Use them carefully as they may trigger intensive API queries or modify stored data.
+        </div>
+
+        <!-- License Management -->
+        <div class="card mb-4">
+            <div class="card-header">
+                <h5 class="mb-0">
+                    <i class="fas fa-certificate me-2"></i>License Management
+                </h5>
+            </div>
+            <div class="card-body">
+                <div class="alert alert-info">
+                    <i class="fas fa-info-circle me-2"></i>
+                    <strong>Re-fetch Missing Licenses:</strong> Use this if you have packages showing "Unknown" licenses. 
+                    This will query deps.dev and package registries (PyPI, npm, etc.) to fetch missing license information.
+                </div>
+                
+                <div id="licenseRefetchStatus" class="mb-3">
+                    <!-- Status will be populated here -->
+                </div>
+                
+                <div class="d-flex gap-2">
+                    <button class="btn btn-primary" id="refetchLicensesBtn">
+                        <i class="fas fa-sync-alt me-2"></i>Re-fetch Missing Licenses
+                    </button>
+                    <button class="btn btn-outline-secondary" id="checkUnknownLicensesBtn">
+                        <i class="fas fa-search me-2"></i>Check Unknown License Count
+                    </button>
+                </div>
+                
+                <div id="licenseRefetchProgress" class="d-none mt-3">
+                    <div class="progress" style="height: 25px;">
+                        <div id="licenseRefetchProgressBar" class="progress-bar progress-bar-striped progress-bar-animated" 
+                             role="progressbar" style="width: 0%">
+                            <span id="licenseRefetchProgressText">0%</span>
+                        </div>
+                    </div>
+                    <div class="mt-2">
+                        <small id="licenseRefetchDetails" class="text-muted"></small>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Author Detection Settings -->
+        <div class="card mb-4">
+            <div class="card-header">
+                <h5><i class="fas fa-users me-2"></i>Author Detection Settings</h5>
+            </div>
+            <div class="card-body">
+                <div class="alert alert-info">
+                    <i class="fas fa-info-circle me-2"></i>
+                    <strong>Re-run Author Detection:</strong> This will clear cached author data and re-fetch from APIs. 
+                    Useful when author information has changed or was incomplete during initial analysis.
+                </div>
+                
+                <div class="row mb-3">
+                    <div class="col-md-6">
+                        <label for="redoOrgSelect" class="form-label">Redo User Detection for Organization/Repository</label>
+                        <select class="form-select" id="redoOrgSelect">
+                            <option value="">-- Select an organization or repository --</option>
+                        </select>
+                        <small class="text-muted">Select an organization or repository to re-run author detection</small>
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label">Actions</label>
+                        <div class="d-flex flex-column gap-2">
+                            <button class="btn btn-warning" id="redoAuthorDetectionBtn" disabled>
+                                <i class="fas fa-redo me-2"></i>Redo Author Detection
+                            </button>
+                            <small class="text-muted">This will clear cached author data and re-fetch from APIs</small>
+                        </div>
+                    </div>
+                </div>
+                <div id="authorDetectionProgress" class="mt-3 d-none">
+                    <div class="mb-2">
+                        <strong id="authorDetectionStatus">Preparing...</strong>
+                    </div>
+                    <div class="progress author-detection-progress">
+                        <div class="progress-bar progress-bar-striped progress-bar-animated author-detection-progress-bar" 
+                             role="progressbar" 
+                             id="authorDetectionProgressBar"
+                             aria-valuenow="0" 
+                             aria-valuemin="0" 
+                             aria-valuemax="100">
+                            0%
+                        </div>
+                    </div>
+                    <div id="authorDetectionDetails" class="mt-2 small text-muted"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Debug Settings -->
+        <div class="card mb-4">
+            <div class="card-header">
+                <h5><i class="fas fa-bug me-2"></i>Debug Settings</h5>
+            </div>
+            <div class="card-body">
+                <div class="alert alert-warning">
+                    <i class="fas fa-exclamation-triangle me-2"></i>
+                    <strong>Warning:</strong> Enabling debug logging will generate large amounts of console output. 
+                    This may slow down the browser and should only be enabled when troubleshooting issues.
+                </div>
+                
+                <div class="row mb-3">
+                    <div class="col-md-12">
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" id="debugUrlLogging">
+                            <label class="form-check-label" for="debugUrlLogging">
+                                <strong>Enable Debug URL Logging</strong>
+                            </label>
+                            <small class="form-text text-muted d-block">When enabled, all API request URLs will be logged to the browser console</small>
+                        </div>
+                    </div>
+                </div>
+                <div class="row">
+                    <div class="col-md-12">
+                        <button class="btn btn-primary" id="saveDebugSettingsBtn">
+                            <i class="fas fa-save me-2"></i>Save Debug Settings
+                        </button>
+                        <button class="btn btn-outline-secondary" id="resetDebugSettingsBtn">
+                            <i class="fas fa-undo me-2"></i>Reset to Defaults
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- No Data Section -->
+        <div id="noDataSection" class="card mb-4 d-none">
+            <div class="card-header">
+                <h5 class="mb-0">
+                    <i class="fas fa-info-circle me-2"></i>No Data Available
+                </h5>
+            </div>
+            <div class="card-body text-center">
+                <i class="fas fa-database fa-3x text-muted mb-3"></i>
+                <h5>No Stored Analyses Found</h5>
+                <p class="text-muted">
+                    You haven't analyzed any organizations yet, or all data has been cleared.
+                </p>
+                <a href="index.html" class="btn btn-primary">
+                    <i class="fas fa-play me-2"></i>Start Your First Analysis
+                </a>
+            </div>
+        </div>
+    </div>
+
+    <!-- Footer -->
+    <footer class="bg-light mt-5 py-4">
+        <div class="container">
+            <div class="row">
+                <!-- First Column: SBOM Play Tool -->
+                <div class="col-md-4">
+                    <h6 class="text-primary">SBOM Play</h6>
+                    <p class="text-muted small mb-3">
+                        A client-side tool for analyzing Software Bill of Materials from GitHub organizations and users.
+                        All processing happens in your browser for maximum privacy and security.
+                    </p>
+                    <p class="text-muted small mb-0">
+                        <strong>Privacy-First:</strong> All processing happens in your browser<br>
+                        <strong>No Server Required:</strong> Works entirely client-side<br>
+                        <strong>Persistent Storage:</strong> Results saved in browser storage<br>
+                        <strong>Rate Limit Aware:</strong> Handles GitHub API limits intelligently
+                    </p>
+                </div>
+                
+                <!-- Second Column: Links -->
+                <div class="col-md-4">
+                    <h6 class="text-primary">Resources</h6>
+                    <div class="d-flex flex-column gap-2">
+                        <a href="https://cyfinoid.com/" target="_blank" class="btn btn-outline-primary btn-sm">
+                            <i class="fas fa-globe me-1"></i>Website
+                        </a>
+                        <a href="https://cyfinoid.com/blog/" target="_blank" class="btn btn-outline-primary btn-sm">
+                            <i class="fas fa-blog me-1"></i>Blog
+                        </a>
+                        <a href="https://cyfinoid.com/trainings/#upcoming-trainings" target="_blank" class="btn btn-outline-primary btn-sm">
+                            <i class="fas fa-graduation-cap me-1"></i>Upcoming Trainings
+                        </a>
+                        <a href="https://cyfinoid.com/opensource-by-cyfinoid/" target="_blank" class="btn btn-outline-primary btn-sm">
+                            <i class="fab fa-github me-1"></i>Open Source by Cyfinoid
+                        </a>
+                    </div>
+                </div>
+                
+                <!-- Third Column: Company Information -->
+                <div class="col-md-4">
+                    <h6 class="text-primary">About Cyfinoid Research</h6>
+                    <p class="text-muted small mb-3">
+                        Leading cybersecurity research company specializing in software supply chain security, 
+                        Android security, and cloud security. Our expertise spans across comprehensive software 
+                        supply chain protection.
+                    </p>
+                </div>
+            </div>
+            <hr class="my-3">
+            <div class="text-center">
+                <small class="text-muted">
+                    © 2025 Cyfinoid Research. All rights reserved. | 
+                    <a href="https://github.com/cyfinoid/sbomplay" target="_blank" class="text-muted">
+                        <i class="fab fa-github me-1"></i>View on GitHub
+                    </a>
+                </small>
+            </div>
+        </div>
+    </footer>
+
+    <!-- Scripts -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="js/indexeddb-manager.js?v=0.0.3&cb=1732460000000"></script>
+    <script src="js/utils.js?v=0.0.3&cb=1732460000000"></script>
+    <script src="js/registry-utils.js?v=0.0.3&cb=1732460000000"></script>
+    <script src="js/version-utils.js?v=0.0.3&cb=1732460000000"></script>
+    <script src="js/ecosystem-utils.js?v=0.0.3&cb=1732460000000"></script>
+    <script src="js/cache-manager.js?v=0.0.3&cb=1732460000000"></script>
+    <script src="js/dependency-tree-resolver.js?v=0.0.3&cb=1732460000000"></script>
+    <script src="js/github-client.js?v=0.0.3&cb=1732460000000"></script>
+    <script src="js/sbom-processor.js?v=0.0.3&cb=1732460000000"></script>
+    <script src="js/license-processor.js?v=0.0.3&cb=1732460000000"></script>
+    <script src="js/osv-service.js?v=0.0.3&cb=1732460000000"></script>
+    <script src="js/author-service.js?v=0.0.3&cb=1732460000000"></script>
+    <script src="js/sanctions-service.js?v=0.0.3&cb=1732460000000"></script>
+    <script src="js/storage-manager.js?v=0.0.3&cb=1732460000000"></script>
+    <script src="js/view-manager.js?v=0.0.3&cb=1732460000003"></script>
+    <script src="js/app.js?v=0.0.3&cb=1732460000000"></script>
+    <script src="js/settings.js?v=0.0.3&cb=1732460000000"></script>
+    <script src="js/license-refetch.js?v=0.0.3&cb=1732460000000"></script>
+</body>
+</html>
+

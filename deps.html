@@ -8,7 +8,7 @@
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
     <link href="css/style.css?v=0.0.3" rel="stylesheet">
     <link href="css/themes.css?v=0.0.3" rel="stylesheet">
-    <script src="js/theme-manager.js?v=0.0.3&cb=1732345678901"></script>
+    <script src="js/theme-manager.js?v=0.0.3&cb=1732460000000"></script>
 </head>
 <body>
     <nav class="navbar navbar-expand-lg navbar-dark bg-primary">
@@ -267,16 +267,16 @@
     </div>
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
-    <script src="js/indexeddb-manager.js?v=0.0.3&cb=1732345678901"></script>
-    <script src="js/utils.js?v=0.0.3&cb=1732345678901"></script>
-    <script src="js/version-utils.js?v=0.0.3&cb=1732345678901"></script>
-    <script src="js/version-drift-analyzer.js?v=0.0.3&cb=1732345678901"></script>
-    <script src="js/github-client.js?v=0.0.3&cb=1732345678901"></script>
-    <script src="js/cache-manager.js?v=0.0.3&cb=1732345678901"></script>
-    <script src="js/storage-manager.js?v=0.0.3&cb=1732345678901"></script>
-    <script src="js/license-processor.js?v=0.0.3&cb=1732345678901"></script>
-    <script src="js/osv-service.js?v=0.0.3&cb=1732345678901"></script>
-    <script src="js/deps-page.js?v=0.0.3&cb=1732345678901"></script>
+    <script src="js/indexeddb-manager.js?v=0.0.3&cb=1732460000000"></script>
+    <script src="js/utils.js?v=0.0.3&cb=1732460000000"></script>
+    <script src="js/version-utils.js?v=0.0.3&cb=1732460000000"></script>
+    <script src="js/version-drift-analyzer.js?v=0.0.3&cb=1732460000000"></script>
+    <script src="js/github-client.js?v=0.0.3&cb=1732460000000"></script>
+    <script src="js/cache-manager.js?v=0.0.3&cb=1732460000000"></script>
+    <script src="js/storage-manager.js?v=0.0.3&cb=1732460000000"></script>
+    <script src="js/license-processor.js?v=0.0.3&cb=1732460000000"></script>
+    <script src="js/osv-service.js?v=0.0.3&cb=1732460000000"></script>
+    <script src="js/deps-page.js?v=0.0.3&cb=1732460000000"></script>
     <script type="module">
         const storageManager = new StorageManager();
         await storageManager.init();
@@ -458,12 +458,23 @@
                 }
                 
                 const allEntries = [...storageInfo.organizations, ...storageInfo.repositories];
-                console.log(`📋 Total entries to add: ${allEntries.length}`);
+                console.log(`📋 Total entries retrieved: ${allEntries.length}`);
+                
+                // Filter out:
+                // 1. __ALL__ entries (legacy from previous implementation)
+                // 2. Entries with 0 dependencies (repositories without SBOM/dependency graph)
+                const filteredEntries = allEntries.filter(entry => entry.name !== '__ALL__' && entry.dependencies > 0);
+                
+                const filteredOutCount = allEntries.length - filteredEntries.length;
+                if (filteredOutCount > 0) {
+                    console.log(`📋 Filtered out ${filteredOutCount} entries (no dependencies/SBOM)`);
+                }
+                console.log(`📋 Total entries to add: ${filteredEntries.length}`);
                 
                 selector.innerHTML = '';
                 
-                if (allEntries.length === 0) {
-                    console.warn('⚠️ No entries found in storage');
+                if (filteredEntries.length === 0) {
+                    console.warn('⚠️ No entries with dependencies found in storage');
                     const noDataMessage = document.getElementById('noDataMessage');
                     if (noDataMessage) {
                         noDataMessage.classList.remove('d-none');
@@ -472,16 +483,13 @@
                     return;
                 }
                 
-                // Add "All Analyses" placeholder option (aggregated data)
-                // Filter out __ALL__ entries (legacy from previous implementation)
-                const filteredEntries = allEntries.filter(entry => entry.name !== '__ALL__');
-                
+                // Add "All Analyses" option (only entries with dependencies)
                 const allOption = document.createElement('option');
                 allOption.value = '';
                 const totalDeps = filteredEntries.reduce((sum, entry) => sum + (entry.dependencies || 0), 0);
                 allOption.textContent = `All Analyses (${totalDeps} deps)`;
                 selector.appendChild(allOption);
-                console.log(`📋 Added "All Analyses" option`);
+                console.log(`📋 Added "All Analyses" option with ${totalDeps} total dependencies`);
                 
                 // Add individual entries (excluding __ALL__)
                 filteredEntries.forEach(entry => {

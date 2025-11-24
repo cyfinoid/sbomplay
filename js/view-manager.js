@@ -2700,6 +2700,28 @@ class ViewManager {
             });
             source = 'license';
         }
+        // 2b. Check dep.raw.licenseFull (stored license from previous fetches)
+        else if (dep.raw && dep.raw.licenseFull && 
+                 dep.raw.licenseFull !== 'Unknown' && 
+                 dep.raw.licenseFull !== 'NOASSERTION' && 
+                 String(dep.raw.licenseFull).trim() !== '') {
+            licenseInfo = licenseProcessor.parseLicense({
+                licenseConcluded: dep.raw.licenseFull,
+                licenseDeclared: dep.raw.licenseFull
+            });
+            source = 'raw.licenseFull';
+        }
+        // 2c. Check dep.raw.license (stored license short form)
+        else if (dep.raw && dep.raw.license && 
+                 dep.raw.license !== 'Unknown' && 
+                 dep.raw.license !== 'NOASSERTION' && 
+                 String(dep.raw.license).trim() !== '') {
+            licenseInfo = licenseProcessor.parseLicense({
+                licenseConcluded: dep.raw.license,
+                licenseDeclared: dep.raw.license
+            });
+            source = 'raw.license';
+        }
         // 3. Check GitHub Actions analysis metadata (for GitHub Actions dependencies)
         else if (dep.category?.ecosystem === 'GitHub Actions' || dep.ecosystem === 'GitHub Actions') {
             // Check dep._gaMetadata first (if set during processing)
@@ -2726,6 +2748,26 @@ class ViewManager {
             licenseInfo = licenseProcessor.parseLicense(dep.originalPackage);
             if (licenseInfo && licenseInfo.license && licenseInfo.license !== 'NOASSERTION') {
                 source = 'originalPackage';
+            }
+        }
+        
+        // 5. Final fallback: Use repository license if available
+        // Many SBOMs don't include license info for individual packages,
+        // so we infer it from the repository license as a last resort
+        if (!licenseInfo && orgData && dep.repositories && dep.repositories.length > 0) {
+            // Get license from first repository (most dependencies come from one repo)
+            const repoName = dep.repositories[0];
+            const allRepos = orgData.data?.allRepositories || [];
+            const repo = allRepos.find(r => `${r.owner}/${r.name}` === repoName);
+            
+            if (repo && repo.repositoryLicense && repo.repositoryLicense !== 'NOASSERTION') {
+                licenseInfo = licenseProcessor.parseLicense({
+                    licenseConcluded: repo.repositoryLicense,
+                    licenseDeclared: repo.repositoryLicense
+                });
+                if (licenseInfo && licenseInfo.license && licenseInfo.license !== 'NOASSERTION') {
+                    source = 'repositoryLicense';
+                }
             }
         }
         
@@ -3300,7 +3342,8 @@ class ViewManager {
         if (!analysisSelector) return;
 
         const analysisName = analysisSelector.value;
-        if (!analysisName) return;
+        // Allow empty string for aggregated view
+        if (analysisName === null || analysisName === undefined) return;
 
         // Determine if this is combined data (empty/null means aggregated)
         const isCombinedData = !analysisName || analysisName === '' || 
@@ -5377,12 +5420,13 @@ class ViewManager {
     </div>
 </div>`;
         } else {
+            // Show empty stats (0 vulnerabilities) instead of "No Analysis Yet" message
             return `<div id="vulnerability-section" class="independent-section">
     <div class="vulnerability-breakdown">
         <h3>🔒 Vulnerability Analysis</h3>
         <div class="vulnerability-actions mb-3">
             <button class="btn btn-primary btn-sm" onclick="viewManager.runBatchVulnerabilityQuery('${escapeJsString(escapeHtml(orgName))}')">
-                <i class="fas fa-search"></i> Run Initial Vulnerability Analysis
+                <i class="fas fa-search"></i> Run Vulnerability Analysis
             </button>
             <button class="btn btn-info btn-sm" onclick="viewManager.showVulnerabilityCacheStats()">
                 <i class="fas fa-database"></i> Cache Stats
@@ -5391,10 +5435,32 @@ class ViewManager {
                 <i class="fas fa-trash"></i> Clear Cache
             </button>
         </div>
-        <div class="alert alert-info">
-            <h6>📋 No Vulnerability Analysis Yet</h6>
-            <p>This organization hasn't been analyzed for vulnerabilities yet. Click "Run Initial Vulnerability Analysis" to scan all dependencies for known vulnerabilities.</p>
-            <p><strong>Note:</strong> This will query the OSV API for each dependency and may take a few minutes depending on the number of dependencies.</p>
+        <div class="vulnerability-stats">
+            <div class="vuln-stat-card critical">
+                <h4>🚨 Critical</h4>
+                <div class="vuln-number">0</div>
+                <div class="vuln-detail">vulnerabilities</div>
+            </div>
+            <div class="vuln-stat-card high">
+                <h4>⚠️ High</h4>
+                <div class="vuln-number">0</div>
+                <div class="vuln-detail">vulnerabilities</div>
+            </div>
+            <div class="vuln-stat-card medium">
+                <h4>🔶 Medium</h4>
+                <div class="vuln-number">0</div>
+                <div class="vuln-detail">vulnerabilities</div>
+            </div>
+            <div class="vuln-stat-card low">
+                <h4>ℹ️ Low</h4>
+                <div class="vuln-number">0</div>
+                <div class="vuln-detail">vulnerabilities</div>
+            </div>
+            <div class="vuln-stat-card packages">
+                <h4>📦 Packages</h4>
+                <div class="vuln-number">0</div>
+                <div class="vuln-detail">vulnerable packages</div>
+            </div>
         </div>
     </div>
 </div>`;

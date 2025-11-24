@@ -8,6 +8,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Maven version drift support via ecosyste.ms API
+  - Added `fetchMavenLatestVersion()` to dependency-tree-resolver.js
+  - Added `fetchMavenLatestVersion()` to version-drift-analyzer.js
+  - Enables version checking for Maven packages without CORS issues
+- **Debug Tools Page**: Created new `debug.html` page for advanced debugging and data management tools
+  - **Moved from Settings**: License Management, Author Detection Settings, and Debug URL Logging
+  - **Purpose**: Separates advanced/debug features from everyday settings for better UX
+  - **Access**: Available at `/debug.html` (not linked in main navigation to avoid clutter)
+  - **Location**: `debug.html` (new file)
+  - **Workflow Updates**: Updated both deployment and validation workflows to include debug.html
+- **Enhanced Logging**: Added console logging in vuln-page.js to help debug vulnerability data loading issues
+  - Shows which analysis is being loaded (specific org or aggregated)
+  - Displays count of vulnerable packages when rendering
+  - Helps identify if data exists but isn't rendering correctly
+  - **Location**: `js/vuln-page.js` lines 7-22
 - **Manual License Re-fetch Button**: Added UI button in Settings page to manually re-fetch missing licenses for existing analysis data
   - Displays count of unknown licenses by ecosystem before re-fetching
   - Shows real-time progress during license fetching
@@ -25,6 +40,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - **Location**: `index.html` lines 165-167, `js/app.js` lines 1324-1332, `js/dependency-tree-resolver.js` lines 20, 157, 226
 
 ### Changed
+- **Staleness Checking Moved to Analysis Phase**: Staleness data now fetched during initial analysis instead of lazily in UI
+  - **Previous Behavior**: Staleness checked on-demand when opening deps.html, causing 50+ console messages
+  - **New Behavior**: Staleness checked during initial analysis alongside version drift data
+  - **Benefits**: Faster UI loading, complete data upfront, eliminates console spam
+  - **Performance**: Staleness data cached in IndexedDB during analysis, not when viewing pages
+  - **Console**: Changed "Saved staleness for" from `console.log` to `console.debug` (only shows in verbose mode)
+  - **Files Changed**: `js/app.js` (fetchVersionDriftData function), `js/version-drift-analyzer.js` (logging)
+- **Cache Busting Updated**: Updated all JavaScript cache busting timestamps from `cb=1732345678901` to `cb=1732460000000` across all HTML files
+  - Ensures browsers load the latest versions of modified JavaScript files
+  - Applies to all pages: index, deps, licenses, vuln, audit, repos, authors, settings, about
+  - Updated 100+ script tag references across 9 HTML files
+  - **Location**: All HTML files
 - **License Changes Section Dependency Display**: Dependencies now show ecosystem prefix (e.g., `npm:express`, `pypi:requests`)
   - Changed from displaying just package name (e.g., `express`) to ecosystem:package format
   - Makes it easier to identify which ecosystem each dependency belongs to
@@ -33,6 +60,58 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - **Location**: `js/view-manager.js` lines 3575-3593, 3621-3635, 4281-4292
 
 ### Fixed
+- **Repositories Without Dependency Graph Now Listed**: Fixed issue where repositories without SBOMs were silently skipped
+  - **Problem**: Only repositories with SBOM/Dependency Graph enabled were stored and displayed (e.g., 5 out of 42 repos shown for anantshri-clones org)
+  - **Root Cause**: `app.js` processRepository function returned `null` for repos without SBOMs, causing them to be discarded
+  - **Solution**: Now stores ALL repositories with `hasDependencyGraph: false` flag for repos without SBOMs
+  - **UI Marker**: Repos without dependency graph show `<i class="fas fa-ban"></i> No Dependency Graph` badge in SBOM Grade column  
+  - **Dropdown Filtering**: Repositories without SBOMs (0 dependencies) are filtered from dropdown selectors on deps.html, vuln.html, licenses.html, etc. They ONLY appear in repos.html
+  - **Data Structure**: Repos without SBOMs stored with minimal data: 0 dependencies, N/A quality, but preserve repository metadata (license, archived status, description, language)
+  - **Benefits**: Complete visibility of all public repositories in repos.html, identifies which repos need dependency graph enabled in GitHub settings
+  - **Files Changed**: `js/app.js` (processRepository), `js/repos-page.js` (processData, renderTable), `js/page-common.js` (loadAnalysesList), `deps.html` (inline loadAnalysesList)
+- **Repository License Fallback for Unlicensed Dependencies**: Fixed issue where dependencies showed as "unlicensed" even though their repository had a clear license
+  - **Problem**: 290+ dependencies from repositories like `dgraph-io/badger` (Apache-2.0) showed as unlicensed in licenses.html
+  - **Root Cause**: `getDependencyLicenseInfo()` in view-manager.js checked multiple sources (deps.dev, PyPI, SBOM) but never fell back to repository license
+  - **Impact**: Many SBOMs don't include license info for individual packages, but the repository itself has a license file
+  - **Solution**: Added final fallback to check repository license when no other source provides license information
+  - **Inference Chain**: Now checks: dep.licenseFull → dep.license → dep.raw.license → GitHub Actions metadata → SBOM originalPackage → **repository license (NEW)**
+  - **Source Tracking**: License source marked as 'repositoryLicense' to indicate it was inferred from repository, not declared in package metadata
+  - **Expected Result**: Significant reduction in "unlicensed" count (290+ → much fewer), especially for Go packages and GitHub Actions
+  - **Files Changed**: `js/view-manager.js` (getDependencyLicenseInfo function, lines 2746-2775)
+- **Maven Version Drift CORS Errors**: Fixed "Failed to fetch" errors for Maven packages by switching to ecosyste.ms API
+  - **Problem**: Maven Central Search API (`search.maven.org`) blocks cross-origin requests from browsers (CORS policy)
+  - **Impact**: 50+ Maven packages (spring-boot, hibernate, jakarta, etc.) showed "Failed to fetch" in console logs
+  - **Solution**: Replaced Maven Central Search API with ecosyste.ms Maven registry API (`packages.ecosyste.ms/api/v1/registries/repo1.maven.org`)
+  - **Result**: Maven packages now support version drift analysis and latest version checks without CORS errors
+  - **Files Changed**: `js/dependency-tree-resolver.js`, `js/version-drift-analyzer.js`
+- **Vuln Page Shows 0 Stats Instead of Message**: Changed vuln.html to display vulnerability stats with 0 counts when no analysis exists
+  - **Previous Behavior**: Showed "No Vulnerability Analysis Yet" message with explanation
+  - **New Behavior**: Shows stats cards (Critical: 0, High: 0, Medium: 0, Low: 0, Packages: 0)
+  - **Rationale**: Consistency with dropdown selection behavior - always show stats, even when zero
+  - **Impact**: Users see consistent UI whether selecting specific org or viewing aggregated data
+  - **Fix**: Modified `generateVulnerabilityAnalysisHTML` else block to render empty stats instead of info message
+  - **Location**: `js/view-manager.js` lines 5402-5424
+- **Vuln Page Not Showing Content**: Fixed critical bug where vuln.html showed blank page even when data was available
+  - **Root Cause**: `loadVulnerabilityData()` didn't pass `noDataSection` parameter to `loadOrganizationData()`
+  - **Impact**: When no vulnerability analysis exists, the "No Data Available" section wasn't shown; users saw blank page
+  - **Fix**: Added `noDataSection: document.getElementById('noDataSection')` to options in vuln-page.js line 55
+  - **Result**: vuln.html now correctly shows either vulnerability data OR "No Data Available" message
+  - **Location**: `js/vuln-page.js` line 55
+- **Audit Page Not Loading By Default**: Fixed critical bug where audit.html would not load data on initial page load
+  - **Root Cause**: Line 185 checked `if (analysisSelector && analysisSelector.value)` before loading data
+  - **Impact**: When value is empty string `''` (for aggregated view), the condition was falsy and data never loaded
+  - **Fix**: Changed to `if (analysisSelector)` to load data even when value is empty string
+  - **Result**: audit.html now correctly loads aggregated audit findings by default
+  - **Location**: `js/audit-page.js` lines 185-187
+- **Page Loading Issues**: Fixed multiple issues preventing pages from loading aggregated data by default:
+  - **audit.html Not Loading**: Removed early return that prevented audit page from loading with aggregated data (empty selector value)
+  - **view-manager.js Early Return**: Fixed `updateLicenseCardCounts` to allow empty string for aggregated view
+  - **Zero Repos in deps.html**: Added defensive code in storage-manager.js to ensure repositories array is always properly initialized during data merging
+  - **License Display Logic**: Enhanced `getDependencyLicenseInfo` to check `dep.raw.license` and `dep.raw.licenseFull` fields for stored license data
+    - Now checks 6 license sources: dep.licenseFull, dep.license, dep.raw.licenseFull, dep.raw.license, GitHub Actions metadata, and SBOM originalPackage
+    - Should significantly reduce false "unlicensed" counts by properly retrieving stored license data
+  - **Vulnerability Loading**: Added logging to vuln-page.js to help identify why vulnerability data may not be showing
+  - All pages (audit, vuln, licenses, deps, repos) now properly load and display aggregated data when no specific analysis is selected
 - **License Re-fetch Zero Licenses Fetched**: Fixed critical issue where manual license re-fetch was fetching 0 licenses despite 227 unknown licenses
   - **Root Cause**: Dependencies stored in IndexedDB had `version: 'unknown'`, causing deps.dev API to return 404 errors for all requests
   - **Impact**: Manual re-fetch was completely non-functional - all 211 processed dependencies resulted in 0 licenses fetched

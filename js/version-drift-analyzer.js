@@ -357,7 +357,7 @@ class VersionDriftAnalyzer {
             
             // Save updated package data
             await window.cacheManager.savePackage(packageKey, packageData);
-            console.log(`💾 Saved staleness for ${packageKey}@${version}`);
+            console.debug(`💾 Saved staleness for ${packageKey}@${version}`);
         } catch (error) {
             console.warn(`⚠️ Failed to save staleness to cache:`, error);
         }
@@ -557,34 +557,44 @@ class VersionDriftAnalyzer {
     }
 
     /**
-     * Fetch latest version from Maven Central
+     * Fetch latest version from Maven via ecosyste.ms
      * Maven packages use format: groupId:artifactId (e.g., org.apache.maven.plugins:maven-jar-plugin)
+     * Using ecosyste.ms API to avoid CORS issues with Maven Central Search API
      */
     async fetchMavenLatestVersion(packageName) {
-        // Parse groupId:artifactId format
-        const parts = packageName.split(':');
-        if (parts.length < 2) {
-            console.warn(`⚠️ Invalid Maven package format: ${packageName} (expected groupId:artifactId)`);
+        try {
+            // Parse groupId:artifactId format
+            const parts = packageName.split(':');
+            if (parts.length < 2) {
+                console.warn(`⚠️ Invalid Maven package format: ${packageName} (expected groupId:artifactId)`);
+                return null;
+            }
+            
+            const groupId = parts[0];
+            const artifactId = parts[1]; // Take only the first artifactId part
+            
+            // Get registry name from RegistryManager
+            let registryName = 'repo1.maven.org'; // Default
+            if (window.registryManager) {
+                const name = await window.registryManager.getRegistryName('maven');
+                if (name) registryName = name;
+            }
+            
+            // Use ecosyste.ms API for Maven (CORS-friendly)
+            // Format: /registries/repo1.maven.org/packages/{groupId}/{artifactId}
+            const url = `https://packages.ecosyste.ms/api/v1/registries/${registryName}/packages/${encodeURIComponent(groupId)}/${encodeURIComponent(artifactId)}`;
+            
+            const response = await this.fetchWithTimeout(url, {}, this.requestTimeout);
+            if (!response.ok) {
+                return null;
+            }
+            
+            const data = await response.json();
+            return data.latest_release_number || null;
+        } catch (error) {
+            console.warn(`⚠️ Failed to fetch Maven version from ecosyste.ms: ${error.message}`);
             return null;
         }
-        
-        const groupId = parts[0];
-        const artifactId = parts.slice(1).join(':'); // Handle cases where artifactId might contain colons
-        
-        // Maven Central Search API
-        const url = `${this.registryUrls.maven}?q=g:${encodeURIComponent(groupId)}+AND+a:${encodeURIComponent(artifactId)}&rows=1&wt=json`;
-        const response = await this.fetchWithTimeout(url, {}, this.requestTimeout);
-        
-        if (!response.ok) {
-            return null;
-        }
-        
-        const data = await response.json();
-        if (data.response && data.response.docs && data.response.docs.length > 0) {
-            return data.response.docs[0].latestVersion || data.response.docs[0].v || null;
-        }
-        
-        return null;
     }
 
     /**

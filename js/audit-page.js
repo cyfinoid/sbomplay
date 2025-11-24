@@ -54,13 +54,15 @@ document.addEventListener('DOMContentLoaded', async function() {
         const sectionFilterEl = document.getElementById('sectionFilter');
         const repoFilterEl = document.getElementById('repoFilter');
         
-        if (!analysisSelector || !analysisSelector.value) {
+        if (!analysisSelector) {
             const container = document.getElementById('audit-analysis-page');
             if (container) {
                 container.innerHTML = '<div class="alert alert-info">Please select an analysis to view audit findings.</div>';
             }
             return;
         }
+        
+        // Allow empty analysisSelector.value - it means "All Analyses (aggregated)"
         
         // Use filters from form or URL
         const severityFilter = severityFilterEl ? severityFilterEl.value : (urlParamsObj.severity || 'all');
@@ -180,7 +182,8 @@ document.addEventListener('DOMContentLoaded', async function() {
     
     // Load initial data (default to all projects combined)
     const analysisSelector = document.getElementById('analysisSelector');
-    if (analysisSelector && analysisSelector.value) {
+    if (analysisSelector) {
+        // Load data even if value is empty string (aggregated view)
         await loadAuditData();
     }
     

@@ -44,6 +44,7 @@ document.addEventListener('DOMContentLoaded', async function() {
         const severityFilter = document.getElementById('severityFilter').value;
         
         // Note: analysisName can be empty string '' for aggregated view - don't skip loading!
+        console.log(`📋 Loading vulnerability data for: ${analysisName || 'All Analyses (aggregated)'}`);
         
         // Use severity filter from parameter or URL
         const severityFilterValue = severityFilter === 'all' ? null : severityFilter.toUpperCase();
@@ -52,11 +53,17 @@ document.addEventListener('DOMContentLoaded', async function() {
             severityFilter: severityFilterValue,
             repoFilter: urlParamsObj.repo || null,
             containerId: 'vulnerability-analysis-page',
+            noDataSection: document.getElementById('noDataSection'),
             renderFunction: async (data, severityFilter, sectionFilter, repoFilter, categoryFilter) => {
+                console.log(`📋 Rendering vulnerability data:`, data?.data?.vulnerabilityAnalysis ? 
+                    `${data.data.vulnerabilityAnalysis.vulnerablePackages || 0} vulnerable packages` : 
+                    'No vulnerability analysis found');
+                    
                 const container = document.getElementById('vulnerability-analysis-page');
                 // Render full vulnerability analysis dashboard (await the async method)
                 // Default to showing first 25 entries
-                viewManager.safeSetHTML(container, await viewManager.generateVulnerabilityAnalysisHTML(data, severityFilter, 25, 0));
+                const html = await viewManager.generateVulnerabilityAnalysisHTML(data, severityFilter, 25, 0);
+                viewManager.safeSetHTML(container, html);
                 if (typeof viewManager.addOverviewEventListeners === 'function') {
                     viewManager.addOverviewEventListeners();
                 }

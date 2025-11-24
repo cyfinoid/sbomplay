@@ -36,6 +36,7 @@ jobs:
             "authors.html"
             "repos.html"
             "about.html"
+            "debug.html"
           )
           
           MISSING=0

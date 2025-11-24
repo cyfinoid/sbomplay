@@ -28,9 +28,16 @@ async function loadAnalysesList(selectorId, storageManager, noDataSection = null
         const storageInfo = await storageManager.getStorageInfo();
         console.log(`📋 Storage info retrieved: ${storageInfo.organizations.length} orgs, ${storageInfo.repositories.length} repos`);
         
-        // Filter out __ALL__ entries (legacy internal identifier)
+        // Filter out:
+        // 1. __ALL__ entries (legacy internal identifier)
+        // 2. Entries with 0 dependencies (repositories without SBOM/dependency graph)
         const allEntries = [...storageInfo.organizations, ...storageInfo.repositories]
-            .filter(entry => entry.name !== '__ALL__');
+            .filter(entry => entry.name !== '__ALL__' && entry.dependencies > 0);
+        
+        const filteredOutCount = (storageInfo.organizations.length + storageInfo.repositories.length) - allEntries.length;
+        if (filteredOutCount > 0) {
+            console.log(`📋 Filtered out ${filteredOutCount} entries (no dependencies/SBOM)`);
+        }
         console.log(`📋 Total entries to add: ${allEntries.length}`);
         
         selector.innerHTML = '';

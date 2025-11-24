@@ -395,6 +395,7 @@ document.addEventListener('DOMContentLoaded', async function() {
                 authorCount: authorCount,
                 license: repoLicense,
                 archived: isArchived,
+                hasDependencyGraph: repo.hasDependencyGraph !== false, // Default to true if not specified (for backward compat)
                 raw: repo
             });
         });
@@ -499,7 +500,13 @@ document.addEventListener('DOMContentLoaded', async function() {
             // Build SBOM Grade cell (combined status and grade, clickable if available)
             const qualityLink = createRepoLink('audit.html', repo.name);
             let sbomGradeCell = '<td>';
-            if (repo.sbomGrade && repo.sbomGrade !== 'N/A') {
+            
+            // Check if repository has dependency graph enabled
+            if (repo.hasDependencyGraph === false) {
+                sbomGradeCell += `<span class="badge bg-secondary" title="Dependency Graph not enabled for this repository">
+                    <i class="fas fa-ban me-1"></i>No Dependency Graph
+                </span>`;
+            } else if (repo.sbomGrade && repo.sbomGrade !== 'N/A') {
                 const gradeClass = {
                     'A': 'bg-success',
                     'B': 'bg-info',

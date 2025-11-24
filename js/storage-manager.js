@@ -899,14 +899,18 @@ class StorageManager {
             if (entry.data.allDependencies) {
                 for (const dep of entry.data.allDependencies) {
                     const key = `${dep.name}@${dep.version}`;
+                    // Ensure repositories is always an array, never undefined
+                    const depRepositories = Array.isArray(dep.repositories) ? dep.repositories : [];
+                    
                     if (dependencyMap.has(key)) {
                         const existing = dependencyMap.get(key);
                         existing.count += dep.count;
-                        existing.repositories = [...new Set([...existing.repositories, ...(dep.repositories || [])])];
+                        // Merge repositories, ensuring we don't add duplicates
+                        existing.repositories = [...new Set([...existing.repositories, ...depRepositories])];
                     } else {
                         dependencyMap.set(key, {
                             ...dep,
-                            repositories: [...(dep.repositories || [])]
+                            repositories: [...depRepositories]
                         });
                     }
                 }

@@ -912,7 +912,38 @@ class SBOMPlayApp {
                             }
                         }
                     } else {
-                        this.sbomProcessor.updateProgress(false);
+                        // Repository doesn't have SBOM/dependency graph enabled
+                        // Still store it with a marker so it appears in repos.html
+                        const repoKey = `${owner}/${name}`;
+                        const repoData = {
+                            owner: owner,
+                            name: name,
+                            fullName: repoKey,
+                            totalDependencies: 0,
+                            dependencies: [],
+                            spdxPackages: [],
+                            relationships: [],
+                            authors: [],
+                            sbomQuality: {
+                                overallScore: 0,
+                                displayScore: 0,
+                                grade: 'N/A',
+                                gradeLabel: 'No SBOM available',
+                                categories: {}
+                            },
+                            hasDependencyGraph: false, // NEW FLAG
+                            repositoryLicense: repo.license?.spdx_id || repo.license?.key || null,
+                            archived: repo.archived || false,
+                            description: repo.description || null,
+                            url: repo.html_url || `https://github.com/${owner}/${name}`,
+                            visibility: repo.visibility || 'public',
+                            language: repo.language || null
+                        };
+                        
+                        this.sbomProcessor.repositories.set(repoKey, repoData);
+                        this.sbomProcessor.updateProgress(false); // Count as processed but not successful
+                        result.success = true; // Mark as success so it's included in results
+                        result.hasDeps = false;
                     }
                 } catch (error) {
                     console.error(`Error processing ${owner}/${name}:`, error);
@@ -3936,7 +3967,7 @@ class SBOMPlayApp {
                 const [ecosystem, packageName] = packageKey.split(':');
                 const versions = Array.from(uniquePackageVersions.get(packageKey));
                 
-                // Fetch drift for each version (checkVersionDrift already saves to IndexedDB via cacheManager)
+                // Fetch drift and staleness for each version (both saved to IndexedDB via cacheManager)
                 for (const version of versions) {
                     try {
                         // Check cache first - only fetch if not cached
@@ -3949,7 +3980,34 @@ class SBOMPlayApp {
                             }
                         }
                         
-                        // Store drift data for attachment to dependency objects
+                        // Also fetch staleness data if not already in driftData
+                        // This eliminates the need to fetch it lazily later in deps.html
+                        if (driftData && !driftData.staleness) {
+                            // Only check staleness if no major/minor updates
+                            // (if there are updates, it's not stale by definition)
+                            if (!driftData.hasMajorUpdate && !driftData.hasMinorUpdate) {
+                                try {
+                                    const stalenessData = await versionDriftAnalyzer.checkStaleness(packageName, version, ecosystem);
+                                    if (stalenessData) {
+                                        driftData.staleness = stalenessData;
+                                        // Save updated drift data with staleness
+                                        // This ensures staleness is cached alongside version drift
+                                    }
+                                } catch (stalenessError) {
+                                    console.debug(`Failed to check staleness for ${packageKey}@${version}:`, stalenessError);
+                                }
+                            } else {
+                                // Package has updates, so it's not stale
+                                driftData.staleness = {
+                                    isStale: false,
+                                    lastReleaseDate: null,
+                                    monthsSinceRelease: 0,
+                                    stalenessCheckedAt: Date.now()
+                                };
+                            }
+                        }
+                        
+                        // Store drift data (with staleness) for attachment to dependency objects
                         if (driftData) {
                             const depKey = `${packageKey}@${version}`;
                             depVersionDriftMap.set(depKey, driftData);
@@ -3992,7 +4050,7 @@ class SBOMPlayApp {
             }
         });
         
-        console.log(`✅ Version drift fetching complete: ${processed} versions fetched, ${attachedCount} attached to dependencies`);
+        console.log(`✅ Version drift and staleness fetching complete: ${processed} versions fetched, ${attachedCount} attached to dependencies`);
     }
 
     sleep(ms) {
