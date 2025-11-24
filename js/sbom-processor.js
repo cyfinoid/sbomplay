@@ -325,9 +325,11 @@ class SBOMProcessor {
                         const resolver = new window.DependencyTreeResolver();
                         const latestVersion = await resolver.fetchLatestVersion(pkg.name, ecosystem);
                         if (latestVersion) {
+                            // Use the latest version as the actual version (not just display)
+                            version = latestVersion;
                             displayVersion = latestVersion;
                             assumedVersion = latestVersion;
-                            console.log(`   ✅ Found latest version for ${pkg.name}: ${latestVersion} (assumed)`);
+                            console.log(`   ✅ Found latest version for ${pkg.name}: ${latestVersion} (using as version)`);
                         } else {
                             displayVersion = 'version unknown';
                             console.log(`   ⚠️  Could not fetch latest version for ${pkg.name}, using "version unknown"`);
@@ -366,9 +368,9 @@ class SBOMProcessor {
             if (!this.dependencies.has(depKey)) {
                 this.dependencies.set(depKey, {
                     name: pkg.name,
-                    version: version || null,  // Store original version (null if missing)
-                    displayVersion: displayVersion,  // Display version (may be assumed)
-                    assumedVersion: assumedVersion,  // Latest version if assumed
+                    version: version || null,  // Store version (original or resolved latest if missing)
+                    displayVersion: displayVersion,  // Display version (may be "version unknown")
+                    assumedVersion: assumedVersion,  // Latest version if it was fetched (null if original version was present)
                     repositories: new Set(),
                     count: 0,
                     category: category,
@@ -660,7 +662,6 @@ class SBOMProcessor {
             return null;
         }
         
-        const resolver = new window.DependencyTreeResolver();
         const resolvedTrees = new Map(); // ecosystem -> tree
         
         try {
@@ -686,6 +687,9 @@ class SBOMProcessor {
             const resolveEcosystem = async ([ecosystem, directDeps], index) => {
                 console.log(`  🔍 Resolving ${ecosystem} dependencies (${directDeps.size} direct)...`);
                 
+                // Create a new resolver instance for each ecosystem to avoid counter conflicts when running in parallel
+                const resolver = new window.DependencyTreeResolver();
+                
                 try {
                     // Create progress callback for this ecosystem
                     const ecosystemProgressCallback = (progress) => {
@@ -699,6 +703,8 @@ class SBOMProcessor {
                                 total: progress.total,
                                 packageName: progress.packageName || progress.package || null,
                                 remaining: progress.remaining || (progress.total - progress.processed),
+                                depChain: progress.depChain || [],
+                                totalPackagesProcessed: progress.totalPackagesProcessed || 0,
                                 packageProgress: progress,
                                 ecosystemProgress: ecosystemProgress
                             });
@@ -729,8 +735,24 @@ class SBOMProcessor {
                         // If dependency doesn't exist yet (discovered during tree resolution), create it
                         if (!dep) {
                             // Parse package name and version from packageKey
-                            const [name, ...versionParts] = packageKey.split('@');
-                            const version = versionParts.join('@');
+                            // Handle scoped packages (e.g., @scope/package@version)
+                            let name, version;
+                            if (packageKey.startsWith('@')) {
+                                // Scoped package: @scope/package@version
+                                const lastAtIndex = packageKey.lastIndexOf('@');
+                                name = packageKey.substring(0, lastAtIndex);
+                                version = packageKey.substring(lastAtIndex + 1);
+                            } else {
+                                // Regular package: package@version
+                                const firstAtIndex = packageKey.indexOf('@');
+                                if (firstAtIndex !== -1) {
+                                    name = packageKey.substring(0, firstAtIndex);
+                                    version = packageKey.substring(firstAtIndex + 1);
+                                } else {
+                                    name = packageKey;
+                                    version = '';
+                                }
+                            }
                             
                             // Use the ecosystem we're currently resolving to categorize this dependency
                             // This is more reliable than trying to infer from name patterns

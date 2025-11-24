@@ -7,7 +7,198 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Manual License Re-fetch Button**: Added UI button in Settings page to manually re-fetch missing licenses for existing analysis data
+  - Displays count of unknown licenses by ecosystem before re-fetching
+  - Shows real-time progress during license fetching
+  - Queries deps.dev API, PyPI API (with PEP 639 support), and other registries
+  - Updates IndexedDB with newly fetched licenses without requiring full re-scan
+  - Useful for updating old scans or fixing license detection issues
+  - **Impact**: Allows users to fix ~1500+ "unknown" licenses (npm, PyPI, Go) without 10+ minute rescan
+  - **Location**: `settings.html` lines 59-93, `js/license-refetch.js` (new file)
+- **Total Packages Processed Counter**: Added real-time counter showing cumulative packages processed during dependency resolution
+  - Displays below elapsed time during dependency tree resolution
+  - Shows total count of all packages processed (direct + transitive)
+  - Increments for each package resolved from any ecosystem
+  - Uses comma-separated formatting for readability (e.g., "1,234")
+  - **Impact**: Better visibility into scan progress and total dependency tree size
+  - **Location**: `index.html` lines 165-167, `js/app.js` lines 1324-1332, `js/dependency-tree-resolver.js` lines 20, 157, 226
+
+### Changed
+- **License Changes Section Dependency Display**: Dependencies now show ecosystem prefix (e.g., `npm:express`, `pypi:requests`)
+  - Changed from displaying just package name (e.g., `express`) to ecosystem:package format
+  - Makes it easier to identify which ecosystem each dependency belongs to
+  - Helps distinguish packages with same name across different ecosystems
+  - **Impact**: Clearer dependency identification in license change detection
+  - **Location**: `js/view-manager.js` lines 3575-3593, 3621-3635, 4281-4292
+
 ### Fixed
+- **License Re-fetch Zero Licenses Fetched**: Fixed critical issue where manual license re-fetch was fetching 0 licenses despite 227 unknown licenses
+  - **Root Cause**: Dependencies stored in IndexedDB had `version: 'unknown'`, causing deps.dev API to return 404 errors for all requests
+  - **Impact**: Manual re-fetch was completely non-functional - all 211 processed dependencies resulted in 0 licenses fetched
+  - **Solution**: Added version resolution step BEFORE fetching licenses (same as initial scan)
+    - Uses `DependencyTreeResolver.fetchLatestVersion()` to resolve unknown versions
+    - Updates `version`, `displayVersion`, and `assumedVersion` fields before API calls
+    - Only resolves versions for ecosystems with valid registries (skips GitHub Actions)
+    - Added `dependency-tree-resolver.js` to `settings.html` (was missing, causing "not a constructor" error)
+  - **Result**: Now properly resolves ~150 PyPI "unknown" versions, enabling successful license fetching
+  - **Location**: `js/license-refetch.js` lines 140-164, `settings.html` line 645
+- **License Re-fetch Constructor Error**: Fixed "window.App is not a constructor" error when clicking re-fetch button
+  - **Root Cause**: Class is named `SBOMPlayApp` but was not exposed on window object
+  - **Fix**: Exposed `SBOMPlayApp` on window and updated license-refetch.js to use `new window.SBOMPlayApp()`
+  - **Location**: `js/app.js` line 4430, `js/license-refetch.js` line 131
+- **License Re-fetch Data Structure Issue**: Fixed "No analysis data found" error in manual license re-fetch
+  - **Root Cause**: `getCombinedData()` returns nested structure `{ data: { allDependencies } }` but code expected flat `{ allDependencies }`
+  - **Fix**: Updated license-refetch.js to correctly access `combinedData.data.allDependencies`
+  - **Also Fixed**: License updates now properly saved back to IndexedDB using license map to update original entries
+  - **Location**: `js/license-refetch.js` lines 32-34, 89-91, 178-213
+- **PyPI License Detection Enhanced with PEP 639 Support**: Fixed ~220 PyPI packages incorrectly showing as "unlicensed" when they have valid licenses
+  - **Root Cause**: Modern PyPI packages use PEP 639 format with `license_expression` field instead of `license` field, which we weren't checking
+  - **Impact**: Before fix, ~220 dependencies (~9.7%) were incorrectly marked as unlicensed, affecting license compliance statistics
+  - **Solution Implemented**:
+    - **Phase 1 - Enhanced deps.dev parsing**: Filter out unhelpful values like "non-standard", "NOASSERTION", "UNKNOWN"
+    - **Phase 2 - PyPI JSON API fallback**: When deps.dev returns no valid license, query PyPI directly and check:
+      - `license_expression` field (PEP 639 modern format) - e.g., typing-extensions, urllib3
+      - `license` field (older format) - extract SPDX identifiers from full text (e.g., BSD-3-Clause from numpy's license text)
+      - License classifiers - convert to SPDX format (e.g., "License :: OSI Approved :: MIT License" → "MIT")
+  - **Result**: Expected reduction from 220 unlicensed to ~50-80, improving accuracy from 90.3% to ~96-97% correctly licensed
+  - **Verified Examples**:
+    - numpy: ✅ BSD-3-Clause (extracted from full license text)
+    - typing-extensions: ✅ PSF-2.0 (from `license_expression`)
+    - urllib3: ✅ MIT (from `license_expression`)
+    - packaging: ✅ Apache-2.0 OR BSD (from classifiers)
+    - certifi: ✅ MPL-2.0 (from `license` field)
+    - wcwidth: ✅ MIT (from `license` field)
+  - **Location**: `js/app.js` lines 3340-3540
+  - **Documentation**: `mdfiles/LICENSE_DETECTION_ISSUE.md` - detailed analysis with curl verification examples
+- **Dependency Resolution Progress Counter Wrong**: Fixed progress showing incorrect counts like "283/35 direct"  when resolving dependencies
+  - **Root Cause**: All ecosystems (npm, PyPI, RubyGems, etc.) were sharing a single `DependencyTreeResolver` instance and resolving in parallel
+  - **Impact**: Counter was being incremented by multiple ecosystems simultaneously, showing cumulative count instead of per-ecosystem count
+  - **Solution**: Create a new resolver instance for each ecosystem so counters don't interfere
+  - **Result**: Progress now correctly shows "1/35 direct", "2/35 direct", etc. for each ecosystem independently
+  - **Also Fixed**: Added `depChain` to progress callback so dependency chains display properly
+  - **Location**: `js/sbom-processor.js` lines 665-692
+- **Unknown Version Dependencies Not Resolved**: Fixed dependencies with missing versions not being properly resolved to latest version
+  - **Root Cause**: When latest version was successfully fetched from registry, it was only stored in `displayVersion` and `assumedVersion` fields, but the actual `version` field remained `null`
+  - **Impact**: Dependencies with missing versions in SBOM now properly use the resolved latest version for:
+    - License fetching (deps.dev API requires version)
+    - Vulnerability scanning (OSV API requires version)
+    - Version drift analysis (requires version to compare)
+    - Dependency keys and display (no more "version unknown" in most cases)
+  - **Solution**: When latest version is successfully fetched, update the `version` field to use it (not just `displayVersion`)
+  - **Result**: Significantly reduces "version unknown" entries in dependency listings and enables proper license/vulnerability analysis
+  - **Location**: `js/sbom-processor.js` lines 316-342
+- **License Rendering Inconsistency Between Pages**: Fixed `licenses.html` showing GitHub Actions (e.g., `actions/checkout`) as "unlicensed" when `deps.html` correctly shows MIT license
+  - **Root Causes**: 
+    - `generateUnlicensedTableData()` and `calculateLicenseCounts()` weren't using unified license info method
+    - `getEnrichedGitHubActionLicense()` had incorrect data structure navigation bugs:
+      - Looked for `action.metadata.license` instead of `action.license`
+      - Looked for `repoData.owner/repo` instead of parsing `repoData.repository`
+      - Looked for `repoData.nestedActions` instead of recursively checking `action.nested`
+  - **Solution**: 
+    - Updated `generateUnlicensedTableData()` and `calculateLicenseCounts()` to use `getDependencyLicenseInfo()`
+    - Fixed `getEnrichedGitHubActionLicense()` to correctly navigate GitHub Actions analysis structure
+    - Fixed property access: `action.license` (not `action.metadata.license`)
+    - Fixed repository matching: parse `repoData.repository` string (`"owner/repo"` format)
+    - Fixed nested action search: recursively traverse `action.nested` arrays
+  - **Impact**: All pages now show consistent license information for GitHub Actions dependencies
+    - Stats cards at top of `licenses.html` now reflect correct counts
+    - License Types table shows correct categorization  
+    - Unlicensed table no longer falsely includes GitHub Actions with valid licenses
+  - **Affected Pages**: `licenses.html` (Stats cards, License Types table, Unlicensed table)
+  - **Location**: `js/view-manager.js` lines 2766-2810 (getEnrichedGitHubActionLicense), 3132-3360 (calculateLicenseCounts), 3499-3510 (generateUnlicensedTableData)
+- **Vulnerability Page Load More Button**: Changed "Load More" to show all remaining entries at once
+  - Button now says "Show All Remaining (X)" instead of "Load More (X remaining)"
+  - Clicking button loads all remaining vulnerabilities in one batch instead of 25 at a time
+  - **Rationale**: Similar to deps page improvement - users either want quick overview (first 25) or complete list
+  - **Impact**: Faster access to full vulnerability list without multiple clicks
+  - **Location**: `js/view-manager.js` lines 5360-5370, 5654, 5713
+- **Dependencies Page Navigation**: Replaced pagination with simpler "Show Top 25 / Show All" dropdown
+  - Removed Previous/Next buttons and page size selector (10/25/50/100/250/500 options)
+  - Added simple dropdown: "Show Top 25" (default) or "Show All" dependencies
+  - **Rationale**: Pagination with incremental loading (25 at a time) is tedious; users either want quick overview (top 25) or complete list
+  - **Impact**: Cleaner, more intuitive UI; faster access to full dependency list
+  - **Location**: `deps.html`
+- **Dependency Resolution Progress Display**: Improved clarity and removed duplicate UI elements
+  - Progress now shows which direct dependency is being processed (e.g., "1/6 direct", "2/6 direct")
+  - Added full dependency chain from direct dependency to current package (e.g., "express → body-parser → raw-body → bytes")
+  - Shows transitive depth visually: "Resolving npm dependencies (1/6 direct) → A → B → C → ansi-styles"
+  - Removed duplicate secondary progress bar (`dependencyProgressSection`)
+  - Progress updates show complete dependency path with visual chain representation
+  - **Impact**: Clearer progress tracking, shows exact resolution depth and path, better understanding of transitive dependencies
+- **Simplified Analysis Selection**: Removed confusing "__ALL__" identifier from UI
+  - All pages now show aggregated data by default (labeled as "All Analyses")
+  - Dropdown allows filtering to specific organization/repository
+  - Removed "All Projects (Combined)" option from dropdowns
+  - Empty dropdown value = show aggregated data from all analyses
+  - Cleaner, simpler UX with no special internal identifiers exposed to users
+  - **Impact**: Simplified interface, clearer data presentation, better user experience
+
+### Fixed
+- **Licenses Page Issues**: Fixed __ALL__ appearing in dropdown and aggregated view not loading
+  - **Problem 1**: `__ALL__` legacy identifier was showing in analysis selector dropdown
+  - **Problem 2**: "All Analyses" option didn't load data - showed "Please select an analysis" message
+  - **Root Cause 1**: `page-common.js` wasn't filtering out `__ALL__` entries when populating dropdowns
+  - **Root Cause 2**: `licenses-page.js` had `if (!analysisName) return;` check preventing empty string (aggregated view) from loading
+  - **Solution**: Added filter to exclude `__ALL__` in `page-common.js`; removed early return check in `licenses-page.js`
+  - **Impact**: Licenses page now shows cumulative data by default without `__ALL__` clutter
+  - **Location**: `js/page-common.js` lines 31-33, `js/licenses-page.js` lines 32-36
+- **Version Upgrade Badges Not Showing in Vulnerability Page**: Fixed missing version drift badges and archived tags in vulnerability analysis
+  - **Problem**: Version upgrade badges (major/minor) and archived repository tags were not appearing for vulnerable dependencies
+  - **Root Cause**: Vulnerable dependencies created in `osv-service.js` only included name, version, and vulnerabilities - missing version drift and other metadata
+  - **Solution**: Added full metadata (versionDrift, ecosystem, category) when creating vulnerable dependencies; updated view-manager to use this data directly
+  - **Impact**: Vulnerable dependencies now show version upgrade badges and archived tags correctly
+  - **Location**: `js/osv-service.js` lines 345-361 (2 occurrences), `js/view-manager.js` lines 5238-5267
+- **Function Call Parameter Mismatch**: Fixed incorrect function calls to `loadAnalysesList()` across multiple pages
+  - **Problem**: Pages were calling `loadAnalysesList()` with extra boolean parameter that doesn't exist in function signature
+  - **Root Cause**: Function signature is `loadAnalysesList(selectorId, storageManager, noDataSection)` but calls had 4 parameters including a boolean
+  - **Solution**: Removed extra parameter from function calls in `licenses-page.js`, `audit-page.js`, and `vuln-page.js`
+  - **Impact**: Fixes "Cannot set properties of undefined (setting 'display')" error on page load
+  - **Location**: `js/licenses-page.js` line 17, `js/audit-page.js` line 49, `js/vuln-page.js` line 40
+- **Vulnerability Page Not Showing Aggregated Data**: Fixed vuln.html requiring organization selection instead of showing cumulative data by default
+  - **Problem**: Similar to deps.html issue - `if (!analysisName) return;` check prevented loading when empty string is selected for aggregated view
+  - **Root Cause**: Empty string is falsy in JavaScript, causing early return
+  - **Solution**: Removed early return check since empty string is valid for aggregated view
+  - **Impact**: Vulnerability page now shows cumulative data from all analyses by default
+  - **Location**: `js/vuln-page.js` lines 46-49
+- **Dependency Resolution Progress Display Issues**: Fixed wrong ecosystem and counter display during transitive dependency resolution
+  - **Problem 1**: Progress showed wrong ecosystem (e.g., "Resolving npm dependencies" when scanning Go packages)
+  - **Problem 2**: Counter showed nonsensical values (e.g., "339/133 direct" where processed > total)
+  - **Root Cause**: `updateProgress()` method didn't pass `ecosystem` parameter, causing app.js to reuse cached ecosystem from previous packages
+  - **Solution**: Added `currentEcosystem` and `currentDirectDep` tracking, ensured ecosystem is always passed in progress updates
+  - **Impact**: Progress now correctly shows current ecosystem and accurate direct dependency counter (e.g., "Resolving go dependencies (12/133 direct)")
+  - **Location**: `js/dependency-tree-resolver.js` lines 21-22, 132-144, 167-187, 228
+- **Legacy __ALL__ Entries in Dropdowns**: Filtered out `__ALL__` entries from analysis selector dropdowns
+  - **Problem**: After removing `__ALL__` identifier, old database entries still contained `__ALL__` as an organization name
+  - **Solution**: Added filter to exclude `__ALL__` entries when populating analysis selector dropdowns
+  - **Impact**: Cleaner dropdowns without legacy internal identifiers
+  - **Location**: `deps.html` lines 475-490, `js/repos-page.js` lines 99-120
+- **Critical: Pages Not Loading Tables**: Fixed `deps.html` and `repos.html` not displaying tables when aggregated view is selected
+  - **Problem**: After removing `__ALL__` and using empty string `''` for aggregated view, pages had `if (!analysisName) return;` check that prevented data loading
+  - **Root Cause**: Empty string is falsy in JavaScript, so the condition returned early without loading any data
+  - **Solution**: Removed the early return check since empty string is a valid value for aggregated view
+  - **Impact**: Fixes complete failure to display any data on deps and repos pages
+  - **Location**: `deps.html` line 646, `js/repos-page.js` line 221
+- **Transitive Dependency Parent Display**: Fixed missing parent information for transitive dependencies in `deps.html`
+  - **Problem**: Transitive dependencies showed "Unknown" for parents even though parent data was correctly stored in IndexedDB
+  - **Root Cause**: `processData()` function created a new `parents` Set but only populated it from SBOM relationships and GitHub Actions analysis, never using the `dep.parents` array from dependency tree resolution
+  - **Solution**: Added code to merge `dep.parents` from stored data into the parents Set
+  - **Impact**: All transitive dependencies now correctly display their parent packages (e.g., "1 parent", "3 parents")
+  - **Location**: `deps.html` lines 1048-1055
+- **Scoped Package Name Parsing (CRITICAL)**: Fixed transitive dependencies with scoped names having empty name field
+  - **Problem**: Scoped npm packages (e.g., `@jest/core@29.7.0`, `@babel/parser@7.23.6`) discovered during dependency tree resolution had empty names
+  - **Root Cause**: `packageKey.split('@')` on `@jest/core@29.7.0` produced `['', 'jest/core', '29.7.0']`, setting `name = ''` and `version = 'jest/core@29.7.0'`
+  - **Solution**: Now uses `lastIndexOf('@')` to find version separator for scoped packages
+  - **Impact**: Fixes ~324 transitive dependencies per typical npm project, resolves "Version Sprawl" empty package name display issue
+  - **Location**: `js/sbom-processor.js` lines 732-750
+- **Geocoding Performance**: Integrated geocoding with GitHub profile fetching instead of bulk processing
+  - Geocoding now happens inline when fetching GitHub profiles for authors (with visible logging)
+  - Previously: bulk geocoded 181 locations as separate phase at 95% progress
+  - Now: geocodes during GitHub data extraction phase (faster, better progress tracking)
+  - Also geocodes authors who have location from package registries but need country code
+  - Batch geocoding at end remains as failsafe for locations from non-GitHub sources
+  - **Impact**: Eliminates large bulk geocoding phase, improves performance and UX
+  - **Added**: Console logging to show when geocoding happens during GitHub fetch (e.g., `📍 Geocoded location during GitHub fetch for author: "San Francisco" → US`)
 - **License Data Persistence (CRITICAL)**: Fixed key format mismatch preventing license data from being saved to database
   - License fetching was successful (1200+ licenses fetched from APIs) but updates failed due to key mismatch
   - Updated `fetchLicensesForAllEcosystems()`, `fetchPyPILicenses()`, and `fetchGoLicenses()` to use correct dependency key format (`name@version` instead of `ecosystem:name@version`)
@@ -55,6 +246,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - **Impact**: Simpler, cleaner UI with faster access to all authors
 
 ### Added
+- **Analysis Timing and Statistics Tracking**: Comprehensive metadata now saved with every analysis
+  - **Timing Data**: startTime, endTime, durationMs, durationFormatted (human-readable)
+  - **Ecosystem Statistics**: Dependency count per ecosystem (npm, PyPI, Maven, Go, etc.)
+    - Total count, direct count, transitive count, unique packages per ecosystem
+  - **Repository Statistics**: Count and dependency totals grouped by language
+  - **License Statistics**: Total licenses, licensed vs unlicensed counts, top licenses by frequency
+  - **Phase Timing**: Duration breakdown by analysis phase (SBOM processing, dep resolution, vulnerability analysis, etc.)
+  - All metadata accessible via IndexedDB for historical analysis
+  - Console logs display: `⏱️ Total Time: Xm Ys` and `⏱️ Duration (ms): XXXXms`
+  - **Impact**: Full visibility into analysis performance and dependency composition
 - **Enhanced Dependency Resolution Progress**: Secondary progress bar now displays detailed package-level progress during dependency tree resolution
   - Shows current package name being processed (extracted from package key)
   - Displays countdown with "X/Y processed" badge and "(Z remaining)" count

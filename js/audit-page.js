@@ -46,7 +46,7 @@ document.addEventListener('DOMContentLoaded', async function() {
     // Note: repo filter will be set after repositories are loaded
     
     // Load analysis list into selector
-    await loadAnalysesList('analysisSelector', storageManager, true, document.getElementById('noDataSection'));
+    await loadAnalysesList('analysisSelector', storageManager, document.getElementById('noDataSection'));
     
     async function loadAuditData() {
         const analysisSelector = document.getElementById('analysisSelector');
@@ -819,12 +819,12 @@ document.addEventListener('DOMContentLoaded', async function() {
                     let repoLink = '<span class="text-muted">N/A</span>';
                     if (instance.repository) {
                         // Get current organization context for the link
-                        const currentOrg = document.getElementById('analysisSelector')?.value || '__ALL__';
-                        const orgParam = (currentOrg === '__ALL__' || currentOrg === 'All Projects (Combined)') ? '__ALL__' : currentOrg;
+                        const currentOrg = document.getElementById('analysisSelector')?.value || '';
+                        const orgParam = (!currentOrg || currentOrg === '') ? '' : currentOrg;
                         
                         // Build deps.html URL with repository filter
                         const params = new URLSearchParams();
-                        if (orgParam && orgParam !== '__ALL__') {
+                        if (orgParam && orgParam !== '') {
                             params.set('org', orgParam);
                         }
                         params.set('repo', instance.repository);

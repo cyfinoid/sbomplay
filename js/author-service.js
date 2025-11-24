@@ -1015,6 +1015,7 @@ class AuthorService {
                             if (geocoded && geocoded.countryCode) {
                                 countryCode = geocoded.countryCode;
                                 country = geocoded.country;
+                                console.log(`📍 Geocoded location during GitHub fetch for ${authorKey}: "${userData.location}" → ${geocoded.countryCode}`);
                             }
                         } catch (error) {
                             console.debug(`Could not geocode location "${userData.location}" for ${authorKey}:`, error.message);

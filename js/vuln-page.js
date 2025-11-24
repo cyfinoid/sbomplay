@@ -37,16 +37,13 @@ document.addEventListener('DOMContentLoaded', async function() {
     }
     
     // Load analysis list into selector
-    await loadAnalysesList('analysisSelector', storageManager, false, document.getElementById('noDataSection'));
+    await loadAnalysesList('analysisSelector', storageManager, document.getElementById('noDataSection'));
     
     async function loadVulnerabilityData() {
         const analysisName = document.getElementById('analysisSelector').value;
         const severityFilter = document.getElementById('severityFilter').value;
         
-        if (!analysisName) {
-            document.getElementById('vulnerability-analysis-page').innerHTML = '<div class="alert alert-info">Please select an analysis to view vulnerability data.</div>';
-            return;
-        }
+        // Note: analysisName can be empty string '' for aggregated view - don't skip loading!
         
         // Use severity filter from parameter or URL
         const severityFilterValue = severityFilter === 'all' ? null : severityFilter.toUpperCase();

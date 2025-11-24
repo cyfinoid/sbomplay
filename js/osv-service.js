@@ -341,10 +341,13 @@ class OSVService {
                     }
                 });
 
-                // Add to vulnerable dependencies list
+                // Add to vulnerable dependencies list with full metadata
                 vulnerabilityAnalysis.vulnerableDependencies.push({
                     name: dep.name,
                     version: dep.version,
+                    ecosystem: dep.ecosystem || dep.category?.ecosystem || null,
+                    versionDrift: dep.versionDrift || null,
+                    category: dep.category || null,
                     vulnerabilities: vulnerabilities.map(vuln => {
                         const severity = this.getHighestSeverity(vuln);
                         console.log(`🔍 OSV: Mapped vulnerability ${vuln.id} severity: ${severity}`);
@@ -476,10 +479,13 @@ class OSVService {
                     }
                 });
 
-                // Add to vulnerable dependencies list
+                // Add to vulnerable dependencies list with full metadata
                 vulnerabilityAnalysis.vulnerableDependencies.push({
                     name: dep.name,
                     version: dep.version,
+                    ecosystem: dep.ecosystem || dep.category?.ecosystem || null,
+                    versionDrift: dep.versionDrift || null,
+                    category: dep.category || null,
                     vulnerabilities: vulnerabilities.map(vuln => {
                         const severity = this.getHighestSeverity(vuln);
                         console.log(`🔍 OSV: Mapped vulnerability ${vuln.id} severity: ${severity}`);

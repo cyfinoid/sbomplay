@@ -2485,11 +2485,10 @@ class ViewManager {
                     return;
                 }
                 
-                // Check if this is combined data
-                const isCombinedData = organization === '__ALL__' || 
-                                      organization === 'All Projects (Combined)' ||
+                // Check if this is combined data (empty/null means aggregated)
+                const isCombinedData = !organization || organization === '' || 
                                       organization === 'All Entries Combined' ||
-                                      organization === 'All Organizations Combined';
+                                      organization === 'All Analyses';
                 
                 console.log('[License Panel] Data type:', { 
                     organization, 
@@ -2765,23 +2764,43 @@ class ViewManager {
             const repositories = orgData.data.githubActionsAnalysis.repositories || [];
             
             for (const repoData of repositories) {
-                if (repoData.owner === owner && repoData.repo === repo) {
-                    // Check direct actions
-                    if (repoData.actions) {
-                        for (const action of repoData.actions) {
-                            const actionPath = action.path || '';
-                            if (actionPath === normalizedPath && action.metadata?.license) {
-                                return action.metadata.license;
-                            }
+                // Check direct actions in this repository
+                if (repoData.actions && Array.isArray(repoData.actions)) {
+                    for (const action of repoData.actions) {
+                        // Match on owner/repo/path (ignore ref)
+                        const actionPath = action.path || '';
+                        if (action.owner === owner && 
+                            action.repo === repo && 
+                            actionPath === normalizedPath && 
+                            action.license) {
+                            return action.license;
                         }
-                    }
-                    
-                    // Check nested actions
-                    if (repoData.nestedActions) {
-                        for (const nestedAction of repoData.nestedActions) {
-                            const nestedPath = nestedAction.path || '';
-                            if (nestedPath === normalizedPath && nestedAction.metadata?.license) {
-                                return nestedAction.metadata.license;
+                        
+                        // Recursively check nested actions
+                        if (action.nested && Array.isArray(action.nested)) {
+                            const checkNested = (nestedAction) => {
+                                const nestedPath = nestedAction.path || '';
+                                if (nestedAction.owner === owner && 
+                                    nestedAction.repo === repo && 
+                                    nestedPath === normalizedPath && 
+                                    nestedAction.license) {
+                                    return nestedAction.license;
+                                }
+                                
+                                // Recursively check deeper nested actions
+                                if (nestedAction.nested && Array.isArray(nestedAction.nested)) {
+                                    for (const deeperNested of nestedAction.nested) {
+                                        const result = checkNested(deeperNested);
+                                        if (result) return result;
+                                    }
+                                }
+                                
+                                return null;
+                            };
+                            
+                            for (const nestedAction of action.nested) {
+                                const result = checkNested(nestedAction);
+                                if (result) return result;
                             }
                         }
                     }
@@ -3141,8 +3160,8 @@ class ViewManager {
             };
         }
 
-        const licenseProcessor = new LicenseProcessor();
         const dependencies = orgData.data.allDependencies;
+        const licenseProcessor = new LicenseProcessor(); // Still needed for isDependencyCompatibleWithRepository
         
         const counts = {
             total: 0,
@@ -3157,52 +3176,8 @@ class ViewManager {
             // When filtering, only show count for the filtered category
             let filteredCount = 0;
             dependencies.forEach(dep => {
-                // Check for enriched license data first (from deps.dev API or GitHub Actions analysis)
-                let licenseInfo = null;
-                
-                // 1. Check dep.licenseFull (most complete, from deps.dev API)
-                if (dep.licenseFull && 
-                    dep.licenseFull !== 'Unknown' && 
-                    dep.licenseFull !== 'NOASSERTION' && 
-                    String(dep.licenseFull).trim() !== '') {
-                    licenseInfo = licenseProcessor.parseLicense({
-                        licenseConcluded: dep.licenseFull,
-                        licenseDeclared: dep.licenseFull
-                    });
-                }
-                // 2. Check dep.license (short form, from deps.dev API)
-                else if (dep.license && 
-                         dep.license !== 'Unknown' && 
-                         dep.license !== 'NOASSERTION' && 
-                         String(dep.license).trim() !== '') {
-                    licenseInfo = licenseProcessor.parseLicense({
-                        licenseConcluded: dep.license,
-                        licenseDeclared: dep.license
-                    });
-                }
-                // 3. Check GitHub Actions analysis metadata (for GitHub Actions dependencies)
-                else if (dep.category?.ecosystem === 'GitHub Actions' || dep.ecosystem === 'GitHub Actions') {
-                    // Check dep._gaMetadata first (if set during processing)
-                    if (dep._gaMetadata && dep._gaMetadata.license) {
-                        licenseInfo = licenseProcessor.parseLicense({
-                            licenseConcluded: dep._gaMetadata.license,
-                            licenseDeclared: dep._gaMetadata.license
-                        });
-                    } else {
-                        // Fallback: search githubActionsAnalysis
-                        const enrichedLicense = this.getEnrichedGitHubActionLicense(dep, orgData);
-                        if (enrichedLicense) {
-                            licenseInfo = licenseProcessor.parseLicense({
-                                licenseConcluded: enrichedLicense,
-                                licenseDeclared: enrichedLicense
-                            });
-                        }
-                    }
-                }
-                // 4. Parse from originalPackage (from SBOM) - always check this as fallback
-                if (!licenseInfo && dep.originalPackage) {
-                    licenseInfo = licenseProcessor.parseLicense(dep.originalPackage);
-                }
+                // Use unified method to get license info (includes GitHub Actions enriched data)
+                const { licenseInfo } = this.getDependencyLicenseInfo(dep, orgData);
                 
                 // If no license info found, treat as unlicensed
                 if (!licenseInfo || !licenseInfo.license || licenseInfo.license === 'NOASSERTION') {
@@ -3260,52 +3235,8 @@ class ViewManager {
             // that are compatible with all repository licenses
             const allRepos = orgData.data?.allRepositories || [];
             dependencies.forEach(dep => {
-                // Check for enriched license data first (from deps.dev API or GitHub Actions analysis)
-                let licenseInfo = null;
-                
-                // 1. Check dep.licenseFull (most complete, from deps.dev API)
-                if (dep.licenseFull && 
-                    dep.licenseFull !== 'Unknown' && 
-                    dep.licenseFull !== 'NOASSERTION' && 
-                    String(dep.licenseFull).trim() !== '') {
-                    licenseInfo = licenseProcessor.parseLicense({
-                        licenseConcluded: dep.licenseFull,
-                        licenseDeclared: dep.licenseFull
-                    });
-                }
-                // 2. Check dep.license (short form, from deps.dev API)
-                else if (dep.license && 
-                         dep.license !== 'Unknown' && 
-                         dep.license !== 'NOASSERTION' && 
-                         String(dep.license).trim() !== '') {
-                    licenseInfo = licenseProcessor.parseLicense({
-                        licenseConcluded: dep.license,
-                        licenseDeclared: dep.license
-                    });
-                }
-                // 3. Check GitHub Actions analysis metadata (for GitHub Actions dependencies)
-                else if (dep.category?.ecosystem === 'GitHub Actions' || dep.ecosystem === 'GitHub Actions') {
-                    // Check dep._gaMetadata first (if set during processing)
-                    if (dep._gaMetadata && dep._gaMetadata.license) {
-                        licenseInfo = licenseProcessor.parseLicense({
-                            licenseConcluded: dep._gaMetadata.license,
-                            licenseDeclared: dep._gaMetadata.license
-                        });
-                    } else {
-                        // Fallback: search githubActionsAnalysis
-                        const enrichedLicense = this.getEnrichedGitHubActionLicense(dep, orgData);
-                        if (enrichedLicense) {
-                            licenseInfo = licenseProcessor.parseLicense({
-                                licenseConcluded: enrichedLicense,
-                                licenseDeclared: enrichedLicense
-                            });
-                        }
-                    }
-                }
-                // 4. Parse from originalPackage (from SBOM) - always check this as fallback
-                if (!licenseInfo && dep.originalPackage) {
-                    licenseInfo = licenseProcessor.parseLicense(dep.originalPackage);
-                }
+                // Use unified method to get license info (includes GitHub Actions enriched data)
+                const { licenseInfo } = this.getDependencyLicenseInfo(dep, orgData);
                 
                 if (!licenseInfo || !licenseInfo.license || licenseInfo.license === 'NOASSERTION') {
                     counts.unlicensed++;
@@ -3371,11 +3302,10 @@ class ViewManager {
         const analysisName = analysisSelector.value;
         if (!analysisName) return;
 
-        // Determine if this is combined data
-        const isCombinedData = analysisName === '__ALL__' || 
-                               analysisName === 'All Projects (Combined)' ||
+        // Determine if this is combined data (empty/null means aggregated)
+        const isCombinedData = !analysisName || analysisName === '' || 
                                analysisName === 'All Entries Combined' ||
-                               analysisName === 'All Organizations Combined';
+                               analysisName === 'All Analyses';
 
         let orgData;
         if (isCombinedData) {
@@ -3498,32 +3428,19 @@ class ViewManager {
     /**
      * Generate unlicensed dependencies table data
      */
-    generateUnlicensedTableData(allDependencies) {
+    generateUnlicensedTableData(allDependencies, orgData = null) {
         if (!allDependencies || allDependencies.length === 0) {
             return [];
         }
 
-        const licenseProcessor = new LicenseProcessor();
         const packageMap = new Map();
 
         allDependencies.forEach(dep => {
-            // Check for enriched license data first (from deps.dev API or GitHub Actions analysis)
-            let licenseInfo = null;
-            if (dep.licenseFull && dep.licenseFull !== 'Unknown' && dep.licenseFull !== 'NOASSERTION') {
-                // Use enriched license data
-                licenseInfo = licenseProcessor.parseLicense({
-                    licenseConcluded: dep.licenseFull,
-                    licenseDeclared: dep.licenseFull
-                });
-            } else if (dep.originalPackage) {
-                // Fall back to parsing originalPackage
-                licenseInfo = licenseProcessor.parseLicense(dep.originalPackage);
-            } else {
-                licenseInfo = { license: null, category: 'unknown' };
-            }
+            // Use unified method to get license info (includes GitHub Actions enriched data)
+            const { licenseInfo } = this.getDependencyLicenseInfo(dep, orgData);
 
             // Check if unlicensed
-            if (!licenseInfo.license || licenseInfo.license === 'NOASSERTION') {
+            if (!licenseInfo || !licenseInfo.license || licenseInfo.license === 'NOASSERTION') {
                 const packageName = dep.name || 'Unknown';
                 if (!packageName || packageName === 'Unknown') return;
 
@@ -3582,6 +3499,9 @@ class ViewManager {
             const licenseInfo = licenseProcessor.parseLicense(dep.originalPackage || {});
             const license = licenseInfo.license || 'Unknown';
             
+            // Get ecosystem for display
+            const ecosystem = dep.ecosystem || dep.category?.ecosystem || null;
+            
             if (!packageMap.has(packageName)) {
                 packageMap.set(packageName, []);
             }
@@ -3589,7 +3509,8 @@ class ViewManager {
                 version: dep.version || 'Unknown',
                 license: license,
                 category: licenseInfo.category || 'unknown',
-                repositories: dep.repositories || []
+                repositories: dep.repositories || [],
+                ecosystem: ecosystem
             });
         });
 
@@ -3618,9 +3539,13 @@ class ViewManager {
                     // Combine repositories from both versions
                     const allRepos = new Set([...(current.repositories || []), ...(next.repositories || [])]);
                     
+                    // Use ecosystem from either version (they should be the same)
+                    const ecosystem = current.ecosystem || next.ecosystem || null;
+                    
                     transitions.push({
                         type: 'license-transition',
                         packageName: packageName,
+                        ecosystem: ecosystem,
                         fromLicense: normalizedCurrent,
                         toLicense: normalizedNext,
                         fromVersion: current.version,
@@ -4265,9 +4190,9 @@ class ViewManager {
 </div>`;
         }
 
-        // Handle combined data names for deps.html URL
-        const orgParam = (orgName === 'All Entries Combined' || orgName === 'All Projects (Combined)' || orgName === 'All Organizations Combined') 
-            ? '__ALL__' 
+        // Handle combined data names for deps.html URL (use empty for aggregated)
+        const orgParam = (!orgName || orgName === '' || orgName === 'All Entries Combined' || orgName === 'All Analyses') 
+            ? '' 
             : orgName;
         
         // Helper function to create deps.html URL
@@ -4282,11 +4207,15 @@ class ViewManager {
         if (allLicenseTransitions.length > 0) {
             const transitionRows = allLicenseTransitions.map(transition => {
                 const repoCount = transition.repositories ? transition.repositories.length : 0;
+                // Format dependency as ecosystem:name if ecosystem is available
+                const displayName = transition.ecosystem 
+                    ? `${transition.ecosystem}:${transition.packageName}` 
+                    : transition.packageName;
                 return `
                 <tr>
                     <td>
                         <a href="${createDepsUrl(transition.packageName, null)}" class="dependency-link" target="_blank">
-                            <code>${escapeHtml(transition.packageName)}</code>
+                            <code>${escapeHtml(displayName)}</code>
                         </a>
                     </td>
                     <td>
@@ -4402,7 +4331,7 @@ class ViewManager {
         }
 
         // Generate Unlicensed Dependencies Table
-        const unlicensedData = this.generateUnlicensedTableData(allDeps);
+        const unlicensedData = this.generateUnlicensedTableData(allDeps, orgData);
         let unlicensedHTML = '';
         if (unlicensedData.length > 0) {
             const unlicensedRows = unlicensedData.map(pkg => {
@@ -4530,12 +4459,12 @@ class ViewManager {
         if (!storageManager) return;
 
         const orgName = container.getAttribute('data-org-name') || 
-                      document.querySelector('#analysisSelector')?.value || '__ALL__';
+                      document.querySelector('#analysisSelector')?.value || '';
         const orgDataName = container.getAttribute('data-org-data-name') || orgName;
 
-        // Load orgData
+        // Load orgData (empty/null means aggregated data)
         let orgData;
-        if (!orgDataName || orgDataName === '__ALL__' || orgDataName === 'All Projects (Combined)' || orgDataName === 'All Entries Combined' || orgDataName === 'All Organizations Combined') {
+        if (!orgDataName || orgDataName === '' || orgDataName === 'All Entries Combined' || orgDataName === 'All Analyses') {
             orgData = await storageManager.getCombinedData();
         } else {
             orgData = await storageManager.loadAnalysisDataForOrganization(orgDataName);
@@ -4544,8 +4473,8 @@ class ViewManager {
         if (!orgData || !orgData.data) return;
 
         const allDeps = orgData.data.allDependencies || [];
-        const orgParam = (orgName === 'All Entries Combined' || orgName === 'All Projects (Combined)' || orgName === 'All Organizations Combined') 
-            ? '__ALL__' 
+        const orgParam = (!orgName || orgName === '' || orgName === 'All Entries Combined' || orgName === 'All Analyses') 
+            ? '' 
             : orgName;
 
         // Determine which filter to apply
@@ -4652,7 +4581,7 @@ class ViewManager {
         }
 
         // Generate Unlicensed Dependencies Table
-        const unlicensedData = this.generateUnlicensedTableData(allDeps);
+        const unlicensedData = this.generateUnlicensedTableData(allDeps, orgData);
         let unlicensedHTML = '';
         if (unlicensedData.length > 0) {
             const unlicensedRows = unlicensedData.map(pkg => {
@@ -5237,18 +5166,23 @@ class ViewManager {
                     continue;
                 }
                 
-                // Find the full dependency to get version drift data
-                const fullDep = orgData.data.allDependencies?.find(d => 
-                    d.name === dep.name && d.version === dep.version
-                );
+                // Get version drift information - try from vulnerable dependency first, then from allDependencies, then from cache
+                let versionDrift = dep.versionDrift || null;
                 
-                // Get version drift information - try from dependency first, then from cache
-                let versionDrift = fullDep?.versionDrift || null;
+                // Fallback: Find the full dependency to get version drift data if not on vulnerable dep
+                let fullDep = null;
+                if (!versionDrift) {
+                    fullDep = orgData.data.allDependencies?.find(d => 
+                        d.name === dep.name && d.version === dep.version
+                    );
+                    versionDrift = fullDep?.versionDrift || null;
+                }
                 
-                // If not attached, try to get from cache (async)
-                if (!versionDrift && window.VersionDriftAnalyzer && fullDep) {
-                    const ecosystemValue = fullDep.category?.ecosystem || fullDep.ecosystem;
-                    if (ecosystemValue && fullDep.name && fullDep.version) {
+                // If still not found, try to get from cache (async)
+                if (!versionDrift && window.VersionDriftAnalyzer) {
+                    const depForLookup = fullDep || dep;
+                    const ecosystemValue = depForLookup.category?.ecosystem || depForLookup.ecosystem;
+                    if (ecosystemValue && depForLookup.name && depForLookup.version) {
                         try {
                             let ecosystem = ecosystemValue.toLowerCase();
                             // Normalize ecosystem aliases
@@ -5259,9 +5193,9 @@ class ViewManager {
                             } else if (ecosystem === 'packagist' || ecosystem === 'composer') {
                                 ecosystem = 'composer';
                             }
-                            const packageKey = `${ecosystem}:${fullDep.name}`;
+                            const packageKey = `${ecosystem}:${depForLookup.name}`;
                             const versionDriftAnalyzer = new window.VersionDriftAnalyzer();
-                            versionDrift = await versionDriftAnalyzer.getVersionDriftFromCache(packageKey, fullDep.version);
+                            versionDrift = await versionDriftAnalyzer.getVersionDriftFromCache(packageKey, depForLookup.version);
                         } catch (e) {
                             console.debug('Failed to get version drift from cache:', e);
                         }
@@ -5360,12 +5294,13 @@ class ViewManager {
                 });
                 
                 // Add load more button if there are more items
-                // Use a consistent identifier: '__ALL__' for combined data, otherwise use orgName
-                const loadMoreIdentifier = (orgName === 'All Entries Combined' || orgName === 'All Projects (Combined)' || orgName === 'All Organizations Combined') ? '__ALL__' : orgName;
+                // Use empty string for aggregated data, otherwise use orgName
+                const loadMoreIdentifier = (!orgName || orgName === '' || orgName === 'All Entries Combined' || orgName === 'All Analyses') ? '' : orgName;
+                const remainingCount = totalCount - (offset + limit);
                 const loadMoreHTML = hasMore ? `
                     <div class="text-center mt-3">
-                        <button class="btn btn-primary" onclick="viewManager.loadMoreVulnerabilities('${escapeJsString(escapeHtml(loadMoreIdentifier))}', '${severityFilter || ''}', ${offset + limit})">
-                            <i class="fas fa-chevron-down me-2"></i>Load More (${totalCount - (offset + limit)} remaining)
+                        <button class="btn btn-primary" onclick="viewManager.loadMoreVulnerabilities('${escapeJsString(escapeHtml(loadMoreIdentifier))}', '${severityFilter || ''}', ${offset + limit}, ${remainingCount})">
+                            <i class="fas fa-list me-2"></i>Show All Remaining (${remainingCount})
                         </button>
                     </div>
                 ` : '';
@@ -5652,7 +5587,7 @@ class ViewManager {
     /**
      * Load more vulnerabilities (pagination)
      */
-    async loadMoreVulnerabilities(orgName, severityFilter, offset) {
+    async loadMoreVulnerabilities(orgName, severityFilter, offset, limit = 25) {
         // Get the current org data
         if (!window.storageManager) {
             console.error('StorageManager not available. Cannot load more vulnerabilities.');
@@ -5677,12 +5612,10 @@ class ViewManager {
         const identifier = analysisName || orgName;
         
         // Determine which data to load based on identifier
-        // Handle various possible names for combined data
-        const isCombined = !identifier || 
-                          identifier === '__ALL__' || 
-                          identifier === 'All Projects (Combined)' ||
+        // Handle aggregated data (empty/null identifier)
+        const isCombined = !identifier || identifier === '' || 
                           identifier === 'All Entries Combined' ||
-                          identifier === 'All Organizations Combined';
+                          identifier === 'All Analyses';
         
         let orgData;
         try {
@@ -5714,7 +5647,7 @@ class ViewManager {
         const nextBatchHTML = await this.generateVulnerabilityAnalysisHTML(
             orgData, 
             severityFilter || null, 
-            25, // limit
+            limit, // limit - passed as parameter (defaults to 25, or all remaining when button clicked)
             offset // offset
         );
         

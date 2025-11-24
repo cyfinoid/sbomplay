@@ -630,7 +630,8 @@ class SBOMPlayApp {
                                 total: progress.total,
                                 ecosystem: progress.ecosystem || null,
                                 packageName: progress.packageName || progress.package || null,
-                                remaining: progress.remaining || (progress.total && progress.processed !== undefined ? progress.total - progress.processed : null)
+                                remaining: progress.remaining || (progress.total && progress.processed !== undefined ? progress.total - progress.processed : null),
+                                totalPackagesProcessed: progress.totalPackagesProcessed || 0
                             });
                     } else if (progress.phase === 'resolving-tree') {
                         // Ecosystem-level progress updates
@@ -770,6 +771,10 @@ class SBOMPlayApp {
             
             // Final save to storage (to include vulnerability, author, license, and version drift data)
             this.updateProgress(97, 'Saving final results to storage...', 'saving-final');
+            
+            // Update timing metadata one final time before saving (to get accurate end time)
+            results = this.enrichResultsWithMetadata(results);
+            
             saveSuccess = await this.storageManager.saveAnalysisData(repoKey, results);
             if (!saveSuccess) {
                 console.warn('⚠️ Failed to save analysis data to storage');
@@ -998,7 +1003,8 @@ class SBOMPlayApp {
                                 total: progress.total,
                                 ecosystem: progress.ecosystem || null,
                                 packageName: progress.packageName || progress.package || null,
-                                remaining: progress.remaining || (progress.total && progress.processed !== undefined ? progress.total - progress.processed : null)
+                                remaining: progress.remaining || (progress.total && progress.processed !== undefined ? progress.total - progress.processed : null),
+                                totalPackagesProcessed: progress.totalPackagesProcessed || 0
                             });
                     } else if (progress.phase === 'resolving-tree') {
                         // Ecosystem-level progress updates
@@ -1152,6 +1158,10 @@ class SBOMPlayApp {
             
             // Final save to storage (to include vulnerability, author, license, and version drift data)
             this.updateProgress(97, 'Saving final results to storage...', 'saving-final');
+            
+            // Update timing metadata one final time before saving (to get accurate end time)
+            results = this.enrichResultsWithMetadata(results);
+            
             saveSuccess = await this.storageManager.saveAnalysisData(ownerName, results);
             if (!saveSuccess) {
                 console.warn('⚠️ Failed to save analysis data to storage');
@@ -1210,63 +1220,6 @@ class SBOMPlayApp {
     updateProgress(percentage, message, phaseName = null, subProgress = null) {
         const progressBar = document.getElementById('progressBar');
         const progressText = document.getElementById('progressText');
-        const dependencyProgressSection = document.getElementById('dependencyProgressSection');
-        const dependencyProgressBar = document.getElementById('dependencyProgressBar');
-        const dependencyProgressText = document.getElementById('dependencyProgressText');
-        
-        // Show/hide secondary progress bar for dependency resolution
-        if ((phaseName === 'resolving-trees' || phaseName === 'resolving-package') && subProgress) {
-            if (dependencyProgressSection) {
-                dependencyProgressSection.classList.remove('d-none');
-            }
-            
-            // Update secondary progress bar with per-package/ecosystem details
-            if (dependencyProgressBar && dependencyProgressText && subProgress) {
-                const subPercent = subProgress.processed && subProgress.total 
-                    ? Math.round((subProgress.processed / subProgress.total) * 100)
-                    : 0;
-                
-                dependencyProgressBar.style.width = `${subPercent}%`;
-                dependencyProgressBar.textContent = `${subPercent}%`;
-                dependencyProgressBar.setAttribute('aria-valuenow', subPercent);
-                
-                // Build detailed message with package name and countdown
-                let detailMessage = '';
-                const remaining = subProgress.remaining !== undefined 
-                    ? subProgress.remaining 
-                    : (subProgress.total && subProgress.processed !== undefined 
-                        ? subProgress.total - subProgress.processed 
-                        : null);
-                
-                if (subProgress.ecosystem) {
-                    detailMessage = `<strong>${subProgress.ecosystem}</strong>`;
-                }
-                
-                if (subProgress.packageName) {
-                    // Extract just the package name (before @) for cleaner display
-                    const packageDisplay = subProgress.packageName.split('@')[0];
-                    const escapedPackage = window.escapeHtml ? window.escapeHtml(packageDisplay) : packageDisplay.replace(/</g, '&lt;').replace(/>/g, '&gt;');
-                    detailMessage += `: <code>${escapedPackage}</code>`;
-                }
-                
-                if (subProgress.processed !== undefined && subProgress.total !== undefined) {
-                    detailMessage += ` <span class="badge bg-secondary">${subProgress.processed}/${subProgress.total}</span>`;
-                    
-                    if (remaining !== null && remaining > 0) {
-                        detailMessage += ` <span class="text-muted">(${remaining} remaining)</span>`;
-                    }
-                }
-                
-                if (dependencyProgressText) {
-                    dependencyProgressText.innerHTML = `<i class="fas fa-spinner fa-spin me-1"></i>${detailMessage || 'Processing dependencies...'}`;
-                }
-            }
-        } else {
-            // Hide secondary progress bar for other phases
-            if (dependencyProgressSection) {
-                dependencyProgressSection.classList.add('d-none');
-            }
-        }
         
         // If phase name provided, track it
         if (phaseName && phaseName !== this.progressTracker.currentPhase) {
@@ -1329,12 +1282,28 @@ class SBOMPlayApp {
             
             calculatedPercentage = Math.min(99, completedProgress + currentPhaseProgress);
             
-            // Enhance message with time info
+            // Enhance message with time info and dependency chain
             if (subProgress !== null && typeof subProgress === 'object') {
                 // Sub-progress object with details
-                const { processed, total, ecosystem, packageName } = subProgress;
+                const { processed, total, ecosystem, packageName, depChain, remaining, totalPackagesProcessed } = subProgress;
                 if (ecosystem && processed !== undefined && total !== undefined) {
-                    enhancedMessage = `Resolving ${ecosystem} dependencies (${processed}/${total} packages)${packageName ? `: ${packageName}` : '...'}`;
+                    // Build dependency chain display (A → B → C → D)
+                    // Shows: "Resolving npm dependencies (1/6 direct) → express → body-parser → raw-body"
+                    let chainDisplay = '';
+                    if (depChain && Array.isArray(depChain) && depChain.length > 1) {
+                        // Limit chain display to last 5 items for readability
+                        const displayChain = depChain.length > 5 ? ['...', ...depChain.slice(-4)] : depChain;
+                        chainDisplay = ` → ${displayChain.join(' → ')}`;
+                    } else if (depChain && Array.isArray(depChain) && depChain.length === 1) {
+                        // Single item (direct dependency)
+                        chainDisplay = ` → ${depChain[0]}`;
+                    } else if (packageName) {
+                        // Fallback if no chain available
+                        chainDisplay = ` → ${packageName}`;
+                    }
+                    
+                    const remainingText = remaining !== undefined && remaining > 0 ? ` (${remaining} remaining)` : '';
+                    enhancedMessage = `Resolving ${ecosystem} dependencies (${processed}/${total} direct)${chainDisplay}${remainingText}`;
                 } else if (processed !== undefined && total !== undefined) {
                     enhancedMessage = `${message} (${processed}/${total})`;
                 }
@@ -1350,6 +1319,16 @@ class SBOMPlayApp {
         
         if (progressText) {
             progressText.textContent = enhancedMessage;
+        }
+        
+        // Update total packages processed counter
+        if (subProgress && subProgress.totalPackagesProcessed !== undefined) {
+            const packagesProcessedDiv = document.getElementById('packagesProcessed');
+            const packagesProcessedValue = document.getElementById('packagesProcessedValue');
+            if (packagesProcessedDiv && packagesProcessedValue) {
+                packagesProcessedDiv.classList.remove('d-none');
+                packagesProcessedValue.textContent = subProgress.totalPackagesProcessed.toLocaleString();
+            }
         }
         
         // Log progress for pages without UI elements
@@ -3146,6 +3125,7 @@ class SBOMPlayApp {
             console.log(`⏱️ Started: ${new Date(this.analysisStartTime).toLocaleString()}`);
             console.log(`⏱️ Finished: ${endTimeString}`);
             console.log(`⏱️ Total Time: ${formattedDuration}`);
+            console.log(`⏱️ Duration (ms): ${totalDuration}ms`);
             
             if (endTimeElement && endTimeValue) {
                 endTimeValue.textContent = endTimeString;
@@ -3180,6 +3160,115 @@ class SBOMPlayApp {
         } else {
             return `${seconds}s`;
         }
+    }
+
+    /**
+     * Enrich results with timing metadata and enhanced statistics
+     * @param {Object} results - The exported analysis results
+     * @returns {Object} Enriched results with timing and stats
+     */
+    enrichResultsWithMetadata(results) {
+        // Add timing metadata
+        const timing = {
+            startTime: this.analysisStartTime,
+            endTime: Date.now(),  // Current time (may be updated on completion)
+            startTimeISO: new Date(this.analysisStartTime).toISOString(),
+            endTimeISO: new Date().toISOString()
+        };
+        timing.durationMs = timing.endTime - timing.startTime;
+        timing.durationFormatted = this.formatDuration(timing.durationMs);
+        
+        // Calculate dependency count by ecosystem
+        const ecosystemStats = {};
+        if (results.allDependencies && Array.isArray(results.allDependencies)) {
+            results.allDependencies.forEach(dep => {
+                const ecosystem = dep.category?.ecosystem || 'unknown';
+                if (!ecosystemStats[ecosystem]) {
+                    ecosystemStats[ecosystem] = {
+                        count: 0,
+                        directCount: 0,
+                        transitiveCount: 0,
+                        uniquePackages: new Set()
+                    };
+                }
+                ecosystemStats[ecosystem].count++;
+                ecosystemStats[ecosystem].uniquePackages.add(dep.name);
+                
+                // Count direct vs transitive
+                if (dep.directIn && dep.directIn.length > 0) {
+                    ecosystemStats[ecosystem].directCount++;
+                }
+                if (dep.transitiveIn && dep.transitiveIn.length > 0) {
+                    ecosystemStats[ecosystem].transitiveCount++;
+                }
+            });
+            
+            // Convert Sets to counts and clean up
+            Object.keys(ecosystemStats).forEach(ecosystem => {
+                ecosystemStats[ecosystem].uniquePackages = ecosystemStats[ecosystem].uniquePackages.size;
+            });
+        }
+        
+        // Calculate repository count by language/ecosystem
+        const repositoryStats = {};
+        if (results.allRepositories && Array.isArray(results.allRepositories)) {
+            results.allRepositories.forEach(repo => {
+                if (repo.languages && Array.isArray(repo.languages)) {
+                    repo.languages.forEach(lang => {
+                        if (!repositoryStats[lang]) {
+                            repositoryStats[lang] = {
+                                count: 0,
+                                totalDependencies: 0
+                            };
+                        }
+                        repositoryStats[lang].count++;
+                        repositoryStats[lang].totalDependencies += repo.totalDependencies || 0;
+                    });
+                }
+            });
+        }
+        
+        // Calculate license statistics
+        const licenseStats = {
+            totalLicenses: 0,
+            licensedCount: 0,
+            unlicensedCount: 0,
+            topLicenses: {}
+        };
+        if (results.allDependencies && Array.isArray(results.allDependencies)) {
+            results.allDependencies.forEach(dep => {
+                if (dep.license || dep.licenseFull) {
+                    licenseStats.licensedCount++;
+                    const license = dep.license || dep.licenseFull;
+                    licenseStats.topLicenses[license] = (licenseStats.topLicenses[license] || 0) + 1;
+                } else {
+                    licenseStats.unlicensedCount++;
+                }
+            });
+            licenseStats.totalLicenses = Object.keys(licenseStats.topLicenses).length;
+        }
+        
+        // Add phase timing if available
+        const phaseTiming = {};
+        if (this.progressTracker && this.progressTracker.phaseTimes) {
+            Object.keys(this.progressTracker.phaseTimes).forEach(phase => {
+                phaseTiming[phase] = {
+                    durationMs: this.progressTracker.phaseTimes[phase],
+                    durationFormatted: this.formatDuration(this.progressTracker.phaseTimes[phase])
+                };
+            });
+        }
+        
+        // Enrich the results object
+        return {
+            ...results,
+            timing: timing,
+            ecosystemStats: ecosystemStats,
+            repositoryStats: repositoryStats,
+            licenseStats: licenseStats,
+            phaseTiming: phaseTiming,
+            enrichedAt: new Date().toISOString()
+        };
     }
 
     /**
@@ -3249,7 +3338,7 @@ class SBOMPlayApp {
      * Sleep utility
      */
     /**
-     * Fetch PyPI package licenses from deps.dev API and save to IndexedDB
+     * Fetch PyPI package licenses from deps.dev API and PyPI JSON API (fallback)
      */
     async fetchPyPILicenses(dependencies, identifier) {
         if (!dependencies || dependencies.length === 0) return;
@@ -3271,18 +3360,19 @@ class SBOMPlayApp {
             return;
         }
         
-        console.log(`📄 Fetching licenses for ${pypiDeps.length} PyPI packages...`);
+        console.log(`📄 Fetching licenses for ${pypiDeps.length} PyPI packages (with PyPI API fallback)...`);
         
         // Process in batches to avoid overwhelming the API
         const batchSize = 20;
         let fetched = 0;
+        let fetchedFromPyPI = 0;
         let saved = 0;
         
         for (let i = 0; i < pypiDeps.length; i += batchSize) {
             const batch = pypiDeps.slice(i, i + batchSize);
             await Promise.all(batch.map(async (dep) => {
                 try {
-                    // Fetch license from deps.dev API
+                    // Phase 1: Try deps.dev API first
                     const url = `https://api.deps.dev/v3alpha/systems/pypi/packages/${encodeURIComponent(dep.name)}/versions/${encodeURIComponent(dep.version)}`;
                     debugLogUrl(`🌐 [DEBUG] Fetching URL: ${url}`);
                     debugLogUrl(`   Reason: Fetching deps.dev API for PyPI package ${dep.name}@${dep.version} to extract license information`);
@@ -3297,55 +3387,143 @@ class SBOMPlayApp {
                     const licenseCount = data.licenses?.length || 0;
                     console.log(`   ✅ Response: Status ${response.status}, Extracted: ${licenseCount} license/licenses`);
                     
+                    let licenseFull = null;
+                    let licenseText = null;
+                    
+                    // Enhanced deps.dev parsing - filter out unhelpful values
                     if (data.licenses && data.licenses.length > 0) {
-                        const licenseFull = data.licenses.join(' AND ');
-                        let licenseText = licenseFull;
+                        const validLicenses = data.licenses.filter(l => 
+                            l && 
+                            l !== 'non-standard' && 
+                            l !== 'NOASSERTION' && 
+                            l !== 'UNKNOWN'
+                        );
                         
-                        // Format license text
-                        if (licenseFull.includes(' AND ')) {
-                            const firstLicense = licenseFull.split(' AND ')[0];
-                            licenseText = firstLicense.startsWith('Apache') ? 'Apache' : (firstLicense.length > 8 ? firstLicense.substring(0, 8) + '...' : firstLicense);
-                        } else if (licenseFull.startsWith('Apache')) {
-                            licenseText = 'Apache';
-                        } else {
-                            licenseText = licenseFull.length > 8 ? licenseFull.substring(0, 8) + '...' : licenseFull;
-                        }
-                        
-                        // Update dependency object (both top-level and in originalPackage for persistence)
-                        dep.license = licenseText;
-                        dep.licenseFull = licenseFull;
-                        dep._licenseEnriched = true;
-                        
-                        // Also update originalPackage to ensure license persists when saved to IndexedDB
-                        if (dep.originalPackage) {
-                            dep.originalPackage.licenseConcluded = licenseFull;
-                            dep.originalPackage.licenseDeclared = licenseFull;
-                        }
-                        
-                        // Also update the original dependency object in sbomProcessor.dependencies Map
-                        // This ensures licenses persist when exportData() is called again
-                        if (this.sbomProcessor && this.sbomProcessor.dependencies) {
-                            const versionToUse = dep.displayVersion || dep.version;
-                            const packageKey = `${dep.name}@${versionToUse}`;
-                            const originalDep = this.sbomProcessor.dependencies.get(packageKey);
-                            if (originalDep) {
-                                originalDep.license = licenseText;
-                                originalDep.licenseFull = licenseFull;
-                                originalDep._licenseEnriched = true;
-                                
-                                // Also update originalPackage if it exists
-                                if (originalDep.originalPackage) {
-                                    originalDep.originalPackage.licenseConcluded = licenseFull;
-                                    originalDep.originalPackage.licenseDeclared = licenseFull;
-                                }
+                        if (validLicenses.length > 0) {
+                            licenseFull = validLicenses.join(' AND ');
+                            
+                            // Format license text
+                            if (licenseFull.includes(' AND ')) {
+                                const firstLicense = licenseFull.split(' AND ')[0];
+                                licenseText = firstLicense.startsWith('Apache') ? 'Apache' : (firstLicense.length > 8 ? firstLicense.substring(0, 8) + '...' : firstLicense);
+                            } else if (licenseFull.startsWith('Apache')) {
+                                licenseText = 'Apache';
+                            } else {
+                                licenseText = licenseFull.length > 8 ? licenseFull.substring(0, 8) + '...' : licenseFull;
                             }
                         }
-                        
-                        fetched++;
-                        
-                        if (fetched % 10 === 0) {
-                            console.log(`📄 Licenses: ${fetched}/${pypiDeps.length} fetched`);
+                    }
+                    
+                    // Phase 2: Fallback to PyPI JSON API if deps.dev didn't provide valid license
+                    if (!licenseFull) {
+                        try {
+                            console.log(`   🔄 Falling back to PyPI JSON API for ${dep.name}`);
+                            const pypiUrl = `https://pypi.org/pypi/${encodeURIComponent(dep.name)}/json`;
+                            const pypiResponse = await fetchWithTimeout(pypiUrl);
+                            
+                            if (pypiResponse.ok) {
+                                const pypiData = await pypiResponse.json();
+                                const info = pypiData.info;
+                                
+                                // Check license_expression first (PEP 639 - modern format)
+                                if (info.license_expression && info.license_expression.trim()) {
+                                    licenseFull = info.license_expression;
+                                    licenseText = licenseFull.length > 8 ? licenseFull.substring(0, 8) + '...' : licenseFull;
+                                    console.log(`   ✅ Found license_expression (PEP 639): ${licenseFull}`);
+                                    fetchedFromPyPI++;
+                                }
+                                // Check license field (older format)
+                                else if (info.license && info.license.trim() && info.license !== 'UNKNOWN') {
+                                    // If it's full license text (>100 chars), try to extract SPDX identifier
+                                    if (info.license.length > 100) {
+                                        const licenseTextLower = info.license.toLowerCase();
+                                        if (licenseTextLower.includes('bsd') && licenseTextLower.includes('3-clause')) {
+                                            licenseFull = 'BSD-3-Clause';
+                                        } else if (licenseTextLower.includes('bsd') && licenseTextLower.includes('2-clause')) {
+                                            licenseFull = 'BSD-2-Clause';
+                                        } else if (licenseTextLower.includes('mit license')) {
+                                            licenseFull = 'MIT';
+                                        } else if (licenseTextLower.includes('apache license')) {
+                                            licenseFull = 'Apache-2.0';
+                                        } else {
+                                            // Use first 50 chars as identifier
+                                            licenseFull = info.license.substring(0, 50).trim() + '...';
+                                        }
+                                        console.log(`   ✅ Extracted from license text: ${licenseFull}`);
+                                    } else {
+                                        licenseFull = info.license;
+                                        console.log(`   ✅ Found license field: ${licenseFull}`);
+                                    }
+                                    licenseText = licenseFull.length > 8 ? licenseFull.substring(0, 8) + '...' : licenseFull;
+                                    fetchedFromPyPI++;
+                                }
+                                // Check classifiers as last resort
+                                else if (info.classifiers && Array.isArray(info.classifiers)) {
+                                    const licenseClassifiers = info.classifiers.filter(c => 
+                                        c.startsWith('License ::') && !c.includes('DFSG approved') && !c.includes('Free For Home Use')
+                                    );
+                                    
+                                    if (licenseClassifiers.length > 0) {
+                                        const classifier = licenseClassifiers[0];
+                                        const match = classifier.match(/License :: (?:OSI Approved :: )?(.+?)(?: License)?$/);
+                                        if (match) {
+                                            licenseFull = match[1].trim();
+                                            // Convert classifier name to SPDX if possible
+                                            if (licenseFull === 'Apache Software License') licenseFull = 'Apache-2.0';
+                                            if (licenseFull === 'BSD License') licenseFull = 'BSD-3-Clause';
+                                            if (licenseFull.includes('GPL') && !licenseFull.includes('-')) licenseFull = licenseFull.replace(' ', '-');
+                                            
+                                            licenseText = licenseFull.length > 8 ? licenseFull.substring(0, 8) + '...' : licenseFull;
+                                            console.log(`   ✅ Found from classifiers: ${licenseFull}`);
+                                            fetchedFromPyPI++;
+                                        }
+                                    }
+                                }
+                            }
+                        } catch (pypiError) {
+                            console.log(`   ⚠️  PyPI API fallback failed: ${pypiError.message}`);
                         }
+                    }
+                    
+                    // Only update if we found a valid license
+                    if (!licenseFull || !licenseText) {
+                        return;
+                    }
+                    
+                    // Update dependency object (both top-level and in originalPackage for persistence)
+                    dep.license = licenseText;
+                    dep.licenseFull = licenseFull;
+                    dep._licenseEnriched = true;
+                    
+                    // Also update originalPackage to ensure license persists when saved to IndexedDB
+                    if (dep.originalPackage) {
+                        dep.originalPackage.licenseConcluded = licenseFull;
+                        dep.originalPackage.licenseDeclared = licenseFull;
+                    }
+                    
+                    // Also update the original dependency object in sbomProcessor.dependencies Map
+                    // This ensures licenses persist when exportData() is called again
+                    if (this.sbomProcessor && this.sbomProcessor.dependencies) {
+                        const versionToUse = dep.displayVersion || dep.version;
+                        const packageKey = `${dep.name}@${versionToUse}`;
+                        const originalDep = this.sbomProcessor.dependencies.get(packageKey);
+                        if (originalDep) {
+                            originalDep.license = licenseText;
+                            originalDep.licenseFull = licenseFull;
+                            originalDep._licenseEnriched = true;
+                            
+                            // Also update originalPackage if it exists
+                            if (originalDep.originalPackage) {
+                                originalDep.originalPackage.licenseConcluded = licenseFull;
+                                originalDep.originalPackage.licenseDeclared = licenseFull;
+                            }
+                        }
+                    }
+                    
+                    fetched++;
+                    
+                    if (fetched % 10 === 0) {
+                        console.log(`📄 Licenses: ${fetched}/${pypiDeps.length} fetched (${fetchedFromPyPI} from PyPI API)`);
                     }
                 } catch (e) {
                     console.debug(`Failed to fetch license for ${dep.name}@${dep.version}:`, e);
@@ -3358,7 +3536,7 @@ class SBOMPlayApp {
         
         // Note: Licenses are updated in-place in the dependencies array
         // The caller should save the updated results to IndexedDB after this function completes
-        console.log(`✅ License fetching complete: ${fetched} licenses fetched`);
+        console.log(`✅ PyPI license fetching complete: ${fetched} licenses fetched (${fetchedFromPyPI} from PyPI API fallback)`);
     }
     
     /**
@@ -3598,7 +3776,13 @@ class SBOMPlayApp {
         console.log(`🔍 fetchLicensesForAllEcosystems: Found packages in ${depsByEcosystem.size} ecosystems needing licenses (out of ${dependencies.length} total dependencies)`);
         if (depsByEcosystem.size === 0) {
             console.log('ℹ️ No packages from other ecosystems need license fetching');
+            console.log(`   Detailed skip stats: ${skippedNoEcosystem} no ecosystem, ${skippedHasLicense} has license, ${skippedNoNameVersion} missing name/version, ${skippedUnsupported} unsupported`);
             return;
+        }
+        
+        // Log ecosystem breakdown
+        for (const [ecosystem, deps] of depsByEcosystem.entries()) {
+            console.log(`   📦 ${ecosystem}: ${deps.length} packages need licenses`);
         }
         
         const totalDeps = Array.from(depsByEcosystem.values()).reduce((sum, deps) => sum + deps.length, 0);
@@ -3935,11 +4119,21 @@ class SBOMPlayApp {
                         try {
                             let authorEntity = await window.cacheManager.getAuthorEntity(authorKey);
                             if (authorEntity) {
-                                // If author has GitHub username but no location, fetch it now
-                                if (authorEntity.metadata?.github && 
-                                    !authorEntity.metadata?.location && 
-                                    !authorEntity.metadata?.company) {
-                                    console.log(`📍 Queueing location fetch for ${authorKey} (GitHub: ${authorEntity.metadata.github})`);
+                                // Fetch from GitHub if:
+                                // 1. Has GitHub username AND
+                                // 2. Either: no location/company OR has location but not geocoded yet
+                                const hasGitHub = authorEntity.metadata?.github;
+                                const hasLocation = authorEntity.metadata?.location;
+                                const hasCompany = authorEntity.metadata?.company;
+                                const hasGeocoding = authorEntity.metadata?.countryCode;
+                                
+                                const needsLocationFetch = hasGitHub && (
+                                    (!hasLocation && !hasCompany) ||  // No location data at all
+                                    (hasLocation && !hasGeocoding)     // Has location but not geocoded
+                                );
+                                
+                                if (needsLocationFetch) {
+                                    console.log(`📍 Queueing location fetch for ${authorKey} (GitHub: ${authorEntity.metadata.github}${hasLocation ? ', needs geocoding' : ''})`);
                                     locationFetchPromises.push(
                                         authorService.fetchAuthorLocation(authorKey, authorEntity)
                                             .catch(err => {
@@ -4231,6 +4425,9 @@ function toggleTokenSection() {
         icon.className = 'fas fa-chevron-down';
     }
 }
+
+// Expose SBOMPlayApp class on window for use by other modules (e.g., license-refetch)
+window.SBOMPlayApp = SBOMPlayApp;
 
 // Initialize app when DOM is loaded
 let app;

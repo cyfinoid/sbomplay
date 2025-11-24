@@ -96,16 +96,19 @@ document.addEventListener('DOMContentLoaded', async function() {
                 return;
             }
             
-            // Add "All Projects (Combined)" as the first option
-            const allOption = document.createElement('option');
-            allOption.value = '__ALL__';
-            const totalRepos = allEntries.reduce((sum, entry) => sum + (entry.repositories || 0), 0);
-            allOption.textContent = `All Projects (Combined) (${totalRepos} repos)`;
-            selector.appendChild(allOption);
-            console.log(`📋 Added "All Projects (Combined)" option`);
+            // Filter out __ALL__ entries (legacy from previous implementation)
+            const filteredEntries = allEntries.filter(entry => entry.name !== '__ALL__');
             
-            // Add individual entries
-            allEntries.forEach(entry => {
+            // Add "All Analyses" placeholder option (aggregated data)
+            const allOption = document.createElement('option');
+            allOption.value = '';
+            const totalRepos = filteredEntries.reduce((sum, entry) => sum + (entry.repositories || 0), 0);
+            allOption.textContent = `All Analyses (${totalRepos} repos)`;
+            selector.appendChild(allOption);
+            console.log(`📋 Added "All Analyses" placeholder option`);
+            
+            // Add individual entries (excluding __ALL__)
+            filteredEntries.forEach(entry => {
                 const option = document.createElement('option');
                 option.value = entry.name;
                 const repoCount = entry.repositories || 0;
@@ -114,23 +117,23 @@ document.addEventListener('DOMContentLoaded', async function() {
                 console.log(`📋 Added option: ${entry.name} (${repoCount} repos)`);
             });
             
-            // Set default based on URL parameter or default to "All Projects (Combined)"
-            if (allEntries.length > 0) {
+            // Set default based on URL parameter or default to aggregated view (empty value)
+            if (filteredEntries.length > 0) {
                 if (orgParam) {
-                    const orgExists = allEntries.some(entry => entry.name === orgParam);
+                    const orgExists = filteredEntries.some(entry => entry.name === orgParam);
                     if (orgExists) {
                         selector.value = orgParam;
                         console.log(`📋 Set selector to URL parameter: ${orgParam}`);
                     } else {
-                        selector.value = '__ALL__';
-                        console.log(`📋 URL parameter ${orgParam} not found, using "__ALL__"`);
+                        selector.value = '';
+                        console.log(`📋 URL parameter ${orgParam} not found, using aggregated view`);
                     }
                 } else {
-                    selector.value = '__ALL__';
-                    console.log(`📋 No URL parameter, using "__ALL__"`);
+                    selector.value = '';
+                    console.log(`📋 No URL parameter, using aggregated view`);
                 }
                 selector.disabled = false;
-                console.log(`✅ Analysis selector populated with ${allEntries.length} entries`);
+                console.log(`✅ Analysis selector populated with ${filteredEntries.length} entries`);
                 await loadAnalysis();
             }
         } catch (error) {
@@ -218,7 +221,7 @@ document.addEventListener('DOMContentLoaded', async function() {
     
     async function loadAnalysis() {
         const analysisName = document.getElementById('analysisSelector').value;
-        if (!analysisName) return;
+        // Note: analysisName can be empty string '' for aggregated view - don't skip loading!
         
         // Show loading indicator
         const loadingOverlay = document.getElementById('loadingOverlay');
@@ -233,8 +236,8 @@ document.addEventListener('DOMContentLoaded', async function() {
         
         let data;
         
-        // Handle "All Projects (Combined)" option
-        if (analysisName === '__ALL__') {
+        // Handle aggregated view (empty/null analysisName)
+        if (!analysisName || analysisName === '') {
             data = await storageManager.getCombinedData();
         } else {
             data = await storageManager.loadAnalysisDataForOrganization(analysisName);
@@ -469,13 +472,13 @@ document.addEventListener('DOMContentLoaded', async function() {
         tbody.innerHTML = '';
         
         // Get current organization context for links
-        const currentOrg = document.getElementById('analysisSelector')?.value || '__ALL__';
-        const orgParamForLink = (currentOrg === '__ALL__' || currentOrg === 'All Projects (Combined)') ? '__ALL__' : currentOrg;
+        const currentOrg = document.getElementById('analysisSelector')?.value || '';
+        const orgParamForLink = (!currentOrg || currentOrg === '') ? '' : currentOrg;
         
         // Helper function to create links with repo filter
         const createRepoLink = (page, repo) => {
             const params = new URLSearchParams();
-            if (orgParamForLink && orgParamForLink !== '__ALL__') {
+            if (orgParamForLink && orgParamForLink !== '') {
                 params.set('org', orgParamForLink);
             }
             params.set('repo', repo);

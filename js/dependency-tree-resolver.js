@@ -15,8 +15,12 @@ class DependencyTreeResolver {
         this.lastRequestTime = 0;
         this.requestTimeout = 10000; // 10 seconds timeout for API requests
         this.onProgress = null; // Progress callback
-        this.totalPackages = 0;
-        this.processedPackages = 0;
+        this.totalDirectDeps = 0; // Total direct dependencies
+        this.processedDirectDeps = 0; // Direct dependencies processed
+        this.totalPackagesProcessed = 0; // Total packages processed (direct + transitive)
+        this.currentDepChain = []; // Current dependency chain being resolved
+        this.currentEcosystem = null; // Current ecosystem being resolved
+        this.currentDirectDep = null; // Current direct dependency being resolved
         
         // Registry URL templates
         this.registryAPIs = {
@@ -126,17 +130,19 @@ class DependencyTreeResolver {
     /**
      * Update progress if callback is available
      */
-    updateProgress(message, packageName = null) {
-        this.processedPackages++;
-        if (this.onProgress && this.totalPackages > 0) {
-            const percent = (this.processedPackages / this.totalPackages) * 100;
+    updateProgress(message, packageName = null, depChain = null, ecosystem = null) {
+        if (this.onProgress && this.totalDirectDeps > 0) {
             this.onProgress({
                 phase: 'resolving-package',
                 message: message,
                 packageName: packageName,
-                processed: this.processedPackages,
-                total: this.totalPackages,
-                percent: percent
+                ecosystem: ecosystem || this.currentEcosystem,
+                processed: this.processedDirectDeps,
+                total: this.totalDirectDeps,
+                remaining: this.totalDirectDeps - this.processedDirectDeps,
+                totalPackagesProcessed: this.totalPackagesProcessed,
+                depChain: depChain || this.currentDepChain,
+                percent: (this.processedDirectDeps / this.totalDirectDeps) * 100
             });
         }
     }
@@ -148,34 +154,41 @@ class DependencyTreeResolver {
         console.log(`🌲 Starting dependency tree resolution for ${directDependencies.size} direct dependencies`);
         
         this.onProgress = onProgress;
-        this.processedPackages = 0;
-        // Estimate total packages (direct + transitive, capped at reasonable limit)
-        this.totalPackages = Math.min(directDependencies.size * 50, 5000); // Rough estimate
+        this.processedDirectDeps = 0;
+        this.totalDirectDeps = directDependencies.size;
+        this.totalPackagesProcessed = 0;
+        this.currentDepChain = [];
+        this.currentEcosystem = ecosystem;
+        this.currentDirectDep = null;
         
         const tree = new Map(); // packageKey -> { dependencies: Map, depth: number, parent: string }
         const resolved = new Set(); // Track what we've already resolved
-        
-        let processedDirect = 0;
-        const totalDirect = directDependencies.size;
         
         // Process each direct dependency
         for (const depKey of directDependencies) {
             const pkg = allPackages.get(depKey);
             if (!pkg) continue;
             
-            processedDirect++;
-            const progressMsg = `Resolving ${ecosystem} dependencies (${processedDirect}/${totalDirect} direct packages)...`;
-            console.log(`  📦 [${processedDirect}/${totalDirect}] Resolving tree for direct dependency: ${depKey}`);
+            this.processedDirectDeps++;
+            this.currentDirectDep = pkg.name; // Track current direct dependency
+            const progressMsg = `Resolving ${ecosystem} dependencies (${this.processedDirectDeps}/${this.totalDirectDeps} direct)...`;
+            console.log(`  📦 [${this.processedDirectDeps}/${this.totalDirectDeps}] Resolving tree for direct dependency: ${depKey}`);
+            
+            // Initialize dependency chain with the direct dependency
+            this.currentDepChain = [pkg.name];
             
             if (this.onProgress) {
                 this.onProgress({
                     phase: 'resolving-package',
                     message: progressMsg,
                     package: depKey,
-                    packageName: depKey, // Package name for display
-                    processed: processedDirect,
-                    total: totalDirect,
-                    remaining: totalDirect - processedDirect
+                    packageName: pkg.name,
+                    ecosystem: ecosystem,
+                    processed: this.processedDirectDeps,
+                    total: this.totalDirectDeps,
+                    remaining: this.totalDirectDeps - this.processedDirectDeps,
+                    totalPackagesProcessed: this.totalPackagesProcessed,
+                    depChain: [pkg.name]
                 });
             }
             
@@ -187,7 +200,8 @@ class DependencyTreeResolver {
                     1, // depth starts at 1 for direct deps
                     depKey, // parent is the direct dep itself
                     tree,
-                    resolved
+                    resolved,
+                    [pkg.name] // Start the chain with direct dependency
                 );
             } catch (error) {
                 console.error(`    ❌ Error resolving ${depKey}:`, error.message);
@@ -202,7 +216,7 @@ class DependencyTreeResolver {
     /**
      * Recursively resolve dependencies for a single package
      */
-    async resolvePackageDependencies(packageName, version, ecosystem, depth, parent, tree, resolved) {
+    async resolvePackageDependencies(packageName, version, ecosystem, depth, parent, tree, resolved, depChain = []) {
         // Check depth limit
         if (depth > this.maxDepth) {
             console.log(`    ⚠️  Max depth reached for ${packageName}@${version}`);
@@ -217,7 +231,11 @@ class DependencyTreeResolver {
         }
         
         resolved.add(packageKey);
-        this.updateProgress(`Processing ${packageKey} (depth ${depth})...`, packageKey);
+        this.totalPackagesProcessed++; // Increment total packages counter
+        
+        // Update dependency chain
+        this.currentDepChain = [...depChain];
+        this.updateProgress(`Processing ${packageKey} (depth ${depth})...`, packageName, this.currentDepChain, ecosystem);
         
         // Try to get dependencies from various sources with timeout handling
         let dependencies = null;
@@ -304,6 +322,9 @@ class DependencyTreeResolver {
             
             // Recursively resolve this dependency's dependencies
             try {
+                // Build new dependency chain for child
+                const newDepChain = [...depChain, dep.name];
+                
                 await this.resolvePackageDependencies(
                     dep.name,
                     dep.version,
@@ -311,7 +332,8 @@ class DependencyTreeResolver {
                     depth + 1,
                     depKey,
                     tree,
-                    resolved
+                    resolved,
+                    newDepChain
                 );
             } catch (error) {
                 console.log(`    ⚠️  Error resolving child ${depKey}: ${error.message}`);
