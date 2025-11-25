@@ -275,7 +275,7 @@
     <script src="js/cache-manager.js?v=0.0.3&cb=1732460000000"></script>
     <script src="js/storage-manager.js?v=0.0.3&cb=1732460000000"></script>
     <script src="js/license-processor.js?v=0.0.3&cb=1732460000000"></script>
-    <script src="js/osv-service.js?v=0.0.3&cb=1732460000000"></script>
+    <script src="js/osv-service.js?v=0.0.3&cb=1764035359174"></script>
     <script src="js/deps-page.js?v=0.0.3&cb=1732460000000"></script>
     <script type="module">
         const storageManager = new StorageManager();
@@ -507,16 +507,16 @@
                         // Check if the org from URL parameter exists in the filtered entries
                         const orgExists = filteredEntries.some(entry => entry.name === orgParam);
                         if (orgExists) {
-                        selector.value = orgParam;
-                        console.log(`📋 Set selector to URL parameter: ${orgParam}`);
-                    } else {
+                            selector.value = orgParam;
+                            console.log(`📋 Set selector to URL parameter: ${orgParam}`);
+                        } else {
                         selector.value = '';
                         console.log(`📋 URL parameter ${orgParam} not found, using aggregated view`);
-                    }
-                } else {
+                        }
+                    } else {
                     selector.value = '';
                     console.log(`📋 No URL parameter, using aggregated view`);
-                }
+                    }
                     selector.disabled = false;
                     console.log(`✅ Analysis selector populated with ${filteredEntries.length} entries`);
                     await loadAnalysis();
@@ -556,7 +556,7 @@
             displayLimitSelect.addEventListener('change', (e) => {
                 const value = e.target.value;
                 displayLimit = value === 'all' ? 'all' : parseInt(value, 10);
-                renderTable(filteredDependencies, false);
+                    renderTable(filteredDependencies, false);
             });
         }
         
@@ -1246,20 +1246,20 @@
             
             // Generate abbreviated license text for display
             if (licenseFull !== 'Unknown') {
-                if (licenseFull.includes(' AND ')) {
-                    // For compound licenses, show first license name
-                    const firstLicense = licenseFull.split(' AND ')[0];
-                    licenseText = firstLicense.startsWith('Apache') ? 'Apache' : (firstLicense.length > 8 ? firstLicense.substring(0, 8) + '...' : firstLicense);
-                } else if (licenseFull.startsWith('Apache')) {
-                    licenseText = 'Apache';
-                } else {
-                    licenseText = licenseFull.length > 8 ? licenseFull.substring(0, 8) + '...' : licenseFull;
-                }
+                    if (licenseFull.includes(' AND ')) {
+                        // For compound licenses, show first license name
+                        const firstLicense = licenseFull.split(' AND ')[0];
+                        licenseText = firstLicense.startsWith('Apache') ? 'Apache' : (firstLicense.length > 8 ? firstLicense.substring(0, 8) + '...' : firstLicense);
+                    } else if (licenseFull.startsWith('Apache')) {
+                        licenseText = 'Apache';
+                    } else {
+                        licenseText = licenseFull.length > 8 ? licenseFull.substring(0, 8) + '...' : licenseFull;
+                    }
             }
             
             // Mark for async fetch if still no license (should be rare)
             if (licenseFull === 'Unknown' && dep.ecosystem === 'PyPI' && dep.name && dep.version && dep.version !== 'version unknown') {
-                dep._needsLicenseFetch = true;
+                    dep._needsLicenseFetch = true;
             }
             
             // Cache the result

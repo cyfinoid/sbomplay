@@ -631,7 +631,8 @@ class SBOMPlayApp {
                                 ecosystem: progress.ecosystem || null,
                                 packageName: progress.packageName || progress.package || null,
                                 remaining: progress.remaining || (progress.total && progress.processed !== undefined ? progress.total - progress.processed : null),
-                                totalPackagesProcessed: progress.totalPackagesProcessed || 0
+                                totalPackagesProcessed: progress.totalPackagesProcessed || 0,
+                                depChain: progress.depChain || []
                             });
                     } else if (progress.phase === 'resolving-tree') {
                         // Ecosystem-level progress updates
@@ -681,6 +682,51 @@ class SBOMPlayApp {
             let saveSuccess = await this.storageManager.saveAnalysisData(repoKey, results);
             if (!saveSuccess) {
                 console.warn('⚠️ Failed to save initial analysis data to storage');
+            }
+            
+            // CRITICAL: Resolve unknown versions BEFORE vulnerability scanning
+            // This ensures vulnerability scanning can check all packages with resolved versions
+            if (repoStats && repoStats.totalDependencies > 0 && results.allDependencies) {
+                this.updateProgress(88, 'Resolving unknown package versions...', 'version-resolution');
+                try {
+                    const unknownVersionDeps = results.allDependencies.filter(dep => 
+                        !dep.version || dep.version === 'unknown'
+                    );
+                    
+                    if (unknownVersionDeps.length > 0) {
+                        console.log(`🔍 Resolving ${unknownVersionDeps.length} dependencies with unknown versions...`);
+                        
+                        if (!window.DependencyTreeResolver) {
+                            console.error('❌ DependencyTreeResolver not available');
+                        } else {
+                            const resolver = new DependencyTreeResolver();
+                            let resolved = 0;
+                            
+                            for (const dep of unknownVersionDeps) {
+                                const ecosystem = dep.category?.ecosystem?.toLowerCase();
+                                if (ecosystem) {
+                                    try {
+                                        const latestVersion = await resolver.fetchLatestVersion(dep.name, ecosystem);
+                                        if (latestVersion) {
+                                            dep.version = latestVersion;
+                                            dep.displayVersion = latestVersion;
+                                            dep.assumedVersion = latestVersion;
+                                            resolved++;
+                                            console.log(`   ✅ Resolved ${dep.name} (${ecosystem}) → v${latestVersion}`);
+                                        }
+                                    } catch (error) {
+                                        console.warn(`   ⚠️  Could not resolve ${dep.name}:`, error.message);
+                                    }
+                                }
+                            }
+                            console.log(`✅ Resolved ${resolved}/${unknownVersionDeps.length} unknown versions`);
+                        }
+                    } else {
+                        console.log('✅ All dependencies have versions');
+                    }
+                } catch (error) {
+                    console.error('❌ Version resolution phase failed:', error);
+                }
             }
             
             // Run vulnerability and author analysis (these need data in storage)
@@ -1035,7 +1081,8 @@ class SBOMPlayApp {
                                 ecosystem: progress.ecosystem || null,
                                 packageName: progress.packageName || progress.package || null,
                                 remaining: progress.remaining || (progress.total && progress.processed !== undefined ? progress.total - progress.processed : null),
-                                totalPackagesProcessed: progress.totalPackagesProcessed || 0
+                                totalPackagesProcessed: progress.totalPackagesProcessed || 0,
+                                depChain: progress.depChain || []
                             });
                     } else if (progress.phase === 'resolving-tree') {
                         // Ecosystem-level progress updates
@@ -1100,6 +1147,51 @@ class SBOMPlayApp {
                 console.warn('⚠️ Failed to save initial analysis data to storage');
             } else {
                 await this.showStorageStatusIndicator();
+            }
+            
+            // CRITICAL: Resolve unknown versions BEFORE vulnerability scanning
+            // This ensures vulnerability scanning can check all packages with resolved versions
+            if (reposWithDeps > 0 && results.allDependencies) {
+                this.updateProgress(88, 'Resolving unknown package versions...', 'version-resolution');
+                try {
+                    const unknownVersionDeps = results.allDependencies.filter(dep => 
+                        !dep.version || dep.version === 'unknown'
+                    );
+                    
+                    if (unknownVersionDeps.length > 0) {
+                        console.log(`🔍 Resolving ${unknownVersionDeps.length} dependencies with unknown versions...`);
+                        
+                        if (!window.DependencyTreeResolver) {
+                            console.error('❌ DependencyTreeResolver not available');
+                        } else {
+                            const resolver = new DependencyTreeResolver();
+                            let resolved = 0;
+                            
+                            for (const dep of unknownVersionDeps) {
+                                const ecosystem = dep.category?.ecosystem?.toLowerCase();
+                                if (ecosystem) {
+                                    try {
+                                        const latestVersion = await resolver.fetchLatestVersion(dep.name, ecosystem);
+                                        if (latestVersion) {
+                                            dep.version = latestVersion;
+                                            dep.displayVersion = latestVersion;
+                                            dep.assumedVersion = latestVersion;
+                                            resolved++;
+                                            console.log(`   ✅ Resolved ${dep.name} (${ecosystem}) → v${latestVersion}`);
+                                        }
+                                    } catch (error) {
+                                        console.warn(`   ⚠️  Could not resolve ${dep.name}:`, error.message);
+                                    }
+                                }
+                            }
+                            console.log(`✅ Resolved ${resolved}/${unknownVersionDeps.length} unknown versions`);
+                        }
+                    } else {
+                        console.log('✅ All dependencies have versions');
+                    }
+                } catch (error) {
+                    console.error('❌ Version resolution phase failed:', error);
+                }
             }
             
             // Run vulnerability and author analysis (these need data in storage)
@@ -1321,13 +1413,12 @@ class SBOMPlayApp {
                     // Build dependency chain display (A → B → C → D)
                     // Shows: "Resolving npm dependencies (1/6 direct) → express → body-parser → raw-body"
                     let chainDisplay = '';
-                    if (depChain && Array.isArray(depChain) && depChain.length > 1) {
-                        // Limit chain display to last 5 items for readability
+                    
+                    if (depChain && Array.isArray(depChain) && depChain.length >= 1) {
+                        // Always show the full dependency chain
+                        // Limit to last 5 items for readability if chain is very long
                         const displayChain = depChain.length > 5 ? ['...', ...depChain.slice(-4)] : depChain;
                         chainDisplay = ` → ${displayChain.join(' → ')}`;
-                    } else if (depChain && Array.isArray(depChain) && depChain.length === 1) {
-                        // Single item (direct dependency)
-                        chainDisplay = ` → ${depChain[0]}`;
                     } else if (packageName) {
                         // Fallback if no chain available
                         chainDisplay = ` → ${packageName}`;
@@ -3381,7 +3472,7 @@ class SBOMPlayApp {
             return (ecosystem === 'PyPI' || ecosystem === 'pypi') &&
             dep.name && 
             dep.version &&
-            dep.version !== 'version unknown' &&
+            dep.version !== 'unknown' &&  // Only filter truly unknown versions (after resolution attempt)
             (!dep.licenseFull || dep.licenseFull === 'Unknown' || dep.licenseFull === 'NOASSERTION') &&
             (!dep.license || dep.license === 'Unknown' || dep.license === 'NOASSERTION');
         });
@@ -3432,15 +3523,15 @@ class SBOMPlayApp {
                         
                         if (validLicenses.length > 0) {
                             licenseFull = validLicenses.join(' AND ');
-                            
-                            // Format license text
-                            if (licenseFull.includes(' AND ')) {
-                                const firstLicense = licenseFull.split(' AND ')[0];
-                                licenseText = firstLicense.startsWith('Apache') ? 'Apache' : (firstLicense.length > 8 ? firstLicense.substring(0, 8) + '...' : firstLicense);
-                            } else if (licenseFull.startsWith('Apache')) {
-                                licenseText = 'Apache';
-                            } else {
-                                licenseText = licenseFull.length > 8 ? licenseFull.substring(0, 8) + '...' : licenseFull;
+                        
+                        // Format license text
+                        if (licenseFull.includes(' AND ')) {
+                            const firstLicense = licenseFull.split(' AND ')[0];
+                            licenseText = firstLicense.startsWith('Apache') ? 'Apache' : (firstLicense.length > 8 ? firstLicense.substring(0, 8) + '...' : firstLicense);
+                        } else if (licenseFull.startsWith('Apache')) {
+                            licenseText = 'Apache';
+                        } else {
+                            licenseText = licenseFull.length > 8 ? licenseFull.substring(0, 8) + '...' : licenseFull;
                             }
                         }
                     }
@@ -3501,8 +3592,12 @@ class SBOMPlayApp {
                                             licenseFull = match[1].trim();
                                             // Convert classifier name to SPDX if possible
                                             if (licenseFull === 'Apache Software License') licenseFull = 'Apache-2.0';
-                                            if (licenseFull === 'BSD License') licenseFull = 'BSD-3-Clause';
-                                            if (licenseFull.includes('GPL') && !licenseFull.includes('-')) licenseFull = licenseFull.replace(' ', '-');
+                                            else if (licenseFull === 'Apache Software') licenseFull = 'Apache-2.0';
+                                            else if (licenseFull === 'BSD License') licenseFull = 'BSD-3-Clause';
+                                            else if (licenseFull === 'BSD') licenseFull = 'BSD-3-Clause';  // Handle "BSD" alone (from "License :: OSI Approved :: BSD License")
+                                            else if (licenseFull === 'MIT License') licenseFull = 'MIT';
+                                            else if (licenseFull === 'MIT') licenseFull = 'MIT';  // Handle "MIT" alone
+                                            else if (licenseFull.includes('GPL') && !licenseFull.includes('-')) licenseFull = licenseFull.replace(' ', '-');
                                             
                                             licenseText = licenseFull.length > 8 ? licenseFull.substring(0, 8) + '...' : licenseFull;
                                             console.log(`   ✅ Found from classifiers: ${licenseFull}`);
@@ -3519,41 +3614,41 @@ class SBOMPlayApp {
                     // Only update if we found a valid license
                     if (!licenseFull || !licenseText) {
                         return;
-                    }
-                    
-                    // Update dependency object (both top-level and in originalPackage for persistence)
-                    dep.license = licenseText;
-                    dep.licenseFull = licenseFull;
-                    dep._licenseEnriched = true;
-                    
-                    // Also update originalPackage to ensure license persists when saved to IndexedDB
-                    if (dep.originalPackage) {
-                        dep.originalPackage.licenseConcluded = licenseFull;
-                        dep.originalPackage.licenseDeclared = licenseFull;
-                    }
-                    
-                    // Also update the original dependency object in sbomProcessor.dependencies Map
-                    // This ensures licenses persist when exportData() is called again
-                    if (this.sbomProcessor && this.sbomProcessor.dependencies) {
-                        const versionToUse = dep.displayVersion || dep.version;
-                        const packageKey = `${dep.name}@${versionToUse}`;
-                        const originalDep = this.sbomProcessor.dependencies.get(packageKey);
-                        if (originalDep) {
-                            originalDep.license = licenseText;
-                            originalDep.licenseFull = licenseFull;
-                            originalDep._licenseEnriched = true;
-                            
-                            // Also update originalPackage if it exists
-                            if (originalDep.originalPackage) {
-                                originalDep.originalPackage.licenseConcluded = licenseFull;
-                                originalDep.originalPackage.licenseDeclared = licenseFull;
+                        }
+                        
+                        // Update dependency object (both top-level and in originalPackage for persistence)
+                        dep.license = licenseText;
+                        dep.licenseFull = licenseFull;
+                        dep._licenseEnriched = true;
+                        
+                        // Also update originalPackage to ensure license persists when saved to IndexedDB
+                        if (dep.originalPackage) {
+                            dep.originalPackage.licenseConcluded = licenseFull;
+                            dep.originalPackage.licenseDeclared = licenseFull;
+                        }
+                        
+                        // Also update the original dependency object in sbomProcessor.dependencies Map
+                        // This ensures licenses persist when exportData() is called again
+                        if (this.sbomProcessor && this.sbomProcessor.dependencies) {
+                            const versionToUse = dep.displayVersion || dep.version;
+                            const packageKey = `${dep.name}@${versionToUse}`;
+                            const originalDep = this.sbomProcessor.dependencies.get(packageKey);
+                            if (originalDep) {
+                                originalDep.license = licenseText;
+                                originalDep.licenseFull = licenseFull;
+                                originalDep._licenseEnriched = true;
+                                
+                                // Also update originalPackage if it exists
+                                if (originalDep.originalPackage) {
+                                    originalDep.originalPackage.licenseConcluded = licenseFull;
+                                    originalDep.originalPackage.licenseDeclared = licenseFull;
+                                }
                             }
                         }
-                    }
-                    
-                    fetched++;
-                    
-                    if (fetched % 10 === 0) {
+                        
+                        fetched++;
+                        
+                        if (fetched % 10 === 0) {
                         console.log(`📄 Licenses: ${fetched}/${pypiDeps.length} fetched (${fetchedFromPyPI} from PyPI API)`);
                     }
                 } catch (e) {
@@ -3587,7 +3682,7 @@ class SBOMPlayApp {
             return (ecosystem === 'Go' || ecosystem === 'golang' || ecosystem === 'go') &&
             dep.name && 
             dep.version &&
-            dep.version !== 'version unknown' &&
+            dep.version !== 'unknown' &&  // Only filter truly unknown versions (after resolution attempt)
             (!dep.licenseFull || dep.licenseFull === 'Unknown' || dep.licenseFull === 'NOASSERTION') &&
             (!dep.license || dep.license === 'Unknown' || dep.license === 'NOASSERTION');
         });
@@ -3780,7 +3875,7 @@ class SBOMPlayApp {
             }
             
             // Skip if missing name or version
-            if (!dep.name || !dep.version || dep.version === 'version unknown' || dep.version === '') {
+            if (!dep.name || !dep.version || dep.version === 'unknown' || dep.version === '') {
                 skippedNoNameVersion++;
                 return;
             }
@@ -3925,9 +4020,15 @@ class SBOMPlayApp {
         dependencies.forEach(dep => {
             // Handle both dep.category?.ecosystem and dep.ecosystem (dependencies can have either structure)
             const ecosystemValue = dep.category?.ecosystem || dep.ecosystem;
-            // Skip dependencies without required fields or with unknown version
-            if (!dep.name || !dep.version || dep.version === 'version unknown' || !ecosystemValue) {
+            // Skip dependencies without required fields or with unknown version (even after resolution attempts)
+            if (!dep.name || !dep.version || dep.version === 'unknown' || !ecosystemValue) {
                 skippedCount++;
+                // Set empty drift data so we know it was checked
+                if (dep.name && dep.version === 'unknown') {
+                    dep.versionDrift = { hasMajorUpdate: false, hasMinorUpdate: false };
+                    dep.staleness = { isStale: false };
+                    console.warn(`⚠️  Skipping version drift for ${dep.name}: no version available`);
+                }
                 return;
             }
             

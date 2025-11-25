@@ -2811,20 +2811,20 @@ class ViewManager {
             for (const repoData of repositories) {
                 // Check direct actions in this repository
                 if (repoData.actions && Array.isArray(repoData.actions)) {
-                    for (const action of repoData.actions) {
+                        for (const action of repoData.actions) {
                         // Match on owner/repo/path (ignore ref)
-                        const actionPath = action.path || '';
+                            const actionPath = action.path || '';
                         if (action.owner === owner && 
                             action.repo === repo && 
                             actionPath === normalizedPath && 
                             action.license) {
                             return action.license;
-                        }
-                        
+                    }
+                    
                         // Recursively check nested actions
                         if (action.nested && Array.isArray(action.nested)) {
                             const checkNested = (nestedAction) => {
-                                const nestedPath = nestedAction.path || '';
+                            const nestedPath = nestedAction.path || '';
                                 if (nestedAction.owner === owner && 
                                     nestedAction.repo === repo && 
                                     nestedPath === normalizedPath && 
@@ -5219,8 +5219,8 @@ class ViewManager {
                 let fullDep = null;
                 if (!versionDrift) {
                     fullDep = orgData.data.allDependencies?.find(d => 
-                        d.name === dep.name && d.version === dep.version
-                    );
+                    d.name === dep.name && d.version === dep.version
+                );
                     versionDrift = fullDep?.versionDrift || null;
                 }
                 

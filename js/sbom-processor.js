@@ -16,6 +16,9 @@ class SBOMProcessor {
         // Initialize quality processor
         this.qualityProcessor = window.SBOMQualityProcessor ? new window.SBOMQualityProcessor() : null;
         
+        // Initialize version resolver (will be created once when needed)
+        this.versionResolver = null;
+        
         // GitHub Actions analysis results
         this.githubActionsAnalysis = null;
         
@@ -237,6 +240,12 @@ class SBOMProcessor {
             return false;
         }
 
+        // Initialize version resolver if not already done
+        if (!this.versionResolver && window.DependencyTreeResolver) {
+            this.versionResolver = new window.DependencyTreeResolver();
+            console.log('✅ Version resolver initialized for SBOM processing');
+        }
+
         console.log(`🔍 Processing SBOM for ${owner}/${repo}: ${sbomData.sbom.packages.length} packages found`);
 
         const repoKey = `${owner}/${repo}`;
@@ -313,33 +322,35 @@ class SBOMProcessor {
             // Categorize the dependency first (needed for version fetching)
             const category = this.categorizeDependency(pkg);
             
-            // When version is missing, try to fetch latest version from registry
+            // When version is missing, ALWAYS try to fetch latest version from registry
             let displayVersion = version;
             let assumedVersion = null;
             if (!version) {
                 console.log(`⚠️  Package missing version in ${owner}/${repo}: ${pkg.name} (attempting to fetch latest version)`);
-                // Try to fetch latest version from registry
                 const ecosystem = category?.ecosystem?.toLowerCase();
-                if (ecosystem && window.DependencyTreeResolver) {
+                
+                if (ecosystem && this.versionResolver) {
                     try {
-                        const resolver = new window.DependencyTreeResolver();
-                        const latestVersion = await resolver.fetchLatestVersion(pkg.name, ecosystem);
+                        const latestVersion = await this.versionResolver.fetchLatestVersion(pkg.name, ecosystem);
                         if (latestVersion) {
-                            // Use the latest version as the actual version (not just display)
-                            version = latestVersion;
+                            version = latestVersion;  // Use as actual version
                             displayVersion = latestVersion;
                             assumedVersion = latestVersion;
-                            console.log(`   ✅ Found latest version for ${pkg.name}: ${latestVersion} (using as version)`);
+                            console.log(`   ✅ Assumed latest version for ${pkg.name}: ${latestVersion}`);
                         } else {
-                            displayVersion = 'version unknown';
-                            console.log(`   ⚠️  Could not fetch latest version for ${pkg.name}, using "version unknown"`);
+                            console.warn(`   ⚠️  Could not fetch latest version for ${pkg.name} from ${ecosystem} registry`);
                         }
                     } catch (error) {
-                        displayVersion = 'version unknown';
-                        console.log(`   ⚠️  Failed to fetch latest version for ${pkg.name}: ${error.message}`);
+                        console.warn(`   ⚠️  Failed to fetch latest version for ${pkg.name}: ${error.message}`);
                     }
-                } else {
-                    displayVersion = 'version unknown';
+                } else if (!this.versionResolver) {
+                    console.warn(`   ⚠️  Version resolver not available for ${pkg.name}`);
+                }
+                
+                // If still no version after fetch attempt, store as 'unknown' (not null)
+                if (!version) {
+                    version = 'unknown';
+                    displayVersion = 'unknown';
                 }
             }
             const depKey = `${pkg.name}@${displayVersion}`;
@@ -368,8 +379,8 @@ class SBOMProcessor {
             if (!this.dependencies.has(depKey)) {
                 this.dependencies.set(depKey, {
                     name: pkg.name,
-                    version: version || null,  // Store version (original or resolved latest if missing)
-                    displayVersion: displayVersion,  // Display version (may be "version unknown")
+                    version: version || 'unknown',  // Never store null, always store a string value
+                    displayVersion: displayVersion,  // Display version (may be "unknown")
                     assumedVersion: assumedVersion,  // Latest version if it was fetched (null if original version was present)
                     repositories: new Set(),
                     count: 0,
@@ -841,6 +852,24 @@ class SBOMProcessor {
                             
                             // Update count to reflect all repositories
                             dep.count = dep.repositories.size;
+                            
+                            // Fallback: if transitive dep still has no repositories, inherit from first parent
+                            if (dep.repositories.size === 0 && treeNode.parents && treeNode.parents.length > 0) {
+                                const firstParentKey = treeNode.parents[0];
+                                const parentDep = this.dependencies.get(firstParentKey);
+                                
+                                if (parentDep && parentDep.repositories.size > 0) {
+                                    // Inherit all repositories from first parent
+                                    parentDep.repositories.forEach(repo => {
+                                        dep.repositories.add(repo);
+                                        dep.transitiveIn.add(repo);
+                                    });
+                                    dep.count = dep.repositories.size;
+                                    console.log(`   📌 Inherited ${dep.repositories.size} repos from parent for ${depKey}`);
+                                } else {
+                                    console.warn(`   ⚠️  No repositories found for transitive dep ${depKey}`);
+                                }
+                            }
                         }
                     }
                     

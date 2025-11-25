@@ -563,14 +563,14 @@ class VersionDriftAnalyzer {
      */
     async fetchMavenLatestVersion(packageName) {
         try {
-            // Parse groupId:artifactId format
-            const parts = packageName.split(':');
-            if (parts.length < 2) {
-                console.warn(`⚠️ Invalid Maven package format: ${packageName} (expected groupId:artifactId)`);
-                return null;
-            }
-            
-            const groupId = parts[0];
+        // Parse groupId:artifactId format
+        const parts = packageName.split(':');
+        if (parts.length < 2) {
+            console.warn(`⚠️ Invalid Maven package format: ${packageName} (expected groupId:artifactId)`);
+            return null;
+        }
+        
+        const groupId = parts[0];
             const artifactId = parts[1]; // Take only the first artifactId part
             
             // Get registry name from RegistryManager
@@ -584,12 +584,12 @@ class VersionDriftAnalyzer {
             // Format: /registries/repo1.maven.org/packages/{groupId}/{artifactId}
             const url = `https://packages.ecosyste.ms/api/v1/registries/${registryName}/packages/${encodeURIComponent(groupId)}/${encodeURIComponent(artifactId)}`;
             
-            const response = await this.fetchWithTimeout(url, {}, this.requestTimeout);
-            if (!response.ok) {
-                return null;
-            }
-            
-            const data = await response.json();
+        const response = await this.fetchWithTimeout(url, {}, this.requestTimeout);
+        if (!response.ok) {
+            return null;
+        }
+        
+        const data = await response.json();
             return data.latest_release_number || null;
         } catch (error) {
             console.warn(`⚠️ Failed to fetch Maven version from ecosyste.ms: ${error.message}`);

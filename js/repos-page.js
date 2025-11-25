@@ -250,7 +250,15 @@ document.addEventListener('DOMContentLoaded', async function() {
         }
         
         currentData = data.data;
+        
+        // Debug logging
+        console.log(`📊 Processing data for: ${analysisName || 'aggregated view'}`);
+        console.log(`   allRepositories count: ${currentData.allRepositories?.length || 0}`);
+        console.log(`   allDependencies count: ${currentData.allDependencies?.length || 0}`);
+        
         allRepositories = processData(currentData);
+        
+        console.log(`📊 Processed ${allRepositories.length} repositories`);
         
         // Set search input from URL parameter if present
         if (searchParam) {
@@ -269,6 +277,12 @@ document.addEventListener('DOMContentLoaded', async function() {
     function processData(data) {
         const repos = [];
         const allRepos = data.allRepositories || [];
+        
+        console.log(`🔍 processData: allRepositories count = ${allRepos.length}`);
+        if (allRepos.length > 0) {
+            console.log(`   First repo: ${allRepos[0].owner}/${allRepos[0].name}`);
+        }
+        
         const vulnAnalysis = data.vulnerabilityAnalysis || {};
         const vulnerableDeps = vulnAnalysis.vulnerableDependencies || [];
         const authorAnalysis = data.authorAnalysis || {};

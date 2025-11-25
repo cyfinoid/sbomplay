@@ -223,7 +223,26 @@ class DependencyTreeResolver {
             return;
         }
         
-        const packageKey = `${packageName}@${version}`;
+        // CRITICAL: If version is unknown, fetch latest version first
+        let resolvedVersion = version;
+        if (!version || version === 'unknown' || version === '') {
+            console.log(`    🔍 Fetching latest version for ${packageName} (version was ${version || 'missing'})`);
+            try {
+                const latestVersion = await this.fetchLatestVersion(packageName, ecosystem);
+                if (latestVersion) {
+                    resolvedVersion = latestVersion;
+                    console.log(`    ✅ Resolved ${packageName}: ${version || 'unknown'} → ${latestVersion}`);
+                } else {
+                    console.warn(`    ⚠️  Could not fetch latest version for ${packageName}, skipping dependency resolution`);
+                    return; // Skip this package if we can't resolve the version
+                }
+            } catch (error) {
+                console.warn(`    ⚠️  Failed to fetch latest version for ${packageName}: ${error.message}`);
+                return; // Skip this package if version resolution fails
+            }
+        }
+        
+        const packageKey = `${packageName}@${resolvedVersion}`;
         
         // Check if already resolved
         if (resolved.has(packageKey)) {
@@ -244,7 +263,7 @@ class DependencyTreeResolver {
             // 1. Try deps.dev first (most comprehensive)
             try {
                 dependencies = await Promise.race([
-                    this.getDependenciesFromDepsDev(packageName, version, ecosystem),
+                    this.getDependenciesFromDepsDev(packageName, resolvedVersion, ecosystem),
                     new Promise((_, reject) => 
                         setTimeout(() => reject(new Error('deps.dev timeout')), this.requestTimeout)
                     )
@@ -258,7 +277,7 @@ class DependencyTreeResolver {
             if (!dependencies || dependencies.length === 0) {
                 try {
                     dependencies = await Promise.race([
-                        this.getDependenciesFromRegistry(packageName, version, ecosystem),
+                        this.getDependenciesFromRegistry(packageName, resolvedVersion, ecosystem),
                         new Promise((_, reject) => 
                             setTimeout(() => reject(new Error('registry timeout')), this.requestTimeout)
                         )
@@ -275,7 +294,7 @@ class DependencyTreeResolver {
             if (isRubyGems || (!dependencies || dependencies.length === 0)) {
                 try {
                     dependencies = await Promise.race([
-                        this.getDependenciesFromEcosystems(packageName, version, ecosystem),
+                        this.getDependenciesFromEcosystems(packageName, resolvedVersion, ecosystem),
                         new Promise((_, reject) => 
                             setTimeout(() => reject(new Error('ecosyste.ms timeout')), this.requestTimeout)
                         )
@@ -374,9 +393,10 @@ class DependencyTreeResolver {
             // Normalize version
             const normalizedVersion = this.normalizeVersion(version);
             
-            // Skip if version is unknown or empty (to avoid unnecessary 404 errors)
+            // Safety check: Skip if version is still unknown or empty
+            // Note: This should rarely happen now because resolvePackageDependencies resolves unknown versions first
             if (!normalizedVersion || normalizedVersion === 'unknown' || normalizedVersion === '') {
-                console.log(`      ⏭️  Skipping deps.dev query for ${packageName}@${version} (unknown version)`);
+                console.warn(`      ⚠️  deps.dev query skipped for ${packageName}@${version} (version should have been resolved earlier)`);
                 return null;
             }
             

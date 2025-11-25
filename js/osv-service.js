@@ -375,7 +375,18 @@ class OSVService {
     async analyzeDependenciesWithIncrementalSaving(dependencies, orgName, onProgress = null) {
         console.log(`🔍 OSV: Analyzing ${dependencies.length} dependencies for vulnerabilities with incremental saving`);
         
-        const packages = dependencies.map(dep => {
+        // Filter out dependencies without valid versions
+        const validDependencies = dependencies.filter(dep => {
+            if (!dep.version || dep.version === 'unknown') {
+                console.warn(`⚠️  Skipping vulnerability scan for ${dep.name}: no version available`);
+                return false;
+            }
+            return true;
+        });
+        
+        console.log(`🔍 OSV: ${validDependencies.length}/${dependencies.length} dependencies have valid versions for vulnerability scanning`);
+        
+        const packages = validDependencies.map(dep => {
             const detectedEcosystem = dep.pkg ? this.extractEcosystemFromPurl(dep.pkg) : this.detectEcosystemFromName(dep.name);
             const mappedEcosystem = detectedEcosystem ? this.mapEcosystemToOSV(detectedEcosystem) : null;
             return {
@@ -409,7 +420,7 @@ class OSVService {
         }
         
         const vulnerabilityAnalysis = {
-            totalPackages: dependencies.length,
+            totalPackages: validDependencies.length,
             vulnerablePackages: 0,
             totalVulnerabilities: 0,
             criticalVulnerabilities: 0,
@@ -419,8 +430,8 @@ class OSVService {
             vulnerableDependencies: []
         };
 
-        for (let index = 0; index < dependencies.length; index++) {
-            const dep = dependencies[index];
+        for (let index = 0; index < validDependencies.length; index++) {
+            const dep = validDependencies[index];
             const vulnResult = results[index] || { vulns: [] };
             const vulnerabilities = vulnResult?.vulns || [];
             
