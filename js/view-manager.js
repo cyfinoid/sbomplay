@@ -1,6 +1,9 @@
 /**
  * View Manager - Handles detailed views of SBOM data
+ * BUILD: 1764043076180 (with repository fallback for legacy data)
  */
+console.log('📊 View Manager loaded - BUILD: 1764043076180 (repository fallback)');
+
 class ViewManager {
     constructor() {
         this.currentView = 'overview';
@@ -5112,16 +5115,34 @@ class ViewManager {
 
         if (!fullDep) {
             console.warn(`⚠️ Could not find dependency ${vulnDep.name}@${vulnDep.version} in allDependencies for repository usage`);
+            // Still try to use all repos as fallback for unknown dependencies
+            if (repos.length > 0) {
+                console.log(`   📌 Fallback: using all ${repos.length} repo(s) for unmatched dependency ${vulnDep.name}`);
+                const usage = [];
+                repos.forEach(repo => {
+                    usage.push({
+                        repoKey: `${repo.owner}/${repo.name}`,
+                        pathStr: `${vulnDep.name}@${vulnDep.version}`,
+                        isArchived: repo.archived || false
+                    });
+                });
+                return usage;
+            }
             return [];
         }
 
         const usage = [];
-        const repoKeys = fullDep.repositories || [];
+        let repoKeys = fullDep.repositories || [];
         
-        // If no repositories found, this is a data integrity issue
+        // If no repositories found, use fallback: all repos from the scan
+        // This handles legacy data where transitive deps weren't properly associated
         if (repoKeys.length === 0) {
-            console.warn(`⚠️ Dependency ${vulnDep.name}@${vulnDep.version} found but has no repositories linked`);
-            return [];
+            console.warn(`⚠️ Dependency ${vulnDep.name}@${vulnDep.version} found but has no repositories linked - using fallback`);
+            // Fallback: use all repos from the current analysis
+            repoKeys = repos.map(r => `${r.owner}/${r.name}`);
+            if (repoKeys.length > 0) {
+                console.log(`   📌 Fallback: associating with ${repoKeys.length} repo(s) from analysis`);
+            }
         }
 
         repoKeys.forEach(repoKey => {
@@ -5136,6 +5157,15 @@ class ViewManager {
                 // Add repository archived status
                 pathInfo.isArchived = repo.archived || false;
                 usage.push(pathInfo);
+            } else {
+                // Fallback: dependency found in repo but no SPDX path info (transitive dep added during resolution)
+                usage.push({
+                    isDirect: false,
+                    path: [vulnDep.name + '@' + vulnDep.version],
+                    repoKey: repoKey,
+                    pathStr: vulnDep.name + '@' + vulnDep.version + ' (transitive)',
+                    isArchived: repo.archived || false
+                });
             }
         });
 
@@ -5170,6 +5200,66 @@ class ViewManager {
                     });
                 });
             }
+            
+            // Sort by: 1) Severity (Critical first), 2) Vulnerability count, 3) Repository impact
+            const severityOrder = { 'CRITICAL': 0, 'HIGH': 1, 'MEDIUM': 2, 'MODERATE': 2, 'LOW': 3, 'UNKNOWN': 4 };
+            
+            vulnerableDeps.sort((a, b) => {
+                // Get highest severity for each dependency
+                const getHighestSeverity = (dep) => {
+                    if (!dep.vulnerabilities || !Array.isArray(dep.vulnerabilities)) return 'UNKNOWN';
+                    let highest = 'UNKNOWN';
+                    let highestOrder = 4;
+                    dep.vulnerabilities.forEach(vuln => {
+                        if (!vuln || typeof vuln !== 'object') return;
+                        const severity = window.osvService ? window.osvService.getHighestSeverity(vuln) : 'UNKNOWN';
+                        const order = severityOrder[severity] ?? 4;
+                        if (order < highestOrder) {
+                            highestOrder = order;
+                            highest = severity;
+                        }
+                    });
+                    return highest;
+                };
+                
+                // Get repository count for each dependency
+                const getRepoCount = (dep) => {
+                    // Try to get from repositories array on the dependency
+                    if (dep.repositories && Array.isArray(dep.repositories)) {
+                        return dep.repositories.length;
+                    }
+                    // Fallback: look up in allDependencies
+                    const fullDep = orgData.data.allDependencies?.find(d => 
+                        d.name === dep.name && (d.version === dep.version || d.displayVersion === dep.version)
+                    );
+                    if (fullDep?.repositories) {
+                        return Array.isArray(fullDep.repositories) ? fullDep.repositories.length : fullDep.repositories.size || 0;
+                    }
+                    return 0;
+                };
+                
+                const severityA = getHighestSeverity(a);
+                const severityB = getHighestSeverity(b);
+                const severityOrderA = severityOrder[severityA] ?? 4;
+                const severityOrderB = severityOrder[severityB] ?? 4;
+                
+                // 1. Sort by severity (Critical first)
+                if (severityOrderA !== severityOrderB) {
+                    return severityOrderA - severityOrderB;
+                }
+                
+                // 2. Sort by vulnerability count (most vulnerabilities first)
+                const vulnCountA = a.vulnerabilities?.length || 0;
+                const vulnCountB = b.vulnerabilities?.length || 0;
+                if (vulnCountB !== vulnCountA) {
+                    return vulnCountB - vulnCountA;
+                }
+                
+                // 3. Sort by repository impact (most repos first)
+                const repoCountA = getRepoCount(a);
+                const repoCountB = getRepoCount(b);
+                return repoCountB - repoCountA;
+            });
             
             const processedDeps = [];
             
@@ -5216,12 +5306,30 @@ class ViewManager {
                 let versionDrift = dep.versionDrift || null;
                 
                 // Fallback: Find the full dependency to get version drift data if not on vulnerable dep
+                // Use flexible version matching (version, displayVersion, assumedVersion)
                 let fullDep = null;
-                if (!versionDrift) {
-                    fullDep = orgData.data.allDependencies?.find(d => 
-                    d.name === dep.name && d.version === dep.version
-                );
+                if (!versionDrift && orgData.data.allDependencies) {
+                    fullDep = orgData.data.allDependencies.find(d => {
+                        if (d.name !== dep.name) return false;
+                        // Try multiple version fields for matching
+                        return d.version === dep.version || 
+                               d.displayVersion === dep.version ||
+                               d.assumedVersion === dep.version ||
+                               dep.version === d.displayVersion ||
+                               dep.version === d.assumedVersion;
+                    });
                     versionDrift = fullDep?.versionDrift || null;
+                    
+                    // Debug: Log if we found the dependency but it has no versionDrift
+                    if (fullDep && !versionDrift) {
+                        console.debug(`📊 Version drift missing for ${dep.name}@${dep.version}:`, {
+                            foundDep: !!fullDep,
+                            hasVersionDrift: !!fullDep?.versionDrift,
+                            depVersion: dep.version,
+                            fullDepVersion: fullDep?.version,
+                            fullDepDisplayVersion: fullDep?.displayVersion
+                        });
+                    }
                 }
                 
                 // If still not found, try to get from cache (async)
@@ -5238,13 +5346,24 @@ class ViewManager {
                                 ecosystem = 'golang';
                             } else if (ecosystem === 'packagist' || ecosystem === 'composer') {
                                 ecosystem = 'composer';
+                            } else if (ecosystem === 'pypi') {
+                                ecosystem = 'pypi';
+                            } else if (ecosystem === 'npm') {
+                                ecosystem = 'npm';
+                            } else if (ecosystem === 'maven') {
+                                ecosystem = 'maven';
                             }
                             const packageKey = `${ecosystem}:${depForLookup.name}`;
                             const versionDriftAnalyzer = new window.VersionDriftAnalyzer();
                             versionDrift = await versionDriftAnalyzer.getVersionDriftFromCache(packageKey, depForLookup.version);
+                            if (versionDrift) {
+                                console.log(`✅ Got version drift from cache for ${packageKey}@${depForLookup.version}:`, versionDrift);
+                            }
                         } catch (e) {
                             console.debug('Failed to get version drift from cache:', e);
                         }
+                    } else {
+                        console.debug(`⚠️ Cannot lookup version drift: ecosystem=${ecosystemValue}, name=${depForLookup?.name}, version=${depForLookup?.version}`);
                     }
                 }
                 

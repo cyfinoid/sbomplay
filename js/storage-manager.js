@@ -868,7 +868,8 @@ class StorageManager {
             vulnerabilityAnalysis: null,
             licenseAnalysis: null,
             qualityAnalysis: null,
-            githubActionsAnalysis: null
+            githubActionsAnalysis: null,
+            authorAnalysis: null
         };
 
         // Aggregate statistics
@@ -1211,6 +1212,72 @@ class StorageManager {
                 recommendations: allRecommendations,
                 licenseFamilies: licenseFamiliesMap,
                 highRiskDependencies: allHighRiskDependencies
+            };
+        }
+
+        // Combine author analysis from all organizations
+        const authorMap = new Map(); // key: authorKey
+        let totalAuthors = 0;
+        let totalAuthorPackages = 0;
+
+        for (const entry of entriesData) {
+            if (entry.data.authorAnalysis && entry.data.authorAnalysis.authors) {
+                const authorAnalysis = entry.data.authorAnalysis;
+                totalAuthorPackages += authorAnalysis.totalPackages || 0;
+                
+                for (const authorRef of authorAnalysis.authors) {
+                    const authorKey = authorRef.authorKey || `${authorRef.ecosystem}:${authorRef.author}`;
+                    
+                    if (authorMap.has(authorKey)) {
+                        const existing = authorMap.get(authorKey);
+                        // Merge packages
+                        const allPackages = [...new Set([...existing.packages, ...(authorRef.packages || [])])];
+                        existing.packages = allPackages;
+                        existing.count = (existing.count || 0) + (authorRef.count || 0);
+                        
+                        // Merge repositories
+                        const allRepos = [...new Set([...existing.repositories, ...(authorRef.repositories || [])])];
+                        existing.repositories = allRepos;
+                        existing.repositoryCount = allRepos.length;
+                        
+                        // Merge packageRepositories
+                        if (authorRef.packageRepositories) {
+                            if (!existing.packageRepositories) {
+                                existing.packageRepositories = {};
+                            }
+                            for (const [pkg, repos] of Object.entries(authorRef.packageRepositories)) {
+                                if (!existing.packageRepositories[pkg]) {
+                                    existing.packageRepositories[pkg] = [];
+                                }
+                                existing.packageRepositories[pkg] = [...new Set([...existing.packageRepositories[pkg], ...repos])];
+                            }
+                        }
+                    } else {
+                        authorMap.set(authorKey, {
+                            authorKey: authorKey,
+                            ecosystem: authorRef.ecosystem,
+                            packages: [...(authorRef.packages || [])],
+                            packageRepositories: authorRef.packageRepositories ? {...authorRef.packageRepositories} : {},
+                            repositories: [...(authorRef.repositories || [])],
+                            repositoryCount: authorRef.repositoryCount || (authorRef.repositories?.length || 0),
+                            count: authorRef.count || 0
+                        });
+                    }
+                }
+            }
+        }
+
+        // Create combined author analysis
+        if (authorMap.size > 0) {
+            const authorsList = Array.from(authorMap.values())
+                .sort((a, b) => (b.repositoryCount || 0) - (a.repositoryCount || 0));
+            
+            combined.authorAnalysis = {
+                timestamp: Date.now(),
+                totalAuthors: authorsList.length,
+                totalPackages: totalAuthorPackages,
+                authors: authorsList,
+                _cacheVersion: 3  // Mark as using new cache architecture
             };
         }
 

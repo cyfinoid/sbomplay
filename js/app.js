@@ -1,6 +1,9 @@
 /**
  * SBOM Play - Main Application
+ * BUILD: 1764041288372 (with vulnerability scanning and version resolution)
  */
+console.log('📦 SBOM Play app.js loaded - BUILD: 1764041288372');
+
 class SBOMPlayApp {
     constructor() {
         this.githubClient = new GitHubClient();
@@ -808,6 +811,29 @@ class SBOMPlayApp {
                     // Fetch version drift for all packages (already saves to cache/IndexedDB)
                     await this.fetchVersionDriftData(results.allDependencies);
                     
+                    // Update vulnerableDependencies with version drift data
+                    // (vulnerability analysis happens before version drift is fetched)
+                    if (results.vulnerabilityAnalysis?.vulnerableDependencies) {
+                        let versionDriftAttached = 0;
+                        results.vulnerabilityAnalysis.vulnerableDependencies.forEach(vulnDep => {
+                            if (!vulnDep.versionDrift) {
+                                const fullDep = results.allDependencies?.find(d => 
+                                    d.name === vulnDep.name && 
+                                    (d.version === vulnDep.version || 
+                                     d.displayVersion === vulnDep.version ||
+                                     d.assumedVersion === vulnDep.version)
+                                );
+                                if (fullDep?.versionDrift) {
+                                    vulnDep.versionDrift = fullDep.versionDrift;
+                                    versionDriftAttached++;
+                                }
+                            }
+                        });
+                        if (versionDriftAttached > 0) {
+                            console.log(`📊 Attached version drift to ${versionDriftAttached} vulnerable dependencies`);
+                        }
+                    }
+                    
                     console.log('✅ License and version drift fetching complete');
                 } catch (error) {
                     console.error('❌ License/version drift fetching failed:', error);
@@ -1268,6 +1294,30 @@ class SBOMPlayApp {
                     
                     // Fetch version drift for all packages (already saves to cache/IndexedDB)
                     await this.fetchVersionDriftData(results.allDependencies);
+                    
+                    // Update vulnerableDependencies with version drift data
+                    // (vulnerability analysis happens before version drift is fetched)
+                    if (results.vulnerabilityAnalysis?.vulnerableDependencies) {
+                        let versionDriftAttached = 0;
+                        results.vulnerabilityAnalysis.vulnerableDependencies.forEach(vulnDep => {
+                            if (!vulnDep.versionDrift) {
+                                // Find matching dependency in allDependencies to get version drift
+                                const fullDep = results.allDependencies?.find(d => 
+                                    d.name === vulnDep.name && 
+                                    (d.version === vulnDep.version || 
+                                     d.displayVersion === vulnDep.version ||
+                                     d.assumedVersion === vulnDep.version)
+                                );
+                                if (fullDep?.versionDrift) {
+                                    vulnDep.versionDrift = fullDep.versionDrift;
+                                    versionDriftAttached++;
+                                }
+                            }
+                        });
+                        if (versionDriftAttached > 0) {
+                            console.log(`📊 Attached version drift to ${versionDriftAttached} vulnerable dependencies`);
+                        }
+                    }
                     
                     // Re-export data to include fetched licenses in results
                     results = this.sbomProcessor.exportData();
@@ -3705,9 +3755,14 @@ class SBOMPlayApp {
             await Promise.all(batch.map(async (dep) => {
                 try {
                     // Fetch license from deps.dev API
-                    const url = `https://api.deps.dev/v3alpha/systems/go/packages/${encodeURIComponent(dep.name)}/versions/${encodeURIComponent(dep.version)}`;
+                    // Go modules require "v" prefix on versions for deps.dev API
+                    let goVersion = dep.version;
+                    if (goVersion && !goVersion.startsWith('v')) {
+                        goVersion = 'v' + goVersion;
+                    }
+                    const url = `https://api.deps.dev/v3alpha/systems/go/packages/${encodeURIComponent(dep.name)}/versions/${encodeURIComponent(goVersion)}`;
                     debugLogUrl(`🌐 [DEBUG] Fetching URL: ${url}`);
-                    debugLogUrl(`   Reason: Fetching deps.dev API for Go package ${dep.name}@${dep.version} to extract license information`);
+                    debugLogUrl(`   Reason: Fetching deps.dev API for Go package ${dep.name}@${goVersion} to extract license information`);
                     
                     const response = await fetchWithTimeout(url);
                     if (!response.ok) {
@@ -3925,10 +3980,22 @@ class SBOMPlayApp {
                 const batch = deps.slice(i, i + batchSize);
                 await Promise.all(batch.map(async (dep) => {
                     try {
+                        // Clean version string - remove range specifiers
+                        // e.g., "1.0.108,< 2.0.0" -> "1.0.108"
+                        // e.g., "0.5.1,< 0.6.0" -> "0.5.1"
+                        // e.g., "3.5,< 4.0" -> "3.5"
+                        let cleanVersion = dep.version;
+                        if (cleanVersion && cleanVersion.includes(',')) {
+                            cleanVersion = cleanVersion.split(',')[0].trim();
+                        }
+                        if (cleanVersion && cleanVersion.includes(' ')) {
+                            cleanVersion = cleanVersion.split(' ')[0].trim();
+                        }
+                        
                         // Fetch license from deps.dev API
-                        const url = `https://api.deps.dev/v3alpha/systems/${depsDevSystem}/packages/${encodeURIComponent(dep.name)}/versions/${encodeURIComponent(dep.version)}`;
+                        const url = `https://api.deps.dev/v3alpha/systems/${depsDevSystem}/packages/${encodeURIComponent(dep.name)}/versions/${encodeURIComponent(cleanVersion)}`;
                         debugLogUrl(`🌐 [DEBUG] Fetching URL: ${url}`);
-                        debugLogUrl(`   Reason: Fetching deps.dev API for ${depsDevSystem} package ${dep.name}@${dep.version} to extract license information`);
+                        debugLogUrl(`   Reason: Fetching deps.dev API for ${depsDevSystem} package ${dep.name}@${cleanVersion} to extract license information`);
                         
                         const response = await fetchWithTimeout(url);
                         if (!response.ok) {

@@ -1,6 +1,9 @@
 /**
  * OSV Service - Queries OSV API for vulnerability information
+ * BUILD: 1764041557320 (with version resolution for unknown versions)
  */
+console.log('🛡️ OSV Service loaded - BUILD: 1764041557320 (resolves unknown versions)');
+
 class OSVService {
     constructor() {
         this.baseUrl = 'https://api.osv.dev';
@@ -375,10 +378,50 @@ class OSVService {
     async analyzeDependenciesWithIncrementalSaving(dependencies, orgName, onProgress = null) {
         console.log(`🔍 OSV: Analyzing ${dependencies.length} dependencies for vulnerabilities with incremental saving`);
         
-        // Filter out dependencies without valid versions
+        // Resolve unknown versions to latest before filtering
+        const resolver = window.DependencyTreeResolver ? new window.DependencyTreeResolver() : null;
+        let resolvedCount = 0;
+        let unknownCount = dependencies.filter(d => !d.version || d.version === 'unknown').length;
+        
+        if (!resolver) {
+            console.warn('⚠️  OSV: DependencyTreeResolver not available, cannot resolve unknown versions');
+        } else if (unknownCount > 0) {
+            console.log(`🔍 OSV: Attempting to resolve ${unknownCount} dependencies with unknown versions...`);
+        }
+        
+        for (const dep of dependencies) {
+            if (!dep.version || dep.version === 'unknown') {
+                // Try to resolve to latest version
+                // Use multiple fallbacks to detect ecosystem
+                let ecosystem = dep.category?.ecosystem?.toLowerCase() || 
+                                (dep.pkg ? this.extractEcosystemFromPurl(dep.pkg)?.toLowerCase() : null) ||
+                                (dep.ecosystem ? dep.ecosystem.toLowerCase() : null) ||
+                                this.detectEcosystemFromName(dep.name)?.toLowerCase();
+                
+                if (resolver && ecosystem) {
+                    try {
+                        const latestVersion = await resolver.fetchLatestVersion(dep.name, ecosystem);
+                        if (latestVersion) {
+                            console.log(`   ✅ OSV: Resolved ${dep.name} (${ecosystem}) → v${latestVersion} for vulnerability scan`);
+                            dep.version = latestVersion;
+                            dep.resolvedForVulnScan = true;
+                            resolvedCount++;
+                        }
+                    } catch (error) {
+                        console.debug(`   ⚠️  OSV: Could not resolve latest version for ${dep.name}: ${error.message}`);
+                    }
+                }
+            }
+        }
+        
+        if (resolvedCount > 0) {
+            console.log(`🔍 OSV: Resolved ${resolvedCount} unknown versions to latest for vulnerability scanning`);
+        }
+        
+        // Filter out dependencies that still don't have valid versions
         const validDependencies = dependencies.filter(dep => {
             if (!dep.version || dep.version === 'unknown') {
-                console.warn(`⚠️  Skipping vulnerability scan for ${dep.name}: no version available`);
+                console.warn(`⚠️  Skipping vulnerability scan for ${dep.name}: no version available (could not resolve)`);
                 return false;
             }
             return true;

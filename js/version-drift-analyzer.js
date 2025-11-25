@@ -184,17 +184,33 @@ class VersionDriftAnalyzer {
      * @returns {Promise<Object|null>} - Cached drift data or null
      */
     async getVersionDriftFromCache(packageKey, version) {
-        if (!window.cacheManager) return null;
+        if (!window.cacheManager) {
+            console.debug(`⚠️ Version drift cache lookup: cacheManager not available`);
+            return null;
+        }
         
         try {
             const packageData = await window.cacheManager.getPackage(packageKey);
-            if (packageData && packageData.versionDrift && packageData.versionDrift[version]) {
-                const drift = packageData.versionDrift[version];
-                // Check if cache is still valid (24 hours)
-                if (drift.checkedAt && (Date.now() - drift.checkedAt) < this.cacheExpiry) {
-                    return drift;
-                }
+            if (!packageData) {
+                console.debug(`📦 Version drift cache miss: ${packageKey} not in cache`);
+                return null;
             }
+            if (!packageData.versionDrift) {
+                console.debug(`📦 Version drift cache: ${packageKey} has no versionDrift data`);
+                return null;
+            }
+            if (!packageData.versionDrift[version]) {
+                console.debug(`📦 Version drift cache: ${packageKey} has versionDrift but not for version ${version}`);
+                return null;
+            }
+            
+            const drift = packageData.versionDrift[version];
+            // Check if cache is still valid (24 hours)
+            if (drift.checkedAt && (Date.now() - drift.checkedAt) < this.cacheExpiry) {
+                console.debug(`✅ Version drift cache hit: ${packageKey}@${version} → hasMajor=${drift.hasMajorUpdate}, hasMinor=${drift.hasMinorUpdate}`);
+                return drift;
+            }
+            console.debug(`📦 Version drift cache expired for ${packageKey}@${version}`);
             return null;
         } catch (error) {
             console.warn(`⚠️ Failed to get version drift from cache:`, error);

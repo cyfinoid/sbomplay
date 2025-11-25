@@ -1,6 +1,9 @@
 /**
  * SBOM Processor - Analyzes and processes SBOM data
+ * BUILD: 1764042481675 (with repository association fix for all dependencies)
  */
+console.log('📦 SBOM Processor loaded - BUILD: 1764042481675 (repository association fix)');
+
 class SBOMProcessor {
     constructor() {
         this.dependencies = new Map();
@@ -809,17 +812,35 @@ class SBOMProcessor {
                         dep.parents = Array.from(treeNode.parents);
                         dep.children = Array.from(treeNode.children);
                         
+                        // CRITICAL: Ensure ALL dependencies (direct and transitive) are associated with the current repository
+                        // This is essential because every dependency belongs to at least one repository in the scan
+                        if (dep.repositories.size === 0 && reposWithDirectDeps.size > 0) {
+                            // This dependency was discovered during tree resolution but has no repos yet
+                            // Add it to all repos that are being scanned
+                            reposWithDirectDeps.forEach(repoKey => {
+                                dep.repositories.add(repoKey);
+                                if (treeNode.depth === 1) {
+                                    dep.directIn.add(repoKey);
+                                } else {
+                                    dep.transitiveIn.add(repoKey);
+                                }
+                            });
+                            dep.count = dep.repositories.size;
+                            console.log(`   📌 Associated ${packageKey} (depth ${treeNode.depth}) with ${dep.repositories.size} repo(s)`);
+                        }
+                        
                         // Update directIn/transitiveIn based on depth
                         // Depth 1 = direct, depth 2+ = transitive
                         // For transitive dependencies, add them to transitiveIn for all repos that have their parent as direct
                         if (treeNode.depth === 1) {
                             // Direct dependency - ensure repos are marked correctly
                             reposWithDirectDeps.forEach(repoKey => {
-                                if (dep.repositories.has(repoKey)) {
-                                    dep.directIn.add(repoKey);
-                                    dep.transitiveIn.delete(repoKey);
-                                }
+                                // Add repo even if not already present (for newly discovered deps)
+                                dep.repositories.add(repoKey);
+                                dep.directIn.add(repoKey);
+                                dep.transitiveIn.delete(repoKey);
                             });
+                            dep.count = dep.repositories.size;
                         } else if (treeNode.depth > 1) {
                             // Transitive dependency - mark as transitive in repos where parent is used
                             // Trace back through parents to find which repos use this transitively
@@ -928,6 +949,27 @@ class SBOMProcessor {
         const stats = this.getRepositoryStats();
         const topDeps = this.getTopDependencies(50);
         const topRepos = this.getTopRepositories(50);
+        
+        // CRITICAL: Safety check - ensure all dependencies have at least one repository
+        // This is a belt-and-suspenders approach for single repository scans
+        if (this.repositories.size > 0) {
+            const repoKeys = Array.from(this.repositories.keys());
+            let fixedCount = 0;
+            this.dependencies.forEach((dep, depKey) => {
+                if (dep.repositories.size === 0) {
+                    // Dependency has no repository - add it to the first available repo
+                    const repoKey = repoKeys[0];
+                    dep.repositories.add(repoKey);
+                    dep.transitiveIn.add(repoKey);  // Mark as transitive since it's not direct
+                    dep.count = 1;
+                    fixedCount++;
+                }
+            });
+            if (fixedCount > 0) {
+                console.log(`📌 Fixed ${fixedCount} dependencies without repository associations`);
+            }
+        }
+        
         const allDeps = Array.from(this.dependencies.values()).map(dep => {
             // Extract PURL from originalPackage if available
             let purl = null;

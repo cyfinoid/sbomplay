@@ -8,6 +8,93 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
+- **Vulnerability Page: Version Drift Badges Now Display from Cache**
+  - **Issue**: Version drift badges (Major/Minor upgrade available) were not showing on `vuln.html`
+  - **Root Cause 1**: `version-drift-analyzer.js` was not loaded on `vuln.html`, so `window.VersionDriftAnalyzer` was undefined and cache lookup was skipped
+  - **Root Cause 2**: Version drift data was stored in IndexedDB cache but not attached to dependency objects
+  - **Fix 1**: Added `version-drift-analyzer.js` script to `vuln.html`
+  - **Fix 2**: Added debug logging to `view-manager.js` and `version-drift-analyzer.js` for cache lookup
+  - **Files Modified**: `vuln.html`, `js/view-manager.js`, `js/version-drift-analyzer.js`
+  - **Result**: Version drift badges now show correctly by retrieving data from IndexedDB cache
+
+- **Vulnerability Page: Added Sorting by Severity, Count, and Repository Impact**
+  - **Issue**: Vulnerabilities were displayed in arbitrary order (order of discovery)
+  - **Fix**: Added multi-level sorting: 1) Severity (Critical → High → Medium → Low), 2) Vulnerability count (most first), 3) Repository impact (most repos first)
+  - **Files Modified**: `js/view-manager.js`
+  - **Result**: Critical vulnerabilities now appear at the top, followed by high-impact vulnerabilities
+
+- **Repos Page: Author Counts Now Display Correctly**
+  - **Issue**: Author count was showing 0 for all repositories on `repos.html`
+  - **Root Cause**: `authorAnalysis.authors` was empty in stored data, but author data existed in the package-author cache
+  - **Fix**: Added fallback in `repos-page.js` to rebuild author-repo mapping from IndexedDB package-author cache when `authorRefs` is empty
+  - **Files Modified**: `js/repos-page.js`
+  - **Result**: Author counts now populate correctly by querying the 1895+ package-author relationships stored in cache
+
+- **Vulnerability Page: Version Drift Tags Now Display Correctly**
+  - **Issue**: Vulnerable dependencies like `apache-airflow@2.8.0` with major/minor version drift didn't show upgrade badges on vuln.html
+  - **Root Cause**: Version drift analysis runs AFTER vulnerability analysis (96% vs 90%), so vulnerable dependencies were saved without `versionDrift` data
+  - **Fix 1**: After version drift is fetched, attach it to `vulnerableDependencies` in the results before final save
+  - **Fix 2**: Improved version matching in view-manager.js to use flexible matching (`version`, `displayVersion`, `assumedVersion`)
+  - **Files Modified**: `js/app.js` (both single repo and org analysis), `js/view-manager.js`
+  - **Result**: Vulnerable dependencies now show "Major: X.Y.Z" or "Minor: X.Y.Z" badges when upgrades are available
+  - **Cache Busting**: Updated `app.js` and `view-manager.js` to timestamp 1764053119788
+
+- **License Fetching: Improved Version Handling and Ecosystem Support**
+  - **Issue 1: Go packages returning 0 licenses fetched**
+    - **Root Cause**: deps.dev API requires Go module versions to have "v" prefix (e.g., `v1.18.0` not `1.18.0`)
+    - **Fix**: Added automatic "v" prefix to Go versions in `fetchGoLicenses()`
+  - **Issue 2: Cargo/Packagist/RubyGems packages returning 0 licenses**
+    - **Root Cause**: Version strings contained range specifiers (e.g., `1.0.108,< 2.0.0`) that deps.dev doesn't accept
+    - **Fix**: Added version cleaning logic to extract base version before API calls (e.g., `1.0.108,< 2.0.0` → `1.0.108`)
+  - **Issue 3: OSV service not resolving unknown versions**
+    - **Root Cause**: Ecosystem detection only used `dep.category?.ecosystem` or PURL extraction, missing fallback to `dep.ecosystem` and name-based detection
+    - **Fix**: Added multiple ecosystem detection fallbacks including `detectEcosystemFromName()` in OSV service
+  - **Files Modified**: `js/app.js` (fetchGoLicenses, fetchLicensesForAllEcosystems), `js/osv-service.js`
+  - **Result**: Go, Cargo, Packagist, and RubyGems packages now correctly fetch licenses from deps.dev
+  - **Cache Busting**: Updated `app.js` and `osv-service.js` to timestamp 1764050304402
+
+- **CRITICAL: OSV Batch Query Fails for Organization Scans (Invalid Ecosystem Error)**
+  - **Issue**: Organization scans returned 0 vulnerabilities while single repo scans worked
+  - **Error**: `OSV API error: 400 - {"code":3,"message":"Invalid ecosystem."}`
+  - **Root Cause**: `mapToOSV()` in ecosystem-utils.js returned invalid ecosystem names (e.g., 'GitHub Actions', 'Docker', 'Helm', 'Terraform') instead of `null` for unsupported ecosystems
+  - **Impact**: When ANY package in a batch had an invalid ecosystem, the ENTIRE batch query failed
+  - **Fix**: 
+    1. Updated `osvEcosystemMap` to only include OSV-supported ecosystems (Go, PyPI, npm, Maven, NuGet, crates.io, Packagist, RubyGems, Hex, Pub, CocoaPods, CRAN, Debian, Alpine)
+    2. Changed `mapToOSV()` to return `null` for unsupported ecosystems instead of returning the original value
+  - **Files Modified**: `js/ecosystem-utils.js` (lines 9-26, 53-56)
+  - **Result**: Organization vulnerability scans now work correctly by excluding packages with unsupported ecosystems from OSV batch queries
+  - **Cache Busting**: Updated `ecosystem-utils.js` to timestamp 1764049072342
+
+- **Vulnerability Page: Repository Usage Display Fix for Transitive Dependencies**
+  - **Issue**: Transitive dependencies on vuln.html showed "Repository usage information not available" despite having correct repository associations in IndexedDB
+  - **Root Cause**: `buildDependencyPath()` in view-manager.js returned `null` for transitive dependencies that weren't in the original SBOM's `spdxPackages` (added during tree resolution)
+  - **Fix**: Added fallback in `getVulnerableDepUsage()` - when `buildDependencyPath()` returns null, create a simple association showing the dependency is used in the repository (marked as transitive)
+  - **Files Modified**: `js/view-manager.js` (lines 5155-5165)
+  - **Result**: All vulnerable dependencies now correctly show their repository association
+  - **Cache Busting**: Updated `view-manager.js` to timestamp 1764043076180
+
+- **CRITICAL: Repository Association Fix for Transitive Dependencies**
+  - **Issue**: Transitive dependencies were showing "0 repos" and "Repository usage information not available" on vuln.html
+  - **Root Cause**: Newly discovered transitive dependencies from tree resolution weren't being associated with the repository
+  - **Fix 1**: In `processDependencyTrees()`, ALL newly discovered dependencies (direct and transitive) now get repository associations
+  - **Fix 2**: In `exportData()`, added safety check to ensure NO dependency is left without a repository
+  - **Console Warnings Fixed**:
+    - `⚠️ Dependency exceptiongroup@1.3.0 found but has no repositories linked`
+    - `⚠️ Dependency pygments@2.19.2 found but has no repositories linked`
+    - (and similar for other transitive dependencies)
+  - **Files Modified**: `js/sbom-processor.js` (lines 808-835, 945-970)
+  - **Result**: Every dependency (direct or nth-level transitive) is now properly tagged to its repository
+  - **Cache Busting**: Updated `sbom-processor.js` to timestamp 1764042481675
+
+- **CRITICAL: OSV Service Now Resolves Unknown Versions Before Scanning**
+  - **Issue**: Packages with `version: unknown` (like `colorama`) were being skipped for vulnerability scanning
+  - **Error Message**: `⚠️ Skipping vulnerability scan for colorama: no version available`
+  - **Fix**: OSV service now resolves unknown versions to their latest before filtering
+  - **Implementation**: Added version resolution using `DependencyTreeResolver.fetchLatestVersion()` in `analyzeDependenciesWithIncrementalSaving()`
+  - **Files Modified**: `js/osv-service.js` (lines 378-410)
+  - **Result**: All packages will now be scanned for vulnerabilities, even if SBOM didn't include version
+  - **Cache Busting**: Updated `osv-service.js` to timestamp 1764041557320
+
 - **CRITICAL: Vulnerability Scanning Order Fixed**
   - **Issue**: Vulnerability scanning ran BEFORE version resolution, causing 118 dependencies to be skipped
   - **Root Cause**: Version resolution phase was placed after vulnerability analysis in the execution flow
