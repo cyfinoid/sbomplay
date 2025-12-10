@@ -1289,7 +1289,7 @@
             } catch (error) {
                 // If fetch fails, try a different approach: check if it's a known pattern
                 // For GitHub, check if it's a known organization/user pattern
-                if (url.includes('github.com/')) {
+                if (isUrlFromHostname(url, 'github.com')) {
                     const githubMatch = url.match(/github\.com\/([^\/]+)/);
                     if (githubMatch) {
                         const username = githubMatch[1];
@@ -1303,7 +1303,7 @@
                 }
                 
                 // For PyPI, check known patterns
-                if (url.includes('pypi.org/')) {
+                if (isUrlFromHostname(url, 'pypi.org')) {
                     // PyPI URLs are generally valid if they follow the pattern
                     // We'll be conservative and only exclude obviously invalid ones
                     urlValidationCache.set(url, true);

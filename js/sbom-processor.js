@@ -169,7 +169,8 @@ class SBOMProcessor {
                 }
             }
             // Go modules (e.g., "github.com/user/repo", "golang.org/x/...")
-            else if (name.includes('github.com/') || name.includes('golang.org/') || name.includes('go.') || 
+            // Note: These are package NAME patterns, not URLs - using regex for module path matching
+            else if (name.match(/^github\.com\//) || name.match(/^golang\.org\//) || name.match(/^go\./) || 
                      (name.includes('/') && (name.endsWith('.go') || name.match(/^[a-z0-9.-]+\/[a-z0-9.-]+$/i)))) {
                 const goTypeInfo = window.ecosystemMapper?.getCategoryInfo('go') || this.purlTypeMap['go'];
                 if (goTypeInfo) {

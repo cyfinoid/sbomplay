@@ -93,7 +93,7 @@
                             }
                             
                             // Clean up repo URL
-                            if (repoUrl && repoUrl.includes('github.com')) {
+                            if (repoUrl && isUrlFromHostname(repoUrl, 'github.com')) {
                                 repoUrl = repoUrl.toLowerCase().replace(/\.git$/, '').replace(/\/$/, '');
                                 const repoLicense = repoUrlToLicense.get(repoUrl);
                                 
