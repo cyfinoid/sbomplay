@@ -75,6 +75,11 @@ h6 { font-size: var(--font-size-body); }
   border-color: var(--border-color) !important;
 }
 
+.card {
+  background-color: var(--bg-primary) !important;
+  border-color: var(--border-color) !important;
+}
+
 .card-header {
   background-color: var(--bg-secondary) !important;
   color: var(--text-primary) !important;
@@ -82,7 +87,45 @@ h6 { font-size: var(--font-size-body); }
 }
 
 .card-body {
+  background-color: var(--bg-primary) !important;
   color: var(--text-primary) !important;
+}
+
+/* Bootstrap Accordion theme support */
+.accordion {
+  --bs-accordion-bg: var(--bg-primary) !important;
+  --bs-accordion-border-color: var(--border-color) !important;
+  --bs-accordion-color: var(--text-primary) !important;
+}
+
+.accordion-item {
+  background-color: var(--bg-primary) !important;
+  border-color: var(--border-color) !important;
+}
+
+.accordion-button {
+  background-color: var(--bg-secondary) !important;
+  color: var(--text-primary) !important;
+  border-color: var(--border-color) !important;
+}
+
+.accordion-button:not(.collapsed) {
+  background-color: var(--bg-secondary) !important;
+  color: var(--text-primary) !important;
+}
+
+.accordion-button:focus {
+  border-color: var(--border-color) !important;
+  box-shadow: 0 0 0 0.25rem rgba(var(--bs-primary-rgb), 0.25) !important;
+}
+
+.accordion-body {
+  background-color: var(--bg-primary) !important;
+  color: var(--text-primary) !important;
+}
+
+.accordion-collapse {
+  border-color: var(--border-color) !important;
 }
 
 .alert {
@@ -242,6 +285,81 @@ footer {
 /* Bootstrap bg-light override for theme support */
 .bg-light {
   background-color: var(--bg-secondary) !important;
+}
+
+/* Bootstrap table-light override for theme support */
+.table-light {
+  background-color: var(--bg-tertiary) !important;
+  color: var(--text-primary) !important;
+}
+
+.table-light th {
+  background-color: var(--bg-tertiary) !important;
+  color: var(--text-primary) !important;
+  border-color: var(--border-color) !important;
+}
+
+/* Ensure all table elements are theme-aware */
+.table thead th {
+  background-color: var(--bg-tertiary) !important;
+  color: var(--text-primary) !important;
+  border-color: var(--border-color) !important;
+}
+
+.table tbody td {
+  color: var(--text-primary) !important;
+  border-color: var(--border-color) !important;
+}
+
+.table-striped tbody tr:nth-of-type(odd) {
+  background-color: var(--bg-primary) !important;
+}
+
+.table-hover tbody tr:hover {
+  background-color: var(--bg-primary) !important;
+}
+
+/* Pre elements with bg-light should have theme-aware text */
+pre.bg-light {
+  background-color: var(--bg-secondary) !important;
+  color: var(--text-primary) !important;
+  border-color: var(--border-color) !important;
+}
+
+/* License stat cards - ensure text is visible on semi-transparent backgrounds */
+.license-stat-card .license-number,
+.license-stat-card h4 {
+  color: var(--text-primary) !important;
+}
+
+/* In dark theme, license stat cards with semi-transparent backgrounds need darker text for contrast */
+[data-theme="dark"] .license-stat-card.permissive .license-number,
+[data-theme="dark"] .license-stat-card.permissive h4,
+[data-theme="dark"] .license-stat-card.copyleft .license-number,
+[data-theme="dark"] .license-stat-card.copyleft h4,
+[data-theme="dark"] .license-stat-card.proprietary .license-number,
+[data-theme="dark"] .license-stat-card.proprietary h4,
+[data-theme="dark"] .license-stat-card.total .license-number,
+[data-theme="dark"] .license-stat-card.total h4,
+[data-theme="dark"] .license-stat-card.unlicensed .license-number,
+[data-theme="dark"] .license-stat-card.unlicensed h4,
+[data-theme="dark"] .license-stat-card.transitions .license-number,
+[data-theme="dark"] .license-stat-card.transitions h4 {
+  color: #ffffff !important; /* White text for better contrast on dark semi-transparent backgrounds */
+}
+
+/* License detail text should also be visible */
+.license-stat-card .license-detail {
+  color: var(--text-secondary) !important;
+}
+
+[data-theme="dark"] .license-stat-card.permissive .license-detail,
+[data-theme="dark"] .license-stat-card.copyleft .license-detail,
+[data-theme="dark"] .license-stat-card.proprietary .license-detail,
+[data-theme="dark"] .license-stat-card.total .license-detail,
+[data-theme="dark"] .license-stat-card.unlicensed .license-detail,
+[data-theme="dark"] .license-stat-card.transitions .license-detail {
+  color: #d0d0d0 !important; /* Light gray for better contrast */
 }
 
 /* Bootstrap text-dark override for theme support */

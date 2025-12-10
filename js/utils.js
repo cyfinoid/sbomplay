@@ -131,3 +131,49 @@ function generateAlert(message, type = 'info', iconClass = '') {
     </div>`;
 }
 
+/**
+ * Fetch with configurable timeout
+ * Reads timeout from localStorage (default: 5000ms)
+ * Uses AbortController to cancel request if timeout is exceeded
+ * @param {string} url - The URL to fetch
+ * @param {Object} options - Fetch options (same as fetch API)
+ * @param {number} timeout - Optional timeout override (in milliseconds)
+ * @returns {Promise<Response>} - Fetch response
+ */
+async function fetchWithTimeout(url, options = {}, timeout = null) {
+    // Get timeout from localStorage or use default
+    const defaultTimeout = timeout !== null ? timeout : (parseInt(localStorage.getItem('apiTimeout'), 10) || 10000);
+    
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), defaultTimeout);
+    
+    try {
+        const response = await fetch(url, {
+            ...options,
+            signal: controller.signal
+        });
+        clearTimeout(timeoutId);
+        return response;
+    } catch (error) {
+        clearTimeout(timeoutId);
+        if (error.name === 'AbortError') {
+            throw new Error(`Request timeout after ${defaultTimeout}ms`);
+        }
+        throw error;
+    }
+}
+
+/**
+ * Debug log URL calls - only logs if debug URL logging is enabled in settings
+ * @param {...any} args - Arguments to pass to console.log
+ */
+function debugLogUrl(...args) {
+    if (localStorage.getItem('debugUrlLogging') === 'true') {
+        console.log(...args);
+    }
+}
+
+// Make functions globally available
+window.fetchWithTimeout = fetchWithTimeout;
+window.debugLogUrl = debugLogUrl;
+

@@ -1,6 +1,9 @@
 /**
  * SBOM Play - Main Application
+ * BUILD: 1764041288372 (with vulnerability scanning and version resolution)
  */
+console.log('📦 SBOM Play app.js loaded - BUILD: 1764041288372');
+
 class SBOMPlayApp {
     constructor() {
         this.githubClient = new GitHubClient();
@@ -418,8 +421,11 @@ class SBOMPlayApp {
         // Save to sessionStorage so it persists across page reloads
         if (token) {
             sessionStorage.setItem('github_token', token);
+            const maskedToken = token.length > 8 ? `${token.substring(0, 4)}...${token.substring(token.length - 4)}` : '****';
+            console.log(`🔑 GitHub token saved to sessionStorage: ${maskedToken}`);
         } else {
             sessionStorage.removeItem('github_token');
+            console.log('🔑 GitHub token removed from sessionStorage');
         }
         
         this.githubClient.setToken(token);
@@ -585,8 +591,26 @@ class SBOMPlayApp {
             this.updateProgress(50, 'Processing SBOM data and extracting dependencies...', 'processing-sbom');
             this.sbomProcessor.setTotalRepositories(1);
             // Extract repository license from GitHub API response
-            const repositoryLicense = repoData.license?.spdx_id || repoData.license?.key || null;
-            const success = this.sbomProcessor.processSBOM(owner, repo, sbomData, repositoryLicense);
+            let repositoryLicense = repoData.license?.spdx_id || repoData.license?.key || null;
+            
+            // If GitHub API didn't return a license, try fetching LICENSE file
+            if (!repositoryLicense || repositoryLicense === 'NOASSERTION') {
+                try {
+                    const licenseContent = await this.githubClient.getFileContent(owner, repo, 'LICENSE');
+                    if (licenseContent) {
+                        // Use the same license detection logic as GitHub Actions analyzer
+                        const detectedLicense = this.detectLicenseFromContent(licenseContent);
+                        if (detectedLicense) {
+                            repositoryLicense = detectedLicense;
+                            console.log(`   ✅ Detected repository license from LICENSE file for ${owner}/${repo}: ${repositoryLicense}`);
+                        }
+                    }
+                } catch (error) {
+                    console.debug(`Could not fetch LICENSE file for ${owner}/${repo}: ${error.message}`);
+                }
+            }
+            
+            const success = await this.sbomProcessor.processSBOM(owner, repo, sbomData, repositoryLicense);
             
             if (!success) {
                 this.showAlert(`Failed to process SBOM data for ${repoKey}`, 'danger');
@@ -599,7 +623,22 @@ class SBOMPlayApp {
             try {
                 console.log('🌲 Resolving full dependency trees with registry APIs...');
                 await this.sbomProcessor.resolveFullDependencyTrees((progress) => {
-                    if (progress.phase === 'resolving-tree') {
+                    if (progress.phase === 'resolving-package') {
+                        // Package-level progress updates with detailed info
+                        this.updateProgress(75, 
+                            `Resolving dependencies...`, 
+                            'resolving-package',
+                            {
+                                processed: progress.processed,
+                                total: progress.total,
+                                ecosystem: progress.ecosystem || null,
+                                packageName: progress.packageName || progress.package || null,
+                                remaining: progress.remaining || (progress.total && progress.processed !== undefined ? progress.total - progress.processed : null),
+                                totalPackagesProcessed: progress.totalPackagesProcessed || 0,
+                                depChain: progress.depChain || []
+                            });
+                    } else if (progress.phase === 'resolving-tree') {
+                        // Ecosystem-level progress updates
                         const subProgressPercent = (progress.processed / progress.total) * 100;
                         this.updateProgress(75, 
                             `Resolving ${progress.ecosystem} dependencies...`, 
@@ -608,7 +647,8 @@ class SBOMPlayApp {
                                 processed: progress.processed,
                                 total: progress.total,
                                 ecosystem: progress.ecosystem,
-                                packageName: progress.packageName
+                                packageName: progress.packageProgress?.packageName || null,
+                                remaining: progress.packageProgress?.remaining || null
                             });
                     }
                 });
@@ -621,6 +661,9 @@ class SBOMPlayApp {
             // Generate results (use let so we can reload after author analysis)
             this.updateProgress(80, 'Generating analysis results...', 'generating-results');
             let results = this.sbomProcessor.exportData();
+            
+            // Add timing and enhanced statistics metadata
+            results = this.enrichResultsWithMetadata(results);
             
             // Run license compliance analysis
             const repoStats = this.sbomProcessor.repositories.get(repoKey);
@@ -642,6 +685,51 @@ class SBOMPlayApp {
             let saveSuccess = await this.storageManager.saveAnalysisData(repoKey, results);
             if (!saveSuccess) {
                 console.warn('⚠️ Failed to save initial analysis data to storage');
+            }
+            
+            // CRITICAL: Resolve unknown versions BEFORE vulnerability scanning
+            // This ensures vulnerability scanning can check all packages with resolved versions
+            if (repoStats && repoStats.totalDependencies > 0 && results.allDependencies) {
+                this.updateProgress(88, 'Resolving unknown package versions...', 'version-resolution');
+                try {
+                    const unknownVersionDeps = results.allDependencies.filter(dep => 
+                        !dep.version || dep.version === 'unknown'
+                    );
+                    
+                    if (unknownVersionDeps.length > 0) {
+                        console.log(`🔍 Resolving ${unknownVersionDeps.length} dependencies with unknown versions...`);
+                        
+                        if (!window.DependencyTreeResolver) {
+                            console.error('❌ DependencyTreeResolver not available');
+                        } else {
+                            const resolver = new DependencyTreeResolver();
+                            let resolved = 0;
+                            
+                            for (const dep of unknownVersionDeps) {
+                                const ecosystem = dep.category?.ecosystem?.toLowerCase();
+                                if (ecosystem) {
+                                    try {
+                                        const latestVersion = await resolver.fetchLatestVersion(dep.name, ecosystem);
+                                        if (latestVersion) {
+                                            dep.version = latestVersion;
+                                            dep.displayVersion = latestVersion;
+                                            dep.assumedVersion = latestVersion;
+                                            resolved++;
+                                            console.log(`   ✅ Resolved ${dep.name} (${ecosystem}) → v${latestVersion}`);
+                                        }
+                                    } catch (error) {
+                                        console.warn(`   ⚠️  Could not resolve ${dep.name}:`, error.message);
+                                    }
+                                }
+                            }
+                            console.log(`✅ Resolved ${resolved}/${unknownVersionDeps.length} unknown versions`);
+                        }
+                    } else {
+                        console.log('✅ All dependencies have versions');
+                    }
+                } catch (error) {
+                    console.error('❌ Version resolution phase failed:', error);
+                }
             }
             
             // Run vulnerability and author analysis (these need data in storage)
@@ -714,8 +802,37 @@ class SBOMPlayApp {
                     // Fetch licenses for PyPI packages missing license info
                     await this.fetchPyPILicenses(results.allDependencies, repoKey);
                     
+                    // Fetch licenses for Go packages missing license info
+                    await this.fetchGoLicenses(results.allDependencies, repoKey);
+                    
+                    // Fetch licenses for other ecosystems (npm, maven, cargo, etc.)
+                    await this.fetchLicensesForAllEcosystems(results.allDependencies, repoKey);
+                    
                     // Fetch version drift for all packages (already saves to cache/IndexedDB)
                     await this.fetchVersionDriftData(results.allDependencies);
+                    
+                    // Update vulnerableDependencies with version drift data
+                    // (vulnerability analysis happens before version drift is fetched)
+                    if (results.vulnerabilityAnalysis?.vulnerableDependencies) {
+                        let versionDriftAttached = 0;
+                        results.vulnerabilityAnalysis.vulnerableDependencies.forEach(vulnDep => {
+                            if (!vulnDep.versionDrift) {
+                                const fullDep = results.allDependencies?.find(d => 
+                                    d.name === vulnDep.name && 
+                                    (d.version === vulnDep.version || 
+                                     d.displayVersion === vulnDep.version ||
+                                     d.assumedVersion === vulnDep.version)
+                                );
+                                if (fullDep?.versionDrift) {
+                                    vulnDep.versionDrift = fullDep.versionDrift;
+                                    versionDriftAttached++;
+                                }
+                            }
+                        });
+                        if (versionDriftAttached > 0) {
+                            console.log(`📊 Attached version drift to ${versionDriftAttached} vulnerable dependencies`);
+                        }
+                    }
                     
                     console.log('✅ License and version drift fetching complete');
                 } catch (error) {
@@ -726,6 +843,10 @@ class SBOMPlayApp {
             
             // Final save to storage (to include vulnerability, author, license, and version drift data)
             this.updateProgress(97, 'Saving final results to storage...', 'saving-final');
+            
+            // Update timing metadata one final time before saving (to get accurate end time)
+            results = this.enrichResultsWithMetadata(results);
+            
             saveSuccess = await this.storageManager.saveAnalysisData(repoKey, results);
             if (!saveSuccess) {
                 console.warn('⚠️ Failed to save analysis data to storage');
@@ -798,11 +919,24 @@ class SBOMPlayApp {
                 return;
             }
 
+            // Warn if no token is set and organization has many repositories
+            if (!this.githubClient.token && repositories.length > 50) {
+                console.warn(`⚠️  No GitHub token detected. Analyzing ${repositories.length} repositories without authentication.`);
+                console.warn(`   Unauthenticated requests are limited to 60/hour, which may cause rate limit errors.`);
+                console.warn(`   Consider adding a GitHub token in Settings for 5000 requests/hour.`);
+                this.showAlert(
+                    `⚠️ No GitHub token detected. Analyzing ${repositories.length} repositories may hit rate limits (60/hour unauthenticated). Consider adding a token in Settings for 5000 requests/hour.`,
+                    'warning'
+                );
+            }
+
             this.sbomProcessor.setTotalRepositories(repositories.length);
             this.updateProgress(20, `Found ${repositories.length} repositories. Starting SBOM analysis...`, 'fetching-sbom');
 
             // Process repositories in parallel with concurrency limit
-            const CONCURRENCY_LIMIT = 8; // Process 8 repositories concurrently
+            // Reduced to 3 to prevent secondary rate limits (abuse detection)
+            // GitHub allows ~30-60 requests/minute, so 3 concurrent with 1.5s throttling = ~40/min
+            const CONCURRENCY_LIMIT = 3; // Process 3 repositories concurrently
             let successfulRepos = 0;
             let failedRepos = 0;
             let reposWithDeps = 0;
@@ -819,10 +953,28 @@ class SBOMPlayApp {
                     
                     if (sbomData) {
                         // Extract repository license from GitHub API response
-                        const repositoryLicense = repo.license?.spdx_id || repo.license?.key || null;
+                        let repositoryLicense = repo.license?.spdx_id || repo.license?.key || null;
+                        
+                        // If GitHub API didn't return a license, try fetching LICENSE file
+                        if (!repositoryLicense || repositoryLicense === 'NOASSERTION') {
+                            try {
+                                const licenseContent = await this.githubClient.getFileContent(owner, name, 'LICENSE');
+                                if (licenseContent) {
+                                    // Use the same license detection logic as GitHub Actions analyzer
+                                    const detectedLicense = app.detectLicenseFromContent(licenseContent);
+                                    if (detectedLicense) {
+                                        repositoryLicense = detectedLicense;
+                                        console.log(`   ✅ Detected repository license from LICENSE file for ${owner}/${name}: ${repositoryLicense}`);
+                                    }
+                                }
+                            } catch (error) {
+                                console.debug(`Could not fetch LICENSE file for ${owner}/${name}: ${error.message}`);
+                            }
+                        }
+                        
                         // Extract archived status from GitHub API response
                         const archived = repo.archived || false;
-                        const success = this.sbomProcessor.processSBOM(owner, name, sbomData, repositoryLicense, archived);
+                        const success = await this.sbomProcessor.processSBOM(owner, name, sbomData, repositoryLicense, archived);
                         this.sbomProcessor.updateProgress(success);
                         if (success) {
                             result.success = true;
@@ -832,7 +984,38 @@ class SBOMPlayApp {
                             }
                         }
                     } else {
-                        this.sbomProcessor.updateProgress(false);
+                        // Repository doesn't have SBOM/dependency graph enabled
+                        // Still store it with a marker so it appears in repos.html
+                        const repoKey = `${owner}/${name}`;
+                        const repoData = {
+                            owner: owner,
+                            name: name,
+                            fullName: repoKey,
+                            totalDependencies: 0,
+                            dependencies: [],
+                            spdxPackages: [],
+                            relationships: [],
+                            authors: [],
+                            sbomQuality: {
+                                overallScore: 0,
+                                displayScore: 0,
+                                grade: 'N/A',
+                                gradeLabel: 'No SBOM available',
+                                categories: {}
+                            },
+                            hasDependencyGraph: false, // NEW FLAG
+                            repositoryLicense: repo.license?.spdx_id || repo.license?.key || null,
+                            archived: repo.archived || false,
+                            description: repo.description || null,
+                            url: repo.html_url || `https://github.com/${owner}/${name}`,
+                            visibility: repo.visibility || 'public',
+                            language: repo.language || null
+                        };
+                        
+                        this.sbomProcessor.repositories.set(repoKey, repoData);
+                        this.sbomProcessor.updateProgress(false); // Count as processed but not successful
+                        result.success = true; // Mark as success so it's included in results
+                        result.hasDeps = false;
                     }
                 } catch (error) {
                     console.error(`Error processing ${owner}/${name}:`, error);
@@ -913,8 +1096,22 @@ class SBOMPlayApp {
             try {
                 console.log('🌲 Resolving full dependency trees with registry APIs...');
                 await this.sbomProcessor.resolveFullDependencyTrees((progress) => {
-                    if (progress.phase === 'resolving-tree') {
-                        // Use sub-progress for detailed status
+                    if (progress.phase === 'resolving-package') {
+                        // Package-level progress updates with detailed info
+                        this.updateProgress(75, 
+                            `Resolving dependencies...`, 
+                            'resolving-package',
+                            {
+                                processed: progress.processed,
+                                total: progress.total,
+                                ecosystem: progress.ecosystem || null,
+                                packageName: progress.packageName || progress.package || null,
+                                remaining: progress.remaining || (progress.total && progress.processed !== undefined ? progress.total - progress.processed : null),
+                                totalPackagesProcessed: progress.totalPackagesProcessed || 0,
+                                depChain: progress.depChain || []
+                            });
+                    } else if (progress.phase === 'resolving-tree') {
+                        // Ecosystem-level progress updates
                         this.updateProgress(75, 
                             `Resolving ${progress.ecosystem} dependencies...`, 
                             'resolving-trees',
@@ -922,7 +1119,8 @@ class SBOMPlayApp {
                                 processed: progress.processed || (progress.packageProgress?.processed || 0),
                                 total: progress.total || (progress.packageProgress?.total || 1),
                                 ecosystem: progress.ecosystem,
-                                packageName: progress.packageProgress?.packageName
+                                packageName: progress.packageProgress?.packageName || null,
+                                remaining: progress.packageProgress?.remaining || null
                             });
                     }
                 });
@@ -935,6 +1133,9 @@ class SBOMPlayApp {
             // Generate results (use let so we can reload after author analysis)
             this.updateProgress(80, 'Generating analysis results...', 'generating-results');
             let results = this.sbomProcessor.exportData();
+            
+            // Add timing and enhanced statistics metadata
+            results = this.enrichResultsWithMetadata(results);
 
             // Run license compliance analysis
             if (reposWithDeps > 0) {
@@ -972,6 +1173,51 @@ class SBOMPlayApp {
                 console.warn('⚠️ Failed to save initial analysis data to storage');
             } else {
                 await this.showStorageStatusIndicator();
+            }
+            
+            // CRITICAL: Resolve unknown versions BEFORE vulnerability scanning
+            // This ensures vulnerability scanning can check all packages with resolved versions
+            if (reposWithDeps > 0 && results.allDependencies) {
+                this.updateProgress(88, 'Resolving unknown package versions...', 'version-resolution');
+                try {
+                    const unknownVersionDeps = results.allDependencies.filter(dep => 
+                        !dep.version || dep.version === 'unknown'
+                    );
+                    
+                    if (unknownVersionDeps.length > 0) {
+                        console.log(`🔍 Resolving ${unknownVersionDeps.length} dependencies with unknown versions...`);
+                        
+                        if (!window.DependencyTreeResolver) {
+                            console.error('❌ DependencyTreeResolver not available');
+                        } else {
+                            const resolver = new DependencyTreeResolver();
+                            let resolved = 0;
+                            
+                            for (const dep of unknownVersionDeps) {
+                                const ecosystem = dep.category?.ecosystem?.toLowerCase();
+                                if (ecosystem) {
+                                    try {
+                                        const latestVersion = await resolver.fetchLatestVersion(dep.name, ecosystem);
+                                        if (latestVersion) {
+                                            dep.version = latestVersion;
+                                            dep.displayVersion = latestVersion;
+                                            dep.assumedVersion = latestVersion;
+                                            resolved++;
+                                            console.log(`   ✅ Resolved ${dep.name} (${ecosystem}) → v${latestVersion}`);
+                                        }
+                                    } catch (error) {
+                                        console.warn(`   ⚠️  Could not resolve ${dep.name}:`, error.message);
+                                    }
+                                }
+                            }
+                            console.log(`✅ Resolved ${resolved}/${unknownVersionDeps.length} unknown versions`);
+                        }
+                    } else {
+                        console.log('✅ All dependencies have versions');
+                    }
+                } catch (error) {
+                    console.error('❌ Version resolution phase failed:', error);
+                }
             }
             
             // Run vulnerability and author analysis (these need data in storage)
@@ -1043,8 +1289,38 @@ class SBOMPlayApp {
                     // Fetch licenses for Go packages missing license info
                     await this.fetchGoLicenses(results.allDependencies, ownerName);
                     
+                    // Fetch licenses for other ecosystems (npm, maven, cargo, etc.)
+                    await this.fetchLicensesForAllEcosystems(results.allDependencies, ownerName);
+                    
                     // Fetch version drift for all packages (already saves to cache/IndexedDB)
                     await this.fetchVersionDriftData(results.allDependencies);
+                    
+                    // Update vulnerableDependencies with version drift data
+                    // (vulnerability analysis happens before version drift is fetched)
+                    if (results.vulnerabilityAnalysis?.vulnerableDependencies) {
+                        let versionDriftAttached = 0;
+                        results.vulnerabilityAnalysis.vulnerableDependencies.forEach(vulnDep => {
+                            if (!vulnDep.versionDrift) {
+                                // Find matching dependency in allDependencies to get version drift
+                                const fullDep = results.allDependencies?.find(d => 
+                                    d.name === vulnDep.name && 
+                                    (d.version === vulnDep.version || 
+                                     d.displayVersion === vulnDep.version ||
+                                     d.assumedVersion === vulnDep.version)
+                                );
+                                if (fullDep?.versionDrift) {
+                                    vulnDep.versionDrift = fullDep.versionDrift;
+                                    versionDriftAttached++;
+                                }
+                            }
+                        });
+                        if (versionDriftAttached > 0) {
+                            console.log(`📊 Attached version drift to ${versionDriftAttached} vulnerable dependencies`);
+                        }
+                    }
+                    
+                    // Re-export data to include fetched licenses in results
+                    results = this.sbomProcessor.exportData();
                     
                     console.log('✅ License and version drift fetching complete');
                 } catch (error) {
@@ -1055,6 +1331,10 @@ class SBOMPlayApp {
             
             // Final save to storage (to include vulnerability, author, license, and version drift data)
             this.updateProgress(97, 'Saving final results to storage...', 'saving-final');
+            
+            // Update timing metadata one final time before saving (to get accurate end time)
+            results = this.enrichResultsWithMetadata(results);
+            
             saveSuccess = await this.storageManager.saveAnalysisData(ownerName, results);
             if (!saveSuccess) {
                 console.warn('⚠️ Failed to save analysis data to storage');
@@ -1175,12 +1455,27 @@ class SBOMPlayApp {
             
             calculatedPercentage = Math.min(99, completedProgress + currentPhaseProgress);
             
-            // Enhance message with time info
+            // Enhance message with time info and dependency chain
             if (subProgress !== null && typeof subProgress === 'object') {
                 // Sub-progress object with details
-                const { processed, total, ecosystem, packageName } = subProgress;
+                const { processed, total, ecosystem, packageName, depChain, remaining, totalPackagesProcessed } = subProgress;
                 if (ecosystem && processed !== undefined && total !== undefined) {
-                    enhancedMessage = `Resolving ${ecosystem} dependencies (${processed}/${total} packages)${packageName ? `: ${packageName}` : '...'}`;
+                    // Build dependency chain display (A → B → C → D)
+                    // Shows: "Resolving npm dependencies (1/6 direct) → express → body-parser → raw-body"
+                    let chainDisplay = '';
+                    
+                    if (depChain && Array.isArray(depChain) && depChain.length >= 1) {
+                        // Always show the full dependency chain
+                        // Limit to last 5 items for readability if chain is very long
+                        const displayChain = depChain.length > 5 ? ['...', ...depChain.slice(-4)] : depChain;
+                        chainDisplay = ` → ${displayChain.join(' → ')}`;
+                    } else if (packageName) {
+                        // Fallback if no chain available
+                        chainDisplay = ` → ${packageName}`;
+                    }
+                    
+                    const remainingText = remaining !== undefined && remaining > 0 ? ` (${remaining} remaining)` : '';
+                    enhancedMessage = `Resolving ${ecosystem} dependencies (${processed}/${total} direct)${chainDisplay}${remainingText}`;
                 } else if (processed !== undefined && total !== undefined) {
                     enhancedMessage = `${message} (${processed}/${total})`;
                 }
@@ -1196,6 +1491,16 @@ class SBOMPlayApp {
         
         if (progressText) {
             progressText.textContent = enhancedMessage;
+        }
+        
+        // Update total packages processed counter
+        if (subProgress && subProgress.totalPackagesProcessed !== undefined) {
+            const packagesProcessedDiv = document.getElementById('packagesProcessed');
+            const packagesProcessedValue = document.getElementById('packagesProcessedValue');
+            if (packagesProcessedDiv && packagesProcessedValue) {
+                packagesProcessedDiv.classList.remove('d-none');
+                packagesProcessedValue.textContent = subProgress.totalPackagesProcessed.toLocaleString();
+            }
         }
         
         // Log progress for pages without UI elements
@@ -2992,6 +3297,7 @@ class SBOMPlayApp {
             console.log(`⏱️ Started: ${new Date(this.analysisStartTime).toLocaleString()}`);
             console.log(`⏱️ Finished: ${endTimeString}`);
             console.log(`⏱️ Total Time: ${formattedDuration}`);
+            console.log(`⏱️ Duration (ms): ${totalDuration}ms`);
             
             if (endTimeElement && endTimeValue) {
                 endTimeValue.textContent = endTimeString;
@@ -3029,6 +3335,115 @@ class SBOMPlayApp {
     }
 
     /**
+     * Enrich results with timing metadata and enhanced statistics
+     * @param {Object} results - The exported analysis results
+     * @returns {Object} Enriched results with timing and stats
+     */
+    enrichResultsWithMetadata(results) {
+        // Add timing metadata
+        const timing = {
+            startTime: this.analysisStartTime,
+            endTime: Date.now(),  // Current time (may be updated on completion)
+            startTimeISO: new Date(this.analysisStartTime).toISOString(),
+            endTimeISO: new Date().toISOString()
+        };
+        timing.durationMs = timing.endTime - timing.startTime;
+        timing.durationFormatted = this.formatDuration(timing.durationMs);
+        
+        // Calculate dependency count by ecosystem
+        const ecosystemStats = {};
+        if (results.allDependencies && Array.isArray(results.allDependencies)) {
+            results.allDependencies.forEach(dep => {
+                const ecosystem = dep.category?.ecosystem || 'unknown';
+                if (!ecosystemStats[ecosystem]) {
+                    ecosystemStats[ecosystem] = {
+                        count: 0,
+                        directCount: 0,
+                        transitiveCount: 0,
+                        uniquePackages: new Set()
+                    };
+                }
+                ecosystemStats[ecosystem].count++;
+                ecosystemStats[ecosystem].uniquePackages.add(dep.name);
+                
+                // Count direct vs transitive
+                if (dep.directIn && dep.directIn.length > 0) {
+                    ecosystemStats[ecosystem].directCount++;
+                }
+                if (dep.transitiveIn && dep.transitiveIn.length > 0) {
+                    ecosystemStats[ecosystem].transitiveCount++;
+                }
+            });
+            
+            // Convert Sets to counts and clean up
+            Object.keys(ecosystemStats).forEach(ecosystem => {
+                ecosystemStats[ecosystem].uniquePackages = ecosystemStats[ecosystem].uniquePackages.size;
+            });
+        }
+        
+        // Calculate repository count by language/ecosystem
+        const repositoryStats = {};
+        if (results.allRepositories && Array.isArray(results.allRepositories)) {
+            results.allRepositories.forEach(repo => {
+                if (repo.languages && Array.isArray(repo.languages)) {
+                    repo.languages.forEach(lang => {
+                        if (!repositoryStats[lang]) {
+                            repositoryStats[lang] = {
+                                count: 0,
+                                totalDependencies: 0
+                            };
+                        }
+                        repositoryStats[lang].count++;
+                        repositoryStats[lang].totalDependencies += repo.totalDependencies || 0;
+                    });
+                }
+            });
+        }
+        
+        // Calculate license statistics
+        const licenseStats = {
+            totalLicenses: 0,
+            licensedCount: 0,
+            unlicensedCount: 0,
+            topLicenses: {}
+        };
+        if (results.allDependencies && Array.isArray(results.allDependencies)) {
+            results.allDependencies.forEach(dep => {
+                if (dep.license || dep.licenseFull) {
+                    licenseStats.licensedCount++;
+                    const license = dep.license || dep.licenseFull;
+                    licenseStats.topLicenses[license] = (licenseStats.topLicenses[license] || 0) + 1;
+                } else {
+                    licenseStats.unlicensedCount++;
+                }
+            });
+            licenseStats.totalLicenses = Object.keys(licenseStats.topLicenses).length;
+        }
+        
+        // Add phase timing if available
+        const phaseTiming = {};
+        if (this.progressTracker && this.progressTracker.phaseTimes) {
+            Object.keys(this.progressTracker.phaseTimes).forEach(phase => {
+                phaseTiming[phase] = {
+                    durationMs: this.progressTracker.phaseTimes[phase],
+                    durationFormatted: this.formatDuration(this.progressTracker.phaseTimes[phase])
+                };
+            });
+        }
+        
+        // Enrich the results object
+        return {
+            ...results,
+            timing: timing,
+            ecosystemStats: ecosystemStats,
+            repositoryStats: repositoryStats,
+            licenseStats: licenseStats,
+            phaseTiming: phaseTiming,
+            enrichedAt: new Date().toISOString()
+        };
+    }
+
+    /**
      * Finish analysis and reset UI
      */
     finishAnalysis() {
@@ -3054,6 +3469,25 @@ class SBOMPlayApp {
      * Show alert message
      */
     showAlert(message, type) {
+        // Get or create alert container
+        let alertContainer = document.getElementById('alertContainer');
+        if (!alertContainer) {
+            // Create alert container if it doesn't exist (fallback)
+            alertContainer = document.createElement('div');
+            alertContainer.id = 'alertContainer';
+            alertContainer.className = 'alert-container';
+            // Insert after navbar
+            const navbar = document.querySelector('nav');
+            if (navbar && navbar.nextSibling) {
+                navbar.parentNode.insertBefore(alertContainer, navbar.nextSibling);
+            } else if (navbar) {
+                navbar.parentNode.appendChild(alertContainer);
+            } else {
+                // Last resort: insert at body start
+                document.body.insertBefore(alertContainer, document.body.firstChild);
+            }
+        }
+
         const alertDiv = document.createElement('div');
         alertDiv.className = `alert alert-${type} alert-dismissible fade show`;
         alertDiv.innerHTML = `
@@ -3061,61 +3495,61 @@ class SBOMPlayApp {
             <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
         `;
         
-        const container = document.querySelector('.container');
-        if (container) {
-            container.insertBefore(alertDiv, container.firstChild);
-            
-            // Auto-remove after 5 seconds
-            setTimeout(() => {
-                if (alertDiv.parentNode) {
-                    alertDiv.remove();
-                }
-            }, 5000);
-        } else {
-            // Fallback: just log to console if no container found
-            console.log(`[${type.toUpperCase()}] ${message}`);
-        }
+        // Insert at the top of the alert container
+        alertContainer.insertBefore(alertDiv, alertContainer.firstChild);
+        
+        // Auto-remove after 5 seconds
+        setTimeout(() => {
+            if (alertDiv.parentNode) {
+                alertDiv.remove();
+            }
+        }, 5000);
     }
 
     /**
      * Sleep utility
      */
     /**
-     * Fetch PyPI package licenses from deps.dev API and save to IndexedDB
+     * Fetch PyPI package licenses from deps.dev API and PyPI JSON API (fallback)
      */
     async fetchPyPILicenses(dependencies, identifier) {
         if (!dependencies || dependencies.length === 0) return;
         
         // Filter PyPI packages that need licenses
-        const pypiDeps = dependencies.filter(dep => 
-            dep.category?.ecosystem === 'PyPI' && 
+        // Check both dep.category?.ecosystem and dep.ecosystem (dependencies can have either structure)
+        const pypiDeps = dependencies.filter(dep => {
+            const ecosystem = dep.category?.ecosystem || dep.ecosystem;
+            return (ecosystem === 'PyPI' || ecosystem === 'pypi') &&
             dep.name && 
             dep.version &&
-            (!dep.licenseFull || dep.licenseFull === 'Unknown' || dep.licenseFull === 'NOASSERTION')
-        );
+            dep.version !== 'unknown' &&  // Only filter truly unknown versions (after resolution attempt)
+            (!dep.licenseFull || dep.licenseFull === 'Unknown' || dep.licenseFull === 'NOASSERTION') &&
+            (!dep.license || dep.license === 'Unknown' || dep.license === 'NOASSERTION');
+        });
         
         if (pypiDeps.length === 0) {
             console.log('ℹ️ No PyPI packages need license fetching');
             return;
         }
         
-        console.log(`📄 Fetching licenses for ${pypiDeps.length} PyPI packages...`);
+        console.log(`📄 Fetching licenses for ${pypiDeps.length} PyPI packages (with PyPI API fallback)...`);
         
         // Process in batches to avoid overwhelming the API
         const batchSize = 20;
         let fetched = 0;
+        let fetchedFromPyPI = 0;
         let saved = 0;
         
         for (let i = 0; i < pypiDeps.length; i += batchSize) {
             const batch = pypiDeps.slice(i, i + batchSize);
             await Promise.all(batch.map(async (dep) => {
                 try {
-                    // Fetch license from deps.dev API
+                    // Phase 1: Try deps.dev API first
                     const url = `https://api.deps.dev/v3alpha/systems/pypi/packages/${encodeURIComponent(dep.name)}/versions/${encodeURIComponent(dep.version)}`;
-                    console.log(`🌐 [DEBUG] Fetching URL: ${url}`);
-                    console.log(`   Reason: Fetching deps.dev API for PyPI package ${dep.name}@${dep.version} to extract license information`);
+                    debugLogUrl(`🌐 [DEBUG] Fetching URL: ${url}`);
+                    debugLogUrl(`   Reason: Fetching deps.dev API for PyPI package ${dep.name}@${dep.version} to extract license information`);
                     
-                    const response = await fetch(url);
+                    const response = await fetchWithTimeout(url);
                     if (!response.ok) {
                         console.log(`   ❌ Response: Status ${response.status} ${response.statusText}`);
                         return;
@@ -3125,9 +3559,20 @@ class SBOMPlayApp {
                     const licenseCount = data.licenses?.length || 0;
                     console.log(`   ✅ Response: Status ${response.status}, Extracted: ${licenseCount} license/licenses`);
                     
+                    let licenseFull = null;
+                    let licenseText = null;
+                    
+                    // Enhanced deps.dev parsing - filter out unhelpful values
                     if (data.licenses && data.licenses.length > 0) {
-                        const licenseFull = data.licenses.join(' AND ');
-                        let licenseText = licenseFull;
+                        const validLicenses = data.licenses.filter(l => 
+                            l && 
+                            l !== 'non-standard' && 
+                            l !== 'NOASSERTION' && 
+                            l !== 'UNKNOWN'
+                        );
+                        
+                        if (validLicenses.length > 0) {
+                            licenseFull = validLicenses.join(' AND ');
                         
                         // Format license text
                         if (licenseFull.includes(' AND ')) {
@@ -3137,6 +3582,88 @@ class SBOMPlayApp {
                             licenseText = 'Apache';
                         } else {
                             licenseText = licenseFull.length > 8 ? licenseFull.substring(0, 8) + '...' : licenseFull;
+                            }
+                        }
+                    }
+                    
+                    // Phase 2: Fallback to PyPI JSON API if deps.dev didn't provide valid license
+                    if (!licenseFull) {
+                        try {
+                            console.log(`   🔄 Falling back to PyPI JSON API for ${dep.name}`);
+                            const pypiUrl = `https://pypi.org/pypi/${encodeURIComponent(dep.name)}/json`;
+                            const pypiResponse = await fetchWithTimeout(pypiUrl);
+                            
+                            if (pypiResponse.ok) {
+                                const pypiData = await pypiResponse.json();
+                                const info = pypiData.info;
+                                
+                                // Check license_expression first (PEP 639 - modern format)
+                                if (info.license_expression && info.license_expression.trim()) {
+                                    licenseFull = info.license_expression;
+                                    licenseText = licenseFull.length > 8 ? licenseFull.substring(0, 8) + '...' : licenseFull;
+                                    console.log(`   ✅ Found license_expression (PEP 639): ${licenseFull}`);
+                                    fetchedFromPyPI++;
+                                }
+                                // Check license field (older format)
+                                else if (info.license && info.license.trim() && info.license !== 'UNKNOWN') {
+                                    // If it's full license text (>100 chars), try to extract SPDX identifier
+                                    if (info.license.length > 100) {
+                                        const licenseTextLower = info.license.toLowerCase();
+                                        if (licenseTextLower.includes('bsd') && licenseTextLower.includes('3-clause')) {
+                                            licenseFull = 'BSD-3-Clause';
+                                        } else if (licenseTextLower.includes('bsd') && licenseTextLower.includes('2-clause')) {
+                                            licenseFull = 'BSD-2-Clause';
+                                        } else if (licenseTextLower.includes('mit license')) {
+                                            licenseFull = 'MIT';
+                                        } else if (licenseTextLower.includes('apache license')) {
+                                            licenseFull = 'Apache-2.0';
+                                        } else {
+                                            // Use first 50 chars as identifier
+                                            licenseFull = info.license.substring(0, 50).trim() + '...';
+                                        }
+                                        console.log(`   ✅ Extracted from license text: ${licenseFull}`);
+                                    } else {
+                                        licenseFull = info.license;
+                                        console.log(`   ✅ Found license field: ${licenseFull}`);
+                                    }
+                                    licenseText = licenseFull.length > 8 ? licenseFull.substring(0, 8) + '...' : licenseFull;
+                                    fetchedFromPyPI++;
+                                }
+                                // Check classifiers as last resort
+                                else if (info.classifiers && Array.isArray(info.classifiers)) {
+                                    const licenseClassifiers = info.classifiers.filter(c => 
+                                        c.startsWith('License ::') && !c.includes('DFSG approved') && !c.includes('Free For Home Use')
+                                    );
+                                    
+                                    if (licenseClassifiers.length > 0) {
+                                        const classifier = licenseClassifiers[0];
+                                        const match = classifier.match(/License :: (?:OSI Approved :: )?(.+?)(?: License)?$/);
+                                        if (match) {
+                                            licenseFull = match[1].trim();
+                                            // Convert classifier name to SPDX if possible
+                                            if (licenseFull === 'Apache Software License') licenseFull = 'Apache-2.0';
+                                            else if (licenseFull === 'Apache Software') licenseFull = 'Apache-2.0';
+                                            else if (licenseFull === 'BSD License') licenseFull = 'BSD-3-Clause';
+                                            else if (licenseFull === 'BSD') licenseFull = 'BSD-3-Clause';  // Handle "BSD" alone (from "License :: OSI Approved :: BSD License")
+                                            else if (licenseFull === 'MIT License') licenseFull = 'MIT';
+                                            else if (licenseFull === 'MIT') licenseFull = 'MIT';  // Handle "MIT" alone
+                                            else if (licenseFull.includes('GPL') && !licenseFull.includes('-')) licenseFull = licenseFull.replace(' ', '-');
+                                            
+                                            licenseText = licenseFull.length > 8 ? licenseFull.substring(0, 8) + '...' : licenseFull;
+                                            console.log(`   ✅ Found from classifiers: ${licenseFull}`);
+                                            fetchedFromPyPI++;
+                                        }
+                                    }
+                                }
+                            }
+                        } catch (pypiError) {
+                            console.log(`   ⚠️  PyPI API fallback failed: ${pypiError.message}`);
+                        }
+                    }
+                    
+                    // Only update if we found a valid license
+                    if (!licenseFull || !licenseText) {
+                        return;
                         }
                         
                         // Update dependency object (both top-level and in originalPackage for persistence)
@@ -3150,11 +3677,29 @@ class SBOMPlayApp {
                             dep.originalPackage.licenseDeclared = licenseFull;
                         }
                         
+                        // Also update the original dependency object in sbomProcessor.dependencies Map
+                        // This ensures licenses persist when exportData() is called again
+                        if (this.sbomProcessor && this.sbomProcessor.dependencies) {
+                            const versionToUse = dep.displayVersion || dep.version;
+                            const packageKey = `${dep.name}@${versionToUse}`;
+                            const originalDep = this.sbomProcessor.dependencies.get(packageKey);
+                            if (originalDep) {
+                                originalDep.license = licenseText;
+                                originalDep.licenseFull = licenseFull;
+                                originalDep._licenseEnriched = true;
+                                
+                                // Also update originalPackage if it exists
+                                if (originalDep.originalPackage) {
+                                    originalDep.originalPackage.licenseConcluded = licenseFull;
+                                    originalDep.originalPackage.licenseDeclared = licenseFull;
+                                }
+                            }
+                        }
+                        
                         fetched++;
                         
                         if (fetched % 10 === 0) {
-                            console.log(`📄 Licenses: ${fetched}/${pypiDeps.length} fetched`);
-                        }
+                        console.log(`📄 Licenses: ${fetched}/${pypiDeps.length} fetched (${fetchedFromPyPI} from PyPI API)`);
                     }
                 } catch (e) {
                     console.debug(`Failed to fetch license for ${dep.name}@${dep.version}:`, e);
@@ -3167,23 +3712,32 @@ class SBOMPlayApp {
         
         // Note: Licenses are updated in-place in the dependencies array
         // The caller should save the updated results to IndexedDB after this function completes
-        console.log(`✅ License fetching complete: ${fetched} licenses fetched`);
+        console.log(`✅ PyPI license fetching complete: ${fetched} licenses fetched (${fetchedFromPyPI} from PyPI API fallback)`);
     }
     
     /**
      * Fetch licenses for Go packages from deps.dev API
      */
     async fetchGoLicenses(dependencies, identifier) {
-        if (!dependencies || dependencies.length === 0) return;
+        console.log('🔍 fetchGoLicenses called');
+        if (!dependencies || dependencies.length === 0) {
+            console.log('ℹ️ fetchGoLicenses: No dependencies provided');
+            return;
+        }
         
         // Filter Go packages that need licenses
-        const goDeps = dependencies.filter(dep => 
-            (dep.category?.ecosystem === 'Go' || dep.category?.ecosystem === 'golang') && 
+        // Check both dep.category?.ecosystem and dep.ecosystem (dependencies can have either structure)
+        const goDeps = dependencies.filter(dep => {
+            const ecosystem = dep.category?.ecosystem || dep.ecosystem;
+            return (ecosystem === 'Go' || ecosystem === 'golang' || ecosystem === 'go') &&
             dep.name && 
             dep.version &&
-            (!dep.licenseFull || dep.licenseFull === 'Unknown' || dep.licenseFull === 'NOASSERTION')
-        );
+            dep.version !== 'unknown' &&  // Only filter truly unknown versions (after resolution attempt)
+            (!dep.licenseFull || dep.licenseFull === 'Unknown' || dep.licenseFull === 'NOASSERTION') &&
+            (!dep.license || dep.license === 'Unknown' || dep.license === 'NOASSERTION');
+        });
         
+        console.log(`🔍 fetchGoLicenses: Found ${goDeps.length} Go packages needing licenses (out of ${dependencies.length} total dependencies)`);
         if (goDeps.length === 0) {
             console.log('ℹ️ No Go packages need license fetching');
             return;
@@ -3201,11 +3755,16 @@ class SBOMPlayApp {
             await Promise.all(batch.map(async (dep) => {
                 try {
                     // Fetch license from deps.dev API
-                    const url = `https://api.deps.dev/v3alpha/systems/go/packages/${encodeURIComponent(dep.name)}/versions/${encodeURIComponent(dep.version)}`;
-                    console.log(`🌐 [DEBUG] Fetching URL: ${url}`);
-                    console.log(`   Reason: Fetching deps.dev API for Go package ${dep.name}@${dep.version} to extract license information`);
+                    // Go modules require "v" prefix on versions for deps.dev API
+                    let goVersion = dep.version;
+                    if (goVersion && !goVersion.startsWith('v')) {
+                        goVersion = 'v' + goVersion;
+                    }
+                    const url = `https://api.deps.dev/v3alpha/systems/go/packages/${encodeURIComponent(dep.name)}/versions/${encodeURIComponent(goVersion)}`;
+                    debugLogUrl(`🌐 [DEBUG] Fetching URL: ${url}`);
+                    debugLogUrl(`   Reason: Fetching deps.dev API for Go package ${dep.name}@${goVersion} to extract license information`);
                     
-                    const response = await fetch(url);
+                    const response = await fetchWithTimeout(url);
                     if (!response.ok) {
                         console.log(`   ❌ Response: Status ${response.status} ${response.statusText}`);
                         return;
@@ -3238,6 +3797,25 @@ class SBOMPlayApp {
                         if (dep.originalPackage) {
                             dep.originalPackage.licenseConcluded = licenseFull;
                             dep.originalPackage.licenseDeclared = licenseFull;
+                        }
+                        
+                        // Also update the original dependency object in sbomProcessor.dependencies Map
+                        // This ensures licenses persist when exportData() is called again
+                        if (this.sbomProcessor && this.sbomProcessor.dependencies) {
+                            const versionToUse = dep.displayVersion || dep.version;
+                            const packageKey = `${dep.name}@${versionToUse}`;
+                            const originalDep = this.sbomProcessor.dependencies.get(packageKey);
+                            if (originalDep) {
+                                originalDep.license = licenseText;
+                                originalDep.licenseFull = licenseFull;
+                                originalDep._licenseEnriched = true;
+                                
+                                // Also update originalPackage if it exists
+                                if (originalDep.originalPackage) {
+                                    originalDep.originalPackage.licenseConcluded = licenseFull;
+                                    originalDep.originalPackage.licenseDeclared = licenseFull;
+                                }
+                            }
                         }
                         
                         // Save to cache via cacheManager if available
@@ -3293,6 +3871,209 @@ class SBOMPlayApp {
     }
     
     /**
+     * Fetch licenses for all ecosystems (npm, maven, cargo, composer, rubygems, nuget) from deps.dev API
+     */
+    async fetchLicensesForAllEcosystems(dependencies, identifier) {
+        console.log('🔍 fetchLicensesForAllEcosystems called');
+        if (!dependencies || dependencies.length === 0) {
+            console.log('ℹ️ fetchLicensesForAllEcosystems: No dependencies provided');
+            return;
+        }
+        
+        // Map of ecosystem names to deps.dev system names
+        const ecosystemMap = {
+            'npm': 'npm',
+            'maven': 'maven',
+            'cargo': 'cargo',
+            'composer': 'packagist',
+            'packagist': 'packagist',
+            'rubygems': 'rubygems',
+            'gem': 'rubygems',
+            'nuget': 'nuget'
+        };
+        
+        // Group dependencies by ecosystem
+        const depsByEcosystem = new Map();
+        let skippedNoEcosystem = 0;
+        let skippedHasLicense = 0;
+        let skippedNoNameVersion = 0;
+        let skippedUnsupported = 0;
+        
+        dependencies.forEach(dep => {
+            // Check both dep.category?.ecosystem and dep.ecosystem (dependencies can have either structure)
+            const ecosystem = (dep.category?.ecosystem || dep.ecosystem)?.toLowerCase();
+            if (!ecosystem) {
+                skippedNoEcosystem++;
+                return;
+            }
+            
+            // Skip PyPI and Go (already handled separately)
+            if (ecosystem === 'pypi' || ecosystem === 'go' || ecosystem === 'golang') {
+                return;
+            }
+            
+            // Skip if already has license (check both licenseFull and license fields)
+            // Also check for empty strings and null values
+            const hasLicense = (dep.licenseFull && 
+                               dep.licenseFull !== 'Unknown' && 
+                               dep.licenseFull !== 'NOASSERTION' &&
+                               dep.licenseFull !== '' &&
+                               dep.licenseFull !== null) ||
+                              (dep.license && 
+                               dep.license !== 'Unknown' && 
+                               dep.license !== 'NOASSERTION' &&
+                               dep.license !== '' &&
+                               dep.license !== null);
+            if (hasLicense) {
+                skippedHasLicense++;
+                return;
+            }
+            
+            // Skip if missing name or version
+            if (!dep.name || !dep.version || dep.version === 'unknown' || dep.version === '') {
+                skippedNoNameVersion++;
+                return;
+            }
+            
+            // Map ecosystem to deps.dev system name
+            const depsDevSystem = ecosystemMap[ecosystem];
+            if (!depsDevSystem) {
+                // Ecosystem not supported by deps.dev
+                skippedUnsupported++;
+                return;
+            }
+            
+            if (!depsByEcosystem.has(depsDevSystem)) {
+                depsByEcosystem.set(depsDevSystem, []);
+            }
+            depsByEcosystem.get(depsDevSystem).push(dep);
+        });
+        
+        // Log detailed statistics
+        if (skippedNoEcosystem > 0 || skippedHasLicense > 0 || skippedNoNameVersion > 0 || skippedUnsupported > 0) {
+            console.log(`🔍 License fetch filter stats: ${skippedNoEcosystem} no ecosystem, ${skippedHasLicense} has license, ${skippedNoNameVersion} missing name/version, ${skippedUnsupported} unsupported ecosystem`);
+        }
+        
+        console.log(`🔍 fetchLicensesForAllEcosystems: Found packages in ${depsByEcosystem.size} ecosystems needing licenses (out of ${dependencies.length} total dependencies)`);
+        if (depsByEcosystem.size === 0) {
+            console.log('ℹ️ No packages from other ecosystems need license fetching');
+            console.log(`   Detailed skip stats: ${skippedNoEcosystem} no ecosystem, ${skippedHasLicense} has license, ${skippedNoNameVersion} missing name/version, ${skippedUnsupported} unsupported`);
+            return;
+        }
+        
+        // Log ecosystem breakdown
+        for (const [ecosystem, deps] of depsByEcosystem.entries()) {
+            console.log(`   📦 ${ecosystem}: ${deps.length} packages need licenses`);
+        }
+        
+        const totalDeps = Array.from(depsByEcosystem.values()).reduce((sum, deps) => sum + deps.length, 0);
+        console.log(`📄 Fetching licenses for ${totalDeps} packages from ${depsByEcosystem.size} ecosystems...`);
+        
+        // Process each ecosystem
+        for (const [depsDevSystem, deps] of depsByEcosystem.entries()) {
+            console.log(`📄 Fetching licenses for ${deps.length} ${depsDevSystem} packages...`);
+            
+            const batchSize = 20;
+            let fetched = 0;
+            
+            for (let i = 0; i < deps.length; i += batchSize) {
+                const batch = deps.slice(i, i + batchSize);
+                await Promise.all(batch.map(async (dep) => {
+                    try {
+                        // Clean version string - remove range specifiers
+                        // e.g., "1.0.108,< 2.0.0" -> "1.0.108"
+                        // e.g., "0.5.1,< 0.6.0" -> "0.5.1"
+                        // e.g., "3.5,< 4.0" -> "3.5"
+                        let cleanVersion = dep.version;
+                        if (cleanVersion && cleanVersion.includes(',')) {
+                            cleanVersion = cleanVersion.split(',')[0].trim();
+                        }
+                        if (cleanVersion && cleanVersion.includes(' ')) {
+                            cleanVersion = cleanVersion.split(' ')[0].trim();
+                        }
+                        
+                        // Fetch license from deps.dev API
+                        const url = `https://api.deps.dev/v3alpha/systems/${depsDevSystem}/packages/${encodeURIComponent(dep.name)}/versions/${encodeURIComponent(cleanVersion)}`;
+                        debugLogUrl(`🌐 [DEBUG] Fetching URL: ${url}`);
+                        debugLogUrl(`   Reason: Fetching deps.dev API for ${depsDevSystem} package ${dep.name}@${cleanVersion} to extract license information`);
+                        
+                        const response = await fetchWithTimeout(url);
+                        if (!response.ok) {
+                            console.log(`   ❌ Response: Status ${response.status} ${response.statusText}`);
+                            return;
+                        }
+                        
+                        const data = await response.json();
+                        const licenseCount = data.licenses?.length || 0;
+                        console.log(`   ✅ Response: Status ${response.status}, Extracted: ${licenseCount} license/licenses`);
+                        
+                        if (data.licenses && data.licenses.length > 0) {
+                            const licenseFull = data.licenses.join(' AND ');
+                            let licenseText = licenseFull;
+                            
+                            // Format license text
+                            if (licenseFull.includes(' AND ')) {
+                                const firstLicense = licenseFull.split(' AND ')[0];
+                                licenseText = firstLicense.startsWith('Apache') ? 'Apache' : (firstLicense.length > 8 ? firstLicense.substring(0, 8) + '...' : firstLicense);
+                            } else if (licenseFull.startsWith('Apache')) {
+                                licenseText = 'Apache';
+                            } else {
+                                licenseText = licenseFull.length > 8 ? licenseFull.substring(0, 8) + '...' : licenseFull;
+                            }
+                            
+                            // Update dependency object (both top-level and in originalPackage for persistence)
+                            dep.license = licenseText;
+                            dep.licenseFull = licenseFull;
+                            dep._licenseEnriched = true;
+                            
+                            // Also update originalPackage to ensure license persists when saved to IndexedDB
+                            if (dep.originalPackage) {
+                                dep.originalPackage.licenseConcluded = licenseFull;
+                                dep.originalPackage.licenseDeclared = licenseFull;
+                            }
+                            
+                            // Also update the original dependency object in sbomProcessor.dependencies Map
+                            // This ensures licenses persist when exportData() is called again
+                            if (this.sbomProcessor && this.sbomProcessor.dependencies) {
+                                // Use displayVersion if available (matches sbom-processor key format)
+                                const versionToUse = dep.displayVersion || dep.version;
+                                const packageKey = `${dep.name}@${versionToUse}`;
+                                const originalDep = this.sbomProcessor.dependencies.get(packageKey);
+                                if (originalDep) {
+                                    originalDep.license = licenseText;
+                                    originalDep.licenseFull = licenseFull;
+                                    originalDep._licenseEnriched = true;
+                                    
+                                    // Also update originalPackage if it exists
+                                    if (originalDep.originalPackage) {
+                                        originalDep.originalPackage.licenseConcluded = licenseFull;
+                                        originalDep.originalPackage.licenseDeclared = licenseFull;
+                                    }
+                                }
+                            }
+                            
+                            fetched++;
+                            
+                            if (fetched % 10 === 0) {
+                                console.log(`📄 Licenses (${depsDevSystem}): ${fetched}/${deps.length} fetched`);
+                            }
+                        }
+                    } catch (e) {
+                        console.debug(`Failed to fetch license for ${dep.name}@${dep.version}:`, e);
+                    }
+                }));
+                
+                // Small delay between batches
+                await new Promise(resolve => setTimeout(resolve, 50));
+            }
+            
+            console.log(`✅ ${depsDevSystem} license fetching complete: ${fetched} licenses fetched`);
+        }
+        
+        console.log(`✅ License fetching for all ecosystems complete`);
+    }
+    
+    /**
      * Fetch version drift data for all dependencies and save to IndexedDB
      */
     async fetchVersionDriftData(dependencies) {
@@ -3302,24 +4083,41 @@ class SBOMPlayApp {
         const uniquePackageVersions = new Map(); // Key: packageKey, Value: Set of versions
         
         // Collect unique package versions from dependencies
+        let skippedCount = 0;
         dependencies.forEach(dep => {
-            if (dep.name && dep.version && dep.category?.ecosystem) {
-                let ecosystem = dep.category.ecosystem.toLowerCase();
-                // Normalize ecosystem aliases
-                if (ecosystem === 'rubygems' || ecosystem === 'gem') {
-                    ecosystem = 'gem';
-                } else if (ecosystem === 'go' || ecosystem === 'golang') {
-                    ecosystem = 'golang';
-                } else if (ecosystem === 'packagist' || ecosystem === 'composer') {
-                    ecosystem = 'composer';
+            // Handle both dep.category?.ecosystem and dep.ecosystem (dependencies can have either structure)
+            const ecosystemValue = dep.category?.ecosystem || dep.ecosystem;
+            // Skip dependencies without required fields or with unknown version (even after resolution attempts)
+            if (!dep.name || !dep.version || dep.version === 'unknown' || !ecosystemValue) {
+                skippedCount++;
+                // Set empty drift data so we know it was checked
+                if (dep.name && dep.version === 'unknown') {
+                    dep.versionDrift = { hasMajorUpdate: false, hasMinorUpdate: false };
+                    dep.staleness = { isStale: false };
+                    console.warn(`⚠️  Skipping version drift for ${dep.name}: no version available`);
                 }
-                const packageKey = `${ecosystem}:${dep.name}`;
-                if (!uniquePackageVersions.has(packageKey)) {
-                    uniquePackageVersions.set(packageKey, new Set());
-                }
-                uniquePackageVersions.get(packageKey).add(dep.version);
+                return;
             }
+            
+            let ecosystem = ecosystemValue.toLowerCase();
+            // Normalize ecosystem aliases
+            if (ecosystem === 'rubygems' || ecosystem === 'gem') {
+                ecosystem = 'gem';
+            } else if (ecosystem === 'go' || ecosystem === 'golang') {
+                ecosystem = 'golang';
+            } else if (ecosystem === 'packagist' || ecosystem === 'composer') {
+                ecosystem = 'composer';
+            }
+            const packageKey = `${ecosystem}:${dep.name}`;
+            if (!uniquePackageVersions.has(packageKey)) {
+                uniquePackageVersions.set(packageKey, new Set());
+            }
+            uniquePackageVersions.get(packageKey).add(dep.version);
         });
+        
+        if (skippedCount > 0) {
+            console.log(`📦 Skipped ${skippedCount} dependencies (missing name/version/ecosystem or version unknown)`);
+        }
         
         const totalVersions = Array.from(uniquePackageVersions.values()).reduce((sum, versions) => sum + versions.size, 0);
         console.log(`📦 Fetching version drift for ${uniquePackageVersions.size} packages (${totalVersions} versions)...`);
@@ -3328,23 +4126,59 @@ class SBOMPlayApp {
         const batchSize = 10; // Process 10 packages at a time
         const packageKeys = Array.from(uniquePackageVersions.keys());
         
+        // Create a map to track which dependencies need version drift data attached
+        const depVersionDriftMap = new Map(); // Key: `${ecosystem}:${name}@${version}`, Value: driftData
+        
         for (let i = 0; i < packageKeys.length; i += batchSize) {
             const batch = packageKeys.slice(i, i + batchSize);
             await Promise.all(batch.map(async (packageKey) => {
                 const [ecosystem, packageName] = packageKey.split(':');
                 const versions = Array.from(uniquePackageVersions.get(packageKey));
                 
-                // Fetch drift for each version (checkVersionDrift already saves to IndexedDB via cacheManager)
+                // Fetch drift and staleness for each version (both saved to IndexedDB via cacheManager)
                 for (const version of versions) {
                     try {
                         // Check cache first - only fetch if not cached
-                        const cached = await versionDriftAnalyzer.getVersionDriftFromCache(packageKey, version);
-                        if (!cached) {
-                            await versionDriftAnalyzer.checkVersionDrift(packageName, version, ecosystem);
+                        let driftData = await versionDriftAnalyzer.getVersionDriftFromCache(packageKey, version);
+                        if (!driftData) {
+                            driftData = await versionDriftAnalyzer.checkVersionDrift(packageName, version, ecosystem);
                             processed++;
                             if (processed % 10 === 0) {
                                 console.log(`📦 Version drift: ${processed}/${totalVersions} versions processed`);
                             }
+                        }
+                        
+                        // Also fetch staleness data if not already in driftData
+                        // This eliminates the need to fetch it lazily later in deps.html
+                        if (driftData && !driftData.staleness) {
+                            // Only check staleness if no major/minor updates
+                            // (if there are updates, it's not stale by definition)
+                            if (!driftData.hasMajorUpdate && !driftData.hasMinorUpdate) {
+                                try {
+                                    const stalenessData = await versionDriftAnalyzer.checkStaleness(packageName, version, ecosystem);
+                                    if (stalenessData) {
+                                        driftData.staleness = stalenessData;
+                                        // Save updated drift data with staleness
+                                        // This ensures staleness is cached alongside version drift
+                                    }
+                                } catch (stalenessError) {
+                                    console.debug(`Failed to check staleness for ${packageKey}@${version}:`, stalenessError);
+                                }
+                            } else {
+                                // Package has updates, so it's not stale
+                                driftData.staleness = {
+                                    isStale: false,
+                                    lastReleaseDate: null,
+                                    monthsSinceRelease: 0,
+                                    stalenessCheckedAt: Date.now()
+                                };
+                            }
+                        }
+                        
+                        // Store drift data (with staleness) for attachment to dependency objects
+                        if (driftData) {
+                            const depKey = `${packageKey}@${version}`;
+                            depVersionDriftMap.set(depKey, driftData);
                         }
                     } catch (e) {
                         console.debug(`Failed to fetch version drift for ${packageKey}@${version}:`, e);
@@ -3356,7 +4190,35 @@ class SBOMPlayApp {
             await new Promise(resolve => setTimeout(resolve, 100));
         }
         
-        console.log(`✅ Version drift fetching complete: ${processed} versions fetched`);
+        // Attach version drift data to dependency objects
+        let attachedCount = 0;
+        dependencies.forEach(dep => {
+            const ecosystemValue = dep.category?.ecosystem || dep.ecosystem;
+            if (!dep.name || !dep.version || dep.version === 'version unknown' || !ecosystemValue) {
+                return;
+            }
+            
+            let ecosystem = ecosystemValue.toLowerCase();
+            // Normalize ecosystem aliases (same as above)
+            if (ecosystem === 'rubygems' || ecosystem === 'gem') {
+                ecosystem = 'gem';
+            } else if (ecosystem === 'go' || ecosystem === 'golang') {
+                ecosystem = 'golang';
+            } else if (ecosystem === 'packagist' || ecosystem === 'composer') {
+                ecosystem = 'composer';
+            }
+            
+            const packageKey = `${ecosystem}:${dep.name}`;
+            const depKey = `${packageKey}@${dep.version}`;
+            const driftData = depVersionDriftMap.get(depKey);
+            
+            if (driftData) {
+                dep.versionDrift = driftData;
+                attachedCount++;
+            }
+        });
+        
+        console.log(`✅ Version drift and staleness fetching complete: ${processed} versions fetched, ${attachedCount} attached to dependencies`);
     }
 
     sleep(ms) {
@@ -3432,13 +4294,167 @@ class SBOMPlayApp {
             });
         }
         
-        // Fetch authors with progress callback (includes repository tracking)
-        const authorResults = await authorService.fetchAuthorsForPackages(
-            packages,
-            (processed, total) => {
-                this.updateProgress(96 + (processed / total * 2), `Fetching authors: ${processed}/${total}`);
+        // Set up rate limit listener for author analysis
+        const rateLimitHandler = (event) => {
+            const { waitTime, resetDate } = event.detail;
+            const waitMinutes = Math.ceil(waitTime / 60);
+            const resetTimeStr = resetDate.toLocaleTimeString();
+            this.updateProgress(93, 
+                `Rate limit exceeded. Waiting ${waitMinutes} minutes for reset at ${resetTimeStr}...`, 
+                'author-analysis');
+        };
+        const rateLimitResetHandler = () => {
+            this.updateProgress(93, 'Rate limit reset. Continuing author analysis...', 'author-analysis');
+        };
+        this.githubClient.addEventListener('rateLimitExceeded', rateLimitHandler);
+        this.githubClient.addEventListener('rateLimitReset', rateLimitResetHandler);
+        
+        let authorResults;
+        try {
+            // Fetch authors with progress callback (includes repository tracking)
+            authorResults = await authorService.fetchAuthorsForPackages(
+                packages,
+                (processed, total) => {
+                    this.updateProgress(93 + (processed / total * 3), `Fetching authors: ${processed}/${total}`);
+                }
+            );
+        } finally {
+            // Remove rate limit listeners
+            this.githubClient.removeEventListener('rateLimitExceeded', rateLimitHandler);
+            this.githubClient.removeEventListener('rateLimitReset', rateLimitResetHandler);
+        }
+        
+        // Batch geocode all author locations during analysis phase
+        // IMPORTANT: Ensure all location data is fetched before batch geocoding
+        console.log(`📍 Geocoding check: LocationService=${!!window.LocationService}, authorResults=${!!authorResults}, authorResults.size=${authorResults?.size || 0}`);
+        if (window.LocationService && authorResults && authorResults.size > 0) {
+            try {
+                console.log('📍 Fetching and geocoding author locations during analysis phase...');
+                const locationService = new window.LocationService();
+                const locations = new Set();
+                
+                // Fetch author entities from cache and ensure all locations are fetched
+                // authorResults is a Map where keys are authorKeys and values are author objects
+                if (window.cacheManager) {
+                    const authorKeys = Array.from(authorResults.keys());
+                    console.log(`📍 Processing ${authorKeys.length} author entities for location data...`);
+                    
+                    // First pass: Collect locations and identify authors that need location fetching
+                    const locationFetchPromises = [];
+                    for (const authorKey of authorKeys) {
+                        try {
+                            let authorEntity = await window.cacheManager.getAuthorEntity(authorKey);
+                            if (authorEntity) {
+                                // Fetch from GitHub if:
+                                // 1. Has GitHub username AND
+                                // 2. Either: no location/company OR has location but not geocoded yet
+                                const hasGitHub = authorEntity.metadata?.github;
+                                const hasLocation = authorEntity.metadata?.location;
+                                const hasCompany = authorEntity.metadata?.company;
+                                const hasGeocoding = authorEntity.metadata?.countryCode;
+                                
+                                const needsLocationFetch = hasGitHub && (
+                                    (!hasLocation && !hasCompany) ||  // No location data at all
+                                    (hasLocation && !hasGeocoding)     // Has location but not geocoded
+                                );
+                                
+                                if (needsLocationFetch) {
+                                    console.log(`📍 Queueing location fetch for ${authorKey} (GitHub: ${authorEntity.metadata.github}${hasLocation ? ', needs geocoding' : ''})`);
+                                    locationFetchPromises.push(
+                                        authorService.fetchAuthorLocation(authorKey, authorEntity)
+                                            .catch(err => {
+                                                console.debug(`Failed to fetch location for ${authorKey}:`, err.message);
+                                                return null;
+                                            })
+                                    );
+                                }
+                            }
+                        } catch (e) {
+                            // Skip if entity not found
+                        }
+                    }
+                    
+                    // Wait for all location fetches to complete
+                    if (locationFetchPromises.length > 0) {
+                        console.log(`📍 Fetching locations for ${locationFetchPromises.length} authors...`);
+                        await Promise.allSettled(locationFetchPromises);
+                        console.log(`✅ Completed fetching author locations`);
+                    }
+                    
+                    // Collect locations that still need geocoding (missing countryCode)
+                    // Most locations should already be geocoded during fetchAuthorLocation()
+                    const locationsNeedingGeocoding = new Set();
+                    for (const authorKey of authorKeys) {
+                        try {
+                            const authorEntity = await window.cacheManager.getAuthorEntity(authorKey);
+                            if (authorEntity) {
+                                // Only collect locations that don't have geocoding data yet
+                                if (authorEntity.metadata?.location && !authorEntity.metadata?.countryCode) {
+                                    const normalized = locationService.normalizeLocationString(authorEntity.metadata.location);
+                                    if (normalized) {
+                                        locationsNeedingGeocoding.add(normalized);
+                                    }
+                                }
+                                // Note: We don't geocode company names as locations
+                            }
+                        } catch (e) {
+                            // Skip if entity not found
+                        }
+                    }
+                    
+                    // Only batch geocode locations that weren't geocoded during fetchAuthorLocation()
+                    // This should be rare - only for locations from non-GitHub sources
+                    if (locationsNeedingGeocoding.size > 0) {
+                        console.log(`📍 Batch geocoding ${locationsNeedingGeocoding.size} locations that weren't geocoded during fetch (likely from non-GitHub sources)...`);
+                        this.updateProgress(95, `Geocoding ${locationsNeedingGeocoding.size} remaining locations...`, 'geocoding-locations');
+                    try {
+                        const geocodeResults = await locationService.batchGeocode(
+                                Array.from(locationsNeedingGeocoding),
+                            (processed, total) => {
+                                const percent = 95 + (processed / total * 2);
+                                this.updateProgress(percent, `Geocoding locations: ${processed}/${total}`, 'geocoding-locations');
+                                console.log(`📍 Geocoding progress: ${processed}/${total}`);
+                            }
+                        );
+                        const geocodedCount = Array.from(geocodeResults.values()).filter(r => r && !r.failed).length;
+                        const failedCount = Array.from(geocodeResults.values()).filter(r => r && r.failed).length;
+                            console.log(`✅ Completed geocoding remaining locations: ${geocodedCount} successful, ${failedCount} failed`);
+                            
+                            // Update author entities with geocoding data from batch results
+                            for (const authorKey of authorKeys) {
+                                try {
+                                    const authorEntity = await window.cacheManager.getAuthorEntity(authorKey);
+                                    if (authorEntity?.metadata?.location && !authorEntity.metadata?.countryCode) {
+                                        const normalized = locationService.normalizeLocationString(authorEntity.metadata.location);
+                                        const geocoded = geocodeResults.get(normalized);
+                                        if (geocoded && geocoded.countryCode) {
+                                            authorEntity.metadata = {
+                                                ...authorEntity.metadata,
+                                                countryCode: geocoded.countryCode,
+                                                ...(geocoded.country && { country: geocoded.country })
+                                            };
+                                            await window.cacheManager.saveAuthorEntity(authorKey, authorEntity);
+                                        }
+                                    }
+                                } catch (e) {
+                                    // Skip if entity not found
+                                }
+                            }
+                    } catch (geocodeError) {
+                        console.error('❌ Error during batch geocoding:', geocodeError);
+                        // Continue even if geocoding fails - locations can be geocoded later when map loads
+                    }
+                } else {
+                        console.log('📍 All author locations were geocoded during fetch - no batch geocoding needed');
+                    }
+                }
+            } catch (error) {
+                console.warn('⚠️ Failed to geocode author locations during analysis:', error);
+                // Don't fail the entire analysis if geocoding fails
             }
-        );
+        } else {
+            console.warn(`⚠️ Geocoding skipped: LocationService=${!!window.LocationService}, authorResults=${!!authorResults}, authorResults.size=${authorResults?.size || 0}`);
+        }
         
         // Fetch version drift data for all unique package versions in background
         // This populates the cache so deps.html can read from it instead of fetching at runtime
@@ -3562,6 +4578,38 @@ class SBOMPlayApp {
     }
 
     /**
+     * Detect license from LICENSE file content
+     * Similar to GitHubActionsAnalyzer.detectLicenseFromContent
+     */
+    detectLicenseFromContent(content) {
+        if (!content) return null;
+        
+        const contentUpper = content.toUpperCase();
+        
+        // Common license patterns
+        const licensePatterns = [
+            { pattern: /MIT\s+LICENSE|THE\s+MIT\s+LICENSE/i, spdx: 'MIT' },
+            { pattern: /APACHE\s+LICENSE|APACHE\s+2\.0/i, spdx: 'Apache-2.0' },
+            { pattern: /GNU\s+GENERAL\s+PUBLIC\s+LICENSE\s+VERSION\s+3|GPL-3|GPL\s+3\.0|GPL\s+3/i, spdx: 'GPL-3.0' },
+            { pattern: /GNU\s+GENERAL\s+PUBLIC\s+LICENSE\s+VERSION\s+2|GPL-2|GPL\s+2\.0/i, spdx: 'GPL-2.0' },
+            { pattern: /BSD\s+3-CLAUSE|BSD-3/i, spdx: 'BSD-3-Clause' },
+            { pattern: /BSD\s+2-CLAUSE|BSD-2/i, spdx: 'BSD-2-Clause' },
+            { pattern: /ISC\s+LICENSE/i, spdx: 'ISC' },
+            { pattern: /MOZILLA\s+PUBLIC\s+LICENSE|MPL/i, spdx: 'MPL-2.0' },
+            { pattern: /GNU\s+AFFERO\s+GENERAL\s+PUBLIC\s+LICENSE|AGPL/i, spdx: 'AGPL-3.0' },
+            { pattern: /LGPL|LESSER\s+GENERAL\s+PUBLIC\s+LICENSE/i, spdx: 'LGPL-3.0' }
+        ];
+        
+        for (const { pattern, spdx } of licensePatterns) {
+            if (pattern.test(contentUpper)) {
+                return spdx;
+            }
+        }
+        
+        return null;
+    }
+
+    /**
      * Extract ecosystem from PURL
      */
     getEcosystemFromPurl(purl) {
@@ -3603,6 +4651,9 @@ function toggleTokenSection() {
         icon.className = 'fas fa-chevron-down';
     }
 }
+
+// Expose SBOMPlayApp class on window for use by other modules (e.g., license-refetch)
+window.SBOMPlayApp = SBOMPlayApp;
 
 // Initialize app when DOM is loaded
 let app;

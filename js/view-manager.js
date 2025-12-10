@@ -1,6 +1,9 @@
 /**
  * View Manager - Handles detailed views of SBOM data
+ * BUILD: 1764043076180 (with repository fallback for legacy data)
  */
+console.log('📊 View Manager loaded - BUILD: 1764043076180 (repository fallback)');
+
 class ViewManager {
     constructor() {
         this.currentView = 'overview';
@@ -1720,12 +1723,19 @@ class ViewManager {
         let matchingRepos = new Set();
         
         dependencies.forEach(dep => {
-            // Skip dependencies without originalPackage data
-            if (!dep.originalPackage) {
-                console.warn('Dependency missing originalPackage data:', dep.name);
+            // Skip dependencies without any package information
+            if (!dep.originalPackage && !dep.license && !dep.licenseFull) {
                 return;
             }
-            const licenseInfo = licenseProcessor.parseLicense(dep.originalPackage);
+            
+            // Use unified method to get license info
+            const { licenseInfo } = this.getDependencyLicenseInfo(dep, orgData);
+            
+            // If no license info found, skip for repository matching
+            if (!licenseInfo || !licenseInfo.license || licenseInfo.license === 'NOASSERTION') {
+                return;
+            }
+            
             let shouldInclude = false;
             
             switch (licenseType) {
@@ -1778,19 +1788,22 @@ class ViewManager {
      * Get count of repositories for a license type
      */
     getLicenseRepositoriesCount(orgData, licenseType) {
-        const licenseProcessor = new LicenseProcessor();
         const repositories = orgData.data.allRepositories;
         const dependencies = orgData.data.allDependencies;
         
         let matchingRepos = new Set();
         
         dependencies.forEach(dep => {
-            // Skip dependencies without originalPackage data
-            if (!dep.originalPackage) {
-                console.warn('Dependency missing originalPackage data:', dep.name);
+            // Skip dependencies without any package information
+            if (!dep.originalPackage && !dep.license && !dep.licenseFull) {
                 return;
             }
-            const licenseInfo = licenseProcessor.parseLicense(dep.originalPackage);
+            
+            // Use unified method to get license info
+            const { licenseInfo } = this.getDependencyLicenseInfo(dep, orgData);
+            if (!licenseInfo) {
+                return;
+            }
             let shouldInclude = false;
             
             switch (licenseType) {
@@ -1830,19 +1843,22 @@ class ViewManager {
      * Get list of repositories for a license type
      */
     getLicenseRepositoriesList(orgData, licenseType) {
-        const licenseProcessor = new LicenseProcessor();
         const repositories = orgData.data.allRepositories;
         const dependencies = orgData.data.allDependencies;
         
         let matchingRepos = new Set();
         
         dependencies.forEach(dep => {
-            // Skip dependencies without originalPackage data
-            if (!dep.originalPackage) {
-                console.warn('Dependency missing originalPackage data:', dep.name);
+            // Skip dependencies without any package information
+            if (!dep.originalPackage && !dep.license && !dep.licenseFull) {
                 return;
             }
-            const licenseInfo = licenseProcessor.parseLicense(dep.originalPackage);
+            
+            // Use unified method to get license info
+            const { licenseInfo } = this.getDependencyLicenseInfo(dep, orgData);
+            if (!licenseInfo) {
+                return;
+            }
             let shouldInclude = false;
             
             switch (licenseType) {
@@ -1893,12 +1909,16 @@ class ViewManager {
         const licenseRepos = new Map(); // Map of repo -> dependencies with this license
 
         dependencies.forEach(dep => {
-            // Skip dependencies without originalPackage data
-            if (!dep.originalPackage) {
-                console.warn('Dependency missing originalPackage data:', dep.name);
+            // Skip dependencies without any package information
+            if (!dep.originalPackage && !dep.license && !dep.licenseFull) {
                 return;
             }
-            const licenseInfo = licenseProcessor.parseLicense(dep.originalPackage);
+            
+            // Use unified method to get license info
+            const { licenseInfo } = this.getDependencyLicenseInfo(dep, orgData);
+            if (!licenseInfo) {
+                return;
+            }
             let matches = false;
 
             switch (licenseType) {
@@ -2061,12 +2081,16 @@ class ViewManager {
         const affectedRepos = new Map();
 
         dependencies.forEach(dep => {
-            // Skip dependencies without originalPackage data
-            if (!dep.originalPackage) {
-                console.warn('Dependency missing originalPackage data:', dep.name);
+            // Skip dependencies without any package information
+            if (!dep.originalPackage && !dep.license && !dep.licenseFull) {
                 return;
             }
-            const licenseInfo = licenseProcessor.parseLicense(dep.originalPackage);
+            
+            // Use unified method to get license info
+            const { licenseInfo } = this.getDependencyLicenseInfo(dep, orgData);
+            if (!licenseInfo) {
+                return;
+            }
             if (conflict.licenses.includes(licenseInfo.license)) {
                 conflictDeps.push({
                     name: dep.name,
@@ -2279,19 +2303,22 @@ class ViewManager {
         }
 
         // Find dependencies related to this recommendation
-        const licenseProcessor = new LicenseProcessor();
         const dependencies = orgData.data.allDependencies;
         const relatedDeps = [];
         const affectedRepos = new Map();
 
         // Determine which dependencies are related based on recommendation type
         dependencies.forEach(dep => {
-            // Skip dependencies without originalPackage data
-            if (!dep.originalPackage) {
-                console.warn('Dependency missing originalPackage data:', dep.name);
+            // Skip dependencies without any package information
+            if (!dep.originalPackage && !dep.license && !dep.licenseFull) {
                 return;
             }
-            const licenseInfo = licenseProcessor.parseLicense(dep.originalPackage);
+            
+            // Use unified method to get license info
+            const { licenseInfo } = this.getDependencyLicenseInfo(dep, orgData);
+            if (!licenseInfo) {
+                return;
+            }
             let isRelated = false;
 
             switch (recommendation.type) {
@@ -2461,11 +2488,10 @@ class ViewManager {
                     return;
                 }
                 
-                // Check if this is combined data
-                const isCombinedData = organization === '__ALL__' || 
-                                      organization === 'All Projects (Combined)' ||
+                // Check if this is combined data (empty/null means aggregated)
+                const isCombinedData = !organization || organization === '' || 
                                       organization === 'All Entries Combined' ||
-                                      organization === 'All Organizations Combined';
+                                      organization === 'All Analyses';
                 
                 console.log('[License Panel] Data type:', { 
                     organization, 
@@ -2645,18 +2671,223 @@ class ViewManager {
     /**
      * Get list of dependencies for a license type
      */
+    /**
+     * Unified method to extract license information from a dependency
+     * Checks all possible sources: licenseFull, license, GitHub Actions metadata, originalPackage
+     * Returns: { licenseInfo: LicenseInfo object, source: string }
+     */
+    getDependencyLicenseInfo(dep, orgData = null) {
+        const licenseProcessor = new LicenseProcessor();
+        let licenseInfo = null;
+        let source = null;
+        
+        // 1. Check dep.licenseFull (most complete, from deps.dev API)
+        if (dep.licenseFull && 
+            dep.licenseFull !== 'Unknown' && 
+            dep.licenseFull !== 'NOASSERTION' && 
+            String(dep.licenseFull).trim() !== '') {
+            licenseInfo = licenseProcessor.parseLicense({
+                licenseConcluded: dep.licenseFull,
+                licenseDeclared: dep.licenseFull
+            });
+            source = 'licenseFull';
+        }
+        // 2. Check dep.license (short form, from deps.dev API)
+        else if (dep.license && 
+                 dep.license !== 'Unknown' && 
+                 dep.license !== 'NOASSERTION' && 
+                 String(dep.license).trim() !== '') {
+            licenseInfo = licenseProcessor.parseLicense({
+                licenseConcluded: dep.license,
+                licenseDeclared: dep.license
+            });
+            source = 'license';
+        }
+        // 2b. Check dep.raw.licenseFull (stored license from previous fetches)
+        else if (dep.raw && dep.raw.licenseFull && 
+                 dep.raw.licenseFull !== 'Unknown' && 
+                 dep.raw.licenseFull !== 'NOASSERTION' && 
+                 String(dep.raw.licenseFull).trim() !== '') {
+            licenseInfo = licenseProcessor.parseLicense({
+                licenseConcluded: dep.raw.licenseFull,
+                licenseDeclared: dep.raw.licenseFull
+            });
+            source = 'raw.licenseFull';
+        }
+        // 2c. Check dep.raw.license (stored license short form)
+        else if (dep.raw && dep.raw.license && 
+                 dep.raw.license !== 'Unknown' && 
+                 dep.raw.license !== 'NOASSERTION' && 
+                 String(dep.raw.license).trim() !== '') {
+            licenseInfo = licenseProcessor.parseLicense({
+                licenseConcluded: dep.raw.license,
+                licenseDeclared: dep.raw.license
+            });
+            source = 'raw.license';
+        }
+        // 3. Check GitHub Actions analysis metadata (for GitHub Actions dependencies)
+        else if (dep.category?.ecosystem === 'GitHub Actions' || dep.ecosystem === 'GitHub Actions') {
+            // Check dep._gaMetadata first (if set during processing)
+            if (dep._gaMetadata && dep._gaMetadata.license) {
+                licenseInfo = licenseProcessor.parseLicense({
+                    licenseConcluded: dep._gaMetadata.license,
+                    licenseDeclared: dep._gaMetadata.license
+                });
+                source = 'gaMetadata';
+            } else if (orgData) {
+                // Fallback: search githubActionsAnalysis
+                const enrichedLicense = this.getEnrichedGitHubActionLicense(dep, orgData);
+                if (enrichedLicense) {
+                    licenseInfo = licenseProcessor.parseLicense({
+                        licenseConcluded: enrichedLicense,
+                        licenseDeclared: enrichedLicense
+                    });
+                    source = 'githubActionsAnalysis';
+                }
+            }
+        }
+        // 4. Parse from originalPackage (from SBOM) - always check this as fallback
+        if (!licenseInfo && dep.originalPackage) {
+            licenseInfo = licenseProcessor.parseLicense(dep.originalPackage);
+            if (licenseInfo && licenseInfo.license && licenseInfo.license !== 'NOASSERTION') {
+                source = 'originalPackage';
+            }
+        }
+        
+        // 5. Final fallback: Use repository license if available
+        // Many SBOMs don't include license info for individual packages,
+        // so we infer it from the repository license as a last resort
+        if (!licenseInfo && orgData && dep.repositories && dep.repositories.length > 0) {
+            // Get license from first repository (most dependencies come from one repo)
+            const repoName = dep.repositories[0];
+            const allRepos = orgData.data?.allRepositories || [];
+            const repo = allRepos.find(r => `${r.owner}/${r.name}` === repoName);
+            
+            if (repo && (repo.repositoryLicense || repo.license)) {
+                const repoLicense = repo.repositoryLicense || repo.license;
+                if (repoLicense && repoLicense !== 'NOASSERTION') {
+                    licenseInfo = licenseProcessor.parseLicense({
+                        licenseConcluded: repoLicense,
+                        licenseDeclared: repoLicense
+                    });
+                    if (licenseInfo && licenseInfo.license && licenseInfo.license !== 'NOASSERTION') {
+                        source = 'repositoryLicense';
+                    }
+                }
+            }
+        }
+        
+        return { licenseInfo, source };
+    }
+
+    /**
+     * Get enriched GitHub Actions license from githubActionsAnalysis
+     */
+    getEnrichedGitHubActionLicense(dep, orgData) {
+        if (!orgData?.data?.githubActionsAnalysis || !dep.name) {
+            return null;
+        }
+        
+        try {
+            // Build full name with version if not already present
+            let fullName = dep.name;
+            if (dep.version && !fullName.includes('@')) {
+                fullName = `${dep.name}@${dep.version}`;
+            }
+            
+            // Parse GitHub Action name: owner/repo@ref or owner/repo/path@ref
+            let match = fullName.match(/^([^/@]+)\/([^/@]+)(?:\/(.+))?@(.+)$/);
+            if (!match) {
+                // Try without @ref - just owner/repo or owner/repo/path
+                match = fullName.match(/^([^/@]+)\/([^/@]+)(?:\/(.+))?$/);
+                if (!match) {
+                    return null;
+                }
+            }
+            
+            const [, owner, repo, path] = match;
+            const normalizedPath = path || '';
+            
+            // Search through repositories - match on owner/repo/path only (ignore ref)
+            const repositories = orgData.data.githubActionsAnalysis.repositories || [];
+            
+            for (const repoData of repositories) {
+                // Check direct actions in this repository
+                if (repoData.actions && Array.isArray(repoData.actions)) {
+                        for (const action of repoData.actions) {
+                        // Match on owner/repo/path (ignore ref)
+                            const actionPath = action.path || '';
+                        if (action.owner === owner && 
+                            action.repo === repo && 
+                            actionPath === normalizedPath && 
+                            action.license) {
+                            return action.license;
+                    }
+                    
+                        // Recursively check nested actions
+                        if (action.nested && Array.isArray(action.nested)) {
+                            const checkNested = (nestedAction) => {
+                            const nestedPath = nestedAction.path || '';
+                                if (nestedAction.owner === owner && 
+                                    nestedAction.repo === repo && 
+                                    nestedPath === normalizedPath && 
+                                    nestedAction.license) {
+                                    return nestedAction.license;
+                                }
+                                
+                                // Recursively check deeper nested actions
+                                if (nestedAction.nested && Array.isArray(nestedAction.nested)) {
+                                    for (const deeperNested of nestedAction.nested) {
+                                        const result = checkNested(deeperNested);
+                                        if (result) return result;
+                                    }
+                                }
+                                
+                                return null;
+                            };
+                            
+                            for (const nestedAction of action.nested) {
+                                const result = checkNested(nestedAction);
+                                if (result) return result;
+                            }
+                        }
+                    }
+                }
+            }
+        } catch (error) {
+            console.warn('Error getting enriched GitHub Action license:', error);
+        }
+        
+        return null;
+    }
+
     getLicenseDependenciesList(orgData, licenseType) {
         const licenseProcessor = new LicenseProcessor();
         const dependencies = orgData.data.allDependencies;
         const matchingDeps = [];
         
         dependencies.forEach(dep => {
-            // Skip dependencies without originalPackage data
-            if (!dep.originalPackage) {
-                console.warn('Dependency missing originalPackage data:', dep.name);
+            // Skip dependencies without any package information
+            if (!dep.originalPackage && !dep.license && !dep.licenseFull) {
                 return;
             }
-            const licenseInfo = licenseProcessor.parseLicense(dep.originalPackage);
+            
+            // Use unified method to get license info
+            const { licenseInfo } = this.getDependencyLicenseInfo(dep, orgData);
+            
+            // If no license info found, treat as unlicensed/unknown
+            if (!licenseInfo || !licenseInfo.license || licenseInfo.license === 'NOASSERTION') {
+                if (licenseType === 'unlicensed' || licenseType === 'unknown') {
+                    matchingDeps.push({
+                        name: dep.name,
+                        version: dep.version,
+                        license: 'Unknown',
+                        category: 'unknown'
+                    });
+                }
+                return;
+            }
+            
             let shouldInclude = false;
             
             switch (licenseType) {
@@ -2716,12 +2947,16 @@ class ViewManager {
         const affectedRepos = new Map();
 
         dependencies.forEach(dep => {
-            // Skip dependencies without originalPackage data
-            if (!dep.originalPackage) {
-                console.warn('Dependency missing originalPackage data:', dep.name);
+            // Skip dependencies without any package information
+            if (!dep.originalPackage && !dep.license && !dep.licenseFull) {
                 return;
             }
-            const licenseInfo = licenseProcessor.parseLicense(dep.originalPackage);
+            
+            // Use unified method to get license info
+            const { licenseInfo } = this.getDependencyLicenseInfo(dep, orgData);
+            if (!licenseInfo) {
+                return;
+            }
             if (conflict.licenses.includes(licenseInfo.license)) {
                 conflictDeps.push({
                     name: dep.name,
@@ -2973,8 +3208,8 @@ class ViewManager {
             };
         }
 
-        const licenseProcessor = new LicenseProcessor();
         const dependencies = orgData.data.allDependencies;
+        const licenseProcessor = new LicenseProcessor(); // Still needed for isDependencyCompatibleWithRepository
         
         const counts = {
             total: 0,
@@ -2989,18 +3224,8 @@ class ViewManager {
             // When filtering, only show count for the filtered category
             let filteredCount = 0;
             dependencies.forEach(dep => {
-                // Check for enriched license data first (from deps.dev API or GitHub Actions analysis)
-                let licenseInfo = null;
-                if (dep.licenseFull && dep.licenseFull !== 'Unknown' && dep.licenseFull !== 'NOASSERTION') {
-                    // Use enriched license data
-                    licenseInfo = licenseProcessor.parseLicense({
-                        licenseConcluded: dep.licenseFull,
-                        licenseDeclared: dep.licenseFull
-                    });
-                } else if (dep.originalPackage) {
-                    // Fall back to parsing originalPackage
-                    licenseInfo = licenseProcessor.parseLicense(dep.originalPackage);
-                }
+                // Use unified method to get license info (includes GitHub Actions enriched data)
+                const { licenseInfo } = this.getDependencyLicenseInfo(dep, orgData);
                 
                 // If no license info found, treat as unlicensed
                 if (!licenseInfo || !licenseInfo.license || licenseInfo.license === 'NOASSERTION') {
@@ -3058,18 +3283,8 @@ class ViewManager {
             // that are compatible with all repository licenses
             const allRepos = orgData.data?.allRepositories || [];
             dependencies.forEach(dep => {
-                // Check for enriched license data first (from deps.dev API or GitHub Actions analysis)
-                let licenseInfo = null;
-                if (dep.licenseFull && dep.licenseFull !== 'Unknown' && dep.licenseFull !== 'NOASSERTION') {
-                    // Use enriched license data
-                    licenseInfo = licenseProcessor.parseLicense({
-                        licenseConcluded: dep.licenseFull,
-                        licenseDeclared: dep.licenseFull
-                    });
-                } else if (dep.originalPackage) {
-                    // Fall back to parsing originalPackage
-                    licenseInfo = licenseProcessor.parseLicense(dep.originalPackage);
-                }
+                // Use unified method to get license info (includes GitHub Actions enriched data)
+                const { licenseInfo } = this.getDependencyLicenseInfo(dep, orgData);
                 
                 if (!licenseInfo || !licenseInfo.license || licenseInfo.license === 'NOASSERTION') {
                     counts.unlicensed++;
@@ -3133,13 +3348,13 @@ class ViewManager {
         if (!analysisSelector) return;
 
         const analysisName = analysisSelector.value;
-        if (!analysisName) return;
+        // Allow empty string for aggregated view
+        if (analysisName === null || analysisName === undefined) return;
 
-        // Determine if this is combined data
-        const isCombinedData = analysisName === '__ALL__' || 
-                               analysisName === 'All Projects (Combined)' ||
+        // Determine if this is combined data (empty/null means aggregated)
+        const isCombinedData = !analysisName || analysisName === '' || 
                                analysisName === 'All Entries Combined' ||
-                               analysisName === 'All Organizations Combined';
+                               analysisName === 'All Analyses';
 
         let orgData;
         if (isCombinedData) {
@@ -3179,7 +3394,7 @@ class ViewManager {
     /**
      * Generate license types table data - groups dependencies by unique license name
      */
-    generateLicenseTypesTableData(allDependencies, categoryFilter = null) {
+    generateLicenseTypesTableData(allDependencies, categoryFilter = null, orgData = null) {
         if (!allDependencies || allDependencies.length === 0) {
             return [];
         }
@@ -3188,18 +3403,8 @@ class ViewManager {
         const licenseMap = new Map(); // license name -> { category, risk, packages: Set, repositories: Set }
 
         allDependencies.forEach(dep => {
-            // Check for enriched license data first (from deps.dev API or GitHub Actions analysis)
-            let licenseInfo = null;
-            if (dep.licenseFull && dep.licenseFull !== 'Unknown' && dep.licenseFull !== 'NOASSERTION') {
-                // Use enriched license data
-                licenseInfo = licenseProcessor.parseLicense({
-                    licenseConcluded: dep.licenseFull,
-                    licenseDeclared: dep.licenseFull
-                });
-            } else if (dep.originalPackage) {
-                // Fall back to parsing originalPackage
-                licenseInfo = licenseProcessor.parseLicense(dep.originalPackage);
-            }
+            // Use unified method to get license info
+            const { licenseInfo } = this.getDependencyLicenseInfo(dep, orgData);
             
             if (!licenseInfo) return;
             
@@ -3272,32 +3477,19 @@ class ViewManager {
     /**
      * Generate unlicensed dependencies table data
      */
-    generateUnlicensedTableData(allDependencies) {
+    generateUnlicensedTableData(allDependencies, orgData = null) {
         if (!allDependencies || allDependencies.length === 0) {
             return [];
         }
 
-        const licenseProcessor = new LicenseProcessor();
         const packageMap = new Map();
 
         allDependencies.forEach(dep => {
-            // Check for enriched license data first (from deps.dev API or GitHub Actions analysis)
-            let licenseInfo = null;
-            if (dep.licenseFull && dep.licenseFull !== 'Unknown' && dep.licenseFull !== 'NOASSERTION') {
-                // Use enriched license data
-                licenseInfo = licenseProcessor.parseLicense({
-                    licenseConcluded: dep.licenseFull,
-                    licenseDeclared: dep.licenseFull
-                });
-            } else if (dep.originalPackage) {
-                // Fall back to parsing originalPackage
-                licenseInfo = licenseProcessor.parseLicense(dep.originalPackage);
-            } else {
-                licenseInfo = { license: null, category: 'unknown' };
-            }
+            // Use unified method to get license info (includes GitHub Actions enriched data)
+            const { licenseInfo } = this.getDependencyLicenseInfo(dep, orgData);
 
             // Check if unlicensed
-            if (!licenseInfo.license || licenseInfo.license === 'NOASSERTION') {
+            if (!licenseInfo || !licenseInfo.license || licenseInfo.license === 'NOASSERTION') {
                 const packageName = dep.name || 'Unknown';
                 if (!packageName || packageName === 'Unknown') return;
 
@@ -3356,6 +3548,9 @@ class ViewManager {
             const licenseInfo = licenseProcessor.parseLicense(dep.originalPackage || {});
             const license = licenseInfo.license || 'Unknown';
             
+            // Get ecosystem for display
+            const ecosystem = dep.ecosystem || dep.category?.ecosystem || null;
+            
             if (!packageMap.has(packageName)) {
                 packageMap.set(packageName, []);
             }
@@ -3363,7 +3558,8 @@ class ViewManager {
                 version: dep.version || 'Unknown',
                 license: license,
                 category: licenseInfo.category || 'unknown',
-                repositories: dep.repositories || []
+                repositories: dep.repositories || [],
+                ecosystem: ecosystem
             });
         });
 
@@ -3382,16 +3578,25 @@ class ViewManager {
                 const current = versions[i];
                 const next = versions[i + 1];
                 
-                // Only report if licenses are different
-                if (current.license !== next.license && current.license !== 'Unknown' && next.license !== 'Unknown') {
+                // Normalize licenses before comparison to avoid false positives
+                const licenseProcessor = window.LicenseProcessor ? new window.LicenseProcessor() : null;
+                const normalizedCurrent = licenseProcessor ? licenseProcessor.normalizeLicenseName(current.license) : current.license;
+                const normalizedNext = licenseProcessor ? licenseProcessor.normalizeLicenseName(next.license) : next.license;
+                
+                // Only report if licenses are different after normalization
+                if (normalizedCurrent !== normalizedNext && normalizedCurrent !== 'Unknown' && normalizedNext !== 'Unknown') {
                     // Combine repositories from both versions
                     const allRepos = new Set([...(current.repositories || []), ...(next.repositories || [])]);
+                    
+                    // Use ecosystem from either version (they should be the same)
+                    const ecosystem = current.ecosystem || next.ecosystem || null;
                     
                     transitions.push({
                         type: 'license-transition',
                         packageName: packageName,
-                        fromLicense: current.license,
-                        toLicense: next.license,
+                        ecosystem: ecosystem,
+                        fromLicense: normalizedCurrent,
+                        toLicense: normalizedNext,
                         fromVersion: current.version,
                         toVersion: next.version,
                         fromCategory: current.category,
@@ -3783,8 +3988,72 @@ class ViewManager {
         const allRepos = orgData.data?.allRepositories || [];
         const rawHighRiskDeps = [];
         allDeps.forEach(dep => {
-            if (!dep.originalPackage) return;
-            const licenseInfo = licenseProcessor.parseLicense(dep.originalPackage);
+            // Skip dependencies without any package information
+            if (!dep.originalPackage && !dep.license && !dep.licenseFull) {
+                return;
+            }
+            
+            // Try to get license from multiple sources (in order of preference)
+            let licenseInfo = null;
+            
+            // 1. Check dep.licenseFull (most complete, from deps.dev API)
+            if (dep.licenseFull && 
+                dep.licenseFull !== 'Unknown' && 
+                dep.licenseFull !== 'NOASSERTION' && 
+                String(dep.licenseFull).trim() !== '') {
+                licenseInfo = licenseProcessor.parseLicense({
+                    licenseConcluded: dep.licenseFull,
+                    licenseDeclared: dep.licenseFull
+                });
+            }
+            // 2. Check dep.license (short form, from deps.dev API)
+            else if (dep.license && 
+                     dep.license !== 'Unknown' && 
+                     dep.license !== 'NOASSERTION' && 
+                     String(dep.license).trim() !== '') {
+                licenseInfo = licenseProcessor.parseLicense({
+                    licenseConcluded: dep.license,
+                    licenseDeclared: dep.license
+                });
+            }
+            // 3. Check GitHub Actions analysis metadata (for GitHub Actions dependencies)
+            else if (dep.category?.ecosystem === 'GitHub Actions' || dep.ecosystem === 'GitHub Actions') {
+                // Check dep._gaMetadata first (if set during processing)
+                if (dep._gaMetadata && dep._gaMetadata.license) {
+                    licenseInfo = licenseProcessor.parseLicense({
+                        licenseConcluded: dep._gaMetadata.license,
+                        licenseDeclared: dep._gaMetadata.license
+                    });
+                } else {
+                    // Fallback: search githubActionsAnalysis
+                    const enrichedLicense = this.getEnrichedGitHubActionLicense(dep, orgData);
+                    if (enrichedLicense) {
+                        licenseInfo = licenseProcessor.parseLicense({
+                            licenseConcluded: enrichedLicense,
+                            licenseDeclared: enrichedLicense
+                        });
+                    }
+                }
+            }
+            // 4. Parse from originalPackage (from SBOM) - always check this as fallback
+            if (!licenseInfo && dep.originalPackage) {
+                licenseInfo = licenseProcessor.parseLicense(dep.originalPackage);
+            }
+            
+            // If no license info found, treat as unlicensed/unknown
+            if (!licenseInfo || !licenseInfo.license || licenseInfo.license === 'NOASSERTION') {
+                // Include in high-risk if unlicensed
+                rawHighRiskDeps.push({
+                    name: dep.name || 'Unknown',
+                    version: dep.version || 'Unknown',
+                    license: 'Unknown',
+                    category: 'unknown',
+                    warnings: ['No license information found'],
+                    originalPackage: dep.originalPackage || null,
+                    isIncompatibleWithAnyRepo: false
+                });
+                return;
+            }
             
             // Check if this dependency is used by any repositories and if it's compatible
             const depRepos = dep.repositories || [];
@@ -3970,9 +4239,9 @@ class ViewManager {
 </div>`;
         }
 
-        // Handle combined data names for deps.html URL
-        const orgParam = (orgName === 'All Entries Combined' || orgName === 'All Projects (Combined)' || orgName === 'All Organizations Combined') 
-            ? '__ALL__' 
+        // Handle combined data names for deps.html URL (use empty for aggregated)
+        const orgParam = (!orgName || orgName === '' || orgName === 'All Entries Combined' || orgName === 'All Analyses') 
+            ? '' 
             : orgName;
         
         // Helper function to create deps.html URL
@@ -3987,11 +4256,15 @@ class ViewManager {
         if (allLicenseTransitions.length > 0) {
             const transitionRows = allLicenseTransitions.map(transition => {
                 const repoCount = transition.repositories ? transition.repositories.length : 0;
+                // Format dependency as ecosystem:name if ecosystem is available
+                const displayName = transition.ecosystem 
+                    ? `${transition.ecosystem}:${transition.packageName}` 
+                    : transition.packageName;
                 return `
                 <tr>
                     <td>
                         <a href="${createDepsUrl(transition.packageName, null)}" class="dependency-link" target="_blank">
-                            <code>${escapeHtml(transition.packageName)}</code>
+                            <code>${escapeHtml(displayName)}</code>
                         </a>
                     </td>
                     <td>
@@ -4034,7 +4307,7 @@ class ViewManager {
         }
 
         // Generate License Types Table
-        const licenseTypesData = this.generateLicenseTypesTableData(allDeps, categoryFilter);
+        const licenseTypesData = this.generateLicenseTypesTableData(allDeps, categoryFilter, orgData);
         let licenseTypesHTML = '';
         if (licenseTypesData.length > 0) {
             const getRiskBadgeClass = (risk) => {
@@ -4107,7 +4380,7 @@ class ViewManager {
         }
 
         // Generate Unlicensed Dependencies Table
-        const unlicensedData = this.generateUnlicensedTableData(allDeps);
+        const unlicensedData = this.generateUnlicensedTableData(allDeps, orgData);
         let unlicensedHTML = '';
         if (unlicensedData.length > 0) {
             const unlicensedRows = unlicensedData.map(pkg => {
@@ -4235,12 +4508,12 @@ class ViewManager {
         if (!storageManager) return;
 
         const orgName = container.getAttribute('data-org-name') || 
-                      document.querySelector('#analysisSelector')?.value || '__ALL__';
+                      document.querySelector('#analysisSelector')?.value || '';
         const orgDataName = container.getAttribute('data-org-data-name') || orgName;
 
-        // Load orgData
+        // Load orgData (empty/null means aggregated data)
         let orgData;
-        if (!orgDataName || orgDataName === '__ALL__' || orgDataName === 'All Projects (Combined)' || orgDataName === 'All Entries Combined' || orgDataName === 'All Organizations Combined') {
+        if (!orgDataName || orgDataName === '' || orgDataName === 'All Entries Combined' || orgDataName === 'All Analyses') {
             orgData = await storageManager.getCombinedData();
         } else {
             orgData = await storageManager.loadAnalysisDataForOrganization(orgDataName);
@@ -4249,8 +4522,8 @@ class ViewManager {
         if (!orgData || !orgData.data) return;
 
         const allDeps = orgData.data.allDependencies || [];
-        const orgParam = (orgName === 'All Entries Combined' || orgName === 'All Projects (Combined)' || orgName === 'All Organizations Combined') 
-            ? '__ALL__' 
+        const orgParam = (!orgName || orgName === '' || orgName === 'All Entries Combined' || orgName === 'All Analyses') 
+            ? '' 
             : orgName;
 
         // Determine which filter to apply
@@ -4284,7 +4557,7 @@ class ViewManager {
         };
 
         // Generate License Types Table
-        const licenseTypesData = this.generateLicenseTypesTableData(allDeps, filterCategory);
+        const licenseTypesData = this.generateLicenseTypesTableData(allDeps, filterCategory, orgData);
         let licenseTypesHTML = '';
         if (licenseTypesData.length > 0) {
             const getRiskBadgeClass = (risk) => {
@@ -4357,7 +4630,7 @@ class ViewManager {
         }
 
         // Generate Unlicensed Dependencies Table
-        const unlicensedData = this.generateUnlicensedTableData(allDeps);
+        const unlicensedData = this.generateUnlicensedTableData(allDeps, orgData);
         let unlicensedHTML = '';
         if (unlicensedData.length > 0) {
             const unlicensedRows = unlicensedData.map(pkg => {
@@ -4811,24 +5084,88 @@ class ViewManager {
         const repos = orgData.data.allRepositories || [];
         
         // Find the dependency in allDependencies
-        const fullDep = allDeps.find(d => 
+        // Try exact match first, then try matching by displayVersion or assumedVersion
+        // This handles cases where vulnerability analysis used dep.version but exportData used displayVersion
+        let fullDep = allDeps.find(d => 
             d.name === vulnDep.name && d.version === vulnDep.version
         );
+        
+        // If not found, try matching by displayVersion or assumedVersion
+        if (!fullDep) {
+            fullDep = allDeps.find(d => 
+                d.name === vulnDep.name && (
+                    d.displayVersion === vulnDep.version ||
+                    d.assumedVersion === vulnDep.version ||
+                    d.version === vulnDep.version
+                )
+            );
+        }
+        
+        // If still not found, try fuzzy matching (normalize versions)
+        if (!fullDep && window.normalizeVersion) {
+            const normalizedVulnVersion = window.normalizeVersion(vulnDep.version);
+            fullDep = allDeps.find(d => {
+                if (d.name !== vulnDep.name) return false;
+                const normalizedDepVersion = window.normalizeVersion(d.version || '');
+                const normalizedDisplayVersion = window.normalizeVersion(d.displayVersion || '');
+                return normalizedDepVersion === normalizedVulnVersion || 
+                       normalizedDisplayVersion === normalizedVulnVersion;
+            });
+        }
 
         if (!fullDep) {
+            console.warn(`⚠️ Could not find dependency ${vulnDep.name}@${vulnDep.version} in allDependencies for repository usage`);
+            // Still try to use all repos as fallback for unknown dependencies
+            if (repos.length > 0) {
+                console.log(`   📌 Fallback: using all ${repos.length} repo(s) for unmatched dependency ${vulnDep.name}`);
+                const usage = [];
+                repos.forEach(repo => {
+                    usage.push({
+                        repoKey: `${repo.owner}/${repo.name}`,
+                        pathStr: `${vulnDep.name}@${vulnDep.version}`,
+                        isArchived: repo.archived || false
+                    });
+                });
+                return usage;
+            }
             return [];
         }
 
         const usage = [];
-        const repoKeys = fullDep.repositories || [];
+        let repoKeys = fullDep.repositories || [];
+        
+        // If no repositories found, use fallback: all repos from the scan
+        // This handles legacy data where transitive deps weren't properly associated
+        if (repoKeys.length === 0) {
+            console.warn(`⚠️ Dependency ${vulnDep.name}@${vulnDep.version} found but has no repositories linked - using fallback`);
+            // Fallback: use all repos from the current analysis
+            repoKeys = repos.map(r => `${r.owner}/${r.name}`);
+            if (repoKeys.length > 0) {
+                console.log(`   📌 Fallback: associating with ${repoKeys.length} repo(s) from analysis`);
+            }
+        }
 
         repoKeys.forEach(repoKey => {
             const repo = repos.find(r => `${r.owner}/${r.name}` === repoKey);
-            if (!repo) return;
+            if (!repo) {
+                console.warn(`⚠️ Repository ${repoKey} not found in allRepositories for dependency ${vulnDep.name}@${vulnDep.version}`);
+                return;
+            }
 
             const pathInfo = this.buildDependencyPath(repo, vulnDep, allDeps);
             if (pathInfo) {
+                // Add repository archived status
+                pathInfo.isArchived = repo.archived || false;
                 usage.push(pathInfo);
+            } else {
+                // Fallback: dependency found in repo but no SPDX path info (transitive dep added during resolution)
+                usage.push({
+                    isDirect: false,
+                    path: [vulnDep.name + '@' + vulnDep.version],
+                    repoKey: repoKey,
+                    pathStr: vulnDep.name + '@' + vulnDep.version + ' (transitive)',
+                    isArchived: repo.archived || false
+                });
             }
         });
 
@@ -4864,6 +5201,66 @@ class ViewManager {
                 });
             }
             
+            // Sort by: 1) Severity (Critical first), 2) Vulnerability count, 3) Repository impact
+            const severityOrder = { 'CRITICAL': 0, 'HIGH': 1, 'MEDIUM': 2, 'MODERATE': 2, 'LOW': 3, 'UNKNOWN': 4 };
+            
+            vulnerableDeps.sort((a, b) => {
+                // Get highest severity for each dependency
+                const getHighestSeverity = (dep) => {
+                    if (!dep.vulnerabilities || !Array.isArray(dep.vulnerabilities)) return 'UNKNOWN';
+                    let highest = 'UNKNOWN';
+                    let highestOrder = 4;
+                    dep.vulnerabilities.forEach(vuln => {
+                        if (!vuln || typeof vuln !== 'object') return;
+                        const severity = window.osvService ? window.osvService.getHighestSeverity(vuln) : 'UNKNOWN';
+                        const order = severityOrder[severity] ?? 4;
+                        if (order < highestOrder) {
+                            highestOrder = order;
+                            highest = severity;
+                        }
+                    });
+                    return highest;
+                };
+                
+                // Get repository count for each dependency
+                const getRepoCount = (dep) => {
+                    // Try to get from repositories array on the dependency
+                    if (dep.repositories && Array.isArray(dep.repositories)) {
+                        return dep.repositories.length;
+                    }
+                    // Fallback: look up in allDependencies
+                    const fullDep = orgData.data.allDependencies?.find(d => 
+                        d.name === dep.name && (d.version === dep.version || d.displayVersion === dep.version)
+                    );
+                    if (fullDep?.repositories) {
+                        return Array.isArray(fullDep.repositories) ? fullDep.repositories.length : fullDep.repositories.size || 0;
+                    }
+                    return 0;
+                };
+                
+                const severityA = getHighestSeverity(a);
+                const severityB = getHighestSeverity(b);
+                const severityOrderA = severityOrder[severityA] ?? 4;
+                const severityOrderB = severityOrder[severityB] ?? 4;
+                
+                // 1. Sort by severity (Critical first)
+                if (severityOrderA !== severityOrderB) {
+                    return severityOrderA - severityOrderB;
+                }
+                
+                // 2. Sort by vulnerability count (most vulnerabilities first)
+                const vulnCountA = a.vulnerabilities?.length || 0;
+                const vulnCountB = b.vulnerabilities?.length || 0;
+                if (vulnCountB !== vulnCountA) {
+                    return vulnCountB - vulnCountA;
+                }
+                
+                // 3. Sort by repository impact (most repos first)
+                const repoCountA = getRepoCount(a);
+                const repoCountB = getRepoCount(b);
+                return repoCountB - repoCountA;
+            });
+            
             const processedDeps = [];
             
             // Store total count before slicing
@@ -4873,6 +5270,7 @@ class ViewManager {
             const paginatedDeps = vulnerableDeps.slice(offset, offset + limit);
             const hasMore = offset + limit < totalCount;
             
+            // Process dependencies sequentially to handle async version drift lookups
             for (const dep of paginatedDeps) {
                 const usage = this.getVulnerableDepUsage(dep, orgData);
                 const uniqueRepos = [...new Set(usage.map(u => u.repoKey))];
@@ -4904,10 +5302,80 @@ class ViewManager {
                     continue;
                 }
                 
-                // Prepare usage paths
+                // Get version drift information - try from vulnerable dependency first, then from allDependencies, then from cache
+                let versionDrift = dep.versionDrift || null;
+                
+                // Fallback: Find the full dependency to get version drift data if not on vulnerable dep
+                // Use flexible version matching (version, displayVersion, assumedVersion)
+                let fullDep = null;
+                if (!versionDrift && orgData.data.allDependencies) {
+                    fullDep = orgData.data.allDependencies.find(d => {
+                        if (d.name !== dep.name) return false;
+                        // Try multiple version fields for matching
+                        return d.version === dep.version || 
+                               d.displayVersion === dep.version ||
+                               d.assumedVersion === dep.version ||
+                               dep.version === d.displayVersion ||
+                               dep.version === d.assumedVersion;
+                    });
+                    versionDrift = fullDep?.versionDrift || null;
+                    
+                    // Debug: Log if we found the dependency but it has no versionDrift
+                    if (fullDep && !versionDrift) {
+                        console.debug(`📊 Version drift missing for ${dep.name}@${dep.version}:`, {
+                            foundDep: !!fullDep,
+                            hasVersionDrift: !!fullDep?.versionDrift,
+                            depVersion: dep.version,
+                            fullDepVersion: fullDep?.version,
+                            fullDepDisplayVersion: fullDep?.displayVersion
+                        });
+                    }
+                }
+                
+                // If still not found, try to get from cache (async)
+                if (!versionDrift && window.VersionDriftAnalyzer) {
+                    const depForLookup = fullDep || dep;
+                    const ecosystemValue = depForLookup.category?.ecosystem || depForLookup.ecosystem;
+                    if (ecosystemValue && depForLookup.name && depForLookup.version) {
+                        try {
+                            let ecosystem = ecosystemValue.toLowerCase();
+                            // Normalize ecosystem aliases
+                            if (ecosystem === 'rubygems' || ecosystem === 'gem') {
+                                ecosystem = 'gem';
+                            } else if (ecosystem === 'go' || ecosystem === 'golang') {
+                                ecosystem = 'golang';
+                            } else if (ecosystem === 'packagist' || ecosystem === 'composer') {
+                                ecosystem = 'composer';
+                            } else if (ecosystem === 'pypi') {
+                                ecosystem = 'pypi';
+                            } else if (ecosystem === 'npm') {
+                                ecosystem = 'npm';
+                            } else if (ecosystem === 'maven') {
+                                ecosystem = 'maven';
+                            }
+                            const packageKey = `${ecosystem}:${depForLookup.name}`;
+                            const versionDriftAnalyzer = new window.VersionDriftAnalyzer();
+                            versionDrift = await versionDriftAnalyzer.getVersionDriftFromCache(packageKey, depForLookup.version);
+                            if (versionDrift) {
+                                console.log(`✅ Got version drift from cache for ${packageKey}@${depForLookup.version}:`, versionDrift);
+                            }
+                        } catch (e) {
+                            console.debug('Failed to get version drift from cache:', e);
+                        }
+                    } else {
+                        console.debug(`⚠️ Cannot lookup version drift: ecosystem=${ecosystemValue}, name=${depForLookup?.name}, version=${depForLookup?.version}`);
+                    }
+                }
+                
+                const hasMajorUpdate = versionDrift?.hasMajorUpdate || false;
+                const hasMinorUpdate = versionDrift?.hasMinorUpdate || false;
+                const latestVersion = versionDrift?.latestVersion || null;
+                
+                // Prepare usage paths with repository info
                 const usageForTemplate = usage.map(u => ({
                     repoKey: u.repoKey,
-                    pathStr: u.isDirect ? u.path[0] : u.path.join(' → ')
+                    pathStr: u.isDirect ? u.path[0] : u.path.join(' → '),
+                    isArchived: u.isArchived || false
                 }));
                 
                 processedDeps.push({
@@ -4923,13 +5391,27 @@ class ViewManager {
                     reposPlural: uniqueRepos.length !== 1 ? 'ies' : 'y',
                     reposWord: uniqueRepos.length !== 1 ? 'repositories' : 'repository',
                     usage: usageForTemplate,
-                    allVulnsJson: JSON.stringify(depVulnerabilities).replace(/"/g, '&quot;') // Use filtered vulnerabilities
+                    allVulnsJson: JSON.stringify(depVulnerabilities).replace(/"/g, '&quot;'), // Use filtered vulnerabilities
+                    hasMajorUpdate: hasMajorUpdate,
+                    hasMinorUpdate: hasMinorUpdate,
+                    latestVersion: latestVersion
                 });
             }
             
             if (processedDeps.length > 0) {
                 // Render each dependency item inline
                 const depItems = processedDeps.map(depData => {
+                    // Build version upgrade badges (inline with package name)
+                    // Show both major and minor badges if both are available
+                    const versionBadges = [];
+                    if (depData.hasMajorUpdate && depData.latestVersion) {
+                        versionBadges.push(`<span class="badge bg-danger ms-2" title="Major version upgrade available"><i class="fas fa-arrow-up me-1"></i>Major: ${escapeHtml(depData.latestVersion)}</span>`);
+                    }
+                    if (depData.hasMinorUpdate && depData.latestVersion) {
+                        versionBadges.push(`<span class="badge bg-warning text-dark ms-2" title="Minor version upgrade available"><i class="fas fa-arrow-up me-1"></i>Minor: ${escapeHtml(depData.latestVersion)}</span>`);
+                    }
+                    const versionBadgesHTML = versionBadges.join('');
+                    
                     const usageHTML = depData.hasUsage 
                         ? `<div class="vuln-repo-usage mt-3 p-2 bg-light rounded">
             <small class="text-muted d-block mb-2">
@@ -4937,10 +5419,13 @@ class ViewManager {
                 <strong>Used in ${depData.uniqueReposCount} ${depData.reposWord}:</strong>
             </small>
             <div class="vuln-paths" style="font-size: 0.85em;">
-                ${depData.usage.map(u => `
+                ${depData.usage.map(u => {
+                    const archivedBadge = u.isArchived ? '<span class="badge bg-secondary ms-1" title="Archived Repository"><i class="fas fa-archive"></i> Archived</span>' : '';
+                    return `
                 <div class="mb-2" style="padding-left: 10px;">
-                    <code class="text-primary fw-bold">${escapeHtml(u.repoKey)}</code>: <code>${escapeHtml(u.pathStr)}</code>
-                </div>`).join('')}
+                    <code class="text-primary fw-bold">${escapeHtml(u.repoKey)}</code>${archivedBadge}: <code>${escapeHtml(u.pathStr)}</code>
+                </div>`;
+                }).join('')}
             </div>
         </div>`
                         : `<div class="mt-2">
@@ -4951,7 +5436,9 @@ class ViewManager {
                     
                     return `<div class="vulnerable-dep-item mb-3" style="border-left: 3px solid #dc3545; padding-left: 15px;">
     <div class="vuln-dep-info">
-        <div class="vuln-dep-name" style="font-weight: bold; font-size: 1.1em;">${escapeHtml(depData.name)}@${escapeHtml(depData.version)}</div>
+        <div class="vuln-dep-name d-flex align-items-center flex-wrap" style="font-weight: bold; font-size: 1.1em;">
+            <span>${escapeHtml(depData.name)}@${escapeHtml(depData.version)}</span>${versionBadgesHTML}
+        </div>
         <div class="vuln-dep-count mb-2">${depData.vulnerabilityCount} ${depData.vulnerabilityCount !== 1 ? 'vulnerabilities' : 'vulnerability'}</div>
         <div class="vuln-severity-badges mb-2">
             ${depData.vulnerabilities.map(vuln => `
@@ -4972,12 +5459,13 @@ class ViewManager {
                 });
                 
                 // Add load more button if there are more items
-                // Use a consistent identifier: '__ALL__' for combined data, otherwise use orgName
-                const loadMoreIdentifier = (orgName === 'All Entries Combined' || orgName === 'All Projects (Combined)' || orgName === 'All Organizations Combined') ? '__ALL__' : orgName;
+                // Use empty string for aggregated data, otherwise use orgName
+                const loadMoreIdentifier = (!orgName || orgName === '' || orgName === 'All Entries Combined' || orgName === 'All Analyses') ? '' : orgName;
+                const remainingCount = totalCount - (offset + limit);
                 const loadMoreHTML = hasMore ? `
                     <div class="text-center mt-3">
-                        <button class="btn btn-primary" onclick="viewManager.loadMoreVulnerabilities('${escapeJsString(escapeHtml(loadMoreIdentifier))}', '${severityFilter || ''}', ${offset + limit})">
-                            <i class="fas fa-chevron-down me-2"></i>Load More (${totalCount - (offset + limit)} remaining)
+                        <button class="btn btn-primary" onclick="viewManager.loadMoreVulnerabilities('${escapeJsString(escapeHtml(loadMoreIdentifier))}', '${severityFilter || ''}', ${offset + limit}, ${remainingCount})">
+                            <i class="fas fa-list me-2"></i>Show All Remaining (${remainingCount})
                         </button>
                     </div>
                 ` : '';
@@ -5054,12 +5542,13 @@ class ViewManager {
     </div>
 </div>`;
         } else {
+            // Show empty stats (0 vulnerabilities) instead of "No Analysis Yet" message
             return `<div id="vulnerability-section" class="independent-section">
     <div class="vulnerability-breakdown">
         <h3>🔒 Vulnerability Analysis</h3>
         <div class="vulnerability-actions mb-3">
             <button class="btn btn-primary btn-sm" onclick="viewManager.runBatchVulnerabilityQuery('${escapeJsString(escapeHtml(orgName))}')">
-                <i class="fas fa-search"></i> Run Initial Vulnerability Analysis
+                <i class="fas fa-search"></i> Run Vulnerability Analysis
             </button>
             <button class="btn btn-info btn-sm" onclick="viewManager.showVulnerabilityCacheStats()">
                 <i class="fas fa-database"></i> Cache Stats
@@ -5068,10 +5557,32 @@ class ViewManager {
                 <i class="fas fa-trash"></i> Clear Cache
             </button>
         </div>
-        <div class="alert alert-info">
-            <h6>📋 No Vulnerability Analysis Yet</h6>
-            <p>This organization hasn't been analyzed for vulnerabilities yet. Click "Run Initial Vulnerability Analysis" to scan all dependencies for known vulnerabilities.</p>
-            <p><strong>Note:</strong> This will query the OSV API for each dependency and may take a few minutes depending on the number of dependencies.</p>
+        <div class="vulnerability-stats">
+            <div class="vuln-stat-card critical">
+                <h4>🚨 Critical</h4>
+                <div class="vuln-number">0</div>
+                <div class="vuln-detail">vulnerabilities</div>
+            </div>
+            <div class="vuln-stat-card high">
+                <h4>⚠️ High</h4>
+                <div class="vuln-number">0</div>
+                <div class="vuln-detail">vulnerabilities</div>
+            </div>
+            <div class="vuln-stat-card medium">
+                <h4>🔶 Medium</h4>
+                <div class="vuln-number">0</div>
+                <div class="vuln-detail">vulnerabilities</div>
+            </div>
+            <div class="vuln-stat-card low">
+                <h4>ℹ️ Low</h4>
+                <div class="vuln-number">0</div>
+                <div class="vuln-detail">vulnerabilities</div>
+            </div>
+            <div class="vuln-stat-card packages">
+                <h4>📦 Packages</h4>
+                <div class="vuln-number">0</div>
+                <div class="vuln-detail">vulnerable packages</div>
+            </div>
         </div>
     </div>
 </div>`;
@@ -5187,9 +5698,24 @@ class ViewManager {
             const severity = finding.severity || 'warning';
             const severityClass = severity === 'high' || severity === 'error' ? 'danger' : 
                                  severity === 'medium' ? 'warning' : 'info';
-            const actionLink = finding.action ? 
-                `<a href="https://github.com/${finding.action.split('@')[0]}" target="_blank" rel="noreferrer noopener">${escapeHtml(finding.action)}</a>` : 
-                'N/A';
+            // Build action link - extract owner/repo from action name
+            // Action format: owner/repo@ref or owner/repo/path@ref
+            // For links, we want just owner/repo (remove path component)
+            let actionLink = 'N/A';
+            if (finding.action) {
+                const actionName = finding.action.split('@')[0]; // Get part before @
+                // Extract owner/repo (first two parts, remove any path components)
+                const actionParts = actionName.split('/');
+                if (actionParts.length >= 2) {
+                    const owner = actionParts[0];
+                    const repo = actionParts[1];
+                    const actionRepoUrl = `https://github.com/${owner}/${repo}`;
+                    actionLink = `<a href="${actionRepoUrl}" target="_blank" rel="noreferrer noopener">${escapeHtml(finding.action)}</a>`;
+                } else {
+                    // Fallback if format is unexpected
+                    actionLink = escapeHtml(finding.action);
+                }
+            }
             
             findingsHTML += `<tr>
                 <td><span class="badge bg-${severityClass}">${severity}</span></td>
@@ -5249,7 +5775,7 @@ class ViewManager {
     /**
      * Load more vulnerabilities (pagination)
      */
-    async loadMoreVulnerabilities(orgName, severityFilter, offset) {
+    async loadMoreVulnerabilities(orgName, severityFilter, offset, limit = 25) {
         // Get the current org data
         if (!window.storageManager) {
             console.error('StorageManager not available. Cannot load more vulnerabilities.');
@@ -5274,12 +5800,10 @@ class ViewManager {
         const identifier = analysisName || orgName;
         
         // Determine which data to load based on identifier
-        // Handle various possible names for combined data
-        const isCombined = !identifier || 
-                          identifier === '__ALL__' || 
-                          identifier === 'All Projects (Combined)' ||
+        // Handle aggregated data (empty/null identifier)
+        const isCombined = !identifier || identifier === '' || 
                           identifier === 'All Entries Combined' ||
-                          identifier === 'All Organizations Combined';
+                          identifier === 'All Analyses';
         
         let orgData;
         try {
@@ -5311,7 +5835,7 @@ class ViewManager {
         const nextBatchHTML = await this.generateVulnerabilityAnalysisHTML(
             orgData, 
             severityFilter || null, 
-            25, // limit
+            limit, // limit - passed as parameter (defaults to 25, or all remaining when button clicked)
             offset // offset
         );
         

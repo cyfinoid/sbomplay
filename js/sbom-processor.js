@@ -1,6 +1,9 @@
 /**
  * SBOM Processor - Analyzes and processes SBOM data
+ * BUILD: 1764042481675 (with repository association fix for all dependencies)
  */
+console.log('📦 SBOM Processor loaded - BUILD: 1764042481675 (repository association fix)');
+
 class SBOMProcessor {
     constructor() {
         this.dependencies = new Map();
@@ -15,6 +18,9 @@ class SBOMProcessor {
         
         // Initialize quality processor
         this.qualityProcessor = window.SBOMQualityProcessor ? new window.SBOMQualityProcessor() : null;
+        
+        // Initialize version resolver (will be created once when needed)
+        this.versionResolver = null;
         
         // GitHub Actions analysis results
         this.githubActionsAnalysis = null;
@@ -112,6 +118,115 @@ class SBOMProcessor {
             }
         }
 
+        // Fallback: If no PURL found and still Unknown, try to detect from package name patterns
+        if (category.ecosystem === 'Unknown' && pkg.name) {
+            const name = pkg.name.toLowerCase();
+            
+            // GitHub Actions (e.g., "actions/checkout", "github/codeql-action/init")
+            if (name.startsWith('actions/') || name.startsWith('github/') || name.includes('/action')) {
+                const githubActionsTypeInfo = window.ecosystemMapper?.getCategoryInfo('githubactions') || this.purlTypeMap['githubactions'];
+                if (githubActionsTypeInfo) {
+                    category = {
+                        ...githubActionsTypeInfo,
+                        isWorkflow: true,
+                        isInfrastructure: false,
+                        isCode: false
+                    };
+                }
+            }
+            // Maven packages use groupId:artifactId format (e.g., "org.codehaus.plexus:plexus-utils")
+            else if (pkg.name.includes(':') && !pkg.name.startsWith('@')) {
+                const mavenTypeInfo = window.ecosystemMapper?.getCategoryInfo('maven') || this.purlTypeMap['maven'];
+                if (mavenTypeInfo) {
+                    category = {
+                        ...mavenTypeInfo,
+                        isWorkflow: false,
+                        isInfrastructure: false,
+                        isCode: true
+                    };
+                } else {
+                    // Fallback if ecosystemMapper not available
+                    category = {
+                        type: 'code',
+                        language: 'Java',
+                        ecosystem: 'Maven',
+                        isWorkflow: false,
+                        isInfrastructure: false,
+                        isCode: true
+                    };
+                }
+            }
+            // npm scoped packages start with @
+            else if (pkg.name.startsWith('@')) {
+                const npmTypeInfo = window.ecosystemMapper?.getCategoryInfo('npm') || this.purlTypeMap['npm'];
+                if (npmTypeInfo) {
+                    category = {
+                        ...npmTypeInfo,
+                        isWorkflow: false,
+                        isInfrastructure: false,
+                        isCode: true
+                    };
+                }
+            }
+            // Go modules (e.g., "github.com/user/repo", "golang.org/x/...")
+            // Note: These are package NAME patterns, not URLs - using regex for module path matching
+            else if (name.match(/^github\.com\//) || name.match(/^golang\.org\//) || name.match(/^go\./) || 
+                     (name.includes('/') && (name.endsWith('.go') || name.match(/^[a-z0-9.-]+\/[a-z0-9.-]+$/i)))) {
+                const goTypeInfo = window.ecosystemMapper?.getCategoryInfo('go') || this.purlTypeMap['go'];
+                if (goTypeInfo) {
+                    category = {
+                        ...goTypeInfo,
+                        isWorkflow: false,
+                        isInfrastructure: false,
+                        isCode: true
+                    };
+                }
+            }
+            // Docker images (e.g., "alpine", "node", "python", or contain "/" and common docker patterns)
+            else if (name.includes('docker') || name.includes('container') || 
+                     (name.includes('/') && (name.includes('alpine') || name.includes('ubuntu') || 
+                      name.includes('debian') || name.includes('centos') || name.includes('fedora')))) {
+                const dockerTypeInfo = window.ecosystemMapper?.getCategoryInfo('docker') || this.purlTypeMap['docker'];
+                if (dockerTypeInfo) {
+                    category = {
+                        ...dockerTypeInfo,
+                        isWorkflow: false,
+                        isInfrastructure: true,
+                        isCode: false
+                    };
+                }
+            }
+            // PyPI packages (common Python package naming patterns)
+            else if (name.match(/^[a-z0-9_-]+$/) && !name.includes('/') && !name.includes('@') && 
+                     (name.includes('_') || name.includes('-') || name.length > 3)) {
+                // Check if it looks like a Python package (common patterns)
+                // This is a heuristic - PyPI packages are often lowercase with underscores/hyphens
+                const pypiTypeInfo = window.ecosystemMapper?.getCategoryInfo('pypi') || this.purlTypeMap['pypi'];
+                if (pypiTypeInfo) {
+                    category = {
+                        ...pypiTypeInfo,
+                        isWorkflow: false,
+                        isInfrastructure: false,
+                        isCode: true
+                    };
+                }
+            }
+            // RubyGems (common gem naming patterns - lowercase, may have hyphens)
+            else if (name.match(/^[a-z0-9_-]+$/) && !name.includes('/') && !name.includes('@') && 
+                     (name.includes('-') || name.length > 3)) {
+                // This is a heuristic - RubyGems often use lowercase with hyphens
+                const gemTypeInfo = window.ecosystemMapper?.getCategoryInfo('gem') || window.ecosystemMapper?.getCategoryInfo('rubygems') || this.purlTypeMap['rubygems'];
+                if (gemTypeInfo) {
+                    category = {
+                        ...gemTypeInfo,
+                        isWorkflow: false,
+                        isInfrastructure: false,
+                        isCode: true
+                    };
+                }
+            }
+        }
+
         return category;
     }
 
@@ -123,10 +238,16 @@ class SBOMProcessor {
      * @param {string} repositoryLicense - Repository's own license (SPDX identifier, e.g., 'GPL-3.0', 'MIT')
      * @param {boolean} archived - Whether the repository is archived
      */
-    processSBOM(owner, repo, sbomData, repositoryLicense = null, archived = false) {
+    async processSBOM(owner, repo, sbomData, repositoryLicense = null, archived = false) {
         if (!sbomData || !sbomData.sbom || !sbomData.sbom.packages) {
             console.log(`⚠️  Invalid SBOM data for ${owner}/${repo}`);
             return false;
+        }
+
+        // Initialize version resolver if not already done
+        if (!this.versionResolver && window.DependencyTreeResolver) {
+            this.versionResolver = new window.DependencyTreeResolver();
+            console.log('✅ Version resolver initialized for SBOM processing');
         }
 
         console.log(`🔍 Processing SBOM for ${owner}/${repo}: ${sbomData.sbom.packages.length} packages found`);
@@ -175,7 +296,8 @@ class SBOMProcessor {
         let skippedPackages = 0;
 
         // Process each package in the SBOM
-        sbomData.sbom.packages.forEach((pkg, index) => {
+        for (let index = 0; index < sbomData.sbom.packages.length; index++) {
+            const pkg = sbomData.sbom.packages[index];
             // GitHub SBOM uses 'versionInfo' instead of 'version'
             let version = pkg.versionInfo || pkg.version;
             
@@ -191,27 +313,53 @@ class SBOMProcessor {
             if (pkg.name === `com.github.${owner}/${repo}` || pkg.name === `${owner}/${repo}`) {
                 console.log(`  ⏭️  Skipping main repository package: ${pkg.name} (not an external dependency)`);
                 skippedPackages++;
-                return;
+                continue;
             }
             
             // Skip packages without names (cannot identify dependency)
             if (!pkg.name) {
                 skippedPackages++;
                 console.log(`⚠️  Package missing name in ${owner}/${repo}`);
-                return;
+                continue;
             }
             
-            // Use "version unknown" as placeholder when version is missing
-            // This ensures dependencies without versions are still tracked and displayed
-            const displayVersion = version || 'version unknown';
+            // Categorize the dependency first (needed for version fetching)
+            const category = this.categorizeDependency(pkg);
+            
+            // When version is missing, ALWAYS try to fetch latest version from registry
+            let displayVersion = version;
+            let assumedVersion = null;
+            if (!version) {
+                console.log(`⚠️  Package missing version in ${owner}/${repo}: ${pkg.name} (attempting to fetch latest version)`);
+                const ecosystem = category?.ecosystem?.toLowerCase();
+                
+                if (ecosystem && this.versionResolver) {
+                    try {
+                        const latestVersion = await this.versionResolver.fetchLatestVersion(pkg.name, ecosystem);
+                        if (latestVersion) {
+                            version = latestVersion;  // Use as actual version
+                            displayVersion = latestVersion;
+                            assumedVersion = latestVersion;
+                            console.log(`   ✅ Assumed latest version for ${pkg.name}: ${latestVersion}`);
+                        } else {
+                            console.warn(`   ⚠️  Could not fetch latest version for ${pkg.name} from ${ecosystem} registry`);
+                        }
+                    } catch (error) {
+                        console.warn(`   ⚠️  Failed to fetch latest version for ${pkg.name}: ${error.message}`);
+                    }
+                } else if (!this.versionResolver) {
+                    console.warn(`   ⚠️  Version resolver not available for ${pkg.name}`);
+                }
+                
+                // If still no version after fetch attempt, store as 'unknown' (not null)
+                if (!version) {
+                    version = 'unknown';
+                    displayVersion = 'unknown';
+                }
+            }
             const depKey = `${pkg.name}@${displayVersion}`;
             repoData.dependencies.add(depKey);
             processedPackages++;
-            
-            // Log warning if version is missing
-            if (!version) {
-                console.log(`⚠️  Package missing version in ${owner}/${repo}: ${pkg.name} (using "version unknown")`);
-            }
             
             // Check if this is a direct dependency (directly from main package)
             const isDirect = repoData.relationships.some(rel => 
@@ -220,9 +368,6 @@ class SBOMProcessor {
             if (isDirect) {
                 repoData.directDependencies.add(depKey);
             }
-            
-            // Categorize the dependency
-            const category = this.categorizeDependency(pkg);
             repoData.languages.add(category.language);
             
             // Add to appropriate category
@@ -238,7 +383,9 @@ class SBOMProcessor {
             if (!this.dependencies.has(depKey)) {
                 this.dependencies.set(depKey, {
                     name: pkg.name,
-                    version: displayVersion,
+                    version: version || 'unknown',  // Never store null, always store a string value
+                    displayVersion: displayVersion,  // Display version (may be "unknown")
+                    assumedVersion: assumedVersion,  // Latest version if it was fetched (null if original version was present)
                     repositories: new Set(),
                     count: 0,
                     category: category,
@@ -247,7 +394,7 @@ class SBOMProcessor {
                     directIn: new Set(),  // Track which repos use this as direct dependency
                     transitiveIn: new Set(),  // Track which repos use this as transitive dependency
                     githubActionInfo: githubActionInfo,  // Store parsed GitHub Action info
-                    versionUnknown: !version  // Flag to indicate version was missing
+                    versionUnknown: !version && !assumedVersion  // Flag to indicate version was missing and not assumed
                 });
             }
             
@@ -272,7 +419,7 @@ class SBOMProcessor {
             if (index < 3) {
                 console.log(`  📦 Package ${index + 1}: ${pkg.name}@${displayVersion} (${category.type}/${category.language})`);
             }
-        });
+        }
 
         repoData.totalDependencies = repoData.dependencies.size;
         
@@ -366,7 +513,8 @@ class SBOMProcessor {
         
         return sortedDeps.map(dep => ({
             name: dep.name,
-            version: dep.version,
+            version: dep.displayVersion || dep.version,  // Use displayVersion (may be assumed)
+            assumedVersion: dep.assumedVersion || null,  // Latest version if assumed
             count: dep.count,
             repositories: Array.from(dep.repositories),
             category: dep.category,
@@ -441,7 +589,9 @@ class SBOMProcessor {
      */
     getRepositoryStats() {
         const repos = Array.from(this.repositories.values());
-        const totalDeps = repos.reduce((sum, repo) => sum + repo.totalDependencies, 0);
+        // Use the actual global dependency count (includes transitive dependencies from deep resolution)
+        // instead of summing per-repo counts which are set before deep resolution runs
+        const totalDeps = this.dependencies.size;
         
         // Calculate category breakdown
         const categoryBreakdown = {
@@ -527,7 +677,6 @@ class SBOMProcessor {
             return null;
         }
         
-        const resolver = new window.DependencyTreeResolver();
         const resolvedTrees = new Map(); // ecosystem -> tree
         
         try {
@@ -553,6 +702,9 @@ class SBOMProcessor {
             const resolveEcosystem = async ([ecosystem, directDeps], index) => {
                 console.log(`  🔍 Resolving ${ecosystem} dependencies (${directDeps.size} direct)...`);
                 
+                // Create a new resolver instance for each ecosystem to avoid counter conflicts when running in parallel
+                const resolver = new window.DependencyTreeResolver();
+                
                 try {
                     // Create progress callback for this ecosystem
                     const ecosystemProgressCallback = (progress) => {
@@ -560,10 +712,14 @@ class SBOMProcessor {
                             // Map package-level progress to ecosystem-level progress
                             const ecosystemProgress = index + (progress.processed / progress.total);
                             onProgress({
-                                phase: 'resolving-tree',
+                                phase: 'resolving-package',
                                 ecosystem: ecosystem,
-                                processed: index,
-                                total: ecosystemEntries.length,
+                                processed: progress.processed,
+                                total: progress.total,
+                                packageName: progress.packageName || progress.package || null,
+                                remaining: progress.remaining || (progress.total - progress.processed),
+                                depChain: progress.depChain || [],
+                                totalPackagesProcessed: progress.totalPackagesProcessed || 0,
                                 packageProgress: progress,
                                 ecosystemProgress: ecosystemProgress
                             });
@@ -578,12 +734,164 @@ class SBOMProcessor {
                     );
                     
                     // Update dependencies with depth information
+                    // Use depth to correctly classify dependencies as direct (depth=1) or transitive (depth>1)
+                    // Track which repos have direct dependencies in this ecosystem to propagate transitive status
+                    const reposWithDirectDeps = new Set();
+                    directDeps.forEach(depKey => {
+                        const directDep = this.dependencies.get(depKey);
+                        if (directDep) {
+                            directDep.directIn.forEach(repo => reposWithDirectDeps.add(repo));
+                        }
+                    });
+                    
                     for (const [packageKey, treeNode] of tree) {
-                        const dep = this.dependencies.get(packageKey);
-                        if (dep) {
-                            dep.depth = treeNode.depth;
-                            dep.parents = Array.from(treeNode.parents);
-                            dep.children = Array.from(treeNode.children);
+                        let dep = this.dependencies.get(packageKey);
+                        
+                        // If dependency doesn't exist yet (discovered during tree resolution), create it
+                        if (!dep) {
+                            // Parse package name and version from packageKey
+                            // Handle scoped packages (e.g., @scope/package@version)
+                            let name, version;
+                            if (packageKey.startsWith('@')) {
+                                // Scoped package: @scope/package@version
+                                const lastAtIndex = packageKey.lastIndexOf('@');
+                                name = packageKey.substring(0, lastAtIndex);
+                                version = packageKey.substring(lastAtIndex + 1);
+                            } else {
+                                // Regular package: package@version
+                                const firstAtIndex = packageKey.indexOf('@');
+                                if (firstAtIndex !== -1) {
+                                    name = packageKey.substring(0, firstAtIndex);
+                                    version = packageKey.substring(firstAtIndex + 1);
+                                } else {
+                                    name = packageKey;
+                                    version = '';
+                                }
+                            }
+                            
+                            // Use the ecosystem we're currently resolving to categorize this dependency
+                            // This is more reliable than trying to infer from name patterns
+                            let category;
+                            if (window.ecosystemMapper) {
+                                const typeInfo = window.ecosystemMapper.getCategoryInfo(ecosystem);
+                                if (typeInfo) {
+                                    category = {
+                                        ...typeInfo,
+                                        isWorkflow: typeInfo.type === 'workflow',
+                                        isInfrastructure: typeInfo.type === 'infrastructure',
+                                        isCode: typeInfo.type === 'code'
+                                    };
+                                } else {
+                                    // Fallback to categorizeDependency if ecosystem not found in mapper
+                                    category = this.categorizeDependency({ name });
+                                }
+                            } else {
+                                // Fallback: try to infer from name patterns
+                                category = this.categorizeDependency({ name });
+                            }
+                            
+                            dep = {
+                                name: name,
+                                version: version || null,
+                                displayVersion: version || 'version unknown',
+                                assumedVersion: null,
+                                repositories: new Set(),
+                                count: 0,
+                                category: category,
+                                languages: new Set([category.language]),
+                                originalPackage: null,
+                                directIn: new Set(),
+                                transitiveIn: new Set(),
+                                githubActionInfo: null,
+                                versionUnknown: !version
+                            };
+                            this.dependencies.set(packageKey, dep);
+                            console.log(`    📦 Added newly discovered transitive dependency: ${packageKey} (depth ${treeNode.depth}, ecosystem: ${ecosystem})`);
+                        }
+                        
+                        dep.depth = treeNode.depth;
+                        dep.parents = Array.from(treeNode.parents);
+                        dep.children = Array.from(treeNode.children);
+                        
+                        // CRITICAL: Ensure ALL dependencies (direct and transitive) are associated with the current repository
+                        // This is essential because every dependency belongs to at least one repository in the scan
+                        if (dep.repositories.size === 0 && reposWithDirectDeps.size > 0) {
+                            // This dependency was discovered during tree resolution but has no repos yet
+                            // Add it to all repos that are being scanned
+                            reposWithDirectDeps.forEach(repoKey => {
+                                dep.repositories.add(repoKey);
+                                if (treeNode.depth === 1) {
+                                    dep.directIn.add(repoKey);
+                                } else {
+                                    dep.transitiveIn.add(repoKey);
+                                }
+                            });
+                            dep.count = dep.repositories.size;
+                            console.log(`   📌 Associated ${packageKey} (depth ${treeNode.depth}) with ${dep.repositories.size} repo(s)`);
+                        }
+                        
+                        // Update directIn/transitiveIn based on depth
+                        // Depth 1 = direct, depth 2+ = transitive
+                        // For transitive dependencies, add them to transitiveIn for all repos that have their parent as direct
+                        if (treeNode.depth === 1) {
+                            // Direct dependency - ensure repos are marked correctly
+                            reposWithDirectDeps.forEach(repoKey => {
+                                // Add repo even if not already present (for newly discovered deps)
+                                dep.repositories.add(repoKey);
+                                dep.directIn.add(repoKey);
+                                dep.transitiveIn.delete(repoKey);
+                            });
+                            dep.count = dep.repositories.size;
+                        } else if (treeNode.depth > 1) {
+                            // Transitive dependency - mark as transitive in repos where parent is used
+                            // Trace back through parents to find which repos use this transitively
+                            const reposUsingTransitive = new Set();
+                            treeNode.parents.forEach(parentKey => {
+                                const parentDep = this.dependencies.get(parentKey);
+                                if (parentDep) {
+                                    // If parent is direct in a repo, then this transitive dep should be transitive in that repo
+                                    parentDep.directIn.forEach(repo => {
+                                        reposUsingTransitive.add(repo);
+                                        dep.repositories.add(repo);
+                                    });
+                                    // Also check if parent itself is transitive in some repos
+                                    parentDep.transitiveIn.forEach(repo => {
+                                        reposUsingTransitive.add(repo);
+                                        dep.repositories.add(repo);
+                                    });
+                                } else {
+                                    // Parent might be a direct dependency - check reposWithDirectDeps
+                                    reposWithDirectDeps.forEach(repo => reposUsingTransitive.add(repo));
+                                }
+                            });
+                            
+                            // Mark as transitive in all relevant repos
+                            reposUsingTransitive.forEach(repoKey => {
+                                dep.transitiveIn.add(repoKey);
+                                dep.directIn.delete(repoKey); // Ensure it's not marked as direct
+                                dep.repositories.add(repoKey);
+                            });
+                            
+                            // Update count to reflect all repositories
+                            dep.count = dep.repositories.size;
+                            
+                            // Fallback: if transitive dep still has no repositories, inherit from first parent
+                            if (dep.repositories.size === 0 && treeNode.parents && treeNode.parents.length > 0) {
+                                const firstParentKey = treeNode.parents[0];
+                                const parentDep = this.dependencies.get(firstParentKey);
+                                
+                                if (parentDep && parentDep.repositories.size > 0) {
+                                    // Inherit all repositories from first parent
+                                    parentDep.repositories.forEach(repo => {
+                                        dep.repositories.add(repo);
+                                        dep.transitiveIn.add(repo);
+                                    });
+                                    dep.count = dep.repositories.size;
+                                    console.log(`   📌 Inherited ${dep.repositories.size} repos from parent for ${depKey}`);
+                                } else {
+                                    console.warn(`   ⚠️  No repositories found for transitive dep ${depKey}`);
+                                }
+                            }
                         }
                     }
                     
@@ -642,6 +950,27 @@ class SBOMProcessor {
         const stats = this.getRepositoryStats();
         const topDeps = this.getTopDependencies(50);
         const topRepos = this.getTopRepositories(50);
+        
+        // CRITICAL: Safety check - ensure all dependencies have at least one repository
+        // This is a belt-and-suspenders approach for single repository scans
+        if (this.repositories.size > 0) {
+            const repoKeys = Array.from(this.repositories.keys());
+            let fixedCount = 0;
+            this.dependencies.forEach((dep, depKey) => {
+                if (dep.repositories.size === 0) {
+                    // Dependency has no repository - add it to the first available repo
+                    const repoKey = repoKeys[0];
+                    dep.repositories.add(repoKey);
+                    dep.transitiveIn.add(repoKey);  // Mark as transitive since it's not direct
+                    dep.count = 1;
+                    fixedCount++;
+                }
+            });
+            if (fixedCount > 0) {
+                console.log(`📌 Fixed ${fixedCount} dependencies without repository associations`);
+            }
+        }
+        
         const allDeps = Array.from(this.dependencies.values()).map(dep => {
             // Extract PURL from originalPackage if available
             let purl = null;
@@ -652,9 +981,21 @@ class SBOMProcessor {
                 }
             }
             
+            // Determine repository license for this dependency
+            // For dependencies from repositories, use the first repository's license as fallback
+            let repositoryLicense = null;
+            if (dep.repositories && dep.repositories.size > 0) {
+                const firstRepoKey = Array.from(dep.repositories)[0];
+                const repoData = this.repositories.get(firstRepoKey);
+                if (repoData && repoData.license) {
+                    repositoryLicense = repoData.license;
+                }
+            }
+            
             return {
                 name: dep.name,
-                version: dep.version,
+                version: dep.displayVersion || dep.version,  // Use displayVersion (may be assumed)
+                assumedVersion: dep.assumedVersion || null,  // Latest version if assumed
                 count: dep.count,
                 repositories: Array.from(dep.repositories),
                 directIn: Array.from(dep.directIn || []),  // Repos using as direct dependency
@@ -665,7 +1006,10 @@ class SBOMProcessor {
                 originalPackage: dep.originalPackage,  // Include original package data
                 depth: dep.depth || null,  // Depth in dependency tree (1 = direct, 2+ = transitive)
                 parents: dep.parents || [],  // Parent dependencies (what brings this in)
-                children: dep.children || []  // Child dependencies (what this brings in)
+                children: dep.children || [],  // Child dependencies (what this brings in)
+                license: dep.license || null,  // Include license (short form)
+                licenseFull: dep.licenseFull || null,  // Include license (full form)
+                repositoryLicense: repositoryLicense  // Include repository license as fallback
             };
         });
         const allRepos = Array.from(this.repositories.values()).map(repo => ({
@@ -992,7 +1336,8 @@ class SBOMProcessor {
                 
                 return {
                     name: dep.name,
-                    version: dep.version,
+                    version: dep.displayVersion || dep.version,  // Use displayVersion (may be assumed)
+                    assumedVersion: dep.assumedVersion || null,  // Latest version if assumed
                     count: dep.count,
                     repositories: Array.from(dep.repositories),
                     category: dep.category,

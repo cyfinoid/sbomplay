@@ -1,11 +1,15 @@
 /**
  * Ecosystem Utilities - Shared ecosystem mapping and normalization functions
  * Consolidates duplicate ecosystem mapping code from multiple services
+ * BUILD: 1764049072342 (fixed OSV ecosystem mapping)
  */
+console.log('🌐 Ecosystem Mapper loaded - BUILD: 1764049072342 (fixed OSV ecosystems)');
+
 class EcosystemMapper {
     constructor() {
         // Comprehensive mapping from various ecosystem formats to OSV-compatible names
         // Based on OSV API documentation: https://ossf.github.io/osv-schema/#affectedpackage-field
+        // ONLY includes ecosystems actually supported by OSV API for vulnerability queries
         this.osvEcosystemMap = {
             'golang': 'Go',
             'go': 'Go',
@@ -13,16 +17,20 @@ class EcosystemMapper {
             'npm': 'npm',
             'maven': 'Maven',
             'nuget': 'NuGet',
-            'cargo': 'cargo',
+            'cargo': 'crates.io',
+            'crates.io': 'crates.io',
             'composer': 'Packagist',
             'packagist': 'Packagist',
-            'githubactions': 'GitHub Actions',
-            'github': 'GitHub',
-            'docker': 'Docker',
-            'helm': 'Helm',
-            'terraform': 'Terraform',
             'rubygems': 'RubyGems',
-            'gem': 'RubyGems'
+            'gem': 'RubyGems',
+            'hex': 'Hex',
+            'pub': 'Pub',
+            'cocoapods': 'CocoaPods',
+            'cran': 'CRAN',
+            'debian': 'Debian',
+            'alpine': 'Alpine'
+            // NOTE: 'githubactions', 'github', 'docker', 'helm', 'terraform' are NOT
+            // supported by OSV API for vulnerability queries - they will return null
         };
 
         // Mapping for PURL type to internal ecosystem names (for categorization)
@@ -52,7 +60,9 @@ class EcosystemMapper {
      */
     mapToOSV(ecosystem) {
         if (!ecosystem) return null;
-        return this.osvEcosystemMap[ecosystem.toLowerCase()] || ecosystem;
+        // Return mapped ecosystem or null - never return invalid ecosystem names
+        // This prevents OSV API errors for unsupported ecosystems
+        return this.osvEcosystemMap[ecosystem.toLowerCase()] || null;
     }
 
     /**

@@ -14,7 +14,7 @@ document.addEventListener('DOMContentLoaded', async function() {
     window.storageManager = storageManager;
     
     // Load analysis list into selector
-    await loadAnalysesList('analysisSelector', storageManager, true, document.getElementById('noDataSection'));
+    await loadAnalysesList('analysisSelector', storageManager, document.getElementById('noDataSection'));
     
     // Check for category and repo filters in URL and pre-select
     const urlParams = new URLSearchParams(window.location.search);
@@ -33,12 +33,7 @@ document.addEventListener('DOMContentLoaded', async function() {
             const categoryFilter = document.getElementById('categoryFilter')?.value || 'all';
             const container = document.getElementById('license-compliance-page');
             
-            if (!analysisName) {
-                if (container) {
-                    container.innerHTML = '<div class="alert alert-info">Please select an analysis to view license compliance data.</div>';
-                }
-                return;
-            }
+            // Note: analysisName can be empty string '' for aggregated view - don't skip loading!
             
             console.log(`📋 Loading license data for: ${analysisName}, filter: ${categoryFilter}`);
             

@@ -6,9 +6,9 @@
     <title>SBOM Play - Dependencies</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
-    <link href="css/style.css?v=0.0.3" rel="stylesheet">
-    <link href="css/themes.css?v=0.0.3" rel="stylesheet">
-    <script src="js/theme-manager.js?v=0.0.3"></script>
+    <link href="css/style.css?v=0.0.4" rel="stylesheet">
+    <link href="css/themes.css?v=0.0.4" rel="stylesheet">
+    <script src="js/theme-manager.js?v=0.0.4&cb=1765328527000"></script>
 </head>
 <body>
     <nav class="navbar navbar-expand-lg navbar-dark bg-primary">
@@ -90,19 +90,6 @@
                         <label class="form-label">Repository</label>
                         <select class="form-select" id="repoFilter">
                             <option value="all">All</option>
-                        </select>
-                    </div>
-                </div>
-                <div class="row g-3 mt-2">
-                    <div class="col-md-3">
-                        <label class="form-label">Page Size</label>
-                        <select class="form-select" id="pageSizeSelect">
-                            <option value="10">10 per page</option>
-                            <option value="25" selected>25 per page</option>
-                            <option value="50">50 per page</option>
-                            <option value="100">100 per page</option>
-                            <option value="250">250 per page</option>
-                            <option value="500">500 per page</option>
                         </select>
                     </div>
                 </div>
@@ -212,19 +199,13 @@
             <div class="card-footer">
                 <div class="d-flex justify-content-between align-items-center">
                     <div>
-                        <span class="text-muted" id="paginationInfo">Showing 0-0 of 0</span>
+                        <span class="text-muted" id="displayInfo">Showing 0 of 0</span>
                     </div>
                     <div>
-                        <nav aria-label="Page navigation">
-                            <ul class="pagination pagination-sm mb-0" id="paginationControls">
-                                <li class="page-item disabled" id="prevPageBtn">
-                                    <a class="page-link" href="#" tabindex="-1">Previous</a>
-                                </li>
-                                <li class="page-item disabled" id="nextPageBtn">
-                                    <a class="page-link" href="#">Next</a>
-                                </li>
-                            </ul>
-                        </nav>
+                        <select class="form-select form-select-sm" id="displayLimitSelect" style="width: auto;">
+                            <option value="25" selected>Show Top 25</option>
+                            <option value="all">Show All</option>
+                        </select>
                     </div>
                 </div>
             </div>
@@ -286,16 +267,16 @@
     </div>
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
-    <script src="js/indexeddb-manager.js?v=0.0.3"></script>
-    <script src="js/utils.js?v=0.0.3"></script>
-    <script src="js/version-utils.js?v=0.0.3"></script>
-    <script src="js/version-drift-analyzer.js?v=0.0.3"></script>
-    <script src="js/github-client.js?v=0.0.3"></script>
-    <script src="js/cache-manager.js?v=0.0.3"></script>
-    <script src="js/storage-manager.js?v=0.0.3"></script>
-    <script src="js/license-processor.js?v=0.0.3"></script>
-    <script src="js/osv-service.js?v=0.0.3"></script>
-    <script src="js/deps-page.js?v=0.0.3"></script>
+    <script src="js/indexeddb-manager.js?v=0.0.4&cb=1765328527000"></script>
+    <script src="js/utils.js?v=0.0.4&cb=1765328527000"></script>
+    <script src="js/version-utils.js?v=0.0.4&cb=1765328527000"></script>
+    <script src="js/version-drift-analyzer.js?v=0.0.4&cb=1765328527000"></script>
+    <script src="js/github-client.js?v=0.0.4&cb=1765328527000"></script>
+    <script src="js/cache-manager.js?v=0.0.4&cb=1765328527000"></script>
+    <script src="js/storage-manager.js?v=0.0.4&cb=1765328527000"></script>
+    <script src="js/license-processor.js?v=0.0.4&cb=1765328527000"></script>
+    <script src="js/osv-service.js?v=0.0.4&cb=1765328527000"></script>
+    <script src="js/deps-page.js?v=0.0.4&cb=1765328527000"></script>
     <script type="module">
         const storageManager = new StorageManager();
         await storageManager.init();
@@ -307,8 +288,7 @@
         
         let allDependencies = [];
         let filteredDependencies = [];
-        let currentPage = 1;
-        let pageSize = parseInt(localStorage.getItem('depsPageSize') || '25', 10);
+        let displayLimit = 25; // Show top 25 by default, or 'all' for all dependencies
         let currentData = null;
         let sortColumn = 'name';
         let sortDirection = 'asc';
@@ -478,12 +458,23 @@
                 }
                 
                 const allEntries = [...storageInfo.organizations, ...storageInfo.repositories];
-                console.log(`📋 Total entries to add: ${allEntries.length}`);
+                console.log(`📋 Total entries retrieved: ${allEntries.length}`);
+                
+                // Filter out:
+                // 1. __ALL__ entries (legacy from previous implementation)
+                // 2. Entries with 0 dependencies (repositories without SBOM/dependency graph)
+                const filteredEntries = allEntries.filter(entry => entry.name !== '__ALL__' && entry.dependencies > 0);
+                
+                const filteredOutCount = allEntries.length - filteredEntries.length;
+                if (filteredOutCount > 0) {
+                    console.log(`📋 Filtered out ${filteredOutCount} entries (no dependencies/SBOM)`);
+                }
+                console.log(`📋 Total entries to add: ${filteredEntries.length}`);
                 
                 selector.innerHTML = '';
                 
-                if (allEntries.length === 0) {
-                    console.warn('⚠️ No entries found in storage');
+                if (filteredEntries.length === 0) {
+                    console.warn('⚠️ No entries with dependencies found in storage');
                     const noDataMessage = document.getElementById('noDataMessage');
                     if (noDataMessage) {
                         noDataMessage.classList.remove('d-none');
@@ -492,16 +483,16 @@
                     return;
                 }
                 
-                // Add "All Projects (Combined)" as the first option
+                // Add "All Analyses" option (only entries with dependencies)
                 const allOption = document.createElement('option');
-                allOption.value = '__ALL__';
-                const totalDeps = allEntries.reduce((sum, entry) => sum + (entry.dependencies || 0), 0);
-                allOption.textContent = `All Projects (Combined) (${totalDeps} deps)`;
+                allOption.value = '';
+                const totalDeps = filteredEntries.reduce((sum, entry) => sum + (entry.dependencies || 0), 0);
+                allOption.textContent = `All Analyses (${totalDeps} deps)`;
                 selector.appendChild(allOption);
-                console.log(`📋 Added "All Projects (Combined)" option`);
+                console.log(`📋 Added "All Analyses" option with ${totalDeps} total dependencies`);
                 
-                // Add individual entries
-                allEntries.forEach(entry => {
+                // Add individual entries (excluding __ALL__)
+                filteredEntries.forEach(entry => {
                     const option = document.createElement('option');
                     option.value = entry.name;
                     const depCount = entry.dependencies || 0;
@@ -510,24 +501,24 @@
                     console.log(`📋 Added option: ${entry.name} (${depCount} deps)`);
                 });
                 
-                // Set default based on URL parameter or default to "All Projects (Combined)"
-                if (allEntries.length > 0) {
+                // Set default based on URL parameter or default to "All Analyses"
+                if (filteredEntries.length > 0) {
                     if (orgParam) {
-                        // Check if the org from URL parameter exists in the entries
-                        const orgExists = allEntries.some(entry => entry.name === orgParam);
+                        // Check if the org from URL parameter exists in the filtered entries
+                        const orgExists = filteredEntries.some(entry => entry.name === orgParam);
                         if (orgExists) {
                             selector.value = orgParam;
                             console.log(`📋 Set selector to URL parameter: ${orgParam}`);
                         } else {
-                            selector.value = '__ALL__';
-                            console.log(`📋 URL parameter ${orgParam} not found, using "__ALL__"`);
+                        selector.value = '';
+                        console.log(`📋 URL parameter ${orgParam} not found, using aggregated view`);
                         }
                     } else {
-                        selector.value = '__ALL__';
-                        console.log(`📋 No URL parameter, using "__ALL__"`);
+                    selector.value = '';
+                    console.log(`📋 No URL parameter, using aggregated view`);
                     }
                     selector.disabled = false;
-                    console.log(`✅ Analysis selector populated with ${allEntries.length} entries`);
+                    console.log(`✅ Analysis selector populated with ${filteredEntries.length} entries`);
                     await loadAnalysis();
                 }
             } catch (error) {
@@ -558,40 +549,14 @@
             }
             filterTable();
         });
-        // Page size selector
-        const pageSizeSelect = document.getElementById('pageSizeSelect');
-        if (pageSizeSelect) {
-            pageSizeSelect.value = pageSize.toString();
-            pageSizeSelect.addEventListener('change', (e) => {
-                pageSize = parseInt(e.target.value, 10);
-                localStorage.setItem('depsPageSize', pageSize.toString());
-                currentPage = 1;
-                filterTable();
-            });
-        }
         
-        // Pagination controls
-        const prevPageBtn = document.getElementById('prevPageBtn');
-        const nextPageBtn = document.getElementById('nextPageBtn');
-        
-        if (prevPageBtn) {
-            prevPageBtn.addEventListener('click', (e) => {
-                e.preventDefault();
-                if (currentPage > 1) {
-                    currentPage--;
+        // Display limit selector (show top 25 or all)
+        const displayLimitSelect = document.getElementById('displayLimitSelect');
+        if (displayLimitSelect) {
+            displayLimitSelect.addEventListener('change', (e) => {
+                const value = e.target.value;
+                displayLimit = value === 'all' ? 'all' : parseInt(value, 10);
                     renderTable(filteredDependencies, false);
-                }
-            });
-        }
-        
-        if (nextPageBtn) {
-            nextPageBtn.addEventListener('click', (e) => {
-                e.preventDefault();
-                const totalPages = Math.ceil(filteredDependencies.length / pageSize);
-                if (currentPage < totalPages) {
-                    currentPage++;
-                    renderTable(filteredDependencies, false);
-                }
             });
         }
         
@@ -610,7 +575,10 @@
                 exportCSV(); // Fallback to local function
             }
         });
-        document.getElementById('loadMoreBtn').addEventListener('click', loadMoreEntries);
+        const loadMoreBtn = document.getElementById('loadMoreBtn');
+        if (loadMoreBtn) {
+            loadMoreBtn.addEventListener('click', loadMoreEntries);
+        }
         
         // Sort handlers
         document.querySelectorAll('.sortable').forEach(header => {
@@ -640,7 +608,7 @@
         
         async function loadAnalysis() {
             const analysisName = document.getElementById('analysisSelector').value;
-            if (!analysisName) return;
+            // Note: analysisName can be empty string '' for aggregated view - don't skip loading!
             
             // Show loading indicator
             const loadingOverlay = document.getElementById('loadingOverlay');
@@ -655,8 +623,8 @@
             
             let data;
             
-            // Handle "All Projects (Combined)" option
-            if (analysisName === '__ALL__') {
+            // Handle aggregated view (empty/null analysisName)
+            if (!analysisName || analysisName === '') {
                 data = await storageManager.getCombinedData();
             } else {
                 data = await storageManager.loadAnalysisDataForOrganization(analysisName);
@@ -671,8 +639,8 @@
             currentData = data.data;
             window.currentData = currentData; // Expose globally for license lookup
             // Store GitHub Actions analysis for enriched license lookup
-            // For combined data, aggregate GitHub Actions analysis from all repositories
-            if (analysisName === '__ALL__' && data.data.githubActionsAnalysis) {
+            // For aggregated data, aggregate GitHub Actions analysis from all repositories
+            if ((!analysisName || analysisName === '') && data.data.githubActionsAnalysis) {
                 window.githubActionsAnalysis = data.data.githubActionsAnalysis;
             } else {
                 window.githubActionsAnalysis = currentData?.githubActionsAnalysis || null;
@@ -938,6 +906,12 @@
             });
             
             allDeps.forEach(dep => {
+                // Skip dependencies with empty or invalid names
+                // These are malformed entries that shouldn't be displayed
+                if (!dep.name || dep.name.trim() === '') {
+                    return; // Skip this dependency
+                }
+                
                 // Get parent dependencies with repository context
                 const parents = new Set();
                 const parentsByRepo = {}; // Track which repo has which parent
@@ -1037,6 +1011,14 @@
                         }
                     }
                 });
+                
+                // Add parents from dependency tree resolution (for transitive dependencies discovered via API queries)
+                // These won't be in SBOM relationships since they were discovered during deep dependency resolution
+                if (dep.parents && Array.isArray(dep.parents) && dep.parents.length > 0) {
+                    dep.parents.forEach(parent => {
+                        parents.add(parent);
+                    });
+                }
                 
                 // Extract package key for funding lookup
                 // IMPORTANT: Normalize ecosystem name to match database format (lowercase, aliases handled)
@@ -1171,8 +1153,20 @@
             let licenseFull = 'Unknown';
             let isEnriched = false;
             
-            // Check for enriched GitHub Actions license data
-            if (dep.ecosystem === 'GitHub Actions') {
+            // 1. Check dep.licenseFull (from deps.dev API - most complete)
+            if (dep.licenseFull && dep.licenseFull !== 'Unknown' && dep.licenseFull !== 'NOASSERTION' && String(dep.licenseFull).trim() !== '') {
+                licenseFull = dep.licenseFull;
+                isEnriched = true;
+            }
+            
+            // 2. Check dep.license (from deps.dev API - short form)
+            else if (dep.license && dep.license !== 'Unknown' && dep.license !== 'NOASSERTION' && String(dep.license).trim() !== '') {
+                licenseFull = dep.license;
+                isEnriched = true;
+            }
+            
+            // 3. Check for enriched GitHub Actions license data
+            else if (dep.ecosystem === 'GitHub Actions') {
                 // First check metadata stored in dep
                 if (dep._gaMetadata && dep._gaMetadata.license) {
                     licenseFull = dep._gaMetadata.license;
@@ -1209,25 +1203,49 @@
                 }
             }
             
-            // Better abbreviation: show first part of license name, but handle "Apache-2.0 AND MIT" properly
-            if (isEnriched && licenseFull !== 'Unknown') {
-                if (licenseFull.includes(' AND ')) {
-                    // For compound licenses, show first license name
-                    const firstLicense = licenseFull.split(' AND ')[0];
-                    licenseText = firstLicense.startsWith('Apache') ? 'Apache' : (firstLicense.length > 8 ? firstLicense.substring(0, 8) + '...' : firstLicense);
-                } else if (licenseFull.startsWith('Apache')) {
-                    licenseText = 'Apache';
-                } else {
-                    licenseText = licenseFull.length > 8 ? licenseFull.substring(0, 8) + '...' : licenseFull;
-                }
+            // 4. Check dep.raw.licenseFull (from raw data, e.g., PyPI direct fetch)
+            else if (dep.raw?.licenseFull && dep.raw.licenseFull !== 'Unknown' && dep.raw.licenseFull !== 'NOASSERTION' && String(dep.raw.licenseFull).trim() !== '') {
+                licenseFull = dep.raw.licenseFull;
+                isEnriched = dep.raw._licenseEnriched || false;
             }
             
-            // Fallback to SBOM data if not enriched
-            if (!isEnriched && dep.raw && dep.raw.originalPackage && dep._licenseProcessor) {
+            // 5. Check dep.raw.license (from raw data, e.g., PyPI direct fetch)
+            else if (dep.raw?.license && dep.raw.license !== 'Unknown' && dep.raw.license !== 'NOASSERTION' && String(dep.raw.license).trim() !== '') {
+                licenseFull = dep.raw.license;
+                isEnriched = dep.raw._licenseEnriched || false;
+            }
+            
+            // 6. Parse from originalPackage (from SBOM) - always check this as fallback
+            if (licenseFull === 'Unknown' && dep.raw && dep.raw.originalPackage && dep._licenseProcessor) {
                 const licenseInfo = dep._licenseProcessor.parseLicense(dep.raw.originalPackage);
                 if (licenseInfo.license && licenseInfo.license !== 'NOASSERTION') {
                     licenseFull = licenseInfo.license;
-                    // Better abbreviation: show first part of license name, but handle "Apache-2.0 AND MIT" properly
+                    // Store dual license info if present
+                    if (licenseInfo.isDualLicense) {
+                        dep._isDualLicense = true;
+                        dep._dualLicenseInfo = licenseInfo.dualLicenseInfo;
+                    }
+                }
+            }
+            
+            // 7. Final fallback: Use repository license if available
+            if (licenseFull === 'Unknown' && window.currentData && dep.repositories && dep.repositories.length > 0) {
+                // Get license from first repository (most dependencies come from one repo)
+                const repoName = dep.repositories[0];
+                const allRepos = window.currentData.allRepositories || [];
+                const repo = allRepos.find(r => `${r.owner}/${r.name}` === repoName);
+                
+                if (repo && (repo.repositoryLicense || repo.license)) {
+                    const repoLicense = repo.repositoryLicense || repo.license;
+                    if (repoLicense && repoLicense !== 'NOASSERTION' && String(repoLicense).trim() !== '') {
+                        licenseFull = repoLicense;
+                        isEnriched = true;
+                    }
+                }
+            }
+            
+            // Generate abbreviated license text for display
+            if (licenseFull !== 'Unknown') {
                     if (licenseFull.includes(' AND ')) {
                         // For compound licenses, show first license name
                         const firstLicense = licenseFull.split(' AND ')[0];
@@ -1237,26 +1255,11 @@
                     } else {
                         licenseText = licenseFull.length > 8 ? licenseFull.substring(0, 8) + '...' : licenseFull;
                     }
-                }
             }
             
-            // If still no license and this is a PyPI package, check if license is already stored
-            // If not stored, mark for async fetch
-            // Skip if version is unknown (cannot query PyPI API without version)
-            if (!isEnriched && licenseFull === 'Unknown' && dep.ecosystem === 'PyPI' && dep.name && dep.version && dep.version !== 'version unknown') {
-                // Check if license was already fetched and stored (check both raw and top-level)
-                // License data should be in dep.raw since fetchPyPILicenses updates the dependency objects before saving
-                const storedLicense = dep.raw?.licenseFull || dep.raw?.license;
-                if (storedLicense && storedLicense !== 'Unknown' && storedLicense !== 'NOASSERTION') {
-                    // Use stored license from raw data
-                    licenseFull = dep.raw.licenseFull || dep.raw.license || storedLicense;
-                    licenseText = dep.raw.license || licenseFull;
-                    isEnriched = dep.raw._licenseEnriched || false;
-                } else {
-                    // Only mark for async fetch if license was NOT fetched during initial analysis
-                    // This should be rare - licenses should be pre-fetched during initial scan
+            // Mark for async fetch if still no license (should be rare)
+            if (licenseFull === 'Unknown' && dep.ecosystem === 'PyPI' && dep.name && dep.version && dep.version !== 'version unknown') {
                     dep._needsLicenseFetch = true;
-                }
             }
             
             // Cache the result
@@ -1264,7 +1267,13 @@
             dep.licenseFull = licenseFull;
             dep._licenseEnriched = isEnriched;
             dep._licenseCached = true;
-            return { license: licenseText, licenseFull: licenseFull, isEnriched: isEnriched };
+            return { 
+                license: licenseText, 
+                licenseFull: licenseFull, 
+                isEnriched: isEnriched,
+                isDualLicense: dep._isDualLicense || false,
+                dualLicenseInfo: dep._dualLicenseInfo || null
+            };
         }
         
         // Helper function to get enriched license from GitHub Actions analysis
@@ -1415,15 +1424,15 @@
                 
                 // Check if we have options now
                 if (analysisSelector.options.length > 0) {
-                    // Set selector to "All Projects (Combined)" if not already set or if current value is empty
+                    // Set selector to aggregated view if not already set or if current value is empty
                     const currentValue = analysisSelector.value;
                     if (!currentValue || currentValue === '' || !Array.from(analysisSelector.options).some(opt => opt.value === currentValue)) {
-                        // Find or set __ALL__ option
-                        const allOption = Array.from(analysisSelector.options).find(opt => opt.value === '__ALL__');
+                        // Find or set aggregated (empty value) option
+                        const allOption = Array.from(analysisSelector.options).find(opt => opt.value === '');
                         if (allOption) {
-                            analysisSelector.value = '__ALL__';
+                            analysisSelector.value = '';
                         } else if (analysisSelector.options.length > 0) {
-                            // Use first option if __ALL__ doesn't exist
+                            // Use first option if aggregated option doesn't exist
                             analysisSelector.value = analysisSelector.options[0].value;
                         }
                     }
@@ -1696,7 +1705,6 @@
             });
             
             filteredDependencies = filtered;
-            currentPage = 1; // Reset to first page when filtering
             
             updateStats(filtered);
             await renderTable(filtered, true);
@@ -1837,7 +1845,7 @@
                 
                 // Get the current stored data
                 let storedData;
-                if (analysisName === '__ALL__') {
+                if (!analysisName || analysisName === '') {
                     storedData = await window.storageManager.getCombinedData();
                 } else {
                     storedData = await window.storageManager.loadAnalysisDataForOrganization(analysisName);
@@ -2041,18 +2049,10 @@
             
             if (reset) {
                 tbody.innerHTML = '';
-                currentPage = 1;
             }
             
-            // Calculate pagination
-            const totalPages = Math.ceil(deps.length / pageSize);
-            if (currentPage > totalPages && totalPages > 0) {
-                currentPage = totalPages;
-            }
-            
-            const startIndex = (currentPage - 1) * pageSize;
-            const endIndex = Math.min(startIndex + pageSize, deps.length);
-            const toDisplay = deps.slice(startIndex, endIndex);
+            // Determine how many to display based on displayLimit
+            const toDisplay = displayLimit === 'all' ? deps : deps.slice(0, displayLimit);
             
             // getLicenseInfo is now defined globally above, so we can use it here
             
@@ -2119,30 +2119,77 @@
                 // Build license cell (lazy evaluation)
                 const licenseInfo = getLicenseInfo(dep);
                 const enrichedBadge = licenseInfo.isEnriched ? '<span class="badge bg-success bg-opacity-25 ms-1" title="Enriched license data from GitHub Actions analysis">✓</span>' : '';
-                const licenseCell = `<td><span title="${escapeHtml(licenseInfo.licenseFull)}${licenseInfo.isEnriched ? ' (Enriched)' : ''}">${escapeHtml(licenseInfo.license)}</span>${enrichedBadge}</td>`;
+                
+                // Check if this is a dual license
+                let licenseDisplay = escapeHtml(licenseInfo.license);
+                let licenseTitle = escapeHtml(licenseInfo.licenseFull);
+                if (licenseInfo.isDualLicense && licenseInfo.dualLicenseInfo) {
+                    // Show both licenses with dual badge
+                    const dualBadge = '<span class="badge bg-info ms-1" title="Dual license">Dual</span>';
+                    licenseDisplay = escapeHtml(licenseInfo.license) + dualBadge;
+                    licenseTitle = `Dual license: ${licenseInfo.dualLicenseInfo.licenses.join(` ${licenseInfo.dualLicenseInfo.operators[0] || 'AND'} `)}`;
+                }
+                
+                const licenseCell = `<td><span title="${licenseTitle}${licenseInfo.isEnriched ? ' (Enriched)' : ''}">${licenseDisplay}</span>${enrichedBadge}</td>`;
                 
                 // Note: SBOM Quality is not shown for individual dependencies
                 // SBOM quality scores are only meaningful at the repository level,
                 // not for individual dependencies, since we only download SBOMs from repositories
                 
                 const tr = document.createElement('tr');
-                tr.setAttribute('data-dep-index', startIndex + idx); // Store dependency index for easy lookup
-                const versionDisplay = formatVersionForDisplay(dep.version);
-                const packageNameEscaped = escapeHtml(dep.name);
+                tr.setAttribute('data-dep-index', idx); // Store dependency index for easy lookup
+                
+                // Check if this is an independent entity (no dependencies) for initial styling
+                const isIndependent = !dep.children || dep.children.length === 0;
+                if (isIndependent) {
+                    tr.classList.add('independent-entity');
+                }
+                
+                // Handle empty or invalid names gracefully
+                let displayName = dep.name;
+                let displayVersion = dep.version;
+                
+                // If name is empty but version contains package info, try to extract it
+                if (!displayName || displayName.trim() === '') {
+                    // Try to extract package name from version field if it contains a path
+                    // Format: "package@version" or "path>package@version"
+                    if (displayVersion && displayVersion.includes('@')) {
+                        // Extract the last part after @ (the actual version)
+                        const parts = displayVersion.split('@');
+                        if (parts.length >= 2) {
+                            displayVersion = parts[parts.length - 1];
+                            // Try to extract package name from the path
+                            const beforeVersion = parts.slice(0, -1).join('@');
+                            if (beforeVersion.includes('>')) {
+                                // Path format: "parent>package" - extract last part
+                                displayName = beforeVersion.split('>').pop() || 'Unknown';
+                            } else {
+                                displayName = beforeVersion || 'Unknown';
+                            }
+                        } else {
+                            displayName = 'Unknown';
+                        }
+                    } else {
+                        displayName = 'Unknown';
+                    }
+                }
+                
+                const versionDisplay = formatVersionForDisplay(displayVersion);
+                const packageNameEscaped = escapeHtml(displayName);
                 // For GitHub Actions and some other packages, the name already includes @version
                 // Check if name already ends with the version (with or without @) to avoid duplication
-                const versionInName = dep.name.endsWith(`@${dep.version}`) || dep.name.endsWith(dep.version);
+                const versionInName = displayName.endsWith(`@${displayVersion}`) || displayName.endsWith(displayVersion);
                 const packageLink = versionInName ? packageNameEscaped : `${packageNameEscaped}@${versionDisplay}`;
                 // Version drift badge placeholder (will be populated asynchronously)
-                const driftBadgeId = `drift-${startIndex + idx}`;
+                const driftBadgeId = `drift-${idx}`;
                 // Ecosystem-Type badge: blue (bg-primary) for direct, grey (bg-secondary) for transitive
                 const ecosystemBadgeClass = dep.type === 'direct' ? 'bg-primary' : 'bg-secondary';
                 tr.innerHTML = `
                     <td>
                         <a href="#" class="package-link text-primary text-decoration-none" 
                            data-package-key="${escapeHtml(dep.packageKey || '')}" 
-                           data-package-name="${escapeHtml(dep.name)}" 
-                           data-package-version="${escapeHtml(dep.version)}"
+                           data-package-name="${escapeHtml(displayName)}" 
+                           data-package-version="${escapeHtml(displayVersion)}"
                            data-package-ecosystem="${escapeHtml(dep.ecosystem)}"
                            data-package-repos='${JSON.stringify(dep.repositories)}'
                            data-package-raw='${JSON.stringify({...dep.raw, _gaMetadata: dep._gaMetadata}).replace(/'/g, '&apos;')}'>
@@ -2187,7 +2234,7 @@
                                     // Update the row if funding was found
                                     if (dep.funding) {
                                         // Find the row by data attribute
-                                        const depIndex = startIndex + i + batchIdx;
+                                        const depIndex = i + batchIdx;
                                         const row = tbody.querySelector(`tr[data-dep-index="${depIndex}"]`);
                                         if (row) {
                                             updateSponsorshipCell(row, dep);
@@ -2240,7 +2287,7 @@
                                 }
                                 
                                 if (driftData && driftData.latestVersion) {
-                                    const depIndex = startIndex + idx;
+                                    const depIndex = idx;
                                     const badgeElement = document.getElementById(`drift-${depIndex}`);
                                     if (badgeElement) {
                                         let badgeHtml = '';
@@ -2269,6 +2316,18 @@
                                                 if (staleness && staleness.isStale) {
                                                     badgeHtml = `<span class="badge bg-warning" title="Stale: Last release ${staleness.monthsSinceRelease} months ago"><i class="fas fa-clock"></i> Stale (${staleness.monthsSinceRelease}m)</span>`;
                                                 }
+                                                
+                                                // Check if this is an independent entity (no dependencies)
+                                                // Independent entities have no children/dependencies
+                                                const isIndependent = !dep.children || dep.children.length === 0;
+                                                if (isIndependent && !badgeHtml) {
+                                                    badgeHtml = `<span class="badge bg-info" title="Independent entity: No dependencies"><i class="fas fa-circle-notch"></i> Independent</span>`;
+                                                    // Mark row as independent for styling (if not already marked)
+                                                    const row = badgeElement.closest('tr');
+                                                    if (row && !row.classList.contains('independent-entity')) {
+                                                        row.classList.add('independent-entity');
+                                                    }
+                                                }
                                             } catch (e) {
                                                 // Ignore staleness check errors
                                             }
@@ -2284,8 +2343,8 @@
                 }, 100); // Small delay to allow table to render first
             }
             
-            // Update pagination info and controls
-            updatePaginationControls(deps.length, totalPages);
+            // Update display info
+            updateDisplayInfo(toDisplay.length, deps.length);
             
             // Add click handlers for package links
             document.querySelectorAll('.package-link').forEach(link => {
@@ -2327,33 +2386,11 @@
         }
         
         // Function to update pagination controls
-        function updatePaginationControls(totalItems, totalPages) {
-            const paginationInfo = document.getElementById('paginationInfo');
-            const prevBtn = document.getElementById('prevPageBtn');
-            const nextBtn = document.getElementById('nextPageBtn');
+        function updateDisplayInfo(displayCount, totalItems) {
+            const displayInfo = document.getElementById('displayInfo');
+            if (!displayInfo) return;
             
-            if (!paginationInfo || !prevBtn || !nextBtn) return;
-            
-            const startItem = totalItems === 0 ? 0 : (currentPage - 1) * pageSize + 1;
-            const endItem = Math.min(currentPage * pageSize, totalItems);
-            
-            paginationInfo.textContent = `Showing ${startItem}-${endItem} of ${totalItems}`;
-            
-            // Update Previous button
-            if (currentPage > 1) {
-                prevBtn.classList.remove('disabled');
-                prevBtn.querySelector('a').removeAttribute('tabindex');
-            } else {
-                prevBtn.classList.add('disabled');
-                prevBtn.querySelector('a').setAttribute('tabindex', '-1');
-            }
-            
-            // Update Next button
-            if (currentPage < totalPages && totalPages > 0) {
-                nextBtn.classList.remove('disabled');
-            } else {
-                nextBtn.classList.add('disabled');
-            }
+            displayInfo.textContent = `Showing ${displayCount} of ${totalItems}`;
         }
         
         async function showPackageDetailsModal(packageKey, packageName, packageVersion, packageEcosystem, packageRepos, packageRaw) {
@@ -2569,13 +2606,13 @@
             }
             
             // Get current organization context for the link
-            const currentOrg = document.getElementById('analysisSelector')?.value || '__ALL__';
-            const orgParamForLink = (currentOrg === '__ALL__' || currentOrg === 'All Projects (Combined)') ? '__ALL__' : currentOrg;
+            const currentOrg = document.getElementById('analysisSelector')?.value || '';
+            const orgParamForLink = (!currentOrg || currentOrg === '') ? '' : currentOrg;
             
             // Helper function to create deps.html URL with repo filter
             const createRepoLink = (repo) => {
                 const params = new URLSearchParams();
-                if (orgParamForLink && orgParamForLink !== '__ALL__') {
+                if (orgParamForLink && orgParamForLink !== '') {
                     params.set('org', orgParamForLink);
                 }
                 params.set('repo', repo);
@@ -2832,7 +2869,7 @@
                 // Helper function to create deps.html URL with search filter for a dependency
                 const createDepLink = (depName, depVersion = null) => {
                     const params = new URLSearchParams();
-                    if (orgParamForLink && orgParamForLink !== '__ALL__') {
+                    if (orgParamForLink && orgParamForLink !== '') {
                         params.set('org', orgParamForLink);
                     }
                     const searchTerm = depVersion ? `${depName}@${depVersion}` : depName;
@@ -3029,13 +3066,13 @@
             modalTitle.textContent = `Repositories Using ${packageName}`;
             
             // Get current organization context for the link
-            const currentOrg = document.getElementById('analysisSelector')?.value || '__ALL__';
-            const orgParam = (currentOrg === '__ALL__' || currentOrg === 'All Projects (Combined)') ? '__ALL__' : currentOrg;
+            const currentOrg = document.getElementById('analysisSelector')?.value || '';
+            const orgParam = (!currentOrg || currentOrg === '') ? '' : currentOrg;
             
             // Helper function to create deps.html URL with repo filter
             const createRepoLink = (repo) => {
                 const params = new URLSearchParams();
-                if (orgParam && orgParam !== '__ALL__') {
+                if (orgParam && orgParam !== '') {
                     params.set('org', orgParam);
                 }
                 params.set('repo', repo);
@@ -3065,13 +3102,13 @@
             modalTitle.textContent = `Dependency Chain for ${packageName}`;
             
             // Get current organization context for the link
-            const currentOrg = document.getElementById('analysisSelector')?.value || '__ALL__';
-            const orgParam = (currentOrg === '__ALL__' || currentOrg === 'All Projects (Combined)') ? '__ALL__' : currentOrg;
+            const currentOrg = document.getElementById('analysisSelector')?.value || '';
+            const orgParam = (!currentOrg || currentOrg === '') ? '' : currentOrg;
             
             // Helper function to create deps.html URL with repo filter
             const createRepoLink = (repo) => {
                 const params = new URLSearchParams();
-                if (orgParam && orgParam !== '__ALL__') {
+                if (orgParam && orgParam !== '') {
                     params.set('org', orgParam);
                 }
                 params.set('repo', repo);
@@ -3081,7 +3118,7 @@
             // Helper function to create deps.html URL with search filter for a dependency
             const createDepLink = (depName, depVersion = null) => {
                 const params = new URLSearchParams();
-                if (orgParam && orgParam !== '__ALL__') {
+                if (orgParam && orgParam !== '') {
                     params.set('org', orgParam);
                 }
                 const searchTerm = depVersion ? `${depName}@${depVersion}` : depName;

@@ -578,7 +578,7 @@ flowchart TD
     B -->|deps.html| D[Load dependency view]
     B -->|vuln.html| E[Load vulnerability view]
     B -->|licenses.html| F[Load license view]
-    B -->|quality.html| G[Load quality view]
+    B -->|audit.html| G[Load audit view]
     B -->|authors.html| H[Load author view]
     B -->|settings.html| I[Load settings view]
     

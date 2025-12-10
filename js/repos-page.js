@@ -15,6 +15,7 @@ document.addEventListener('DOMContentLoaded', async function() {
     let currentData = null;
     let sortColumn = 'name';
     let sortDirection = 'asc';
+    let cachedAuthorRepoMap = null; // Cached author-to-repository mapping for async rebuild
     
     // Sanitize search input to prevent injection attacks
     function sanitizeSearchInput(input) {
@@ -24,6 +25,75 @@ document.addEventListener('DOMContentLoaded', async function() {
             .trim()
             .substring(0, 200) // Limit length
             .replace(/[<>\"'&]/g, ''); // Remove HTML/script injection chars
+    }
+    
+    // Build author-to-repository mapping from IndexedDB cache
+    // This is a fallback when authorAnalysis.authors is empty in stored data
+    async function buildAuthorRepoMapFromCache(allDeps, authorRepoMap) {
+        if (!window.indexedDBManager) {
+            console.warn('⚠️ indexedDBManager not available for author-repo rebuild');
+            return;
+        }
+        
+        try {
+            // Get all package-author relationships from IndexedDB
+            const allPackageAuthors = await window.indexedDBManager.getAllPackageAuthors();
+            
+            if (!allPackageAuthors || allPackageAuthors.length === 0) {
+                console.log('📦 No package-author relationships found in cache');
+                return;
+            }
+            
+            console.log(`📦 Found ${allPackageAuthors.length} package-author relationships in cache`);
+            
+            // Build a map of packageKey -> authorKeys
+            const packageAuthorMap = new Map();
+            allPackageAuthors.forEach(pa => {
+                if (!packageAuthorMap.has(pa.packageKey)) {
+                    packageAuthorMap.set(pa.packageKey, []);
+                }
+                packageAuthorMap.get(pa.packageKey).push(pa.authorKey);
+            });
+            
+            // For each dependency, find its authors and map them to repositories
+            allDeps.forEach(dep => {
+                if (!dep.purl && !dep.name) return;
+                
+                // Build package key from PURL or name/ecosystem
+                let packageKey = null;
+                if (dep.purl) {
+                    const purlMatch = dep.purl.match(/pkg:([^\/]+)\/(.+)/);
+                    if (purlMatch) {
+                        const ecosystem = purlMatch[1];
+                        const packageName = purlMatch[2].split('@')[0];
+                        packageKey = `${ecosystem}:${packageName}`;
+                    }
+                }
+                if (!packageKey && dep.name && dep.category?.ecosystem) {
+                    packageKey = `${dep.category.ecosystem.toLowerCase()}:${dep.name}`;
+                }
+                
+                if (!packageKey) return;
+                
+                // Get authors for this package
+                const authorKeys = packageAuthorMap.get(packageKey) || [];
+                const repositories = dep.repositories || [];
+                
+                // Map each author to the repositories this package is used in
+                authorKeys.forEach(authorKey => {
+                    repositories.forEach(repo => {
+                        if (!authorRepoMap.has(repo)) {
+                            authorRepoMap.set(repo, new Set());
+                        }
+                        authorRepoMap.get(repo).add(authorKey);
+                    });
+                });
+            });
+            
+            console.log(`✅ Built author-repo map for ${authorRepoMap.size} repositories`);
+        } catch (error) {
+            console.error('❌ Error building author-repo map from cache:', error);
+        }
     }
     
     // Function to update pagination controls
@@ -96,16 +166,19 @@ document.addEventListener('DOMContentLoaded', async function() {
                 return;
             }
             
-            // Add "All Projects (Combined)" as the first option
-            const allOption = document.createElement('option');
-            allOption.value = '__ALL__';
-            const totalRepos = allEntries.reduce((sum, entry) => sum + (entry.repositories || 0), 0);
-            allOption.textContent = `All Projects (Combined) (${totalRepos} repos)`;
-            selector.appendChild(allOption);
-            console.log(`📋 Added "All Projects (Combined)" option`);
+            // Filter out __ALL__ entries (legacy from previous implementation)
+            const filteredEntries = allEntries.filter(entry => entry.name !== '__ALL__');
             
-            // Add individual entries
-            allEntries.forEach(entry => {
+            // Add "All Analyses" placeholder option (aggregated data)
+            const allOption = document.createElement('option');
+            allOption.value = '';
+            const totalRepos = filteredEntries.reduce((sum, entry) => sum + (entry.repositories || 0), 0);
+            allOption.textContent = `All Analyses (${totalRepos} repos)`;
+            selector.appendChild(allOption);
+            console.log(`📋 Added "All Analyses" placeholder option`);
+            
+            // Add individual entries (excluding __ALL__)
+            filteredEntries.forEach(entry => {
                 const option = document.createElement('option');
                 option.value = entry.name;
                 const repoCount = entry.repositories || 0;
@@ -114,23 +187,23 @@ document.addEventListener('DOMContentLoaded', async function() {
                 console.log(`📋 Added option: ${entry.name} (${repoCount} repos)`);
             });
             
-            // Set default based on URL parameter or default to "All Projects (Combined)"
-            if (allEntries.length > 0) {
+            // Set default based on URL parameter or default to aggregated view (empty value)
+            if (filteredEntries.length > 0) {
                 if (orgParam) {
-                    const orgExists = allEntries.some(entry => entry.name === orgParam);
+                    const orgExists = filteredEntries.some(entry => entry.name === orgParam);
                     if (orgExists) {
                         selector.value = orgParam;
                         console.log(`📋 Set selector to URL parameter: ${orgParam}`);
                     } else {
-                        selector.value = '__ALL__';
-                        console.log(`📋 URL parameter ${orgParam} not found, using "__ALL__"`);
+                        selector.value = '';
+                        console.log(`📋 URL parameter ${orgParam} not found, using aggregated view`);
                     }
                 } else {
-                    selector.value = '__ALL__';
-                    console.log(`📋 No URL parameter, using "__ALL__"`);
+                    selector.value = '';
+                    console.log(`📋 No URL parameter, using aggregated view`);
                 }
                 selector.disabled = false;
-                console.log(`✅ Analysis selector populated with ${allEntries.length} entries`);
+                console.log(`✅ Analysis selector populated with ${filteredEntries.length} entries`);
                 await loadAnalysis();
             }
         } catch (error) {
@@ -218,7 +291,7 @@ document.addEventListener('DOMContentLoaded', async function() {
     
     async function loadAnalysis() {
         const analysisName = document.getElementById('analysisSelector').value;
-        if (!analysisName) return;
+        // Note: analysisName can be empty string '' for aggregated view - don't skip loading!
         
         // Show loading indicator
         const loadingOverlay = document.getElementById('loadingOverlay');
@@ -233,8 +306,8 @@ document.addEventListener('DOMContentLoaded', async function() {
         
         let data;
         
-        // Handle "All Projects (Combined)" option
-        if (analysisName === '__ALL__') {
+        // Handle aggregated view (empty/null analysisName)
+        if (!analysisName || analysisName === '') {
             data = await storageManager.getCombinedData();
         } else {
             data = await storageManager.loadAnalysisDataForOrganization(analysisName);
@@ -247,7 +320,15 @@ document.addEventListener('DOMContentLoaded', async function() {
         }
         
         currentData = data.data;
+        
+        // Debug logging
+        console.log(`📊 Processing data for: ${analysisName || 'aggregated view'}`);
+        console.log(`   allRepositories count: ${currentData.allRepositories?.length || 0}`);
+        console.log(`   allDependencies count: ${currentData.allDependencies?.length || 0}`);
+        
         allRepositories = processData(currentData);
+        
+        console.log(`📊 Processed ${allRepositories.length} repositories`);
         
         // Set search input from URL parameter if present
         if (searchParam) {
@@ -266,6 +347,12 @@ document.addEventListener('DOMContentLoaded', async function() {
     function processData(data) {
         const repos = [];
         const allRepos = data.allRepositories || [];
+        
+        console.log(`🔍 processData: allRepositories count = ${allRepos.length}`);
+        if (allRepos.length > 0) {
+            console.log(`   First repo: ${allRepos[0].owner}/${allRepos[0].name}`);
+        }
+        
         const vulnAnalysis = data.vulnerabilityAnalysis || {};
         const vulnerableDeps = vulnAnalysis.vulnerableDependencies || [];
         const authorAnalysis = data.authorAnalysis || {};
@@ -291,22 +378,60 @@ document.addEventListener('DOMContentLoaded', async function() {
             });
         });
         
-        // Map authors to repositories
-        const authorRepoMap = new Map(); // repo -> Set of author keys
+        // Map authors to repositories - use cached map if available
+        const authorRepoMap = cachedAuthorRepoMap || new Map(); // repo -> Set of author keys
         const isNewFormat = authorAnalysis._cacheVersion === 3 || 
                            (authorRefs.length > 0 && authorRefs[0].authorKey);
         
+        // Debug logging for author analysis
+        console.log(`👥 Author analysis debug: isNewFormat=${isNewFormat}, authorRefs.length=${authorRefs.length}, cachedMap=${!!cachedAuthorRepoMap}`);
+        if (authorRefs.length > 0) {
+            console.log(`   First author ref:`, JSON.stringify(authorRefs[0], null, 2).substring(0, 500));
+        }
+        
+        // FALLBACK: If authorRefs is empty and no cached map, try to build author-repo mapping from cache
+        if (authorRefs.length === 0 && !cachedAuthorRepoMap && allDeps.length > 0 && window.indexedDBManager) {
+            console.log(`👥 Author refs empty, attempting to rebuild from package-author cache...`);
+            // Build asynchronously then re-process data
+            buildAuthorRepoMapFromCache(allDeps, authorRepoMap).then(() => {
+                console.log(`👥 Rebuilt authorRepoMap with ${authorRepoMap.size} repos from cache`);
+                if (authorRepoMap.size > 0) {
+                    // Store the rebuilt map for future use
+                    cachedAuthorRepoMap = authorRepoMap;
+                    // Re-process data with the updated author map
+                    console.log(`👥 Re-processing data with updated author counts...`);
+                    allRepositories = processData(currentData);
+                    filterTable();
+                }
+            }).catch(err => {
+                console.warn(`⚠️ Failed to rebuild author-repo map from cache:`, err);
+            });
+        }
+        
         if (isNewFormat) {
-            // New format: Use packageRepositories from author refs
+            // New format: Use both packageRepositories and repositories array
             authorRefs.forEach(ref => {
+                const authorKey = ref.authorKey || `${ref.ecosystem}:${ref.author}`;
+                
+                // First, use packageRepositories if available
                 if (ref.packageRepositories) {
                     Object.keys(ref.packageRepositories).forEach(pkg => {
                         (ref.packageRepositories[pkg] || []).forEach(repo => {
                             if (!authorRepoMap.has(repo)) {
                                 authorRepoMap.set(repo, new Set());
                             }
-                            authorRepoMap.get(repo).add(ref.authorKey || `${ref.ecosystem}:${ref.author}`);
+                            authorRepoMap.get(repo).add(authorKey);
                         });
+                    });
+                }
+                
+                // Also use repositories array as fallback/supplement
+                if (ref.repositories && Array.isArray(ref.repositories)) {
+                    ref.repositories.forEach(repo => {
+                        if (!authorRepoMap.has(repo)) {
+                            authorRepoMap.set(repo, new Set());
+                        }
+                        authorRepoMap.get(repo).add(authorKey);
                     });
                 }
             });
@@ -320,6 +445,13 @@ document.addEventListener('DOMContentLoaded', async function() {
                     authorRepoMap.get(repo).add(`${author.ecosystem}:${author.author}`);
                 });
             });
+        }
+        
+        // Debug: Show authorRepoMap summary
+        console.log(`👥 authorRepoMap has ${authorRepoMap.size} repositories with authors`);
+        if (authorRepoMap.size > 0) {
+            const firstRepoKey = authorRepoMap.keys().next().value;
+            console.log(`   First repo: "${firstRepoKey}" has ${authorRepoMap.get(firstRepoKey).size} authors`);
         }
         
         allRepos.forEach(repo => {
@@ -363,6 +495,11 @@ document.addEventListener('DOMContentLoaded', async function() {
             // Get author count
             const authorCount = (authorRepoMap.get(repoKey) || new Set()).size;
             
+            // Debug: If first repo, show the lookup
+            if (repos.length === 0) {
+                console.log(`👥 First repo lookup: repoKey="${repoKey}", authorRepoMap.has(repoKey)=${authorRepoMap.has(repoKey)}, authorCount=${authorCount}`);
+            }
+            
             repos.push({
                 name: repoKey,
                 owner: repo.owner,
@@ -379,6 +516,7 @@ document.addEventListener('DOMContentLoaded', async function() {
                 authorCount: authorCount,
                 license: repoLicense,
                 archived: isArchived,
+                hasDependencyGraph: repo.hasDependencyGraph !== false, // Default to true if not specified (for backward compat)
                 raw: repo
             });
         });
@@ -456,13 +594,13 @@ document.addEventListener('DOMContentLoaded', async function() {
         tbody.innerHTML = '';
         
         // Get current organization context for links
-        const currentOrg = document.getElementById('analysisSelector')?.value || '__ALL__';
-        const orgParamForLink = (currentOrg === '__ALL__' || currentOrg === 'All Projects (Combined)') ? '__ALL__' : currentOrg;
+        const currentOrg = document.getElementById('analysisSelector')?.value || '';
+        const orgParamForLink = (!currentOrg || currentOrg === '') ? '' : currentOrg;
         
         // Helper function to create links with repo filter
         const createRepoLink = (page, repo) => {
             const params = new URLSearchParams();
-            if (orgParamForLink && orgParamForLink !== '__ALL__') {
+            if (orgParamForLink && orgParamForLink !== '') {
                 params.set('org', orgParamForLink);
             }
             params.set('repo', repo);
@@ -483,7 +621,13 @@ document.addEventListener('DOMContentLoaded', async function() {
             // Build SBOM Grade cell (combined status and grade, clickable if available)
             const qualityLink = createRepoLink('audit.html', repo.name);
             let sbomGradeCell = '<td>';
-            if (repo.sbomGrade && repo.sbomGrade !== 'N/A') {
+            
+            // Check if repository has dependency graph enabled
+            if (repo.hasDependencyGraph === false) {
+                sbomGradeCell += `<span class="badge bg-secondary" title="Dependency Graph not enabled for this repository">
+                    <i class="fas fa-ban me-1"></i>No Dependency Graph
+                </span>`;
+            } else if (repo.sbomGrade && repo.sbomGrade !== 'N/A') {
                 const gradeClass = {
                     'A': 'bg-success',
                     'B': 'bg-info',

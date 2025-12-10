@@ -30,7 +30,7 @@ jobs:
     
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
         with:
           # Don't fetch history, only need current state
           fetch-depth: 1
@@ -54,8 +54,9 @@ jobs:
           cp authors.html _site/
           cp repos.html _site/
           cp about.html _site/
+          cp debug.html _site/
           
-          echo "✅ Copied 9 HTML files"
+          echo "✅ Copied 10 HTML files"
           
           # Copy JavaScript and CSS directories (matching update-prod.sh)
           cp -r js _site/

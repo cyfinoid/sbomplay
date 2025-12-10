@@ -160,7 +160,7 @@ sbomplay/
 ├── index.html              # Main application
 ├── licenses.html # License compliance page
 ├── vuln.html              # Vulnerability analysis page
-├── quality.html           # SBOM quality assessment page
+├── audit.html             # Audit findings page
 ├── deps.html              # Dependency view page
 ├── authors.html           # Author analysis page
 ├── settings.html          # Settings and storage management

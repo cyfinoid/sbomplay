@@ -122,6 +122,92 @@ class LicenseProcessor {
     }
 
     /**
+     * Normalize license name to canonical form
+     * Handles variants like GPL-3, GPL-3-only, GPL-3.0, etc.
+     * @param {string} license - License string to normalize
+     * @returns {string} - Normalized license name
+     */
+    normalizeLicenseName(license) {
+        if (!license || typeof license !== 'string') {
+            return license || 'Unknown';
+        }
+        
+        // Trim whitespace
+        let normalized = license.trim();
+        
+        // Map common variants to canonical forms
+        const variantMap = {
+            // GPL variants
+            'GPL-3': 'GPL-3.0',
+            'GPL-3.0': 'GPL-3.0',
+            'GPL-3-only': 'GPL-3.0-only',
+            'GPL-3.0-only': 'GPL-3.0-only',
+            'GPL-3-or-later': 'GPL-3.0-or-later',
+            'GPL-3.0-or-later': 'GPL-3.0-or-later',
+            'GPL-2': 'GPL-2.0',
+            'GPL-2.0': 'GPL-2.0',
+            'GPL-2-only': 'GPL-2.0-only',
+            'GPL-2.0-only': 'GPL-2.0-only',
+            'GPL-2-or-later': 'GPL-2.0-or-later',
+            'GPL-2.0-or-later': 'GPL-2.0-or-later',
+            
+            // LGPL variants
+            'LGPL-2.1': 'LGPL-2.1',
+            'LGPL-2.1-only': 'LGPL-2.1-only',
+            'LGPL-2.1-or-later': 'LGPL-2.1-or-later',
+            'LGPL-3': 'LGPL-3.0',
+            'LGPL-3.0': 'LGPL-3.0',
+            'LGPL-3-only': 'LGPL-3.0-only',
+            'LGPL-3.0-only': 'LGPL-3.0-only',
+            'LGPL-3-or-later': 'LGPL-3.0-or-later',
+            'LGPL-3.0-or-later': 'LGPL-3.0-or-later',
+            
+            // Apache variants
+            'Apache': 'Apache-2.0',
+            'Apache-2': 'Apache-2.0',
+            'Apache-2.0': 'Apache-2.0',
+            'Apache License 2.0': 'Apache-2.0',
+            
+            // BSD variants
+            'BSD': 'BSD-3-Clause',  // Default to 3-clause if unspecified
+            'BSD-2': 'BSD-2-Clause',
+            'BSD-2-Clause': 'BSD-2-Clause',
+            'BSD-3': 'BSD-3-Clause',
+            'BSD-3-Clause': 'BSD-3-Clause',
+            
+            // MIT variants
+            'MIT License': 'MIT',
+            'MIT': 'MIT',
+            
+            // MPL variants
+            'MPL-2': 'MPL-2.0',
+            'MPL-2.0': 'MPL-2.0',
+            'MPL-1.1': 'MPL-1.1',
+            
+            // EPL variants
+            'EPL-2': 'EPL-2.0',
+            'EPL-2.0': 'EPL-2.0',
+            'EPL-1.0': 'EPL-1.0'
+        };
+        
+        // Check exact match first
+        if (variantMap[normalized]) {
+            return variantMap[normalized];
+        }
+        
+        // Check case-insensitive match
+        const normalizedLower = normalized.toLowerCase();
+        for (const [variant, canonical] of Object.entries(variantMap)) {
+            if (variant.toLowerCase() === normalizedLower) {
+                return canonical;
+            }
+        }
+        
+        // If no mapping found, return as-is (might be a valid SPDX identifier)
+        return normalized;
+    }
+
+    /**
      * Parse and categorize license information from SBOM package
      */
     parseLicense(pkg) {
@@ -147,6 +233,27 @@ class LicenseProcessor {
             licenseValue = pkg.licenseConcluded;
         } else if (pkg.licenseDeclared && pkg.licenseDeclared !== 'NOASSERTION') {
             licenseValue = pkg.licenseDeclared;
+        }
+        
+        // Detect dual licenses (e.g., "MIT AND Apache-2.0", "GPL-2.0 OR GPL-3.0")
+        const isDualLicense = licenseValue && (licenseValue.includes(' AND ') || licenseValue.includes(' OR '));
+        let dualLicenseInfo = null;
+        if (isDualLicense) {
+            const parts = licenseValue.split(/\s+(AND|OR)\s+/i);
+            const licenses = [];
+            const operators = [];
+            for (let i = 0; i < parts.length; i++) {
+                if (i % 2 === 0) {
+                    licenses.push(parts[i].trim());
+                } else {
+                    operators.push(parts[i].trim().toUpperCase());
+                }
+            }
+            dualLicenseInfo = {
+                licenses: licenses,
+                operators: operators,
+                fullText: licenseValue
+            };
         }
         
         if (licenseValue) {
@@ -221,7 +328,50 @@ class LicenseProcessor {
                     }
                 }
                 
-                // Set risk and category based on the most restrictive component
+                // For dual licenses, classify under least restrictive
+                // AND licenses: must comply with both, so use most restrictive
+                // OR licenses: can choose either, so use least restrictive
+                const isAndLicense = licenseInfo.license.includes(' AND ');
+                const isOrLicense = licenseInfo.license.includes(' OR ');
+                
+                // Store dual license info
+                licenseInfo.isDualLicense = true;
+                licenseInfo.dualLicenseInfo = dualLicenseInfo;
+                
+                // Set risk and category based on least restrictive (for OR) or most restrictive (for AND)
+                if (isOrLicense) {
+                    // OR license: use least restrictive (most permissive)
+                    if (hasPermissive && !hasCopyleft && !hasLgpl) {
+                        licenseInfo.category = 'permissive';
+                        licenseInfo.risk = 'low';
+                        licenseInfo.description = `Dual license (OR): ${dualLicenseInfo.licenses.join(' OR ')} - Choose least restrictive`;
+                    } else if (hasLgpl && !hasCopyleft) {
+                        licenseInfo.category = 'lgpl';
+                        licenseInfo.risk = 'medium';
+                        licenseInfo.description = `Dual license (OR): ${dualLicenseInfo.licenses.join(' OR ')} - Choose least restrictive`;
+                    } else if (hasCopyleft) {
+                        // Even with OR, if copyleft is an option, it's still risky
+                        licenseInfo.category = 'copyleft';
+                        licenseInfo.risk = 'high';
+                        licenseInfo.description = `Dual license (OR): ${dualLicenseInfo.licenses.join(' OR ')} - Copyleft option available`;
+                    }
+                } else if (isAndLicense) {
+                    // AND license: must comply with both, so use most restrictive
+                    if (hasCopyleft) {
+                        licenseInfo.category = 'copyleft';
+                        licenseInfo.risk = 'high';
+                        licenseInfo.description = `Dual license (AND): ${dualLicenseInfo.licenses.join(' AND ')} - Must comply with both`;
+                    } else if (hasLgpl) {
+                        licenseInfo.category = 'lgpl';
+                        licenseInfo.risk = 'medium';
+                        licenseInfo.description = `Dual license (AND): ${dualLicenseInfo.licenses.join(' AND ')} - Must comply with both`;
+                    } else if (hasPermissive) {
+                        licenseInfo.category = 'permissive';
+                        licenseInfo.risk = 'low';
+                        licenseInfo.description = `Dual license (AND): ${dualLicenseInfo.licenses.join(' AND ')} - Must comply with both`;
+                    }
+                } else {
+                    // Fallback (shouldn't happen, but just in case)
                 if (hasCopyleft) {
                     licenseInfo.category = 'copyleft';
                     licenseInfo.risk = 'high';
@@ -242,6 +392,7 @@ class LicenseProcessor {
                     licenseInfo.category = 'unknown';
                     licenseInfo.risk = 'high';
                     licenseInfo.description = 'Complex license combination requiring investigation';
+                    }
                 }
             } else {
                 // Simple license - categorize normally

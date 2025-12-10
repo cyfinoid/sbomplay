@@ -1,6 +1,9 @@
 /**
  * OSV Service - Queries OSV API for vulnerability information
+ * BUILD: 1764041557320 (with version resolution for unknown versions)
  */
+console.log('🛡️ OSV Service loaded - BUILD: 1764041557320 (resolves unknown versions)');
+
 class OSVService {
     constructor() {
         this.baseUrl = 'https://api.osv.dev';
@@ -62,10 +65,10 @@ class OSVService {
             console.log(`🔍 OSV: Query payload:`, query);
 
             const url = `${this.baseUrl}/v1/query`;
-            console.log(`🌐 [DEBUG] Fetching URL: ${url}`);
-            console.log(`   Reason: Querying OSV API for vulnerabilities for package ${cleanName}@${cleanVersion} (ecosystem: ${mappedEcosystem || 'auto-detected'})`);
+            debugLogUrl(`🌐 [DEBUG] Fetching URL: ${url}`);
+            debugLogUrl(`   Reason: Querying OSV API for vulnerabilities for package ${cleanName}@${cleanVersion} (ecosystem: ${mappedEcosystem || 'auto-detected'})`);
 
-            const response = await fetch(url, {
+            const response = await fetchWithTimeout(url, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json'
@@ -154,10 +157,10 @@ class OSVService {
                 console.log(`🔍 OSV: Sending chunk ${idx + 1}/${chunks.length} with ${chunk.length} queries`);
                 
                 const url = `${this.baseUrl}/v1/querybatch`;
-                console.log(`🌐 [DEBUG] Fetching URL: ${url}`);
-                console.log(`   Reason: Batch querying OSV API for ${chunk.length} packages (chunk ${idx + 1}/${chunks.length})`);
+                debugLogUrl(`🌐 [DEBUG] Fetching URL: ${url}`);
+                debugLogUrl(`   Reason: Batch querying OSV API for ${chunk.length} packages (chunk ${idx + 1}/${chunks.length})`);
                 
-                const response = await fetch(url, {
+                const response = await fetchWithTimeout(url, {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json'
@@ -341,10 +344,13 @@ class OSVService {
                     }
                 });
 
-                // Add to vulnerable dependencies list
+                // Add to vulnerable dependencies list with full metadata
                 vulnerabilityAnalysis.vulnerableDependencies.push({
                     name: dep.name,
                     version: dep.version,
+                    ecosystem: dep.ecosystem || dep.category?.ecosystem || null,
+                    versionDrift: dep.versionDrift || null,
+                    category: dep.category || null,
                     vulnerabilities: vulnerabilities.map(vuln => {
                         const severity = this.getHighestSeverity(vuln);
                         console.log(`🔍 OSV: Mapped vulnerability ${vuln.id} severity: ${severity}`);
@@ -372,7 +378,58 @@ class OSVService {
     async analyzeDependenciesWithIncrementalSaving(dependencies, orgName, onProgress = null) {
         console.log(`🔍 OSV: Analyzing ${dependencies.length} dependencies for vulnerabilities with incremental saving`);
         
-        const packages = dependencies.map(dep => {
+        // Resolve unknown versions to latest before filtering
+        const resolver = window.DependencyTreeResolver ? new window.DependencyTreeResolver() : null;
+        let resolvedCount = 0;
+        let unknownCount = dependencies.filter(d => !d.version || d.version === 'unknown').length;
+        
+        if (!resolver) {
+            console.warn('⚠️  OSV: DependencyTreeResolver not available, cannot resolve unknown versions');
+        } else if (unknownCount > 0) {
+            console.log(`🔍 OSV: Attempting to resolve ${unknownCount} dependencies with unknown versions...`);
+        }
+        
+        for (const dep of dependencies) {
+            if (!dep.version || dep.version === 'unknown') {
+                // Try to resolve to latest version
+                // Use multiple fallbacks to detect ecosystem
+                let ecosystem = dep.category?.ecosystem?.toLowerCase() || 
+                                (dep.pkg ? this.extractEcosystemFromPurl(dep.pkg)?.toLowerCase() : null) ||
+                                (dep.ecosystem ? dep.ecosystem.toLowerCase() : null) ||
+                                this.detectEcosystemFromName(dep.name)?.toLowerCase();
+                
+                if (resolver && ecosystem) {
+                    try {
+                        const latestVersion = await resolver.fetchLatestVersion(dep.name, ecosystem);
+                        if (latestVersion) {
+                            console.log(`   ✅ OSV: Resolved ${dep.name} (${ecosystem}) → v${latestVersion} for vulnerability scan`);
+                            dep.version = latestVersion;
+                            dep.resolvedForVulnScan = true;
+                            resolvedCount++;
+                        }
+                    } catch (error) {
+                        console.debug(`   ⚠️  OSV: Could not resolve latest version for ${dep.name}: ${error.message}`);
+                    }
+                }
+            }
+        }
+        
+        if (resolvedCount > 0) {
+            console.log(`🔍 OSV: Resolved ${resolvedCount} unknown versions to latest for vulnerability scanning`);
+        }
+        
+        // Filter out dependencies that still don't have valid versions
+        const validDependencies = dependencies.filter(dep => {
+            if (!dep.version || dep.version === 'unknown') {
+                console.warn(`⚠️  Skipping vulnerability scan for ${dep.name}: no version available (could not resolve)`);
+                return false;
+            }
+            return true;
+        });
+        
+        console.log(`🔍 OSV: ${validDependencies.length}/${dependencies.length} dependencies have valid versions for vulnerability scanning`);
+        
+        const packages = validDependencies.map(dep => {
             const detectedEcosystem = dep.pkg ? this.extractEcosystemFromPurl(dep.pkg) : this.detectEcosystemFromName(dep.name);
             const mappedEcosystem = detectedEcosystem ? this.mapEcosystemToOSV(detectedEcosystem) : null;
             return {
@@ -406,7 +463,7 @@ class OSVService {
         }
         
         const vulnerabilityAnalysis = {
-            totalPackages: dependencies.length,
+            totalPackages: validDependencies.length,
             vulnerablePackages: 0,
             totalVulnerabilities: 0,
             criticalVulnerabilities: 0,
@@ -416,8 +473,8 @@ class OSVService {
             vulnerableDependencies: []
         };
 
-        for (let index = 0; index < dependencies.length; index++) {
-            const dep = dependencies[index];
+        for (let index = 0; index < validDependencies.length; index++) {
+            const dep = validDependencies[index];
             const vulnResult = results[index] || { vulns: [] };
             const vulnerabilities = vulnResult?.vulns || [];
             
@@ -476,10 +533,13 @@ class OSVService {
                     }
                 });
 
-                // Add to vulnerable dependencies list
+                // Add to vulnerable dependencies list with full metadata
                 vulnerabilityAnalysis.vulnerableDependencies.push({
                     name: dep.name,
                     version: dep.version,
+                    ecosystem: dep.ecosystem || dep.category?.ecosystem || null,
+                    versionDrift: dep.versionDrift || null,
+                    category: dep.category || null,
                     vulnerabilities: vulnerabilities.map(vuln => {
                         const severity = this.getHighestSeverity(vuln);
                         console.log(`🔍 OSV: Mapped vulnerability ${vuln.id} severity: ${severity}`);

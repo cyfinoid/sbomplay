@@ -497,9 +497,9 @@ class AuthorService {
                 case 'npm':
                     // npm registry provides full package metadata including funding
                     url = `${this.registryUrls.npm}/${packageName}/latest`;
-                    console.log(`🌐 [DEBUG] Fetching URL: ${url}`);
-                    console.log(`   Reason: Fetching npm package metadata for ${packageName} to extract authors and funding information`);
-                    const npmResponse = await fetch(url);
+                    debugLogUrl(`🌐 [DEBUG] Fetching URL: ${url}`);
+                    debugLogUrl(`   Reason: Fetching npm package metadata for ${packageName} to extract authors and funding information`);
+                    const npmResponse = await fetchWithTimeout(url);
                     if (!npmResponse.ok) {
                         console.log(`   ❌ Response: Status ${npmResponse.status} ${npmResponse.statusText}`);
                         return { authors: [], packageFunding: null };
@@ -519,9 +519,9 @@ class AuthorService {
                 case 'pypi':
                     // PyPI JSON API with project URLs
                     url = `${this.registryUrls.pypi}/${packageName}/json`;
-                    console.log(`🌐 [DEBUG] Fetching URL: ${url}`);
-                    console.log(`   Reason: Fetching PyPI package metadata for ${packageName} to extract authors and funding information`);
-                    const pypiResponse = await fetch(url);
+                    debugLogUrl(`🌐 [DEBUG] Fetching URL: ${url}`);
+                    debugLogUrl(`   Reason: Fetching PyPI package metadata for ${packageName} to extract authors and funding information`);
+                    const pypiResponse = await fetchWithTimeout(url);
                     if (!pypiResponse.ok) {
                         console.log(`   ❌ Response: Status ${pypiResponse.status} ${pypiResponse.statusText}`);
                         return { authors: [], packageFunding: null };
@@ -541,9 +541,9 @@ class AuthorService {
                 case 'cargo':
                     // crates.io API
                     url = `${this.registryUrls.cargo}/${packageName}`;
-                    console.log(`🌐 [DEBUG] Fetching URL: ${url}`);
-                    console.log(`   Reason: Fetching crates.io package metadata for ${packageName} to extract authors and funding information`);
-                    const cargoResponse = await fetch(url);
+                    debugLogUrl(`🌐 [DEBUG] Fetching URL: ${url}`);
+                    debugLogUrl(`   Reason: Fetching crates.io package metadata for ${packageName} to extract authors and funding information`);
+                    const cargoResponse = await fetchWithTimeout(url);
                     if (!cargoResponse.ok) {
                         console.log(`   ❌ Response: Status ${cargoResponse.status} ${cargoResponse.statusText}`);
                         return { authors: [], packageFunding: null };
@@ -562,9 +562,9 @@ class AuthorService {
                 case 'gem':
                     // RubyGems API
                     url = `${this.registryUrls.gem}/${packageName}.json`;
-                    console.log(`🌐 [DEBUG] Fetching URL: ${url}`);
-                    console.log(`   Reason: Fetching RubyGems package metadata for ${packageName} to extract authors and funding information`);
-                    const gemResponse = await fetch(url);
+                    debugLogUrl(`🌐 [DEBUG] Fetching URL: ${url}`);
+                    debugLogUrl(`   Reason: Fetching RubyGems package metadata for ${packageName} to extract authors and funding information`);
+                    const gemResponse = await fetchWithTimeout(url);
                     if (!gemResponse.ok) {
                         console.log(`   ❌ Response: Status ${gemResponse.status} ${gemResponse.statusText}`);
                         return { authors: [], packageFunding: null };
@@ -839,9 +839,9 @@ class AuthorService {
             // Try fetching from GitHub profile JSON files
             // GitHub supports profile.json at root of user's .github repository
             const githubProfileJsonUrl = `https://raw.githubusercontent.com/${githubUsername}/.github/main/profile.json`;
-            console.log(`🌐 [DEBUG] Fetching URL: ${githubProfileJsonUrl} (HEAD)`);
-            console.log(`   Reason: Checking if GitHub profile.json exists for user ${githubUsername} to extract funding information`);
-            let response = await fetch(githubProfileJsonUrl, { 
+            debugLogUrl(`🌐 [DEBUG] Fetching URL: ${githubProfileJsonUrl} (HEAD)`);
+            debugLogUrl(`   Reason: Checking if GitHub profile.json exists for user ${githubUsername} to extract funding information`);
+            let response = await fetchWithTimeout(githubProfileJsonUrl, { 
                 method: 'HEAD',  // Check if file exists without downloading
                 cache: 'no-cache'
             });
@@ -849,9 +849,9 @@ class AuthorService {
 
             if (response.ok) {
                 // File exists, fetch it
-                console.log(`🌐 [DEBUG] Fetching URL: ${githubProfileJsonUrl}`);
-                console.log(`   Reason: Fetching GitHub profile.json for user ${githubUsername} to extract funding information`);
-                response = await fetch(githubProfileJsonUrl, { cache: 'no-cache' });
+                debugLogUrl(`🌐 [DEBUG] Fetching URL: ${githubProfileJsonUrl}`);
+                debugLogUrl(`   Reason: Fetching GitHub profile.json for user ${githubUsername} to extract funding information`);
+                response = await fetchWithTimeout(githubProfileJsonUrl, { cache: 'no-cache' });
                 if (response.ok) {
                     const profile = await response.json();
                     const hasFunding = profile.sponsor && profile.sponsor.github;
@@ -873,9 +873,9 @@ class AuthorService {
 
             // Try alternative: .github/FUNDING.yml (GitHub Sponsors)
             const fundingYmlUrl = `https://raw.githubusercontent.com/${githubUsername}/.github/main/FUNDING.yml`;
-            console.log(`🌐 [DEBUG] Fetching URL: ${fundingYmlUrl}`);
-            console.log(`   Reason: Fetching GitHub FUNDING.yml for user ${githubUsername} to extract funding information`);
-            response = await fetch(fundingYmlUrl, { cache: 'no-cache' });
+            debugLogUrl(`🌐 [DEBUG] Fetching URL: ${fundingYmlUrl}`);
+            debugLogUrl(`   Reason: Fetching GitHub FUNDING.yml for user ${githubUsername} to extract funding information`);
+            response = await fetchWithTimeout(fundingYmlUrl, { cache: 'no-cache' });
             if (response.ok) {
                 const yml = await response.text();
                 // Simple parsing for FUNDING.yml
@@ -935,8 +935,38 @@ class AuthorService {
             authorEntity = await window.cacheManager?.getAuthorEntity(authorKey);
         }
         
-        // If author already has location data in DB, don't refetch
-        if (authorEntity?.metadata?.location || authorEntity?.metadata?.company) {
+        // If author already has location data AND geocoding (countryCode), don't refetch
+        const hasLocation = authorEntity?.metadata?.location || authorEntity?.metadata?.company;
+        const hasGeocoding = authorEntity?.metadata?.countryCode;
+        
+        if (hasLocation && hasGeocoding) {
+            return {
+                location: authorEntity.metadata.location || null,
+                company: authorEntity.metadata.company || null
+            };
+        }
+        
+        // If author has location but no geocoding, geocode it now
+        if (hasLocation && !hasGeocoding && authorEntity.metadata?.location && window.LocationService) {
+            try {
+                const locationService = new window.LocationService();
+                const geocoded = await locationService.geocode(authorEntity.metadata.location);
+                if (geocoded && geocoded.countryCode) {
+                    // Update author entity with geocoding data
+                    const existingMetadata = authorEntity.metadata || {};
+                    authorEntity.metadata = {
+                        ...existingMetadata,
+                        countryCode: geocoded.countryCode,
+                        ...(geocoded.country && { country: geocoded.country })
+                    };
+                    await window.cacheManager.saveAuthorEntity(authorKey, authorEntity);
+                    console.log(`📍 Geocoded existing location for ${authorKey}: ${geocoded.countryCode}`);
+                }
+            } catch (error) {
+                console.debug(`Could not geocode existing location "${authorEntity.metadata.location}" for ${authorKey}:`, error.message);
+            }
+            
+            // Return existing location data
             return {
                 location: authorEntity.metadata.location || null,
                 company: authorEntity.metadata.company || null
@@ -985,6 +1015,7 @@ class AuthorService {
                             if (geocoded && geocoded.countryCode) {
                                 countryCode = geocoded.countryCode;
                                 country = geocoded.country;
+                                console.log(`📍 Geocoded location during GitHub fetch for ${authorKey}: "${userData.location}" → ${geocoded.countryCode}`);
                             }
                         } catch (error) {
                             console.debug(`Could not geocode location "${userData.location}" for ${authorKey}:`, error.message);
@@ -1051,10 +1082,10 @@ class AuthorService {
             const url = `${registry.packages_url}/${encodeURIComponent(packageName)}`;
             
             console.log(`🔍 Fetching from ecosyste.ms (full package): ${ecosystem} → ${registry.name} (${url})`);
-            console.log(`🌐 [DEBUG] Fetching URL: ${url}`);
-            console.log(`   Reason: Fetching ecosyste.ms package metadata for ${packageName} (${ecosystem}/${registry.name}) to extract maintainers/authors`);
+            debugLogUrl(`🌐 [DEBUG] Fetching URL: ${url}`);
+            debugLogUrl(`   Reason: Fetching ecosyste.ms package metadata for ${packageName} (${ecosystem}/${registry.name}) to extract maintainers/authors`);
             
-            const response = await fetch(url);
+            const response = await fetchWithTimeout(url);
             if (!response.ok) {
                 console.warn(`ecosyste.ms returned ${response.status} for ${registry.name}/${packageName}`);
                 console.log(`   ❌ Response: Status ${response.status} ${response.statusText}`);
@@ -1128,9 +1159,9 @@ class AuthorService {
             switch (ecosystem) {
                 case 'npm':
                     url = `${this.registryUrls.npm}/${packageName}/latest`;
-                    console.log(`🌐 [DEBUG] Fetching URL: ${url}`);
-                    console.log(`   Reason: Fetching npm package metadata for ${packageName} to extract repository URL`);
-                    const npmResponse = await fetch(url);
+                    debugLogUrl(`🌐 [DEBUG] Fetching URL: ${url}`);
+                    debugLogUrl(`   Reason: Fetching npm package metadata for ${packageName} to extract repository URL`);
+                    const npmResponse = await fetchWithTimeout(url);
                     if (!npmResponse.ok) {
                         console.log(`   ❌ Response: Status ${npmResponse.status} ${npmResponse.statusText}`);
                         return null;
@@ -1145,9 +1176,9 @@ class AuthorService {
                 
                 case 'pypi':
                     url = `${this.registryUrls.pypi}/${packageName}/json`;
-                    console.log(`🌐 [DEBUG] Fetching URL: ${url}`);
-                    console.log(`   Reason: Fetching PyPI package metadata for ${packageName} to extract repository URL`);
-                    const pypiResponse = await fetch(url);
+                    debugLogUrl(`🌐 [DEBUG] Fetching URL: ${url}`);
+                    debugLogUrl(`   Reason: Fetching PyPI package metadata for ${packageName} to extract repository URL`);
+                    const pypiResponse = await fetchWithTimeout(url);
                     if (!pypiResponse.ok) {
                         console.log(`   ❌ Response: Status ${pypiResponse.status} ${pypiResponse.statusText}`);
                         return null;
@@ -1163,9 +1194,9 @@ class AuthorService {
                 
                 case 'cargo':
                     url = `${this.registryUrls.cargo}/${packageName}`;
-                    console.log(`🌐 [DEBUG] Fetching URL: ${url}`);
-                    console.log(`   Reason: Fetching crates.io package metadata for ${packageName} to extract repository URL`);
-                    const cargoResponse = await fetch(url);
+                    debugLogUrl(`🌐 [DEBUG] Fetching URL: ${url}`);
+                    debugLogUrl(`   Reason: Fetching crates.io package metadata for ${packageName} to extract repository URL`);
+                    const cargoResponse = await fetchWithTimeout(url);
                     if (!cargoResponse.ok) {
                         console.log(`   ❌ Response: Status ${cargoResponse.status} ${cargoResponse.statusText}`);
                         return null;
@@ -1180,9 +1211,9 @@ class AuthorService {
                 
                 case 'gem':
                     url = `${this.registryUrls.gem}/${packageName}.json`;
-                    console.log(`🌐 [DEBUG] Fetching URL: ${url}`);
-                    console.log(`   Reason: Fetching RubyGems package metadata for ${packageName} to extract repository URL`);
-                    const gemResponse = await fetch(url);
+                    debugLogUrl(`🌐 [DEBUG] Fetching URL: ${url}`);
+                    debugLogUrl(`   Reason: Fetching RubyGems package metadata for ${packageName} to extract repository URL`);
+                    const gemResponse = await fetchWithTimeout(url);
                     if (!gemResponse.ok) {
                         console.log(`   ❌ Response: Status ${gemResponse.status} ${gemResponse.statusText}`);
                         return null;
@@ -1864,17 +1895,17 @@ class AuthorService {
         if (match) {
             const name = match[1].trim();
             const email = match[2].trim();
-            // Extract username from email (part before @)
-            const username = email.split('@')[0];
-            return { name, email, username };
+            // DON'T extract username from email - it's unreliable
+            // PyPI usernames should come from ecosyste.ms API only
+            return { name, email, username: null };
         }
         
         // Check if it's just an email
         const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
         if (emailPattern.test(authorEmailString.trim())) {
             const email = authorEmailString.trim();
-            const username = email.split('@')[0];
-            return { name: null, email, username };
+            // DON'T extract username from email - it's unreliable
+            return { name: null, email, username: null };
         }
         
         // Otherwise, treat as name only

@@ -5,12 +5,12 @@
 
 /**
  * Load analyses list into a selector dropdown
+ * Shows aggregated data by default, individual analyses when selected
  * @param {string} selectorId - ID of the select element
  * @param {StorageManager} storageManager - StorageManager instance
- * @param {boolean} includeAllOption - Whether to include "__ALL__" option
  * @param {HTMLElement|null} noDataSection - Optional element to show when no data
  */
-async function loadAnalysesList(selectorId, storageManager, includeAllOption = false, noDataSection = null) {
+async function loadAnalysesList(selectorId, storageManager, noDataSection = null) {
     const selector = document.getElementById(selectorId);
     if (!selector) {
         console.error(`Selector element not found: ${selectorId}`);
@@ -28,19 +28,19 @@ async function loadAnalysesList(selectorId, storageManager, includeAllOption = f
         const storageInfo = await storageManager.getStorageInfo();
         console.log(`📋 Storage info retrieved: ${storageInfo.organizations.length} orgs, ${storageInfo.repositories.length} repos`);
         
-        const allEntries = [...storageInfo.organizations, ...storageInfo.repositories];
+        // Filter out:
+        // 1. __ALL__ entries (legacy internal identifier)
+        // 2. Entries with 0 dependencies (repositories without SBOM/dependency graph)
+        const allEntries = [...storageInfo.organizations, ...storageInfo.repositories]
+            .filter(entry => entry.name !== '__ALL__' && entry.dependencies > 0);
+        
+        const filteredOutCount = (storageInfo.organizations.length + storageInfo.repositories.length) - allEntries.length;
+        if (filteredOutCount > 0) {
+            console.log(`📋 Filtered out ${filteredOutCount} entries (no dependencies/SBOM)`);
+        }
         console.log(`📋 Total entries to add: ${allEntries.length}`);
         
         selector.innerHTML = '';
-        
-        if (includeAllOption) {
-            const allOption = document.createElement('option');
-            allOption.value = '__ALL__';
-            const totalDeps = allEntries.reduce((sum, entry) => sum + (entry.dependencies || 0), 0);
-            allOption.textContent = `All Projects (Combined) (${totalDeps} deps)`;
-            selector.appendChild(allOption);
-            console.log(`📋 Added "All Projects (Combined)" option`);
-        }
         
         if (allEntries.length === 0) {
             console.warn(`⚠️ No entries found in storage. Selector will be disabled.`);
@@ -51,6 +51,14 @@ async function loadAnalysesList(selectorId, storageManager, includeAllOption = f
             selector.disabled = true;
             return;
         }
+        
+        // Add placeholder option for "All Analyses"
+        const allOption = document.createElement('option');
+        allOption.value = '';
+        const totalDeps = allEntries.reduce((sum, entry) => sum + (entry.dependencies || 0), 0);
+        allOption.textContent = `All Analyses (${totalDeps} deps)`;
+        selector.appendChild(allOption);
+        console.log(`📋 Added "All Analyses" placeholder option`);
         
         // Add individual entries
         allEntries.forEach(entry => {
@@ -81,7 +89,7 @@ async function loadAnalysesList(selectorId, storageManager, includeAllOption = f
 
 /**
  * Load organization data with common filtering and validation
- * @param {string} name - Organization/repository name or '__ALL__'
+ * @param {string} name - Organization/repository name, or empty/null for aggregated data
  * @param {StorageManager} storageManager - StorageManager instance
  * @param {Object} options - Configuration options
  * @param {string|null} options.severityFilter - Severity filter value
@@ -105,15 +113,15 @@ async function loadOrganizationData(name, storageManager, options = {}) {
     
     let data;
     
-    console.log(`📋 Loading organization data for: ${name || '__ALL__'}`);
+    console.log(`📋 Loading organization data for: ${name || 'All Analyses (aggregated)'}`);
     
-    // If name is '__ALL__' or null/undefined, load combined data
-    if (!name || name === '__ALL__') {
+    // If name is empty or null/undefined, load combined data (aggregated from all analyses)
+    if (!name || name === '') {
         data = await storageManager.getCombinedData();
         if (!data) {
             data = {
-                name: 'All Projects (Combined)',
-                organization: 'All Projects (Combined)',
+                name: 'All Analyses',
+                organization: 'All Analyses',
                 data: {}
             };
         }
@@ -128,7 +136,7 @@ async function loadOrganizationData(name, storageManager, options = {}) {
     }
     
     if (!data || !data.data) {
-        console.warn(`⚠️ No data found for: ${name || '__ALL__'}`);
+        console.warn(`⚠️ No data found for: ${name || 'aggregated data'}`);
         if (noDataSection) {
             noDataSection.classList.remove('d-none');
         }

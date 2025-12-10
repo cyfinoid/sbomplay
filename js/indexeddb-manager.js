@@ -1005,10 +1005,18 @@ class IndexedDBManager {
             const store = transaction.objectStore('locations');
             
             // Handle failed geocoding attempts (cached to avoid retries)
+            // IMPORTANT: locationString is already normalized by LocationService.normalizeLocationString()
+            // We use .trim() to ensure consistent key format (normalizeLocationString already trims, but be safe)
+            const normalizedKey = locationString.trim();
             const entry = {
-                locationString: locationString.trim(),
+                locationString: normalizedKey,
                 timestamp: new Date().toISOString()
             };
+            
+            // Debug: Log the key being saved (only occasionally to avoid spam)
+            if (Math.random() < 0.1) { // Log ~10% of saves
+                console.log(`💾 Saving location to cache with key: "${normalizedKey}"`);
+            }
             
             if (geocodedData.failed === true) {
                 // Store failed marker
@@ -1082,10 +1090,28 @@ class IndexedDBManager {
             const store = transaction.objectStore('locations');
             
             // Get all locations in parallel
+            // Note: locationStrings are already normalized by LocationService.batchGeocode
+            // However, we need to ensure we use the same normalization that was used when saving
             const promises = locationStrings.map(async (locationString) => {
                 try {
-                    const entry = await this._promisifyRequest(store.get(locationString.trim()));
+                    // Normalize the location string to match how it was saved
+                    // Locations are saved with normalized strings (from LocationService.normalizeLocationString)
+                    // Since locationStrings are already normalized, we just need to trim to match saveLocation
+                    // IMPORTANT: saveLocation uses locationString.trim(), so we must match that exactly
+                    const normalizedKey = locationString.trim();
+                    
+                    // Debug: Log the key being queried (only for first few to avoid spam)
+                    if (locationStrings.indexOf(locationString) < 3) {
+                        console.log(`🔍 Querying cache for location key: "${normalizedKey}"`);
+                    }
+                    
+                    const entry = await this._promisifyRequest(store.get(normalizedKey));
                     if (entry) {
+                        // Debug: Log cache hit (only for first few to avoid spam)
+                        if (locationStrings.indexOf(locationString) < 3) {
+                            console.log(`✅ Cache HIT for location key: "${normalizedKey}"`);
+                        }
+                        
                         // Check if this is a failed attempt marker
                         if (entry.failed === true) {
                             return {
@@ -1105,6 +1131,12 @@ class IndexedDBManager {
                             }
                         };
                     }
+                    
+                    // Debug: Log cache miss (only for first few to avoid spam)
+                    if (locationStrings.indexOf(locationString) < 3) {
+                        console.log(`❌ Cache MISS for location key: "${normalizedKey}"`);
+                    }
+                    
                     return { location: locationString, data: null };
                 } catch (error) {
                     return { location: locationString, data: null };

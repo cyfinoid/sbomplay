@@ -184,17 +184,33 @@ class VersionDriftAnalyzer {
      * @returns {Promise<Object|null>} - Cached drift data or null
      */
     async getVersionDriftFromCache(packageKey, version) {
-        if (!window.cacheManager) return null;
+        if (!window.cacheManager) {
+            console.debug(`⚠️ Version drift cache lookup: cacheManager not available`);
+            return null;
+        }
         
         try {
             const packageData = await window.cacheManager.getPackage(packageKey);
-            if (packageData && packageData.versionDrift && packageData.versionDrift[version]) {
-                const drift = packageData.versionDrift[version];
-                // Check if cache is still valid (24 hours)
-                if (drift.checkedAt && (Date.now() - drift.checkedAt) < this.cacheExpiry) {
-                    return drift;
-                }
+            if (!packageData) {
+                console.debug(`📦 Version drift cache miss: ${packageKey} not in cache`);
+                return null;
             }
+            if (!packageData.versionDrift) {
+                console.debug(`📦 Version drift cache: ${packageKey} has no versionDrift data`);
+                return null;
+            }
+            if (!packageData.versionDrift[version]) {
+                console.debug(`📦 Version drift cache: ${packageKey} has versionDrift but not for version ${version}`);
+                return null;
+            }
+            
+            const drift = packageData.versionDrift[version];
+            // Check if cache is still valid (24 hours)
+            if (drift.checkedAt && (Date.now() - drift.checkedAt) < this.cacheExpiry) {
+                console.debug(`✅ Version drift cache hit: ${packageKey}@${version} → hasMajor=${drift.hasMajorUpdate}, hasMinor=${drift.hasMinorUpdate}`);
+                return drift;
+            }
+            console.debug(`📦 Version drift cache expired for ${packageKey}@${version}`);
             return null;
         } catch (error) {
             console.warn(`⚠️ Failed to get version drift from cache:`, error);
@@ -357,7 +373,7 @@ class VersionDriftAnalyzer {
             
             // Save updated package data
             await window.cacheManager.savePackage(packageKey, packageData);
-            console.log(`💾 Saved staleness for ${packageKey}@${version}`);
+            console.debug(`💾 Saved staleness for ${packageKey}@${version}`);
         } catch (error) {
             console.warn(`⚠️ Failed to save staleness to cache:`, error);
         }
@@ -471,6 +487,21 @@ class VersionDriftAnalyzer {
                 case 'rubygems':
                 case 'gem':
                     return await this.fetchRubyGemsLatestVersion(packageName);
+                case 'maven':
+                    return await this.fetchMavenLatestVersion(packageName);
+                case 'composer':
+                case 'packagist':
+                    return await this.fetchComposerLatestVersion(packageName);
+                case 'nuget':
+                    return await this.fetchNuGetLatestVersion(packageName);
+                case 'go':
+                case 'golang':
+                    return await this.fetchGoLatestVersion(packageName);
+                case 'github actions':
+                case 'githubactions':
+                    // GitHub Actions don't have a traditional registry, skip for now
+                    // Version drift for actions is handled differently (checking for newer tags)
+                    return null;
                 default:
                     console.log(`⚠️ Version drift: Unsupported ecosystem ${ecosystem}`);
                     return null;
@@ -542,56 +573,155 @@ class VersionDriftAnalyzer {
     }
 
     /**
-     * Fetch with timeout
+     * Fetch latest version from Maven via ecosyste.ms
+     * Maven packages use format: groupId:artifactId (e.g., org.apache.maven.plugins:maven-jar-plugin)
+     * Using ecosyste.ms API to avoid CORS issues with Maven Central Search API
      */
-    async fetchWithTimeout(url, options = {}, timeout = 10000) {
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), timeout);
-        
+    async fetchMavenLatestVersion(packageName) {
         try {
-            // Debug: Log URL call with context
-            console.log(`🌐 [DEBUG] Fetching URL: ${url}`);
-            const caller = new Error().stack.split('\n')[2]?.trim() || 'unknown';
-            if (isUrlFromHostname(url, 'rubygems.org')) {
-                console.log(`   Reason: Fetching RubyGems package metadata for latest version information (called from: ${caller})`);
-            } else if (isUrlFromHostname(url, 'registry.npmjs.org')) {
-                console.log(`   Reason: Fetching npm package metadata for latest version information (called from: ${caller})`);
-            } else if (isUrlFromHostname(url, 'pypi.org')) {
-                console.log(`   Reason: Fetching PyPI package metadata for latest version information (called from: ${caller})`);
-            } else if (isUrlFromHostname(url, 'crates.io')) {
-                console.log(`   Reason: Fetching crates.io package metadata for latest version information (called from: ${caller})`);
-            } else {
-                console.log(`   Reason: Fetching package metadata for version information (called from: ${caller})`);
-            }
-            
-            const response = await fetch(url, {
-                ...options,
-                signal: controller.signal
-            });
-            clearTimeout(timeoutId);
-            
-            // Debug: Log response and extract information
-            if (response.ok) {
-                try {
-                    const data = await response.clone().json(); // Clone to avoid consuming the stream
-                    const version = data.version || data.info?.version || data.crate?.max_version || null;
-                    console.log(`   ✅ Response: Status ${response.status}, Extracted: Latest version: ${version || 'unknown'}`);
-                } catch (e) {
-                    // If JSON parsing fails, just log status
-                    console.log(`   ✅ Response: Status ${response.status}`);
-                }
-            } else {
-                console.log(`   ❌ Response: Status ${response.status} ${response.statusText}`);
-            }
-            
-            return response;
-        } catch (error) {
-            clearTimeout(timeoutId);
-            if (error.name === 'AbortError') {
-                throw new Error('Request timeout');
-            }
-            throw error;
+        // Parse groupId:artifactId format
+        const parts = packageName.split(':');
+        if (parts.length < 2) {
+            console.warn(`⚠️ Invalid Maven package format: ${packageName} (expected groupId:artifactId)`);
+            return null;
         }
+        
+        const groupId = parts[0];
+            const artifactId = parts[1]; // Take only the first artifactId part
+            
+            // Get registry name from RegistryManager
+            let registryName = 'repo1.maven.org'; // Default
+            if (window.registryManager) {
+                const name = await window.registryManager.getRegistryName('maven');
+                if (name) registryName = name;
+            }
+            
+            // Use ecosyste.ms API for Maven (CORS-friendly)
+            // Format: /registries/repo1.maven.org/packages/{groupId}/{artifactId}
+            const url = `https://packages.ecosyste.ms/api/v1/registries/${registryName}/packages/${encodeURIComponent(groupId)}/${encodeURIComponent(artifactId)}`;
+            
+        const response = await this.fetchWithTimeout(url, {}, this.requestTimeout);
+        if (!response.ok) {
+            return null;
+        }
+        
+        const data = await response.json();
+            return data.latest_release_number || null;
+        } catch (error) {
+            console.warn(`⚠️ Failed to fetch Maven version from ecosyste.ms: ${error.message}`);
+            return null;
+        }
+    }
+
+    /**
+     * Fetch latest version from Packagist (Composer)
+     */
+    async fetchComposerLatestVersion(packageName) {
+        // Packagist API: https://packagist.org/packages/{vendor}/{package}.json
+        const url = `https://packagist.org/packages/${encodeURIComponent(packageName)}.json`;
+        const response = await this.fetchWithTimeout(url, {}, this.requestTimeout);
+        
+        if (!response.ok) {
+            return null;
+        }
+        
+        const data = await response.json();
+        // Packagist returns package info with versions
+        if (data.package && data.package.versions) {
+            // Get the latest stable version (not dev-master, etc.)
+            const versions = Object.keys(data.package.versions)
+                .filter(v => !v.includes('dev') && !v.includes('alpha') && !v.includes('beta') && !v.includes('rc'))
+                .sort((a, b) => {
+                    // Simple version comparison (can be improved)
+                    return b.localeCompare(a, undefined, { numeric: true });
+                });
+            return versions[0] || null;
+        }
+        
+        return null;
+    }
+
+    /**
+     * Fetch latest version from NuGet
+     */
+    async fetchNuGetLatestVersion(packageName) {
+        // NuGet API v3: https://api.nuget.org/v3-flatcontainer/{package}/index.json
+        const url = `${this.registryUrls.nuget}/${encodeURIComponent(packageName.toLowerCase())}/index.json`;
+        const response = await this.fetchWithTimeout(url, {}, this.requestTimeout);
+        
+        if (!response.ok) {
+            return null;
+        }
+        
+        const data = await response.json();
+        if (data.versions && data.versions.length > 0) {
+            // Return the latest version (last in array, versions are sorted)
+            return data.versions[data.versions.length - 1] || null;
+        }
+        
+        return null;
+    }
+
+    /**
+     * Fetch latest version for Go packages
+     * Go packages use module paths (e.g., github.com/user/repo)
+     */
+    async fetchGoLatestVersion(packageName) {
+        // Go proxy API: https://proxy.golang.org/{module}/@latest
+        const url = `https://proxy.golang.org/${encodeURIComponent(packageName)}/@latest`;
+        const response = await this.fetchWithTimeout(url, {}, this.requestTimeout);
+        
+        if (!response.ok) {
+            return null;
+        }
+        
+        const data = await response.json();
+        return data.Version || null;
+    }
+
+    /**
+     * Fetch with timeout (uses shared utility)
+     */
+    async fetchWithTimeout(url, options = {}, timeout = null) {
+        // Use shared utility, but allow timeout override
+        const timeoutOverride = timeout !== null ? timeout : (parseInt(localStorage.getItem('apiTimeout'), 10) || this.requestTimeout);
+        
+        // Debug: Log URL call with context
+        const caller = new Error().stack.split('\n')[2]?.trim() || 'unknown';
+        if (isUrlFromHostname(url, 'rubygems.org')) {
+            debugLogUrl(`🌐 [DEBUG] Fetching URL: ${url}`);
+            debugLogUrl(`   Reason: Fetching RubyGems package metadata for latest version information (called from: ${caller})`);
+        } else if (isUrlFromHostname(url, 'registry.npmjs.org')) {
+            debugLogUrl(`🌐 [DEBUG] Fetching URL: ${url}`);
+            debugLogUrl(`   Reason: Fetching npm package metadata for latest version information (called from: ${caller})`);
+        } else if (isUrlFromHostname(url, 'pypi.org')) {
+            debugLogUrl(`🌐 [DEBUG] Fetching URL: ${url}`);
+            debugLogUrl(`   Reason: Fetching PyPI package metadata for latest version information (called from: ${caller})`);
+        } else if (isUrlFromHostname(url, 'crates.io')) {
+            debugLogUrl(`🌐 [DEBUG] Fetching URL: ${url}`);
+            debugLogUrl(`   Reason: Fetching crates.io package metadata for latest version information (called from: ${caller})`);
+        } else {
+            debugLogUrl(`🌐 [DEBUG] Fetching URL: ${url}`);
+            debugLogUrl(`   Reason: Fetching package metadata for version information (called from: ${caller})`);
+        }
+        
+        const response = await window.fetchWithTimeout(url, options, timeoutOverride);
+        
+        // Debug: Log response and extract information
+        if (response.ok) {
+            try {
+                const data = await response.clone().json(); // Clone to avoid consuming the stream
+                const version = data.version || data.info?.version || data.crate?.max_version || null;
+                debugLogUrl(`   ✅ Response: Status ${response.status}, Extracted: Latest version: ${version || 'unknown'}`);
+            } catch (e) {
+                // If JSON parsing fails, just log status
+                debugLogUrl(`   ✅ Response: Status ${response.status}`);
+            }
+        } else {
+            debugLogUrl(`   ❌ Response: Status ${response.status} ${response.statusText}`);
+        }
+        
+        return response;
     }
 
     /**
