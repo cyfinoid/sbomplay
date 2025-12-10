@@ -26,6 +26,112 @@ body {
     /* Color handled by themes.css for theme-aware support */
 }
 
+/* Mobile Navigation - Hamburger Menu */
+.navbar-toggler {
+    border: 1px solid var(--text-primary, #50c878);
+    padding: 0.4rem 0.6rem;
+}
+
+.navbar-toggler:focus {
+    box-shadow: 0 0 0 0.2rem rgba(127, 209, 185, 0.3);
+}
+
+/* Dark theme hamburger icon (white lines) */
+[data-theme="dark"] .navbar-toggler-icon {
+    background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 30 30'%3e%3cpath stroke='rgba%28255, 255, 255, 0.9%29' stroke-linecap='round' stroke-miterlimit='10' stroke-width='2' d='M4 7h22M4 15h22M4 23h22'/%3e%3c/svg%3e");
+}
+
+/* Light theme hamburger icon (dark lines) */
+[data-theme="light"] .navbar-toggler-icon {
+    background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 30 30'%3e%3cpath stroke='rgba%2830, 30, 30, 0.9%29' stroke-linecap='round' stroke-miterlimit='10' stroke-width='2' d='M4 7h22M4 15h22M4 23h22'/%3e%3c/svg%3e");
+}
+
+/* Navbar actions container (theme toggle outside hamburger) */
+.navbar-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+/* Desktop Navigation - ensure proper ordering */
+@media (min-width: 992px) {
+    .navbar > .container {
+        display: flex;
+        flex-wrap: nowrap;
+    }
+    
+    .navbar-brand {
+        order: 1;
+    }
+    
+    .navbar-collapse {
+        order: 2;
+        flex: 1;
+    }
+    
+    .navbar-actions {
+        order: 3;
+        margin-left: 0.5rem;
+        flex-shrink: 0;
+    }
+    
+    /* Hide hamburger toggler on desktop */
+    .navbar-toggler {
+        display: none;
+    }
+}
+
+/* Mobile Navigation Collapse */
+@media (max-width: 991.98px) {
+    .navbar > .container {
+        display: flex;
+        flex-wrap: wrap;
+    }
+    
+    .navbar-collapse {
+        background-color: var(--bg-secondary, #1e1e1e);
+        padding: 1rem;
+        border-radius: 0.5rem;
+        margin-top: 0.5rem;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+        width: 100%;
+        order: 3;
+    }
+    
+    .navbar-actions {
+        order: 2;
+        margin-left: auto;
+    }
+    
+    .navbar-brand {
+        order: 1;
+    }
+    
+    .navbar-nav {
+        padding: 0;
+    }
+    
+    .navbar-nav .nav-link {
+        padding: 0.75rem 1rem;
+        border-radius: 0.375rem;
+        margin-bottom: 0.25rem;
+        transition: background-color 0.2s ease;
+    }
+    
+    .navbar-nav .nav-link:hover {
+        background-color: var(--bg-tertiary, #2a2a2a);
+    }
+    
+    .navbar-nav .nav-link.active {
+        background-color: var(--bg-tertiary, #2a2a2a);
+    }
+}
+
+/* Ensure theme toggle is always visible */
+.theme-toggle {
+    flex-shrink: 0;
+}
+
 /* Cards */
 .card {
     border: none;
@@ -360,6 +466,101 @@ body {
     
     .card {
         margin-bottom: 1rem;
+    }
+}
+
+/* Footer Mobile Responsiveness */
+@media (max-width: 768px) {
+    footer .row {
+        gap: 2rem;
+    }
+    
+    footer .col-md-4 {
+        text-align: center;
+    }
+    
+    footer .d-flex.flex-column {
+        align-items: center;
+    }
+    
+    footer h6 {
+        margin-bottom: 1rem;
+    }
+    
+    footer .btn-outline-primary.btn-sm {
+        width: 80%;
+        max-width: 200px;
+    }
+}
+
+/* Header Mobile Responsiveness */
+@media (max-width: 576px) {
+    h1 {
+        font-size: 1.5rem;
+    }
+    
+    h2 {
+        font-size: 1.3rem;
+    }
+    
+    /* Make form rows stack on mobile */
+    .card-body .row {
+        gap: 1rem;
+    }
+    
+    .card-body .row .col-md-4,
+    .card-body .row .col-md-6,
+    .card-body .row .col-md-8 {
+        padding-left: 0.75rem;
+        padding-right: 0.75rem;
+    }
+    
+    /* Fix button alignment on mobile */
+    .d-flex.align-items-end {
+        align-items: stretch !important;
+        margin-top: 0.5rem;
+    }
+    
+    .d-flex.align-items-end .btn {
+        width: 100%;
+    }
+    
+    /* Fix gap utilities on mobile */
+    .d-flex.gap-2 {
+        flex-wrap: wrap;
+    }
+    
+    /* Ensure proper table scrolling */
+    .table-responsive {
+        -webkit-overflow-scrolling: touch;
+    }
+    
+    /* Fix alert text size on mobile */
+    .alert {
+        font-size: 0.9rem;
+    }
+    
+    /* Fix card header padding on mobile */
+    .card-header {
+        padding: 0.75rem 1rem;
+    }
+    
+    /* Fix stats display on mobile */
+    .stats-row .stat-box {
+        margin-bottom: 0.5rem;
+    }
+}
+
+/* iOS-specific fixes */
+@supports (-webkit-touch-callout: none) {
+    /* Fix for iOS Safari viewport issues */
+    body {
+        min-height: -webkit-fill-available;
+    }
+    
+    /* Prevent iOS zoom on input focus */
+    input, select, textarea {
+        font-size: 16px;
     }
 }
 
