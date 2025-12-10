@@ -12,6 +12,23 @@
   --font-size-body: 16px;
   --font-size-quote: 16px;
   --font-size-caption: 14px;
+  
+  /* Default theme colors (dark theme as default, before JS runs) */
+  --bg-primary: #121212;
+  --bg-secondary: #1e1e1e;
+  --bg-tertiary: #2a2a2a;
+  --text-primary: #50c878;
+  --text-secondary: #8a8f98;
+  --color-yellow: #fdcb52;
+  --color-red: #d63c53;
+  --color-blue: #466fe0;
+  --color-green: #7fd1b9;
+  --color-dirty-yellow: #b6a189;
+  --border-color: #333333;
+  --bg-warning: rgba(253, 203, 82, 0.1);
+  --bg-danger: rgba(214, 60, 83, 0.1);
+  --bg-info: rgba(70, 111, 224, 0.1);
+  --bg-success: rgba(127, 209, 185, 0.1);
 }
 
 /* Dark Theme (default) */
@@ -269,6 +286,19 @@ h6 { font-size: var(--font-size-body); }
 
 .navbar-dark .nav-link:hover {
   color: var(--color-green) !important;
+}
+
+/* Navbar toggler theme support */
+.navbar-toggler {
+  border-color: var(--text-primary) !important;
+}
+
+[data-theme="light"] .navbar-toggler {
+  border-color: rgba(30, 30, 30, 0.5) !important;
+}
+
+[data-theme="dark"] .navbar-toggler {
+  border-color: rgba(255, 255, 255, 0.5) !important;
 }
 
 /* Footer theming */

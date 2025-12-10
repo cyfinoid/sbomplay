@@ -3,7 +3,7 @@ name: Deploy to GitHub Pages
 # Trigger only on release creation for better control
 on:
   release:
-    types: [created, published]
+    types: [published]
   
   # Allow manual trigger from Actions tab (useful for testing)
   workflow_dispatch:

@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.0.4] - 2025-12-10
 
+### Added
+- **Mobile-Responsive Navigation**
+  - Added hamburger menu (navbar-toggler) for mobile devices
+  - Navigation links now collapse into a dropdown menu on screens < 992px
+  - Theme toggle button remains visible outside hamburger menu for easy access
+  - Improved mobile navigation styling with proper padding, borders, and hover states
+  - Navigation dropdown has a subtle box-shadow for better visibility
+
+- **Mobile-Friendly UI Improvements**
+  - Footer stacks vertically on mobile devices with centered content
+  - Form layouts adapt to smaller screens
+  - Tables support horizontal scrolling on small screens
+  - iOS-specific fixes for viewport and input zoom prevention
+  - Header buttons stack properly on very small screens
+
 ### Fixed
 - **Vulnerability Page: Version Drift Badges Now Display from Cache**
   - **Issue**: Version drift badges (Major/Minor upgrade available) were not showing on `vuln.html`
