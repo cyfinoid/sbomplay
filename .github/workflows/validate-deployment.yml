@@ -1,0 +1,191 @@
+name: Validate Deployment Files
+
+# Run on PRs and pushes to catch missing files early
+on:
+  pull_request:
+    branches: [main, master, play-again]
+  push:
+    branches: [main, master, play-again]
+  workflow_dispatch:
+
+# Minimal permissions - only read access needed
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    name: Validate Required Files
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 1
+      
+      - name: Check required HTML files
+        run: |
+          echo "🔍 Checking required HTML files..."
+          REQUIRED_HTML=(
+            "index.html"
+            "licenses.html"
+            "vuln.html"
+            "audit.html"
+            "deps.html"
+            "settings.html"
+            "authors.html"
+            "repos.html"
+            "about.html"
+            "debug.html"
+          )
+          
+          MISSING=0
+          for file in "${REQUIRED_HTML[@]}"; do
+            if [ ! -f "$file" ]; then
+              echo "❌ Missing: $file"
+              MISSING=$((MISSING + 1))
+            else
+              echo "✅ Found: $file"
+            fi
+          done
+          
+          if [ $MISSING -gt 0 ]; then
+            echo "::error::Missing $MISSING required HTML files"
+            exit 1
+          fi
+      
+      - name: Check required directories
+        run: |
+          echo "🔍 Checking required directories..."
+          REQUIRED_DIRS=("js" "css")
+          
+          MISSING=0
+          for dir in "${REQUIRED_DIRS[@]}"; do
+            if [ ! -d "$dir" ]; then
+              echo "❌ Missing: $dir/"
+              MISSING=$((MISSING + 1))
+            else
+              FILE_COUNT=$(find "$dir" -type f | wc -l)
+              echo "✅ Found: $dir/ ($FILE_COUNT files)"
+            fi
+          done
+          
+          if [ $MISSING -gt 0 ]; then
+            echo "::error::Missing $MISSING required directories"
+            exit 1
+          fi
+      
+      - name: Check JavaScript files
+        run: |
+          echo "🔍 Checking required JavaScript files..."
+          REQUIRED_JS=(
+            "js/analytics.js"
+            "js/app.js"
+            "js/author-service.js"
+            "js/audit-page.js"
+            "js/cache-manager.js"
+            "js/dependency-tree-resolver.js"
+            "js/deps-page.js"
+            "js/ecosystem-utils.js"
+            "js/github-actions-analyzer.js"
+            "js/github-client.js"
+            "js/index-page.js"
+            "js/indexeddb-manager.js"
+            "js/license-processor.js"
+            "js/license-refetch.js"
+            "js/licenses-page.js"
+            "js/location-service.js"
+            "js/osv-service.js"
+            "js/page-common.js"
+            "js/registry-utils.js"
+            "js/request-queue-manager.js"
+            "js/repos-page.js"
+            "js/sanctions-service.js"
+            "js/sbom-processor.js"
+            "js/sbom-quality-processor.js"
+            "js/settings.js"
+            "js/storage-manager.js"
+            "js/theme-manager.js"
+            "js/utils.js"
+            "js/version-drift-analyzer.js"
+            "js/version-utils.js"
+            "js/view-manager.js"
+            "js/vuln-page.js"
+          )
+          
+          MISSING=0
+          for file in "${REQUIRED_JS[@]}"; do
+            if [ ! -f "$file" ]; then
+              echo "❌ Missing: $file"
+              MISSING=$((MISSING + 1))
+            else
+              echo "✅ Found: $file"
+            fi
+          done
+          
+          if [ $MISSING -gt 0 ]; then
+            echo "::error::Missing $MISSING required JavaScript files"
+            exit 1
+          fi
+      
+      - name: Check CSS files
+        run: |
+          echo "🔍 Checking required CSS files..."
+          REQUIRED_CSS=(
+            "css/style.css"
+            "css/themes.css"
+          )
+          
+          MISSING=0
+          for file in "${REQUIRED_CSS[@]}"; do
+            if [ ! -f "$file" ]; then
+              echo "❌ Missing: $file"
+              MISSING=$((MISSING + 1))
+            else
+              echo "✅ Found: $file"
+            fi
+          done
+          
+          if [ $MISSING -gt 0 ]; then
+            echo "::error::Missing $MISSING required CSS files"
+            exit 1
+          fi
+      
+      - name: Validate HTML syntax
+        run: |
+          echo "🔍 Basic HTML validation..."
+          for file in *.html; do
+            # Check for basic HTML structure
+            if ! grep -q "<html" "$file"; then
+              echo "❌ Invalid HTML in $file: Missing <html> tag"
+              exit 1
+            fi
+            if ! grep -q "</html>" "$file"; then
+              echo "❌ Invalid HTML in $file: Missing </html> tag"
+              exit 1
+            fi
+            echo "✅ $file has valid HTML structure"
+          done
+      
+      - name: Check for sensitive data
+        run: |
+          echo "🔒 Checking for sensitive data..."
+          # Check for common sensitive patterns
+          if grep -r "password\|secret\|api_key\|private_key" --include="*.js" --include="*.html" --include="*.css" .; then
+            echo "⚠️ Warning: Found potential sensitive data patterns"
+            echo "Please review the matches above"
+          else
+            echo "✅ No obvious sensitive data patterns found"
+          fi
+      
+      - name: Summary
+        run: |
+          echo "## ✅ Validation Complete" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "All required files are present and valid!" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### File Counts" >> $GITHUB_STEP_SUMMARY
+          echo "- HTML files: $(ls -1 *.html 2>/dev/null | wc -l)" >> $GITHUB_STEP_SUMMARY
+          echo "- JavaScript files: $(find js -name '*.js' 2>/dev/null | wc -l)" >> $GITHUB_STEP_SUMMARY
+          echo "- CSS files: $(find css -name '*.css' 2>/dev/null | wc -l)" >> $GITHUB_STEP_SUMMARY
+

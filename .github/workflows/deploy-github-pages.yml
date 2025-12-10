@@ -1,0 +1,98 @@
+name: Deploy to GitHub Pages
+
+# Trigger only on release creation for better control
+on:
+  release:
+    types: [created, published]
+  
+  # Allow manual trigger from Actions tab (useful for testing)
+  workflow_dispatch:
+
+# Minimal permissions following principle of least privilege
+permissions:
+  contents: read      # Read repository contents
+  pages: write        # Deploy to GitHub Pages
+  id-token: write     # Verify deployment origin (OIDC)
+
+# Ensure only one deployment runs at a time
+concurrency:
+  group: "pages"
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Deploy to GitHub Pages
+    runs-on: ubuntu-latest
+    
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          # Don't fetch history, only need current state
+          fetch-depth: 1
+      
+      - name: Setup Pages
+        uses: actions/configure-pages@v5
+        
+      - name: Create deployment directory
+        run: |
+          mkdir -p _site
+          
+          echo "📦 Copying production files (matching update-prod.sh)..."
+          
+          # Copy all required HTML files
+          cp index.html _site/
+          cp licenses.html _site/
+          cp vuln.html _site/
+          cp audit.html _site/
+          cp deps.html _site/
+          cp settings.html _site/
+          cp authors.html _site/
+          cp repos.html _site/
+          cp about.html _site/
+          cp debug.html _site/
+          
+          echo "✅ Copied 10 HTML files"
+          
+          # Copy JavaScript and CSS directories (matching update-prod.sh)
+          cp -r js _site/
+          cp -r css _site/
+          
+          echo "✅ Copied js/ directory"
+          echo "✅ Copied css/ directory"
+          
+          # Add .nojekyll to prevent Jekyll processing (matching update-prod.sh)
+          touch _site/.nojekyll
+          
+          echo "✅ Created .nojekyll file"
+          echo ""
+          echo "📊 Deployment summary:"
+          echo "  - HTML files: $(ls -1 _site/*.html 2>/dev/null | wc -l)"
+          echo "  - JS files:   $(find _site/js -name '*.js' 2>/dev/null | wc -l)"
+          echo "  - CSS files:  $(find _site/css -name '*.css' 2>/dev/null | wc -l)"
+          echo ""
+          echo "📁 Contents of _site/:"
+          ls -la _site/
+          
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v4
+        with:
+          # Upload only necessary files (excludes .git, node_modules, etc.)
+          path: '_site'
+          
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
+        
+      - name: Summary
+        run: |
+          echo "## 🚀 Deployment Complete" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "✅ Successfully deployed to GitHub Pages" >> $GITHUB_STEP_SUMMARY
+          echo "📦 Release: ${{ github.event.release.tag_name }}" >> $GITHUB_STEP_SUMMARY
+          echo "🔗 URL: ${{ steps.deployment.outputs.page_url }}" >> $GITHUB_STEP_SUMMARY
+

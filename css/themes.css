@@ -1,0 +1,503 @@
+/* Load Sen font from Google Fonts */
+@import url('https://fonts.googleapis.com/css2?family=Sen:wght@400;700;800&display=swap');
+
+:root {
+  /* Typography */
+  --font-family: 'Sen', sans-serif;
+  --font-size-title: 42px;
+  --font-size-subtitle: 36px;
+  --font-size-heading: 32px;
+  --font-size-subheading: 24px;
+  --font-size-section: 20px;
+  --font-size-body: 16px;
+  --font-size-quote: 16px;
+  --font-size-caption: 14px;
+}
+
+/* Dark Theme (default) */
+[data-theme="dark"] {
+  --bg-primary: #121212;
+  --bg-secondary: #1e1e1e;
+  --bg-tertiary: #2a2a2a;
+  --text-primary: #50c878;
+  --text-secondary: #8a8f98;
+  --color-yellow: #fdcb52;
+  --color-red: #d63c53;
+  --color-blue: #466fe0;
+  --color-green: #7fd1b9;
+  --color-dirty-yellow: #b6a189;
+  --border-color: #333333;
+  --bg-warning: rgba(253, 203, 82, 0.1);
+  --bg-danger: rgba(214, 60, 83, 0.1);
+  --bg-info: rgba(70, 111, 224, 0.1);
+  --bg-success: rgba(127, 209, 185, 0.1);
+}
+
+/* Light Theme */
+[data-theme="light"] {
+  --bg-primary: #fafafa;
+  --bg-secondary: #ffffff;
+  --bg-tertiary: #f5f5f5;
+  --text-primary: #1e1e1e;
+  --text-secondary: #8a8f98;
+  --color-yellow: #fdcb52;
+  --color-red: #d63c53;
+  --color-blue: #466fe0;
+  --color-green: #50c878;
+  --color-dirty-yellow: #b6a189;
+  --border-color: #e0e0e0;
+  --bg-warning: #fff3cd;
+  --bg-danger: #f8d7da;
+  --bg-info: #d1ecf1;
+  --bg-success: #d4edda;
+}
+
+/* Apply theme variables */
+body {
+  font-family: var(--font-family) !important;
+  background-color: var(--bg-primary) !important;
+  color: var(--text-primary) !important;
+  font-size: var(--font-size-body);
+  transition: background-color 0.3s ease, color 0.3s ease;
+}
+
+h1 { font-size: var(--font-size-title); }
+h2 { font-size: var(--font-size-subtitle); }
+h3 { font-size: var(--font-size-heading); }
+h4 { font-size: var(--font-size-subheading); }
+h5 { font-size: var(--font-size-section); }
+h6 { font-size: var(--font-size-body); }
+
+/* Card styles - consolidated with style.css base styles */
+.card {
+  background-color: var(--bg-secondary) !important;
+  color: var(--text-primary) !important;
+  border-color: var(--border-color) !important;
+}
+
+.card {
+  background-color: var(--bg-primary) !important;
+  border-color: var(--border-color) !important;
+}
+
+.card-header {
+  background-color: var(--bg-secondary) !important;
+  color: var(--text-primary) !important;
+  border-bottom-color: var(--border-color) !important;
+}
+
+.card-body {
+  background-color: var(--bg-primary) !important;
+  color: var(--text-primary) !important;
+}
+
+/* Bootstrap Accordion theme support */
+.accordion {
+  --bs-accordion-bg: var(--bg-primary) !important;
+  --bs-accordion-border-color: var(--border-color) !important;
+  --bs-accordion-color: var(--text-primary) !important;
+}
+
+.accordion-item {
+  background-color: var(--bg-primary) !important;
+  border-color: var(--border-color) !important;
+}
+
+.accordion-button {
+  background-color: var(--bg-secondary) !important;
+  color: var(--text-primary) !important;
+  border-color: var(--border-color) !important;
+}
+
+.accordion-button:not(.collapsed) {
+  background-color: var(--bg-secondary) !important;
+  color: var(--text-primary) !important;
+}
+
+.accordion-button:focus {
+  border-color: var(--border-color) !important;
+  box-shadow: 0 0 0 0.25rem rgba(var(--bs-primary-rgb), 0.25) !important;
+}
+
+.accordion-body {
+  background-color: var(--bg-primary) !important;
+  color: var(--text-primary) !important;
+}
+
+.accordion-collapse {
+  border-color: var(--border-color) !important;
+}
+
+.alert {
+  background-color: var(--bg-secondary) !important;
+  color: var(--text-primary) !important;
+  border-color: var(--border-color) !important;
+}
+
+.modal-content {
+  background-color: var(--bg-secondary) !important;
+  color: var(--text-primary) !important;
+}
+
+.modal-header {
+  border-bottom-color: var(--border-color) !important;
+}
+
+.modal-footer {
+  border-top-color: var(--border-color) !important;
+}
+
+.text-muted {
+  color: var(--text-secondary) !important;
+}
+
+/* Override text-muted for bg-opacity cards - must come after general .text-muted rule */
+
+.form-control,
+.form-select {
+  background-color: var(--bg-secondary) !important;
+  color: var(--text-primary) !important;
+  border-color: var(--border-color) !important;
+}
+
+.form-control:focus,
+.form-select:focus {
+  background-color: var(--bg-secondary) !important;
+  color: var(--text-primary) !important;
+  border-color: var(--color-green) !important;
+  box-shadow: 0 0 0 0.25rem rgba(127, 209, 185, 0.25);
+}
+
+.table {
+  color: var(--text-primary) !important;
+}
+
+.table th {
+  background-color: var(--bg-tertiary) !important;
+  color: var(--text-primary) !important;
+}
+
+.table-hover tbody tr:hover {
+  background-color: var(--bg-primary) !important;
+}
+
+/* Bootstrap button overrides for theme */
+.btn-primary {
+  background-color: var(--color-green) !important;
+  border-color: var(--color-green) !important;
+  color: #000000 !important;
+}
+
+.btn-primary:hover {
+  background-color: #6fb8a0 !important;
+  border-color: #6fb8a0 !important;
+}
+
+.btn-warning {
+  background-color: var(--color-yellow) !important;
+  border-color: var(--color-yellow) !important;
+  color: #000000 !important;
+}
+
+.btn-danger {
+  background-color: var(--color-red) !important;
+  border-color: var(--color-red) !important;
+  color: #ffffff !important;
+}
+
+.btn-info {
+  background-color: var(--color-blue) !important;
+  border-color: var(--color-blue) !important;
+  color: #ffffff !important;
+}
+
+.btn-outline-primary {
+  color: var(--color-green) !important;
+  border-color: var(--color-green) !important;
+}
+
+.btn-outline-primary:hover {
+  background-color: var(--color-green) !important;
+  color: #000000 !important;
+}
+
+.btn-outline-secondary {
+  color: var(--text-secondary) !important;
+  border-color: var(--text-secondary) !important;
+}
+
+.btn-outline-secondary:hover {
+  background-color: var(--text-secondary) !important;
+  color: var(--bg-primary) !important;
+}
+
+.bg-primary { background-color: var(--color-blue) !important; }
+.bg-success { background-color: var(--color-green) !important; }
+.bg-warning { background-color: var(--color-yellow) !important; color: #000000 !important; }
+.bg-danger { background-color: var(--color-red) !important; }
+.bg-info { background-color: var(--color-blue) !important; }
+
+.text-primary { color: var(--text-primary) !important; }
+.text-success { color: var(--color-green) !important; }
+.text-warning { color: var(--color-yellow) !important; }
+.text-danger { color: var(--color-red) !important; }
+.text-info { color: var(--color-blue) !important; }
+
+.badge.bg-primary { color: #ffffff !important; }
+.badge.bg-success { color: #000000 !important; }
+.badge.bg-warning { color: #000000 !important; }
+.badge.bg-danger { color: #ffffff !important; }
+.badge.bg-info { color: #ffffff !important; }
+/* bg-secondary badge: dark text in light theme, white text in dark theme */
+[data-theme="light"] .badge.bg-secondary { 
+    color: #1e1e1e !important; 
+    background-color: #e0e0e0 !important; /* Light gray background for better contrast */
+}
+[data-theme="dark"] .badge.bg-secondary { 
+    color: #ffffff !important; 
+}
+
+/* Navbar theming */
+.navbar-dark {
+  background-color: var(--bg-secondary) !important;
+}
+
+.navbar-dark .navbar-brand,
+.navbar-dark .nav-link {
+  color: var(--text-primary) !important;
+}
+
+.navbar-dark .nav-link:hover {
+  color: var(--color-green) !important;
+}
+
+/* Footer theming */
+footer {
+  background-color: var(--bg-secondary) !important;
+  color: var(--text-primary) !important;
+}
+
+/* Progress bar theming - base styles in style.css */
+.progress-bar {
+  background-color: var(--color-green) !important;
+}
+
+/* Bootstrap bg-light override for theme support */
+.bg-light {
+  background-color: var(--bg-secondary) !important;
+}
+
+/* Bootstrap table-light override for theme support */
+.table-light {
+  background-color: var(--bg-tertiary) !important;
+  color: var(--text-primary) !important;
+}
+
+.table-light th {
+  background-color: var(--bg-tertiary) !important;
+  color: var(--text-primary) !important;
+  border-color: var(--border-color) !important;
+}
+
+/* Ensure all table elements are theme-aware */
+.table thead th {
+  background-color: var(--bg-tertiary) !important;
+  color: var(--text-primary) !important;
+  border-color: var(--border-color) !important;
+}
+
+.table tbody td {
+  color: var(--text-primary) !important;
+  border-color: var(--border-color) !important;
+}
+
+.table-striped tbody tr:nth-of-type(odd) {
+  background-color: var(--bg-primary) !important;
+}
+
+.table-hover tbody tr:hover {
+  background-color: var(--bg-primary) !important;
+}
+
+/* Pre elements with bg-light should have theme-aware text */
+pre.bg-light {
+  background-color: var(--bg-secondary) !important;
+  color: var(--text-primary) !important;
+  border-color: var(--border-color) !important;
+}
+
+/* License stat cards - ensure text is visible on semi-transparent backgrounds */
+.license-stat-card .license-number,
+.license-stat-card h4 {
+  color: var(--text-primary) !important;
+}
+
+/* In dark theme, license stat cards with semi-transparent backgrounds need darker text for contrast */
+[data-theme="dark"] .license-stat-card.permissive .license-number,
+[data-theme="dark"] .license-stat-card.permissive h4,
+[data-theme="dark"] .license-stat-card.copyleft .license-number,
+[data-theme="dark"] .license-stat-card.copyleft h4,
+[data-theme="dark"] .license-stat-card.proprietary .license-number,
+[data-theme="dark"] .license-stat-card.proprietary h4,
+[data-theme="dark"] .license-stat-card.total .license-number,
+[data-theme="dark"] .license-stat-card.total h4,
+[data-theme="dark"] .license-stat-card.unlicensed .license-number,
+[data-theme="dark"] .license-stat-card.unlicensed h4,
+[data-theme="dark"] .license-stat-card.transitions .license-number,
+[data-theme="dark"] .license-stat-card.transitions h4 {
+  color: #ffffff !important; /* White text for better contrast on dark semi-transparent backgrounds */
+}
+
+/* License detail text should also be visible */
+.license-stat-card .license-detail {
+  color: var(--text-secondary) !important;
+}
+
+[data-theme="dark"] .license-stat-card.permissive .license-detail,
+[data-theme="dark"] .license-stat-card.copyleft .license-detail,
+[data-theme="dark"] .license-stat-card.proprietary .license-detail,
+[data-theme="dark"] .license-stat-card.total .license-detail,
+[data-theme="dark"] .license-stat-card.unlicensed .license-detail,
+[data-theme="dark"] .license-stat-card.transitions .license-detail {
+  color: #d0d0d0 !important; /* Light gray for better contrast */
+}
+
+/* Bootstrap text-dark override for theme support */
+/* Note: text-dark is used for badges and specific elements where contrast is needed */
+/* For badges with bg-warning, we keep dark text for contrast */
+.bg-warning.text-dark,
+.badge.bg-warning.text-dark {
+  color: #000000 !important; /* Keep black text on yellow background for contrast */
+}
+
+/* For other uses of text-dark, use theme-aware color */
+.text-dark:not(.bg-warning):not(.badge) {
+  color: var(--text-primary) !important;
+}
+
+/* Fix text contrast for bg-opacity-10 elements (used in audit page stats cards) */
+/* When background is very light (10% opacity), we need darker text for contrast */
+.bg-primary.bg-opacity-10 .text-primary,
+.bg-primary.bg-opacity-10 h3.text-primary,
+.bg-primary.bg-opacity-10 .card-body .text-primary {
+  color: var(--color-blue) !important;
+}
+
+[data-theme="dark"] .bg-primary.bg-opacity-10 .text-primary,
+[data-theme="dark"] .bg-primary.bg-opacity-10 h3.text-primary,
+[data-theme="dark"] .bg-primary.bg-opacity-10 .card-body .text-primary {
+  color: #6b8cff !important; /* Lighter blue for dark theme */
+}
+
+.bg-danger.bg-opacity-10 .text-danger,
+.bg-danger.bg-opacity-10 h3.text-danger,
+.bg-danger.bg-opacity-10 .card-body .text-danger {
+  color: var(--color-red) !important;
+}
+
+[data-theme="dark"] .bg-danger.bg-opacity-10 .text-danger,
+[data-theme="dark"] .bg-danger.bg-opacity-10 h3.text-danger,
+[data-theme="dark"] .bg-danger.bg-opacity-10 .card-body .text-danger {
+  color: #ff6b7d !important; /* Lighter red for dark theme */
+}
+
+.bg-warning.bg-opacity-10 .text-warning,
+.bg-warning.bg-opacity-10 h3.text-warning,
+.bg-warning.bg-opacity-10 .card-body .text-warning {
+  color: #b8860b !important; /* Darker yellow/gold for better contrast on light yellow */
+}
+
+[data-theme="dark"] .bg-warning.bg-opacity-10 .text-warning,
+[data-theme="dark"] .bg-warning.bg-opacity-10 h3.text-warning,
+[data-theme="dark"] .bg-warning.bg-opacity-10 .card-body .text-warning {
+  color: #fdcb52 !important; /* Brighter yellow for dark theme */
+}
+
+.bg-info.bg-opacity-10 .text-info,
+.bg-info.bg-opacity-10 h3.text-info,
+.bg-info.bg-opacity-10 .card-body .text-info {
+  color: var(--color-blue) !important;
+}
+
+[data-theme="dark"] .bg-info.bg-opacity-10 .text-info,
+[data-theme="dark"] .bg-info.bg-opacity-10 h3.text-info,
+[data-theme="dark"] .bg-info.bg-opacity-10 .card-body .text-info {
+  color: #6b8cff !important; /* Lighter blue for dark theme */
+}
+
+/* Ensure text-muted is visible on bg-opacity backgrounds */
+/* In light theme, use darker text for better contrast */
+[data-theme="light"] .card.bg-primary.bg-opacity-10 .text-muted,
+[data-theme="light"] .card.bg-primary.bg-opacity-10 p.text-muted,
+[data-theme="light"] .card.bg-primary.bg-opacity-10 .card-body .text-muted,
+[data-theme="light"] .card.bg-primary.bg-opacity-10 .card-body p.text-muted,
+[data-theme="light"] .card.bg-danger.bg-opacity-10 .text-muted,
+[data-theme="light"] .card.bg-danger.bg-opacity-10 p.text-muted,
+[data-theme="light"] .card.bg-danger.bg-opacity-10 .card-body .text-muted,
+[data-theme="light"] .card.bg-danger.bg-opacity-10 .card-body p.text-muted,
+[data-theme="light"] .card.bg-warning.bg-opacity-10 .text-muted,
+[data-theme="light"] .card.bg-warning.bg-opacity-10 p.text-muted,
+[data-theme="light"] .card.bg-warning.bg-opacity-10 .card-body .text-muted,
+[data-theme="light"] .card.bg-warning.bg-opacity-10 .card-body p.text-muted,
+[data-theme="light"] .card.bg-info.bg-opacity-10 .text-muted,
+[data-theme="light"] .card.bg-info.bg-opacity-10 p.text-muted,
+[data-theme="light"] .card.bg-info.bg-opacity-10 .card-body .text-muted,
+[data-theme="light"] .card.bg-info.bg-opacity-10 .card-body p.text-muted {
+  color: #495057 !important; /* Dark gray for better contrast on light backgrounds */
+}
+
+/* In dark theme, use lighter text for better contrast */
+[data-theme="dark"] .card.bg-primary.bg-opacity-10 .text-muted,
+[data-theme="dark"] .card.bg-primary.bg-opacity-10 p.text-muted,
+[data-theme="dark"] .card.bg-primary.bg-opacity-10 .card-body .text-muted,
+[data-theme="dark"] .card.bg-primary.bg-opacity-10 .card-body p.text-muted,
+[data-theme="dark"] .card.bg-danger.bg-opacity-10 .text-muted,
+[data-theme="dark"] .card.bg-danger.bg-opacity-10 p.text-muted,
+[data-theme="dark"] .card.bg-danger.bg-opacity-10 .card-body .text-muted,
+[data-theme="dark"] .card.bg-danger.bg-opacity-10 .card-body p.text-muted,
+[data-theme="dark"] .card.bg-warning.bg-opacity-10 .text-muted,
+[data-theme="dark"] .card.bg-warning.bg-opacity-10 p.text-muted,
+[data-theme="dark"] .card.bg-warning.bg-opacity-10 .card-body .text-muted,
+[data-theme="dark"] .card.bg-warning.bg-opacity-10 .card-body p.text-muted,
+[data-theme="dark"] .card.bg-info.bg-opacity-10 .text-muted,
+[data-theme="dark"] .card.bg-info.bg-opacity-10 p.text-muted,
+[data-theme="dark"] .card.bg-info.bg-opacity-10 .card-body .text-muted,
+[data-theme="dark"] .card.bg-info.bg-opacity-10 .card-body p.text-muted {
+  color: #d0d0d0 !important; /* Light gray for better contrast on dark backgrounds */
+}
+
+/* Ensure card body text is visible on bg-opacity cards */
+.bg-primary.bg-opacity-10 .card-body,
+.bg-danger.bg-opacity-10 .card-body,
+.bg-warning.bg-opacity-10 .card-body,
+.bg-info.bg-opacity-10 .card-body {
+  color: var(--text-primary) !important;
+}
+
+/* Stats card label text - theme-aware contrast for bg-opacity cards */
+.stats-card-label {
+  /* Default will be overridden by theme-specific rules below */
+}
+
+[data-theme="light"] .stats-card-label {
+  color: #495057 !important; /* Dark gray for better contrast on light backgrounds */
+}
+
+[data-theme="dark"] .stats-card-label {
+  color: #d0d0d0 !important; /* Light gray for better contrast on dark backgrounds */
+}
+
+/* Smooth transitions for theme changes */
+* {
+  transition: background-color 0.3s ease, color 0.3s ease, border-color 0.3s ease;
+}
+
+/* Theme toggle button */
+.theme-toggle {
+  transition: all 0.3s ease;
+}
+
+.theme-toggle:hover {
+  transform: scale(1.1);
+}
+
