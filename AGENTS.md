@@ -44,7 +44,7 @@ When adding/modifying HTML/JS files, update:
 ### Version String Updates
 On release, update cache-busting version strings:
 - Pattern: `?v=X.Y.Z` in all HTML files
-- Files: `index.html`, `licenses.html`, `vuln.html`, `deps.html`, `settings.html`, `authors.html`, `quality.html`, `repos.html`, `about.html`
+- Files: `index.html`, `licenses.html`, `vuln.html`, `deps.html`, `settings.html`, `authors.html`, `repos.html`, `about.html`, `debug.html`
 - Update CSS/JS references: `<link href="css/style.css?v=X.Y.Z">` and `<script src="js/*.js?v=X.Y.Z">`
 
 ### Cache Busting
@@ -128,7 +128,7 @@ Update when logical flow changes occur:
 - Examples: `mdfiles/IMPLEMENTATION_SUMMARY.md`, `mdfiles/DEPENDENCY_RESOLUTION_STATUS.md`
 
 ### Required Files (per workflow validation)
-**HTML**: `index.html`, `licenses.html`, `vuln.html`, `deps.html`, `settings.html`, `authors.html`, `quality.html`, `repos.html`, `about.html`
+**HTML**: `index.html`, `licenses.html`, `vuln.html`, `deps.html`, `settings.html`, `authors.html`, `repos.html`, `about.html`, `audit.html`, `debug.html`
 
 **JS**: All files in `js/` directory (see `validate-deployment.yml` lines 80-105)
 
