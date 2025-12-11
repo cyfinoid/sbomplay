@@ -4975,6 +4975,62 @@ class ViewManager {
     }
 
     /**
+     * Build path from parents chain in allDependencies
+     * Traces back through the parent chain to build the full dependency path
+     * @param {Object} dep - The dependency object with parents array
+     * @param {Array} allDeps - All dependencies array
+     * @returns {Array} - Path array from root to target, e.g., ['express@4.18.2', 'body-parser@1.20.0', 'raw-body@2.4.3']
+     */
+    buildPathFromParents(dep, allDeps) {
+        const path = [];
+        const visited = new Set();
+        let current = dep;
+        
+        // Build path by traversing up through parents
+        while (current) {
+            const key = `${current.name}@${current.version}`;
+            
+            // Prevent infinite loops
+            if (visited.has(key)) break;
+            visited.add(key);
+            
+            // Add current to path (at the beginning since we're traversing up)
+            path.unshift(key);
+            
+            // Get parent
+            if (current.parents && current.parents.length > 0) {
+                const parentKey = current.parents[0]; // Use first parent
+                // Parse parent key (format: "package@version")
+                const lastAtIdx = parentKey.lastIndexOf('@');
+                if (lastAtIdx > 0) {
+                    const parentName = parentKey.substring(0, lastAtIdx);
+                    const parentVersion = parentKey.substring(lastAtIdx + 1);
+                    
+                    // Find parent in allDeps
+                    current = allDeps.find(d => d.name === parentName && d.version === parentVersion);
+                    
+                    // If not found by exact version, try by name only
+                    if (!current) {
+                        current = allDeps.find(d => d.name === parentName);
+                    }
+                } else {
+                    break; // Invalid parent format
+                }
+            } else {
+                break; // No more parents
+            }
+            
+            // Safety limit to prevent infinite loops
+            if (path.length > 20) {
+                console.warn('⚠️ buildPathFromParents: path depth exceeded 20, breaking');
+                break;
+            }
+        }
+        
+        return path;
+    }
+
+    /**
      * Build dependency path for a transitive dependency
      */
     buildDependencyPath(repo, targetDep, allDependencies) {
@@ -5159,13 +5215,39 @@ class ViewManager {
                 usage.push(pathInfo);
             } else {
                 // Fallback: dependency found in repo but no SPDX path info (transitive dep added during resolution)
-                usage.push({
-                    isDirect: false,
-                    path: [vulnDep.name + '@' + vulnDep.version],
-                    repoKey: repoKey,
-                    pathStr: vulnDep.name + '@' + vulnDep.version + ' (transitive)',
-                    isArchived: repo.archived || false
-                });
+                // Use parents field from allDependencies to build the path
+                const isDirect = fullDep.directIn && fullDep.directIn.includes(repoKey);
+                const isTransitive = fullDep.transitiveIn && fullDep.transitiveIn.includes(repoKey);
+                
+                if (isDirect) {
+                    // It's a direct dependency
+                    usage.push({
+                        isDirect: true,
+                        path: [vulnDep.name + '@' + vulnDep.version],
+                        repoKey: repoKey,
+                        pathStr: vulnDep.name + '@' + vulnDep.version,
+                        isArchived: repo.archived || false
+                    });
+                } else if (isTransitive && fullDep.parents && fullDep.parents.length > 0) {
+                    // It's a transitive dependency - build path from parents
+                    const path = this.buildPathFromParents(fullDep, allDeps);
+                    usage.push({
+                        isDirect: false,
+                        path: path,
+                        repoKey: repoKey,
+                        pathStr: path.join(' → '),
+                        isArchived: repo.archived || false
+                    });
+                } else {
+                    // Unknown - just show as transitive
+                    usage.push({
+                        isDirect: false,
+                        path: [vulnDep.name + '@' + vulnDep.version],
+                        repoKey: repoKey,
+                        pathStr: vulnDep.name + '@' + vulnDep.version + ' (transitive)',
+                        isArchived: repo.archived || false
+                    });
+                }
             }
         });
 
