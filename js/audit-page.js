@@ -292,9 +292,14 @@ document.addEventListener('DOMContentLoaded', async function() {
             'COMPOSITE_REMOTE_CODE_NO_INTEGRITY': 'Composite actions executing remote code without integrity verification pose security risks.',
             'JS_REMOTE_CODE_NO_INTEGRITY': 'JavaScript actions executing remote code without integrity checks can be compromised.',
             'JS_RUNTIME_UNPINNED_DEPENDENCIES': 'JavaScript actions with unpinned runtime dependencies may include vulnerable packages.',
-            'INDIRECT_UNPINNABLE_ACTION': 'Actions that cannot be pinned due to indirect references create security blind spots.'
+            'INDIRECT_UNPINNABLE_ACTION': 'Actions that cannot be pinned due to indirect references create security blind spots.',
+            'PACKAGE_NOT_IN_REGISTRY': 'Package not found in public registry. This could indicate a private/internal package that is vulnerable to dependency confusion attacks. Attackers can register a package with the same name on public registries.',
+            'PULL_REQUEST_TARGET_CHECKOUT': 'Dangerous pattern: pull_request_target workflow checks out PR code, which can execute untrusted code with elevated permissions.',
+            'EXCESSIVE_WORKFLOW_PERMISSIONS': 'Workflow uses broad permissions like write-all, violating the principle of least privilege.',
+            'EXCESSIVE_JOB_PERMISSIONS': 'Job uses write-all permissions. Specify only the required permissions.',
+            'POTENTIAL_HARDCODED_SECRET': 'Environment variable appears to contain a hardcoded secret. Use GitHub Secrets instead.'
         };
-        return descriptions[ruleId] || 'Security issue detected in GitHub Actions workflow.';
+        return descriptions[ruleId] || 'Security issue detected.';
     }
     
     /**
@@ -450,6 +455,28 @@ document.addEventListener('DOMContentLoaded', async function() {
                     }
                 });
             });
+        }
+        
+        // Collect Dependency Confusion findings (packages not found in public registries)
+        const allDependencies = orgData?.data?.allDependencies || [];
+        const notFoundDeps = allDependencies.filter(dep => dep.registryNotFound === true);
+        if (notFoundDeps.length > 0) {
+            notFoundDeps.forEach(dep => {
+                const repos = dep.repositories || [];
+                allFindings.push({
+                    category: 'dependency-confusion',
+                    type: 'PACKAGE_NOT_IN_REGISTRY',
+                    typeName: 'Potential Dependency Confusion',
+                    description: getFindingDescription('PACKAGE_NOT_IN_REGISTRY'),
+                    severity: 'high',
+                    package: `${dep.name}@${dep.version || 'unknown'}`,
+                    ecosystem: dep.category?.ecosystem || 'unknown',
+                    repository: repos.length > 0 ? repos[0] : null,
+                    repositories: repos,
+                    message: `Package "${dep.name}" not found in public registry (${dep.category?.ecosystem || 'unknown'}). Could be hijacked via dependency confusion attack.`
+                });
+            });
+            console.log(`📍 Found ${notFoundDeps.length} dependency confusion risks`);
         }
         
         if (allFindings.length === 0) {
@@ -1647,7 +1674,12 @@ document.addEventListener('DOMContentLoaded', async function() {
             'COMPOSITE_REMOTE_CODE_NO_INTEGRITY': 'Composite Remote Code Without Integrity',
             'JS_REMOTE_CODE_NO_INTEGRITY': 'JavaScript Remote Code Without Integrity',
             'JS_RUNTIME_UNPINNED_DEPENDENCIES': 'JavaScript Runtime Unpinned Dependencies',
-            'INDIRECT_UNPINNABLE_ACTION': 'Indirect Unpinnable Action'
+            'INDIRECT_UNPINNABLE_ACTION': 'Indirect Unpinnable Action',
+            'PACKAGE_NOT_IN_REGISTRY': 'Potential Dependency Confusion',
+            'PULL_REQUEST_TARGET_CHECKOUT': 'Dangerous PR Target Pattern',
+            'EXCESSIVE_WORKFLOW_PERMISSIONS': 'Excessive Workflow Permissions',
+            'EXCESSIVE_JOB_PERMISSIONS': 'Excessive Job Permissions',
+            'POTENTIAL_HARDCODED_SECRET': 'Potential Hardcoded Secret'
         };
         return findingNames[ruleId] || ruleId;
     }

@@ -82,6 +82,7 @@ jobs:
             "js/analytics.js"
             "js/app.js"
             "js/author-service.js"
+            "js/authors-page.js"
             "js/audit-page.js"
             "js/cache-manager.js"
             "js/dependency-tree-resolver.js"

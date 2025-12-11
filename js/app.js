@@ -548,6 +548,8 @@ class SBOMPlayApp {
             progressSection.classList.remove('d-none');
             progressSection.classList.add('d-block');
         }
+        // Clear previous ecosystem progress bars
+        this.clearEcosystemProgress();
         if (resultsSection) {
             resultsSection.classList.add('d-none');
             resultsSection.classList.remove('d-block');
@@ -891,6 +893,8 @@ class SBOMPlayApp {
             progressSection.classList.remove('d-none');
             progressSection.classList.add('d-block');
         }
+        // Clear previous ecosystem progress bars
+        this.clearEcosystemProgress();
         if (resultsSection) {
             resultsSection.classList.add('d-none');
             resultsSection.classList.remove('d-block');
@@ -1506,6 +1510,83 @@ class SBOMPlayApp {
         // Log progress for pages without UI elements
         if (!progressBar && !progressText) {
             console.log(`Progress: ${Math.round(calculatedPercentage)}% - ${enhancedMessage}`);
+        }
+        
+        // Update ecosystem-specific progress bars
+        if (subProgress && subProgress.ecosystem) {
+            this.updateEcosystemProgress(subProgress.ecosystem, subProgress.processed, subProgress.total);
+        }
+    }
+
+    /**
+     * Update ecosystem-specific progress bar
+     * @param {string} ecosystem - Ecosystem name
+     * @param {number} processed - Number of processed dependencies
+     * @param {number} total - Total number of dependencies
+     */
+    updateEcosystemProgress(ecosystem, processed, total) {
+        const container = document.getElementById('ecosystemProgressContainer');
+        const barsContainer = document.getElementById('ecosystemProgressBars');
+        
+        if (!container || !barsContainer) return;
+        
+        // Show the container
+        container.classList.remove('d-none');
+        
+        // Find or create the progress bar for this ecosystem
+        let barRow = document.getElementById(`ecosystem-progress-${ecosystem}`);
+        
+        if (!barRow) {
+            // Create new progress bar row
+            barRow = document.createElement('div');
+            barRow.id = `ecosystem-progress-${ecosystem}`;
+            barRow.className = 'mb-2';
+            barRow.innerHTML = `
+                <div class="d-flex justify-content-between align-items-center mb-1">
+                    <span class="badge bg-secondary me-2" style="min-width: 80px;">${escapeHtml(ecosystem)}</span>
+                    <small class="text-muted" id="ecosystem-count-${ecosystem}">0/0</small>
+                </div>
+                <div class="progress" style="height: 12px;">
+                    <div id="ecosystem-bar-${ecosystem}" class="progress-bar" role="progressbar" style="width: 0%"></div>
+                </div>
+            `;
+            barsContainer.appendChild(barRow);
+        }
+        
+        // Update the progress bar
+        const bar = document.getElementById(`ecosystem-bar-${ecosystem}`);
+        const countEl = document.getElementById(`ecosystem-count-${ecosystem}`);
+        
+        if (bar && total > 0) {
+            const percent = Math.round((processed / total) * 100);
+            bar.style.width = `${percent}%`;
+            
+            // Color based on completion
+            bar.classList.remove('bg-primary', 'bg-success');
+            if (percent >= 100) {
+                bar.classList.add('bg-success');
+            } else {
+                bar.classList.add('bg-primary');
+            }
+        }
+        
+        if (countEl) {
+            countEl.textContent = `${processed}/${total}`;
+        }
+    }
+
+    /**
+     * Clear ecosystem progress bars
+     */
+    clearEcosystemProgress() {
+        const barsContainer = document.getElementById('ecosystemProgressBars');
+        const container = document.getElementById('ecosystemProgressContainer');
+        
+        if (barsContainer) {
+            barsContainer.innerHTML = '';
+        }
+        if (container) {
+            container.classList.add('d-none');
         }
     }
 

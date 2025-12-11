@@ -733,6 +733,18 @@ class SBOMProcessor {
                         ecosystemProgressCallback
                     );
                     
+                    // Track packages not found in any registry (dependency confusion risk)
+                    const notFoundPackages = resolver.getRegistryNotFoundPackages();
+                    if (notFoundPackages && notFoundPackages.size > 0) {
+                        console.log(`    ⚠️ ${notFoundPackages.size} package(s) not found in ${ecosystem} registry (potential dependency confusion)`);
+                        notFoundPackages.forEach(pkgKey => {
+                            const dep = this.dependencies.get(pkgKey);
+                            if (dep) {
+                                dep.registryNotFound = true;
+                            }
+                        });
+                    }
+                    
                     // Update dependencies with depth information
                     // Use depth to correctly classify dependencies as direct (depth=1) or transitive (depth>1)
                     // Track which repos have direct dependencies in this ecosystem to propagate transitive status
@@ -1342,7 +1354,8 @@ class SBOMProcessor {
                     repositories: Array.from(dep.repositories),
                     category: dep.category,
                     languages: Array.from(dep.languages),
-                    purl: purl  // Include extracted PURL for author analysis
+                    purl: purl,  // Include extracted PURL for author analysis
+                    registryNotFound: dep.registryNotFound || false  // Potential dependency confusion risk
                 };
             });
         }

@@ -398,6 +398,45 @@ class LocationService {
     }
 
     /**
+     * Batch get locations from cache only (no API calls)
+     * Use this when geocoding was already done during analysis phase
+     * @param {Array<string>} locations - Array of location strings
+     * @returns {Promise<Map>} - Map of location string -> geocoded data
+     */
+    async batchGetFromCache(locations) {
+        const results = new Map();
+        
+        // Normalize and filter locations first
+        const normalizedLocations = locations
+            .map(loc => this.normalizeLocationString(loc))
+            .filter(loc => loc !== null);
+        
+        const uniqueLocations = [...new Set(normalizedLocations)];
+        
+        if (uniqueLocations.length === 0) {
+            return results;
+        }
+        
+        // Load all from IndexedDB cache (no API calls)
+        if (window.indexedDBManager && window.indexedDBManager.isInitialized()) {
+            const cachedResults = await window.indexedDBManager.batchGetLocations(uniqueLocations);
+            
+            cachedResults.forEach((geocoded, location) => {
+                if (geocoded && geocoded.failed !== true) {
+                    results.set(location, geocoded);
+                    // Update in-memory cache
+                    this.geocodeCache.set(location, {
+                        data: geocoded,
+                        timestamp: Date.now()
+                    });
+                }
+            });
+        }
+        
+        return results;
+    }
+
+    /**
      * Batch geocode multiple locations (loads from cache first, then fetches missing ones incrementally)
      * @param {Array<string>} locations - Array of location strings
      * @param {Function} onProgress - Optional progress callback (processed, total)

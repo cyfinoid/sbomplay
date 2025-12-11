@@ -8,6 +8,7 @@ class DependencyTreeResolver {
         this.cache = new Map(); // Cache API responses to minimize calls
         this.ecosystemsApiCache = new Map();
         this.depsDevCache = new Map();
+        this.registryNotFoundPackages = new Set(); // Track packages not found in any registry (potential dependency confusion)
         // Load maxDepth from localStorage or use default of 10
         const savedMaxDepth = localStorage.getItem('maxDepth');
         this.maxDepth = savedMaxDepth ? parseInt(savedMaxDepth, 10) : 10;
@@ -312,6 +313,12 @@ class DependencyTreeResolver {
         
         if (!dependencies || dependencies.length === 0) {
             console.log(`    ℹ️  No dependencies found for ${packageKey} at depth ${depth}`);
+            // Track packages not found in any registry (potential dependency confusion vulnerability)
+            // This could indicate a private/internal package that could be hijacked
+            if (dependencies === null) {
+                this.registryNotFoundPackages.add(packageKey);
+                console.log(`    ⚠️  Package ${packageKey} not found in any registry - potential dependency confusion risk`);
+            }
             return;
         }
         
@@ -793,145 +800,46 @@ class DependencyTreeResolver {
     
     /**
      * Fetch latest version for a package in an ecosystem
+     * Delegates to shared RegistryManager implementation
      * @param {string} packageName - Package name
      * @param {string} ecosystem - Ecosystem
      * @returns {Promise<string|null>} - Latest version string or null
      */
     async fetchLatestVersion(packageName, ecosystem) {
-        const normalizedEcosystem = ecosystem.toLowerCase();
-        const cacheKey = `latest:${normalizedEcosystem}:${packageName}`;
-        
-        // Check cache first
-        if (this.cache.has(cacheKey)) {
-            return this.cache.get(cacheKey);
+        // Use shared implementation from RegistryManager
+        if (window.registryManager) {
+            return await window.registryManager.fetchLatestVersion(packageName, ecosystem);
         }
         
-        try {
-            await this.rateLimit();
-            let latestVersion = null;
-            
-            switch (normalizedEcosystem) {
-                case 'npm':
-                    latestVersion = await this.fetchNpmLatestVersion(packageName);
-                    break;
-                case 'pypi':
-                    latestVersion = await this.fetchPyPiLatestVersion(packageName);
-                    break;
-                case 'cargo':
-                    latestVersion = await this.fetchCargoLatestVersion(packageName);
-                    break;
-                case 'rubygems':
-                case 'gem':
-                    // Use ecosyste.ms for RubyGems (no CORS on RubyGems API)
-                    latestVersion = await this.fetchRubyGemsLatestVersion(packageName);
-                    break;
-                case 'maven':
-                    // Use ecosyste.ms for Maven (Maven Central search API has CORS issues)
-                    latestVersion = await this.fetchMavenLatestVersion(packageName);
-                    break;
-                default:
-                    console.log(`      ⚠️  Latest version fetch: Unsupported ecosystem ${ecosystem}`);
-                    return null;
-            }
-            
-            // Cache the result (even if null to avoid repeated failed requests)
-            this.cache.set(cacheKey, latestVersion);
-            return latestVersion;
-        } catch (error) {
-            console.log(`      ⚠️  Failed to fetch latest version for ${ecosystem}:${packageName}: ${error.message}`);
-            this.cache.set(cacheKey, null);
-            return null;
-        }
+        // Fallback if registryManager not available
+        console.warn('⚠️ RegistryManager not available for fetchLatestVersion');
+        return null;
     }
     
     /**
-     * Fetch latest version from npm registry
+     * Get packages not found in any registry (potential dependency confusion)
+     * @returns {Set<string>} - Set of package keys (name@version) not found in registries
      */
-    async fetchNpmLatestVersion(packageName) {
-        const url = this.registryAPIs.npm.replace('{package}', encodeURIComponent(packageName));
-        const response = await this.fetchWithTimeout(url);
-        if (!response.ok) return null;
-        const data = await response.json();
-        return data['dist-tags']?.latest || data.version || null;
+    getRegistryNotFoundPackages() {
+        return this.registryNotFoundPackages;
     }
-    
+
     /**
-     * Fetch latest version from PyPI
+     * Clear the registry not found tracking
      */
-    async fetchPyPiLatestVersion(packageName) {
-        const url = this.registryAPIs.pypi.replace('{package}', encodeURIComponent(packageName));
-        const response = await this.fetchWithTimeout(url);
-        if (!response.ok) return null;
-        const data = await response.json();
-        return data.info?.version || null;
+    clearRegistryNotFoundTracking() {
+        this.registryNotFoundPackages.clear();
     }
-    
+
     /**
-     * Fetch latest version from crates.io
+     * Check if a package was not found in any registry
+     * @param {string} packageKey - Package key (name@version)
+     * @returns {boolean} - True if package was not found in any registry
      */
-    async fetchCargoLatestVersion(packageName) {
-        const url = this.registryAPIs.cargo.replace('{package}', encodeURIComponent(packageName));
-        const response = await this.fetchWithTimeout(url);
-        if (!response.ok) return null;
-        const data = await response.json();
-        return data.crate?.max_version || null;
+    isPackageNotInRegistry(packageKey) {
+        return this.registryNotFoundPackages.has(packageKey);
     }
-    
-    /**
-     * Fetch latest version from RubyGems via ecosyste.ms
-     */
-    async fetchRubyGemsLatestVersion(packageName) {
-        try {
-            const registryName = await this.getRegistryName('rubygems');
-            if (!registryName) return null;
-            
-            const url = this.ecosystemsAPI
-                .replace('{registry}', registryName)
-                .replace('{package}', encodeURIComponent(packageName));
-            const response = await this.fetchWithTimeout(url);
-            if (!response.ok) return null;
-            const data = await response.json();
-            return data.latest_release_number || null;
-        } catch (error) {
-            return null;
-        }
-    }
-    
-    /**
-     * Fetch latest version from Maven via ecosyste.ms
-     * Maven packages are formatted as "groupId:artifactId" (e.g., "org.springframework.boot:spring-boot-starter")
-     * ecosyste.ms Maven API URL format: /registries/repo1.maven.org/packages/{groupId}/{artifactId}
-     */
-    async fetchMavenLatestVersion(packageName) {
-        try {
-            const registryName = await this.getRegistryName('maven');
-            if (!registryName) return null;
-            
-            // Parse Maven package name: "groupId:artifactId"
-            const parts = packageName.split(':');
-            if (parts.length < 2) {
-                console.log(`      ⚠️  Invalid Maven package format: ${packageName} (expected groupId:artifactId)`);
-                return null;
-            }
-            
-            const groupId = parts[0];
-            const artifactId = parts[1];
-            
-            // Build ecosyste.ms URL for Maven package
-            // Format: /registries/repo1.maven.org/packages/{groupId}/{artifactId}
-            const url = `https://packages.ecosyste.ms/api/v1/registries/${registryName}/packages/${encodeURIComponent(groupId)}/${encodeURIComponent(artifactId)}`;
-            
-            const response = await this.fetchWithTimeout(url);
-            if (!response.ok) return null;
-            
-            const data = await response.json();
-            return data.latest_release_number || null;
-        } catch (error) {
-            console.log(`      ⚠️  Failed to fetch Maven version from ecosyste.ms: ${error.message}`);
-            return null;
-        }
-    }
-    
+
     /**
      * Get statistics about the resolved tree
      */
