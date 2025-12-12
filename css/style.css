@@ -3660,4 +3660,26 @@ body {
 .upload-drop-zone.drag-over i {
     transform: scale(1.2);
     color: var(--primary-color, #50c878);
+}
+
+/* Upload Queue Styles */
+.queue-item {
+    transition: background-color 0.2s ease;
+}
+
+.queue-item:hover {
+    background-color: var(--bg-tertiary, #f8f9fa);
+}
+
+.queue-item:last-child {
+    border-bottom: none !important;
+}
+
+.queue-item .remove-queue-item {
+    opacity: 0.6;
+    transition: opacity 0.2s ease;
+}
+
+.queue-item:hover .remove-queue-item {
+    opacity: 1;
 } 

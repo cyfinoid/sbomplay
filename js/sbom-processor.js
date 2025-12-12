@@ -993,6 +993,15 @@ class SBOMProcessor {
                 }
             }
             
+            // Extract license from originalPackage.licenseConcluded if not already set
+            // This handles licenses parsed from CycloneDX/SPDX SBOMs
+            let license = dep.license || null;
+            let licenseFull = dep.licenseFull || null;
+            if (!license && dep.originalPackage && dep.originalPackage.licenseConcluded) {
+                license = dep.originalPackage.licenseConcluded;
+                licenseFull = dep.originalPackage.licenseConcluded;
+            }
+            
             // Determine repository license for this dependency
             // For dependencies from repositories, use the first repository's license as fallback
             let repositoryLicense = null;
@@ -1019,8 +1028,8 @@ class SBOMProcessor {
                 depth: dep.depth || null,  // Depth in dependency tree (1 = direct, 2+ = transitive)
                 parents: dep.parents || [],  // Parent dependencies (what brings this in)
                 children: dep.children || [],  // Child dependencies (what this brings in)
-                license: dep.license || null,  // Include license (short form)
-                licenseFull: dep.licenseFull || null,  // Include license (full form)
+                license: license,  // Include license (short form, from SBOM or fetched)
+                licenseFull: licenseFull,  // Include license (full form, from SBOM or fetched)
                 repositoryLicense: repositoryLicense  // Include repository license as fallback
             };
         });

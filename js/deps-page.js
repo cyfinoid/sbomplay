@@ -2270,8 +2270,25 @@ document.addEventListener('DOMContentLoaded', function() {
                 }
             }
             
-            // Build package registry URL based on ecosystem
+            // Fallback: For Go packages, the package name itself often IS the GitHub path
+            // e.g., "github.com/chzyer/logex" should map to https://github.com/chzyer/logex
             const ecosystemLower = packageEcosystem.toLowerCase();
+            if (!githubRepoUrl && (ecosystemLower === 'go' || ecosystemLower === 'golang')) {
+                // Check if package name starts with github.com/
+                if (packageName.startsWith('github.com/')) {
+                    // Extract owner/repo from the path (may have additional path segments like /v2, /v3)
+                    const parts = packageName.replace('github.com/', '').split('/');
+                    if (parts.length >= 2) {
+                        const owner = parts[0];
+                        // Repo name - handle versioned paths like "repo/v2" or "repo/v3"
+                        let repo = parts[1];
+                        // Don't include version suffixes like /v2, /v3 in repo name for URL
+                        githubRepoUrl = `https://github.com/${owner}/${repo}`;
+                    }
+                }
+            }
+            
+            // Build package registry URL based on ecosystem
             if (ecosystemLower === 'npm' || ecosystemLower === 'nodejs') {
                 registryUrl = `https://www.npmjs.com/package/${encodeURIComponent(packageName)}`;
             } else if (ecosystemLower === 'pypi' || ecosystemLower === 'python') {

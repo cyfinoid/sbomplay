@@ -188,14 +188,11 @@ class SBOMParser {
         const projectInfo = this.extractProjectInfo(projectName, filename);
 
         // Convert components to SPDX-like packages
+        // Note: We do NOT include the root component (metadata.component) as a package
+        // because it represents the subject of the SBOM (the software being described),
+        // not a dependency. The root component info is used for projectInfo extraction.
         const components = sbomData.components || [];
         const packages = components.map((comp, index) => this.convertCycloneDXComponent(comp, index));
-
-        // Add root component as main package if present
-        if (rootComponent.name) {
-            const mainPackage = this.convertCycloneDXComponent(rootComponent, -1, true);
-            packages.unshift(mainPackage);
-        }
 
         // Convert dependencies to SPDX-like relationships
         const dependencies = sbomData.dependencies || [];
@@ -228,10 +225,9 @@ class SBOMParser {
      * Convert a CycloneDX component to SPDX-like package
      * @param {Object} comp - CycloneDX component
      * @param {number} index - Component index
-     * @param {boolean} isMain - Whether this is the main/root component
      * @returns {Object} - SPDX-like package
      */
-    convertCycloneDXComponent(comp, index, isMain = false) {
+    convertCycloneDXComponent(comp, index) {
         // Generate SPDXID from bom-ref or create one
         const spdxId = comp['bom-ref'] 
             ? this.bomRefToSPDXID(comp['bom-ref'])
@@ -269,6 +265,38 @@ class SBOMParser {
                 referenceType: 'cpe23Type',
                 referenceLocator: comp.cpe
             });
+        }
+
+        // Convert CycloneDX externalReferences to SPDX-like externalRefs
+        if (comp.externalReferences && Array.isArray(comp.externalReferences)) {
+            for (const extRef of comp.externalReferences) {
+                // Map CycloneDX reference types to SPDX-like types
+                let referenceType = extRef.type;
+                let referenceCategory = 'OTHER';
+                
+                // CycloneDX types: vcs, issue-tracker, website, advisories, bom, etc.
+                if (extRef.type === 'vcs') {
+                    referenceCategory = 'SOURCE-CONTROL';
+                    referenceType = 'vcs';
+                } else if (extRef.type === 'website') {
+                    referenceCategory = 'OTHER';
+                    referenceType = 'website';
+                } else if (extRef.type === 'issue-tracker') {
+                    referenceCategory = 'OTHER';
+                    referenceType = 'issue-tracker';
+                } else if (extRef.type === 'documentation') {
+                    referenceCategory = 'DOCUMENTATION';
+                    referenceType = 'documentation';
+                }
+                
+                if (extRef.url) {
+                    externalRefs.push({
+                        referenceCategory: referenceCategory,
+                        referenceType: referenceType,
+                        referenceLocator: extRef.url
+                    });
+                }
+            }
         }
 
         return {
@@ -359,45 +387,51 @@ class SBOMParser {
     }
 
     /**
-     * Extract project info (owner/repo) from project name
+     * Extract project info from project name
+     * Each uploaded SBOM is treated as an independent project (like a direct repo scan)
      * @param {string} projectName - Project name from SBOM
      * @param {string} filename - Fallback filename
-     * @returns {Object} - { owner: string, repo: string, fullName: string }
+     * @returns {Object} - { projectName: string, displayName: string }
      */
     extractProjectInfo(projectName, filename) {
-        // Default values
-        let owner = 'uploaded';
-        let repo = filename.replace(/\.(json|spdx|cdx)$/i, '') || 'unknown';
+        let name = '';
+        let displayName = '';
 
         if (projectName) {
-            // Try to extract owner/repo from various formats
-            // Format: "com.github.owner/repo"
-            const githubMatch = projectName.match(/com\.github\.([^\/]+)\/([^\/]+)/);
+            // Format: "com.github.owner/repo" -> use "owner/repo"
+            const githubMatch = projectName.match(/com\.github\.(.+)/);
             if (githubMatch) {
-                owner = githubMatch[1];
-                repo = githubMatch[2];
+                name = githubMatch[1];
+                displayName = githubMatch[1];
             }
-            // Format: "owner/repo"
+            // Format: already has structure (e.g., "owner/repo", "org/project")
             else if (projectName.includes('/')) {
-                const parts = projectName.split('/');
-                if (parts.length >= 2) {
-                    owner = parts[parts.length - 2] || 'uploaded';
-                    repo = parts[parts.length - 1] || repo;
-                }
+                name = projectName;
+                displayName = projectName;
             }
             // Format: just a name
             else {
-                repo = projectName;
+                name = projectName;
+                displayName = projectName;
             }
         }
 
-        // Clean up repo name
-        repo = repo.replace(/[^a-zA-Z0-9._-]/g, '-');
+        // Fallback to filename if no project name
+        if (!name) {
+            name = filename.replace(/\.(json|spdx|cdx|bom)$/gi, '').replace(/\.spdx$|\.cdx$/gi, '') || 'unknown';
+            displayName = name;
+        }
+
+        // Clean up name for storage (replace invalid chars)
+        const storageName = name.replace(/[^a-zA-Z0-9._\/-]/g, '-');
 
         return {
-            owner: owner,
-            repo: repo,
-            fullName: `${owner}/${repo}`
+            projectName: storageName,      // Used for storage key
+            displayName: displayName,      // Used for display
+            fullName: displayName,         // Alias for compatibility
+            // Legacy fields for compatibility with existing code
+            owner: 'upload',               // Marker to identify uploaded SBOMs
+            repo: storageName
         };
     }
 

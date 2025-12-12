@@ -320,7 +320,7 @@ class OSVService {
     /**
      * Analyze dependencies for vulnerabilities
      */
-    async analyzeDependencies(dependencies) {
+    async analyzeDependencies(dependencies, onProgress = null) {
         console.log(`🔍 OSV: Analyzing ${dependencies.length} dependencies for vulnerabilities`);
         
         const packages = dependencies.map(dep => {

@@ -351,8 +351,9 @@ class IndexedDBManager {
                 console.warn('⚠️ IndexedDB not initialized yet');
                 return false;
             }
-            // Try to delete from organizations first
-            const isRepo = name.includes('/');
+            // Use same logic as saveAnalysisData: repo has exactly 2 parts (owner/repo)
+            // Names with 3+ parts (e.g., github.com/owner/repo) are treated as organizations
+            const isRepo = name.includes('/') && name.split('/').length === 2;
             const storeName = isRepo ? 'repositories' : 'organizations';
             const keyName = isRepo ? name : name; // fullName for repos, name for orgs
             

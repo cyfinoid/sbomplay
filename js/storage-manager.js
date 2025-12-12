@@ -114,7 +114,9 @@ class StorageManager {
                 await this.init();
             }
             
-            const isRepo = name.includes('/');
+            // Use same logic as saveAnalysisData: repo has exactly 2 parts (owner/repo)
+            // Names with 3+ parts (e.g., github.com/owner/repo) are treated as organizations
+            const isRepo = name.includes('/') && name.split('/').length === 2;
             
             if (isRepo) {
                 return await this.indexedDB.getRepository(name);

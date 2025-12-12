@@ -1,6 +1,7 @@
 /**
  * Upload Page - Handles SBOM file upload and analysis
  * Experimental feature for processing uploaded SPDX/CycloneDX SBOMs
+ * Supports multiple file upload with queuing
  */
 console.log('📤 Upload Page loaded');
 
@@ -9,8 +10,9 @@ class UploadPage {
         this.sbomParser = new window.SBOMParser();
         this.sbomProcessor = null;
         this.storageManager = null;
-        this.currentFile = null;
-        this.parsedData = null;
+        this.fileQueue = []; // Queue of files to process
+        this.isProcessing = false; // Flag to track if processing is in progress
+        this.processedResults = []; // Store results for all processed files
         this.analysisStartTime = null;
         this.elapsedTimeInterval = null;
         
@@ -26,6 +28,11 @@ class UploadPage {
         // Initialize components
         this.sbomProcessor = new window.SBOMProcessor();
         this.storageManager = window.storageManager || new window.StorageManager();
+        
+        // Ensure storage manager is initialized
+        if (!this.storageManager.initialized) {
+            await this.storageManager.init();
+        }
         
         // Setup UI event listeners
         this.setupEventListeners();
@@ -98,71 +105,178 @@ class UploadPage {
 
         const files = e.dataTransfer?.files;
         if (files && files.length > 0) {
-            this.processFile(files[0]);
+            this.addFilesToQueue(Array.from(files));
         }
     }
 
     handleFileSelect(e) {
         const files = e.target?.files;
         if (files && files.length > 0) {
-            this.processFile(files[0]);
+            this.addFilesToQueue(Array.from(files));
+        }
+        // Reset input so same file can be selected again
+        e.target.value = '';
+    }
+
+    async addFilesToQueue(files) {
+        for (const file of files) {
+            // Validate file extension
+            if (!this.sbomParser.isValidExtension(file.name)) {
+                this.showError(`Invalid file type: ${file.name}. Supported formats: ${this.sbomParser.getSupportedExtensions().join(', ')}`);
+                continue;
+            }
+
+            // Validate file size (max 50MB)
+            const maxSize = 50 * 1024 * 1024;
+            if (file.size > maxSize) {
+                this.showError(`File too large: ${file.name}. Maximum file size is 50MB.`);
+                continue;
+            }
+
+            // Check if file already in queue
+            if (this.fileQueue.some(item => item.file.name === file.name && item.file.size === file.size)) {
+                continue; // Skip duplicates
+            }
+
+            // Parse the file to validate and extract info
+            try {
+                const content = await this.readFile(file);
+                const result = this.sbomParser.parse(content, file.name);
+                
+                if (!result.success) {
+                    this.showError(`${file.name}: ${result.error}`);
+                    continue;
+                }
+
+                // Add to queue with parsed data
+                this.fileQueue.push({
+                    file: file,
+                    content: content,
+                    parsedData: result,
+                    status: 'pending', // pending, processing, completed, failed
+                    error: null,
+                    results: null
+                });
+            } catch (error) {
+                this.showError(`Error reading ${file.name}: ${error.message}`);
+            }
+        }
+
+        // Update queue display
+        this.updateQueueDisplay();
+        
+        // Enable analyze button if queue has items
+        const analyzeBtn = document.getElementById('analyzeUploadBtn');
+        if (analyzeBtn && this.fileQueue.length > 0) {
+            analyzeBtn.disabled = false;
         }
     }
 
-    async processFile(file) {
-        console.log(`📁 Processing file: ${file.name}`);
+    updateQueueDisplay() {
+        const queueSection = document.getElementById('queueSection');
+        const queueList = document.getElementById('queueList');
+        const queueCount = document.getElementById('queueCount');
         
-        // Validate file extension
-        if (!this.sbomParser.isValidExtension(file.name)) {
-            this.showError(`Invalid file type. Supported formats: ${this.sbomParser.getSupportedExtensions().join(', ')}`);
+        if (!queueSection || !queueList) return;
+        
+        if (this.fileQueue.length === 0) {
+            queueSection.classList.add('d-none');
             return;
         }
-
-        // Validate file size (max 50MB)
-        const maxSize = 50 * 1024 * 1024;
-        if (file.size > maxSize) {
-            this.showError('File too large. Maximum file size is 50MB.');
-            return;
+        
+        queueSection.classList.remove('d-none');
+        if (queueCount) {
+            queueCount.textContent = this.fileQueue.length;
         }
-
-        this.currentFile = file;
-        this.updateFileInfo(file.name, 'Reading file...');
-
-        try {
-            // Read file content
-            const content = await this.readFile(file);
+        
+        // Build queue list HTML
+        const listHtml = this.fileQueue.map((item, index) => {
+            const formatDisplay = `${item.parsedData.format.format.toUpperCase()}${item.parsedData.format.version ? ` ${item.parsedData.format.version}` : ''}`;
+            const packageCount = item.parsedData.data?.sbom?.packages?.length || 0;
+            const projectDisplayName = item.parsedData.projectInfo?.displayName || 'Unknown';
             
-            // Parse SBOM
-            const result = this.sbomParser.parse(content, file.name);
-            
-            if (!result.success) {
-                this.showError(result.error);
-                this.updateFileInfo(file.name, 'Parse failed');
-                return;
+            let statusBadge = '';
+            let statusIcon = '';
+            switch (item.status) {
+                case 'pending':
+                    statusBadge = '<span class="badge bg-secondary">Pending</span>';
+                    statusIcon = '<i class="fas fa-clock text-secondary"></i>';
+                    break;
+                case 'processing':
+                    statusBadge = '<span class="badge bg-primary">Processing</span>';
+                    statusIcon = '<i class="fas fa-spinner fa-spin text-primary"></i>';
+                    break;
+                case 'completed':
+                    statusBadge = '<span class="badge bg-success">Completed</span>';
+                    statusIcon = '<i class="fas fa-check-circle text-success"></i>';
+                    break;
+                case 'failed':
+                    statusBadge = '<span class="badge bg-danger">Failed</span>';
+                    statusIcon = '<i class="fas fa-times-circle text-danger"></i>';
+                    break;
             }
+            
+            return `
+                <div class="queue-item d-flex align-items-center justify-content-between p-2 border-bottom" data-index="${index}">
+                    <div class="d-flex align-items-center flex-grow-1">
+                        ${statusIcon}
+                        <div class="ms-3">
+                            <strong>${this.escapeHtml(item.file.name)}</strong>
+                            <br>
+                            <small class="text-muted">
+                                ${formatDisplay} · ${packageCount} packages · <code>${this.escapeHtml(projectDisplayName)}</code>
+                            </small>
+                            ${item.error ? `<br><small class="text-danger">${this.escapeHtml(item.error)}</small>` : ''}
+                        </div>
+                    </div>
+                    <div class="d-flex align-items-center gap-2">
+                        ${statusBadge}
+                        ${item.status === 'pending' ? `<button class="btn btn-sm btn-outline-danger remove-queue-item" data-index="${index}" title="Remove"><i class="fas fa-times"></i></button>` : ''}
+                    </div>
+                </div>
+            `;
+        }).join('');
+        
+        queueList.innerHTML = listHtml;
+        
+        // Add event listeners for remove buttons
+        queueList.querySelectorAll('.remove-queue-item').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                const index = parseInt(btn.dataset.index);
+                this.removeFromQueue(index);
+            });
+        });
+    }
 
-            this.parsedData = result;
-            
-            // Update UI with detected format and project info
-            const formatDisplay = `${result.format.format.toUpperCase()}${result.format.version ? ` ${result.format.version}` : ''}`;
-            this.updateFileInfo(file.name, 'Ready for analysis');
-            this.updateFormatInfo(formatDisplay);
-            this.updateProjectInfo(result.projectInfo);
-            
-            // Enable analyze button
-            const analyzeBtn = document.getElementById('analyzeUploadBtn');
-            if (analyzeBtn) {
-                analyzeBtn.disabled = false;
+    removeFromQueue(index) {
+        if (index >= 0 && index < this.fileQueue.length) {
+            // Only allow removing pending items
+            if (this.fileQueue[index].status === 'pending') {
+                this.fileQueue.splice(index, 1);
+                this.updateQueueDisplay();
+                
+                // Disable button if queue is empty
+                const analyzeBtn = document.getElementById('analyzeUploadBtn');
+                if (analyzeBtn && this.fileQueue.filter(f => f.status === 'pending').length === 0) {
+                    analyzeBtn.disabled = true;
+                }
             }
-
-            // Show package count preview
-            const packageCount = result.data?.sbom?.packages?.length || 0;
-            this.updatePreview(packageCount, result.format.format);
-
-        } catch (error) {
-            console.error('Error processing file:', error);
-            this.showError(`Error processing file: ${error.message}`);
         }
+    }
+
+    clearCompletedFromQueue() {
+        this.fileQueue = this.fileQueue.filter(item => item.status === 'pending');
+        this.updateQueueDisplay();
+    }
+
+    escapeHtml(text) {
+        if (window.escapeHtml) {
+            return window.escapeHtml(text);
+        }
+        const div = document.createElement('div');
+        div.textContent = text;
+        return div.innerHTML;
     }
 
     readFile(file) {
@@ -174,51 +288,22 @@ class UploadPage {
         });
     }
 
-    updateFileInfo(filename, status) {
-        const fileInfo = document.getElementById('fileInfo');
-        if (fileInfo) {
-            fileInfo.classList.remove('d-none');
-            const filenameEl = fileInfo.querySelector('.filename');
-            const statusEl = fileInfo.querySelector('.status');
-            if (filenameEl) filenameEl.textContent = filename;
-            if (statusEl) statusEl.textContent = status;
-        }
-    }
-
-    updateFormatInfo(format) {
-        const formatInfo = document.getElementById('formatInfo');
-        if (formatInfo) {
-            formatInfo.classList.remove('d-none');
-            const formatValue = formatInfo.querySelector('.format-value');
-            if (formatValue) formatValue.textContent = format;
-        }
-    }
-
-    updateProjectInfo(projectInfo) {
-        const projectInfoEl = document.getElementById('projectInfo');
-        if (projectInfoEl) {
-            projectInfoEl.classList.remove('d-none');
-            const projectValue = projectInfoEl.querySelector('.project-value');
-            if (projectValue) projectValue.textContent = projectInfo.fullName;
-        }
-    }
-
-    updatePreview(packageCount, format) {
-        const preview = document.getElementById('previewInfo');
-        if (preview) {
-            preview.classList.remove('d-none');
-            const countEl = preview.querySelector('.package-count');
-            if (countEl) countEl.textContent = `${packageCount} packages found`;
-        }
-    }
-
     async startAnalysis() {
-        if (!this.parsedData || !this.parsedData.success) {
-            this.showError('No valid SBOM data to analyze. Please upload a file first.');
+        const pendingItems = this.fileQueue.filter(item => item.status === 'pending');
+        
+        if (pendingItems.length === 0) {
+            this.showError('No files to analyze. Please upload SBOM files first.');
             return;
         }
 
-        console.log('🚀 Starting SBOM analysis...');
+        if (this.isProcessing) {
+            this.showError('Analysis already in progress. Please wait.');
+            return;
+        }
+
+        console.log(`🚀 Starting SBOM analysis for ${pendingItems.length} file(s)...`);
+        this.isProcessing = true;
+        this.processedResults = [];
         
         // Disable button during analysis
         const analyzeBtn = document.getElementById('analyzeUploadBtn');
@@ -232,85 +317,152 @@ class UploadPage {
         this.analysisStartTime = new Date();
         this.startElapsedTimer();
 
-        try {
-            const { data, projectInfo } = this.parsedData;
-            const { owner, repo } = projectInfo;
-            const orgName = owner; // Use owner as org name for storage
+        let completedCount = 0;
+        let failedCount = 0;
 
-            // Reset processor
-            this.sbomProcessor.reset();
-            this.sbomProcessor.setTotalRepositories(1);
-
-            // Phase 1: Process SBOM
-            this.updateProgress(10, 'Processing SBOM data...');
-            const success = await this.sbomProcessor.processSBOM(owner, repo, data, null, false);
+        // Process each pending file in the queue
+        for (let i = 0; i < this.fileQueue.length; i++) {
+            const item = this.fileQueue[i];
             
-            if (!success) {
-                throw new Error('Failed to process SBOM data');
-            }
-            this.sbomProcessor.updateProgress(true);
-
-            // Phase 2: Resolve dependency trees
-            this.updateProgress(30, 'Resolving dependency trees...');
-            await this.sbomProcessor.resolveFullDependencyTrees((progress) => {
-                if (progress.phase === 'resolving-package') {
-                    const pct = 30 + (progress.processed / progress.total) * 20;
-                    this.updateProgress(pct, `Resolving ${progress.packageName || 'dependencies'}...`);
-                }
-            });
-
-            // Phase 3: Vulnerability analysis
-            this.updateProgress(50, 'Analyzing vulnerabilities...');
-            if (window.osvService) {
-                await this.sbomProcessor.analyzeVulnerabilities();
-            } else {
-                console.warn('⚠️ OSV service not available, skipping vulnerability analysis');
-            }
-
-            // Phase 4: License compliance
-            this.updateProgress(70, 'Analyzing license compliance...');
-            this.sbomProcessor.analyzeLicenseCompliance();
-
-            // Phase 5: Export and save
-            this.updateProgress(85, 'Saving results...');
-            const results = this.sbomProcessor.exportData();
+            if (item.status !== 'pending') continue;
             
-            // Add upload metadata
-            results.uploadInfo = {
-                filename: this.currentFile?.name || 'unknown',
-                format: this.parsedData.format,
-                uploadedAt: new Date().toISOString()
-            };
-
-            // Save to IndexedDB
-            await this.storageManager.saveResults(orgName, results);
-
-            // Phase 6: Complete
-            this.updateProgress(100, 'Analysis complete!');
-            this.stopElapsedTimer();
+            item.status = 'processing';
+            this.updateQueueDisplay();
             
-            // Show results
-            this.showResults(results, projectInfo);
+            const fileProgress = (completedCount / pendingItems.length) * 100;
+            this.updateProgress(fileProgress, `Processing ${item.file.name}...`);
 
-            console.log('✅ SBOM analysis complete');
-
-        } catch (error) {
-            console.error('❌ Analysis failed:', error);
-            this.showError(`Analysis failed: ${error.message}`);
-            this.stopElapsedTimer();
-        } finally {
-            // Re-enable button
-            if (analyzeBtn) {
-                analyzeBtn.disabled = false;
-                analyzeBtn.innerHTML = '<i class="fas fa-play me-2"></i>Start Analysis';
+            try {
+                const results = await this.analyzeFile(item, (phase, pct, msg) => {
+                    // Calculate overall progress
+                    const itemProgress = pct / pendingItems.length;
+                    const overallPct = fileProgress + itemProgress;
+                    this.updateProgress(overallPct, `[${completedCount + 1}/${pendingItems.length}] ${msg}`);
+                });
+                
+                item.status = 'completed';
+                item.results = results;
+                this.processedResults.push({
+                    filename: item.file.name,
+                    projectInfo: item.parsedData.projectInfo,
+                    results: results,
+                    success: true
+                });
+                completedCount++;
+                
+            } catch (error) {
+                console.error(`❌ Analysis failed for ${item.file.name}:`, error);
+                item.status = 'failed';
+                item.error = error.message;
+                this.processedResults.push({
+                    filename: item.file.name,
+                    projectInfo: item.parsedData.projectInfo,
+                    error: error.message,
+                    success: false
+                });
+                failedCount++;
             }
+            
+            this.updateQueueDisplay();
         }
+
+        // Complete
+        this.updateProgress(100, `Analysis complete! ${completedCount} succeeded, ${failedCount} failed.`);
+        this.stopElapsedTimer();
+        this.isProcessing = false;
+        
+        // Update progress section header to show completion
+        this.updateProgressHeader(true, failedCount > 0);
+        
+        // Show combined results
+        this.showCombinedResults();
+
+        // Re-enable button if there are new pending items
+        if (analyzeBtn) {
+            const newPending = this.fileQueue.filter(item => item.status === 'pending').length;
+            analyzeBtn.disabled = newPending === 0;
+            analyzeBtn.innerHTML = '<i class="fas fa-play me-2"></i>Start Analysis';
+        }
+
+        console.log(`✅ Batch analysis complete: ${completedCount} succeeded, ${failedCount} failed`);
+    }
+
+    async analyzeFile(item, onProgress) {
+        const { data, projectInfo } = item.parsedData;
+        const projectName = projectInfo.projectName;
+        // Use 'upload' as owner marker and projectName as repo for processor
+        const owner = 'upload';
+        const repo = projectName;
+
+        // Reset processor for each file
+        this.sbomProcessor.reset();
+        this.sbomProcessor.setTotalRepositories(1);
+
+        // Phase 1: Process SBOM
+        onProgress('sbom', 10, `Processing SBOM data...`);
+        const success = await this.sbomProcessor.processSBOM(owner, repo, data, null, false);
+        
+        if (!success) {
+            throw new Error('Failed to process SBOM data');
+        }
+        this.sbomProcessor.updateProgress(true);
+
+        // Phase 2: Resolve dependency trees
+        onProgress('deps', 30, `Resolving dependency trees...`);
+        await this.sbomProcessor.resolveFullDependencyTrees((progress) => {
+            if (progress.phase === 'resolving-package') {
+                const pct = 30 + (progress.processed / Math.max(progress.total, 1)) * 20;
+                onProgress('deps', pct, `Resolving ${progress.packageName || 'dependencies'}...`);
+            }
+        });
+
+        // Phase 3: Vulnerability analysis
+        onProgress('vuln', 50, `Analyzing vulnerabilities...`);
+        if (window.osvService) {
+            await this.sbomProcessor.analyzeVulnerabilities();
+        } else {
+            console.warn('⚠️ OSV service not available, skipping vulnerability analysis');
+        }
+
+        // Phase 4: License compliance
+        onProgress('license', 70, `Analyzing license compliance...`);
+        this.sbomProcessor.analyzeLicenseCompliance();
+
+        // Phase 5: Export and save
+        onProgress('save', 85, `Saving results...`);
+        const results = this.sbomProcessor.exportData();
+        
+        // Add upload metadata
+        results.uploadInfo = {
+            filename: item.file.name,
+            format: item.parsedData.format,
+            uploadedAt: new Date().toISOString(),
+            projectName: projectName
+        };
+
+        // Save to IndexedDB using projectName as the storage key
+        // Each uploaded SBOM is stored independently (like a direct repo scan)
+        await this.storageManager.saveAnalysisData(projectName, results);
+
+        onProgress('complete', 100, `Completed ${item.file.name}`);
+        
+        return results;
     }
 
     showProgressSection() {
         const progressSection = document.getElementById('progressSection');
         if (progressSection) {
             progressSection.classList.remove('d-none');
+        }
+        
+        // Reset header to show spinning icon
+        this.updateProgressHeader(false);
+        
+        // Reset progress bar styling
+        const progressBar = document.getElementById('progressBar');
+        if (progressBar) {
+            progressBar.classList.remove('bg-success', 'bg-warning');
+            progressBar.classList.add('progress-bar-animated', 'progress-bar-striped');
         }
         
         // Show timing info
@@ -344,6 +496,24 @@ class UploadPage {
         
         if (progressText) {
             progressText.textContent = message;
+        }
+    }
+
+    updateProgressHeader(isComplete, hasFailures = false) {
+        const progressHeader = document.getElementById('progressSection')?.querySelector('.card-header h5');
+        if (!progressHeader) return;
+        
+        if (isComplete) {
+            if (hasFailures) {
+                // Some failures - show warning icon
+                progressHeader.innerHTML = '<i class="fas fa-exclamation-triangle text-warning me-2"></i>Analysis Complete (with errors)';
+            } else {
+                // All success - show green checkmark
+                progressHeader.innerHTML = '<i class="fas fa-check-circle text-success me-2"></i>Analysis Complete';
+            }
+        } else {
+            // In progress - show spinning icon
+            progressHeader.innerHTML = '<i class="fas fa-spinner fa-spin me-2"></i>Analysis Progress';
         }
     }
 
@@ -391,7 +561,7 @@ class UploadPage {
         }
     }
 
-    showResults(results, projectInfo) {
+    showCombinedResults() {
         const resultsSection = document.getElementById('resultsSection');
         const resultsContent = document.getElementById('resultsContent');
         
@@ -399,29 +569,45 @@ class UploadPage {
         
         resultsSection.classList.remove('d-none');
         
-        const stats = results.statistics || {};
-        const vulnAnalysis = results.vulnerabilityAnalysis || {};
-        const licenseAnalysis = results.licenseAnalysis || {};
+        const successResults = this.processedResults.filter(r => r.success);
+        const failedResults = this.processedResults.filter(r => !r.success);
         
-        const vulnerableCount = vulnAnalysis.vulnerableDependencies?.length || 0;
-        const criticalCount = vulnAnalysis.bySeverity?.critical || 0;
-        const highCount = vulnAnalysis.bySeverity?.high || 0;
+        // Calculate totals across all successful results
+        let totalDeps = 0;
+        let totalVulnerable = 0;
+        let totalCriticalHigh = 0;
         
-        // Use safeSetHTML if available, otherwise use textContent approach
-        const html = `
-            <div class="row">
+        successResults.forEach(r => {
+            const stats = r.results?.statistics || {};
+            const vulnAnalysis = r.results?.vulnerabilityAnalysis || {};
+            totalDeps += stats.totalDependencies || 0;
+            totalVulnerable += vulnAnalysis.vulnerableDependencies?.length || 0;
+            totalCriticalHigh += (vulnAnalysis.bySeverity?.critical || 0) + (vulnAnalysis.bySeverity?.high || 0);
+        });
+        
+        // Build results HTML
+        let html = `
+            <div class="row mb-4">
                 <div class="col-md-3 mb-3">
                     <div class="card bg-light">
                         <div class="card-body text-center">
-                            <h3 class="text-primary">${stats.totalDependencies || 0}</h3>
-                            <small class="text-muted">Dependencies</small>
+                            <h3 class="text-primary">${successResults.length}</h3>
+                            <small class="text-muted">Files Processed</small>
                         </div>
                     </div>
                 </div>
                 <div class="col-md-3 mb-3">
                     <div class="card bg-light">
                         <div class="card-body text-center">
-                            <h3 class="${vulnerableCount > 0 ? 'text-danger' : 'text-success'}">${vulnerableCount}</h3>
+                            <h3 class="text-info">${totalDeps}</h3>
+                            <small class="text-muted">Total Dependencies</small>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-3 mb-3">
+                    <div class="card bg-light">
+                        <div class="card-body text-center">
+                            <h3 class="${totalVulnerable > 0 ? 'text-danger' : 'text-success'}">${totalVulnerable}</h3>
                             <small class="text-muted">Vulnerable</small>
                         </div>
                     </div>
@@ -429,22 +615,58 @@ class UploadPage {
                 <div class="col-md-3 mb-3">
                     <div class="card bg-light">
                         <div class="card-body text-center">
-                            <h3 class="${criticalCount > 0 ? 'text-danger' : 'text-secondary'}">${criticalCount + highCount}</h3>
+                            <h3 class="${totalCriticalHigh > 0 ? 'text-danger' : 'text-secondary'}">${totalCriticalHigh}</h3>
                             <small class="text-muted">Critical/High</small>
                         </div>
                     </div>
                 </div>
-                <div class="col-md-3 mb-3">
-                    <div class="card bg-light">
-                        <div class="card-body text-center">
-                            <h3 class="text-info">${Object.keys(licenseAnalysis.byCategory || {}).length}</h3>
-                            <small class="text-muted">License Types</small>
+            </div>
+        `;
+        
+        // Show per-file results
+        if (successResults.length > 0) {
+            html += `<h6 class="mb-3"><i class="fas fa-check-circle text-success me-2"></i>Successfully Processed</h6>`;
+            html += `<div class="list-group mb-3">`;
+            successResults.forEach(r => {
+                const stats = r.results?.statistics || {};
+                const vulnAnalysis = r.results?.vulnerabilityAnalysis || {};
+                const vulnCount = vulnAnalysis.vulnerableDependencies?.length || 0;
+                html += `
+                    <div class="list-group-item d-flex justify-content-between align-items-center">
+                        <div>
+                            <strong>${this.escapeHtml(r.filename)}</strong>
+                            <br>
+                            <small class="text-muted">Stored as: <code>${this.escapeHtml(r.projectInfo?.displayName || 'Unknown')}</code></small>
+                        </div>
+                        <div class="text-end">
+                            <span class="badge bg-primary">${stats.totalDependencies || 0} deps</span>
+                            ${vulnCount > 0 ? `<span class="badge bg-danger">${vulnCount} vulns</span>` : '<span class="badge bg-success">No vulns</span>'}
                         </div>
                     </div>
-                </div>
-            </div>
-            
-            <div class="alert alert-success mt-3">
+                `;
+            });
+            html += `</div>`;
+        }
+        
+        if (failedResults.length > 0) {
+            html += `<h6 class="mb-3"><i class="fas fa-times-circle text-danger me-2"></i>Failed</h6>`;
+            html += `<div class="list-group mb-3">`;
+            failedResults.forEach(r => {
+                html += `
+                    <div class="list-group-item list-group-item-danger d-flex justify-content-between align-items-center">
+                        <div>
+                            <strong>${this.escapeHtml(r.filename)}</strong>
+                            <br>
+                            <small>${this.escapeHtml(r.error || 'Unknown error')}</small>
+                        </div>
+                    </div>
+                `;
+            });
+            html += `</div>`;
+        }
+        
+        html += `
+            <div class="alert alert-success">
                 <i class="fas fa-check-circle me-2"></i>
                 <strong>Analysis Complete!</strong> Results have been saved and are now available on all pages.
             </div>
@@ -462,6 +684,9 @@ class UploadPage {
                 <a href="repos.html" class="btn btn-outline-secondary">
                     <i class="fas fa-folder me-1"></i>View Projects
                 </a>
+                <button class="btn btn-outline-primary" onclick="window.uploadPage.clearCompletedFromQueue(); window.uploadPage.updateQueueDisplay();">
+                    <i class="fas fa-plus me-1"></i>Upload More
+                </button>
             </div>
         `;
         
