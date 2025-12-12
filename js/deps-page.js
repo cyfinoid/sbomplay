@@ -885,23 +885,32 @@ document.addEventListener('DOMContentLoaded', function() {
         // Helper function to get license info (accessible to both filterTable and renderTable)
         function getLicenseInfo(dep) {
             if (dep._licenseCached) {
-                return { license: dep.license, licenseFull: dep.licenseFull, isEnriched: dep._licenseEnriched || false };
+                return { 
+                    license: dep.license, 
+                    licenseFull: dep.licenseFull, 
+                    isEnriched: dep._licenseEnriched || false,
+                    licenseSource: dep._licenseSource || null
+                };
             }
             
             let licenseText = 'Unknown';
             let licenseFull = 'Unknown';
             let isEnriched = false;
+            let licenseSource = null;
             
-            // 1. Check dep.licenseFull (from deps.dev API - most complete)
+            // 1. Check dep.licenseFull (could be from SBOM or external API)
             if (dep.licenseFull && dep.licenseFull !== 'Unknown' && dep.licenseFull !== 'NOASSERTION' && String(dep.licenseFull).trim() !== '') {
                 licenseFull = dep.licenseFull;
-                isEnriched = true;
+                // Check if license was augmented (fetched externally) vs from SBOM
+                isEnriched = dep.licenseAugmented || dep.raw?.licenseAugmented || false;
+                licenseSource = dep.licenseSource || dep.raw?.licenseSource || (isEnriched ? 'external' : 'sbom');
             }
             
-            // 2. Check dep.license (from deps.dev API - short form)
+            // 2. Check dep.license (could be from SBOM or external API)
             else if (dep.license && dep.license !== 'Unknown' && dep.license !== 'NOASSERTION' && String(dep.license).trim() !== '') {
                 licenseFull = dep.license;
-                isEnriched = true;
+                isEnriched = dep.licenseAugmented || dep.raw?.licenseAugmented || false;
+                licenseSource = dep.licenseSource || dep.raw?.licenseSource || (isEnriched ? 'external' : 'sbom');
             }
             
             // 3. Check for enriched GitHub Actions license data
@@ -1005,11 +1014,13 @@ document.addEventListener('DOMContentLoaded', function() {
             dep.license = licenseText;
             dep.licenseFull = licenseFull;
             dep._licenseEnriched = isEnriched;
+            dep._licenseSource = licenseSource;
             dep._licenseCached = true;
             return { 
                 license: licenseText, 
                 licenseFull: licenseFull, 
                 isEnriched: isEnriched,
+                licenseSource: licenseSource,
                 isDualLicense: dep._isDualLicense || false,
                 dualLicenseInfo: dep._dualLicenseInfo || null
             };
@@ -1857,7 +1868,19 @@ document.addEventListener('DOMContentLoaded', function() {
                 
                 // Build license cell (lazy evaluation)
                 const licenseInfo = getLicenseInfo(dep);
-                const enrichedBadge = licenseInfo.isEnriched ? '<span class="badge bg-success bg-opacity-25 ms-1" title="Enriched license data from GitHub Actions analysis">✓</span>' : '';
+                // Show badge indicating license source: 
+                // - "API" badge (green) if fetched from external API (deps.dev, GitHub, etc.)
+                // - "SBOM" badge (blue) if from original SBOM
+                // - No badge if unknown
+                let sourceBadge = '';
+                if (licenseInfo.license !== 'Unknown') {
+                    if (licenseInfo.isEnriched || licenseInfo.licenseSource === 'deps.dev' || licenseInfo.licenseSource === 'external') {
+                        sourceBadge = '<span class="badge bg-success bg-opacity-25 ms-1" title="License fetched from external API (augmented data)">API</span>';
+                    } else if (licenseInfo.licenseSource === 'sbom') {
+                        sourceBadge = '<span class="badge bg-primary bg-opacity-25 ms-1" title="License from original SBOM">SBOM</span>';
+                    }
+                }
+                const enrichedBadge = sourceBadge;
                 
                 // Check if this is a dual license
                 let licenseDisplay = escapeHtml(licenseInfo.license);
@@ -1869,7 +1892,8 @@ document.addEventListener('DOMContentLoaded', function() {
                     licenseTitle = `Dual license: ${licenseInfo.dualLicenseInfo.licenses.join(` ${licenseInfo.dualLicenseInfo.operators[0] || 'AND'} `)}`;
                 }
                 
-                const licenseCell = `<td><span title="${licenseTitle}${licenseInfo.isEnriched ? ' (Enriched)' : ''}">${licenseDisplay}</span>${enrichedBadge}</td>`;
+                const sourceText = licenseInfo.licenseSource === 'sbom' ? ' (from SBOM)' : (licenseInfo.isEnriched ? ' (from API)' : '');
+                const licenseCell = `<td><span title="${licenseTitle}${sourceText}">${licenseDisplay}</span>${enrichedBadge}</td>`;
                 
                 // Note: SBOM Quality is not shown for individual dependencies
                 // SBOM quality scores are only meaningful at the repository level,

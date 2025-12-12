@@ -274,19 +274,29 @@ class SBOMProcessor {
         
         // Extract ALL dependency relationships (not just direct from main package)
         // This allows us to build the full dependency tree
-        const mainPackageSPDXID = sbomData.sbom.packages.find(p => 
-            p.name === `com.github.${owner}/${repo}` || p.name === `${owner}/${repo}`
-        )?.SPDXID;
+        // 
+        // For uploaded CycloneDX SBOMs: use _rootComponentSPDXID (root component's bom-ref converted to SPDXID)
+        // For GitHub SBOMs: use the main package SPDXID (com.github.owner/repo)
+        const mainPackageSPDXID = sbomData.sbom._rootComponentSPDXID || 
+            sbomData.sbom.packages.find(p => 
+                p.name === `com.github.${owner}/${repo}` || p.name === `${owner}/${repo}`
+            )?.SPDXID;
         
         if (sbomData.sbom.relationships && Array.isArray(sbomData.sbom.relationships)) {
             // Store all DEPENDS_ON relationships for graph visualization
             sbomData.sbom.relationships.forEach(rel => {
                 if (rel.relationshipType === 'DEPENDS_ON') {
+                    // Check if this is a direct dependency:
+                    // 1. From CycloneDX: _isDirectDependency flag (set by sbom-parser)
+                    // 2. From GitHub SBOM: spdxElementId matches mainPackageSPDXID
+                    const isDirectFromMain = rel._isDirectDependency || 
+                        (mainPackageSPDXID && rel.spdxElementId === mainPackageSPDXID);
+                    
                     repoData.relationships.push({
                         from: rel.spdxElementId,
                         to: rel.relatedSpdxElement,
                         type: rel.relationshipType,
-                        isDirectFromMain: rel.spdxElementId === mainPackageSPDXID
+                        isDirectFromMain: isDirectFromMain
                     });
                 }
             });
@@ -997,9 +1007,16 @@ class SBOMProcessor {
             // This handles licenses parsed from CycloneDX/SPDX SBOMs
             let license = dep.license || null;
             let licenseFull = dep.licenseFull || null;
+            let licenseAugmented = dep._licenseAugmented || false;
+            let licenseSource = dep._licenseSource || null;
+            
             if (!license && dep.originalPackage && dep.originalPackage.licenseConcluded) {
                 license = dep.originalPackage.licenseConcluded;
                 licenseFull = dep.originalPackage.licenseConcluded;
+                licenseSource = 'sbom'; // License came from original SBOM
+            } else if (license && !licenseSource) {
+                // License was fetched externally
+                licenseSource = licenseAugmented ? 'external' : 'sbom';
             }
             
             // Determine repository license for this dependency
@@ -1030,6 +1047,8 @@ class SBOMProcessor {
                 children: dep.children || [],  // Child dependencies (what this brings in)
                 license: license,  // Include license (short form, from SBOM or fetched)
                 licenseFull: licenseFull,  // Include license (full form, from SBOM or fetched)
+                licenseAugmented: licenseAugmented,  // True if license was fetched externally
+                licenseSource: licenseSource,  // 'sbom' or 'deps.dev' or 'external'
                 repositoryLicense: repositoryLicense  // Include repository license as fallback
             };
         });

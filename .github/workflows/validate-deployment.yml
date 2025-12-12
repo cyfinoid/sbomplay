@@ -93,6 +93,7 @@ jobs:
             "js/github-client.js"
             "js/index-page.js"
             "js/indexeddb-manager.js"
+            "js/license-fetcher.js"
             "js/license-processor.js"
             "js/license-refetch.js"
             "js/licenses-page.js"

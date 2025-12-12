@@ -187,6 +187,9 @@ class SBOMParser {
         const projectName = rootComponent.name || metadata.name || filename.replace(/\.(json|cdx)$/i, '');
         const projectInfo = this.extractProjectInfo(projectName, filename);
 
+        // Get root component's bom-ref for identifying direct dependencies
+        const rootBomRef = rootComponent['bom-ref'] || null;
+
         // Convert components to SPDX-like packages
         // Note: We do NOT include the root component (metadata.component) as a package
         // because it represents the subject of the SBOM (the software being described),
@@ -195,8 +198,12 @@ class SBOMParser {
         const packages = components.map((comp, index) => this.convertCycloneDXComponent(comp, index));
 
         // Convert dependencies to SPDX-like relationships
+        // Pass rootBomRef to identify direct dependencies
         const dependencies = sbomData.dependencies || [];
-        const relationships = this.convertCycloneDXDependencies(dependencies, packages);
+        const relationships = this.convertCycloneDXDependencies(dependencies, packages, rootBomRef);
+
+        // Generate root component's SPDXID for direct dependency identification
+        const rootSPDXID = rootBomRef ? this.bomRefToSPDXID(rootBomRef) : 'SPDXRef-DOCUMENT';
 
         // Build the internal format
         const internalData = {
@@ -214,7 +221,9 @@ class SBOMParser {
                     created: metadata.timestamp || new Date().toISOString()
                 },
                 packages: packages,
-                relationships: relationships
+                relationships: relationships,
+                // Store root component SPDXID for direct dependency identification
+                _rootComponentSPDXID: rootSPDXID
             }
         };
 
@@ -323,9 +332,10 @@ class SBOMParser {
      * Convert CycloneDX dependencies to SPDX-like relationships
      * @param {Array} dependencies - CycloneDX dependencies array
      * @param {Array} packages - Converted packages (for SPDXID lookup)
+     * @param {string} rootBomRef - Root component's bom-ref for identifying direct dependencies
      * @returns {Array} - SPDX-like relationships
      */
-    convertCycloneDXDependencies(dependencies, packages) {
+    convertCycloneDXDependencies(dependencies, packages, rootBomRef = null) {
         const relationships = [];
         
         // Build bom-ref to SPDXID mapping
@@ -336,9 +346,15 @@ class SBOMParser {
             }
         });
 
+        // Convert root component's bom-ref to SPDXID for comparison
+        const rootSpdxId = rootBomRef ? this.bomRefToSPDXID(rootBomRef) : null;
+
         dependencies.forEach(dep => {
             const fromRef = dep.ref;
             const fromSpdxId = bomRefToSpdxId.get(fromRef) || this.bomRefToSPDXID(fromRef);
+            
+            // Check if this relationship is from the root component (direct dependency)
+            const isFromRoot = fromRef === rootBomRef || fromSpdxId === rootSpdxId;
             
             if (dep.dependsOn && Array.isArray(dep.dependsOn)) {
                 dep.dependsOn.forEach(toRef => {
@@ -346,7 +362,8 @@ class SBOMParser {
                     relationships.push({
                         spdxElementId: fromSpdxId,
                         relatedSpdxElement: toSpdxId,
-                        relationshipType: 'DEPENDS_ON'
+                        relationshipType: 'DEPENDS_ON',
+                        _isDirectDependency: isFromRoot  // Mark direct dependencies from root
                     });
                 });
             }

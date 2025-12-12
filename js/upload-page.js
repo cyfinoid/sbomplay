@@ -424,13 +424,34 @@ class UploadPage {
             console.warn('⚠️ OSV service not available, skipping vulnerability analysis');
         }
 
-        // Phase 4: License compliance
-        onProgress('license', 70, `Analyzing license compliance...`);
+        // Phase 4: License compliance (analyze what's in SBOM)
+        onProgress('license', 55, `Analyzing license compliance...`);
         this.sbomProcessor.analyzeLicenseCompliance();
 
-        // Phase 5: Export and save
-        onProgress('save', 85, `Saving results...`);
-        const results = this.sbomProcessor.exportData();
+        // Phase 5: Export initial results
+        onProgress('export', 60, `Exporting results...`);
+        let results = this.sbomProcessor.exportData();
+
+        // Phase 6: Fetch external licenses for packages missing license info
+        // Uses shared LicenseFetcher module (same as app.js)
+        onProgress('fetch-licenses', 65, `Fetching external license data...`);
+        if (window.licenseFetcher && results.allDependencies) {
+            await window.licenseFetcher.fetchLicenses(
+                results.allDependencies,
+                (processed, total, msg) => {
+                    const pct = 65 + (processed / total) * 15;
+                    onProgress('fetch-licenses', pct, msg);
+                }
+            );
+            // Sync licenses back to processor for re-export
+            window.licenseFetcher.syncToProcessor(results.allDependencies, this.sbomProcessor);
+            // Re-export to include fetched licenses
+            results = this.sbomProcessor.exportData();
+        }
+
+        // Phase 7: Fetch version drift data (reuses window.versionDriftAnalyzer)
+        onProgress('version-drift', 85, `Checking version drift...`);
+        await this.fetchVersionDriftData(results.allDependencies, onProgress);
         
         // Add upload metadata
         results.uploadInfo = {
@@ -695,6 +716,56 @@ class UploadPage {
         } else {
             resultsContent.innerHTML = html;
         }
+    }
+
+    /**
+     * Fetch version drift data for packages (reuses window.versionDriftAnalyzer)
+     */
+    async fetchVersionDriftData(dependencies, onProgress) {
+        if (!dependencies || dependencies.length === 0 || !window.versionDriftAnalyzer) {
+            return;
+        }
+
+        // Filter dependencies that can be checked for version drift
+        const depsToCheck = dependencies.filter(dep => {
+            return dep.name && dep.version && dep.version !== 'unknown';
+        });
+
+        if (depsToCheck.length === 0) {
+            return;
+        }
+
+        console.log(`📊 Checking version drift for ${depsToCheck.length} packages...`);
+        onProgress('version-drift', 85, `Checking version drift for ${depsToCheck.length} packages...`);
+
+        // Process in batches (version drift API can be slow)
+        const batchSize = 5;
+        let checked = 0;
+
+        for (let i = 0; i < depsToCheck.length; i += batchSize) {
+            const batch = depsToCheck.slice(i, i + batchSize);
+            
+            await Promise.all(batch.map(async (dep) => {
+                try {
+                    const ecosystem = dep.category?.ecosystem || dep.ecosystem || '';
+                    await window.versionDriftAnalyzer.checkVersionDrift(dep.name, dep.version, ecosystem);
+                    checked++;
+                } catch (e) {
+                    // Silently skip failed checks
+                }
+            }));
+
+            // Update progress
+            const progress = 85 + (Math.min(i + batchSize, depsToCheck.length) / depsToCheck.length) * 10;
+            onProgress('version-drift', progress, `Checked ${checked} packages...`);
+
+            // Small delay between batches
+            if (i + batchSize < depsToCheck.length) {
+                await new Promise(resolve => setTimeout(resolve, 50));
+            }
+        }
+
+        console.log(`✅ Version drift check complete: ${checked} packages checked`);
     }
 
     showError(message) {
