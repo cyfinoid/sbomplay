@@ -16,21 +16,52 @@ The application supports two ways to get SBOM data:
 After SBOM data is obtained (from either source), the processing flow is:
 
 ```
-SBOM Data → SBOMParser → SBOMProcessor → [Enrichment Services] → StorageManager → IndexedDB
-                                              ↓
-                         ┌──────────────────────────────────────────┐
-                         │ Enrichment Services (ALL shared):        │
-                         │ - OSVService (vulnerabilities)           │
-                         │ - VersionDriftAnalyzer (version drift)   │
-                         │ - AuthorService (author/maintainer info) │
-                         │ - License fetching (deps.dev API)        │
-                         └──────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────────┐
+│                        DATA INPUT LAYER                              │
+├──────────────────────────┬──────────────────────────────────────────┤
+│      index.html          │              upload.html                  │
+│      (GitHub API)        │             (File Upload)                 │
+│           ↓              │                  ↓                        │
+│        app.js            │           upload-page.js                  │
+└──────────┬───────────────┴──────────────────┬───────────────────────┘
+           │                                  │
+           ▼                                  ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│                     SHARED PROCESSING LAYER                          │
+├─────────────────────────────────────────────────────────────────────┤
+│  SBOMParser (sbom-parser.js) - Parse SPDX/CycloneDX                 │
+│  SBOMProcessor (sbom-processor.js) - Build dependency graph          │
+└──────────────────────────────┬──────────────────────────────────────┘
+                               │
+                               ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│                     ENRICHMENT LAYER (SHARED)                        │
+├─────────────────────────────────────────────────────────────────────┤
+│  EnrichmentPipeline (enrichment-pipeline.js) - Orchestrates:        │
+│    ├── OSVService - Vulnerability analysis                          │
+│    ├── License fetching (deps.dev + GitHub fallback)                │
+│    ├── VersionDriftAnalyzer - Version drift/staleness               │
+│    └── AuthorService - Author/maintainer info                       │
+│                                                                      │
+│  app.js helper: runLicenseAndVersionDriftEnrichment()               │
+│    └── Calls existing detailed methods (PyPI, Go, all ecosystems)   │
+└──────────────────────────────┬──────────────────────────────────────┘
+                               │
+                               ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│                       STORAGE LAYER (SHARED)                         │
+├─────────────────────────────────────────────────────────────────────┤
+│  StorageManager (storage-manager.js) - Save/load analysis            │
+│  IndexedDBManager (indexeddb-manager.js) - Low-level DB ops          │
+│  CacheManager (cache-manager.js) - API response caching              │
+└─────────────────────────────────────────────────────────────────────┘
 ```
 
 ### Shared Services (Use These, Don't Duplicate)
 
 | Service | File | Purpose |
 |---------|------|---------|
+| `EnrichmentPipeline` | `enrichment-pipeline.js` | **Orchestrates all enrichment** (vuln, license, drift, authors) |
 | `SBOMParser` | `sbom-parser.js` | Parse SPDX/CycloneDX to internal format |
 | `SBOMProcessor` | `sbom-processor.js` | Process SBOM, build dependency graph |
 | `OSVService` | `osv-service.js` | Vulnerability lookups via OSV API |
@@ -39,6 +70,19 @@ SBOM Data → SBOMParser → SBOMProcessor → [Enrichment Services] → Storage
 | `StorageManager` | `storage-manager.js` | Save/load analysis data |
 | `IndexedDBManager` | `indexeddb-manager.js` | Low-level IndexedDB operations |
 | `CacheManager` | `cache-manager.js` | Caching layer for API responses |
+
+### EnrichmentPipeline Usage
+
+The `EnrichmentPipeline` class provides a unified way to run all enrichment:
+
+```javascript
+// In upload-page.js (and can be used anywhere)
+const pipeline = new EnrichmentPipeline(sbomProcessor, storageManager);
+const enrichedResults = await pipeline.runFullEnrichment(results, identifier, onProgress);
+
+// In app.js - uses helper method that calls existing detailed implementations
+results = await this.runLicenseAndVersionDriftEnrichment(results, identifier, onProgress);
+```
 
 ### Anti-Patterns to Avoid
 
@@ -251,4 +295,6 @@ Update when logical flow changes occur:
 10. **GraphQL fragments on unions** → Query User and Organization separately
 11. **Version mismatch** → Use flexible version matching (version, displayVersion, normalized)
 12. **License not persisting** → Update both results array and original dependency objects, then re-export
+13. **Duplicate enrichment logic** → Use `EnrichmentPipeline` class, don't reimplement in page-specific JS
+14. **Missing enrichment in upload flow** → Upload must use same enrichment as GitHub flow (AuthorService, etc.)
 

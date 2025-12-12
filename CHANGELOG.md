@@ -5,6 +5,54 @@ All notable changes to SBOM Play will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- **Unified Enrichment Pipeline**: Created shared `EnrichmentPipeline` class (`js/enrichment-pipeline.js`) that orchestrates all data enrichment
+  - Vulnerability analysis (OSVService)
+  - License fetching (deps.dev API + GitHub fallback)
+  - Version drift analysis (VersionDriftAnalyzer)
+  - Author/maintainer information (AuthorService)
+  - Used by both GitHub flow (`app.js`) and upload flow (`upload-page.js`)
+  - Ensures identical enrichment results regardless of data source
+
+- **Direct/Transitive Dependency Classification for Uploaded SBOMs**: Fixed CycloneDX SBOM parsing to correctly identify direct vs transitive dependencies
+  - Added `_rootComponentSPDXID` tracking in sbom-parser.js
+  - Added `_isDirectDependency` flag on relationships from root component
+  - sbom-processor.js now uses these flags to correctly populate `directIn`/`transitiveIn` arrays
+  - Previously all uploaded dependencies were marked as transitive with "unknown parent"
+
+### Changed
+- **Architecture Refactoring**: Consolidated duplicate enrichment code between `app.js` and `upload-page.js`
+  - Created `runLicenseAndVersionDriftEnrichment()` helper in `app.js` to consolidate ~90 lines of duplicate code
+  - `upload-page.js` now uses `EnrichmentPipeline` instead of reimplementing enrichment logic
+  - Removed duplicate `fetchVersionDriftData()` and `fetchAuthorData()` from `upload-page.js`
+  - Both flows now produce identical output data structures
+
+- **Upload Page Dependencies**: Added missing shared services to `upload.html`
+  - Added `author-service.js` for author analysis (was missing entirely)
+  - Added `enrichment-pipeline.js` for unified enrichment
+  - Upload flow now performs the same enrichment as GitHub flow
+
+### Fixed
+- **No Direct Dependencies in Uploaded SBOMs**: Fixed issue where all dependencies from uploaded CycloneDX SBOMs showed as transitive
+  - Root cause: sbom-parser.js wasn't passing root component's bom-ref to identify direct dependencies
+  - Root cause: sbom-processor.js was looking for main package with wrong name pattern for uploaded files
+  - Now correctly identifies 56 direct dependencies for proton-bridge SBOM (was 0 before)
+
+- **Unknown Parent for Transitive Dependencies**: Fixed issue where transitive dependencies showed "unknown parent"
+  - Root cause: Dependency relationships from root component weren't being marked as direct
+  - `parents` array now correctly populated from dependency graph
+
+### Updated
+- **AGENTS.md**: Added comprehensive architecture documentation
+  - Data flow diagram showing shared processing pipeline
+  - EnrichmentPipeline usage examples
+  - Anti-patterns to avoid (duplicate implementations)
+  - Updated shared services table with EnrichmentPipeline
+
+- **Workflow Validation**: Added `enrichment-pipeline.js` to required JS files in `validate-deployment.yml`
+
 ## [0.0.4] - 2025-12-10
 
 ### Added

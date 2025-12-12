@@ -796,51 +796,13 @@ class SBOMPlayApp {
             console.log(`📊 Single Repository Analysis Summary for ${repoKey}:`);
             console.log(`   Total dependencies: ${results.statistics.totalDependencies}`);
             
-            // Fetch licenses for PyPI packages and version drift data in background
-            // These are non-blocking and will save to IndexedDB for future use
+            // Run license and version drift enrichment (consolidated method)
             if (repoStats && repoStats.totalDependencies > 0 && results.allDependencies) {
-                this.updateProgress(96, 'Fetching package licenses and version drift data...', 'fetching-metadata');
-                try {
-                    // Fetch licenses for PyPI packages missing license info
-                    await this.fetchPyPILicenses(results.allDependencies, repoKey);
-                    
-                    // Fetch licenses for Go packages missing license info
-                    await this.fetchGoLicenses(results.allDependencies, repoKey);
-                    
-                    // Fetch licenses for other ecosystems (npm, maven, cargo, etc.)
-                    await this.fetchLicensesForAllEcosystems(results.allDependencies, repoKey);
-                    
-                    // Fetch version drift for all packages (already saves to cache/IndexedDB)
-                    await this.fetchVersionDriftData(results.allDependencies);
-                    
-                    // Update vulnerableDependencies with version drift data
-                    // (vulnerability analysis happens before version drift is fetched)
-                    if (results.vulnerabilityAnalysis?.vulnerableDependencies) {
-                        let versionDriftAttached = 0;
-                        results.vulnerabilityAnalysis.vulnerableDependencies.forEach(vulnDep => {
-                            if (!vulnDep.versionDrift) {
-                                const fullDep = results.allDependencies?.find(d => 
-                                    d.name === vulnDep.name && 
-                                    (d.version === vulnDep.version || 
-                                     d.displayVersion === vulnDep.version ||
-                                     d.assumedVersion === vulnDep.version)
-                                );
-                                if (fullDep?.versionDrift) {
-                                    vulnDep.versionDrift = fullDep.versionDrift;
-                                    versionDriftAttached++;
-                                }
-                            }
-                        });
-                        if (versionDriftAttached > 0) {
-                            console.log(`📊 Attached version drift to ${versionDriftAttached} vulnerable dependencies`);
-                        }
-                    }
-                    
-                    console.log('✅ License and version drift fetching complete');
-                } catch (error) {
-                    console.error('❌ License/version drift fetching failed:', error);
-                    // Don't fail the entire analysis if this fails
-                }
+                results = await this.runLicenseAndVersionDriftEnrichment(
+                    results, 
+                    repoKey, 
+                    (pct, msg, phase) => this.updateProgress(pct, msg, phase)
+                );
             }
             
             // Final save to storage (to include vulnerability, author, license, and version drift data)
@@ -1282,55 +1244,13 @@ class SBOMPlayApp {
                 }
             }
             
-            // Fetch licenses for PyPI and Go packages and version drift data in background
-            // These are non-blocking and will save to IndexedDB for future use
+            // Run license and version drift enrichment (consolidated method)
             if (reposWithDeps > 0 && results.allDependencies) {
-                this.updateProgress(96, 'Fetching package licenses and version drift data...', 'fetching-metadata');
-                try {
-                    // Fetch licenses for PyPI packages missing license info
-                    await this.fetchPyPILicenses(results.allDependencies, ownerName);
-                    
-                    // Fetch licenses for Go packages missing license info
-                    await this.fetchGoLicenses(results.allDependencies, ownerName);
-                    
-                    // Fetch licenses for other ecosystems (npm, maven, cargo, etc.)
-                    await this.fetchLicensesForAllEcosystems(results.allDependencies, ownerName);
-                    
-                    // Fetch version drift for all packages (already saves to cache/IndexedDB)
-                    await this.fetchVersionDriftData(results.allDependencies);
-                    
-                    // Update vulnerableDependencies with version drift data
-                    // (vulnerability analysis happens before version drift is fetched)
-                    if (results.vulnerabilityAnalysis?.vulnerableDependencies) {
-                        let versionDriftAttached = 0;
-                        results.vulnerabilityAnalysis.vulnerableDependencies.forEach(vulnDep => {
-                            if (!vulnDep.versionDrift) {
-                                // Find matching dependency in allDependencies to get version drift
-                                const fullDep = results.allDependencies?.find(d => 
-                                    d.name === vulnDep.name && 
-                                    (d.version === vulnDep.version || 
-                                     d.displayVersion === vulnDep.version ||
-                                     d.assumedVersion === vulnDep.version)
-                                );
-                                if (fullDep?.versionDrift) {
-                                    vulnDep.versionDrift = fullDep.versionDrift;
-                                    versionDriftAttached++;
-                                }
-                            }
-                        });
-                        if (versionDriftAttached > 0) {
-                            console.log(`📊 Attached version drift to ${versionDriftAttached} vulnerable dependencies`);
-                        }
-                    }
-                    
-                    // Re-export data to include fetched licenses in results
-                    results = this.sbomProcessor.exportData();
-                    
-                    console.log('✅ License and version drift fetching complete');
-                } catch (error) {
-                    console.error('❌ License/version drift fetching failed:', error);
-                    // Don't fail the entire analysis if this fails
-                }
+                results = await this.runLicenseAndVersionDriftEnrichment(
+                    results,
+                    ownerName,
+                    (pct, msg, phase) => this.updateProgress(pct, msg, phase)
+                );
             }
             
             // Final save to storage (to include vulnerability, author, license, and version drift data)
@@ -4300,6 +4220,63 @@ class SBOMPlayApp {
         });
         
         console.log(`✅ Version drift and staleness fetching complete: ${processed} versions fetched, ${attachedCount} attached to dependencies`);
+    }
+
+    /**
+     * Run license fetching and version drift enrichment
+     * Consolidates the duplicate enrichment code from analyzeSingleRepository and analyzeOrganization
+     * @param {Object} results - Analysis results with allDependencies
+     * @param {string} identifier - Project/org identifier
+     * @param {Function} onProgress - Progress callback
+     */
+    async runLicenseAndVersionDriftEnrichment(results, identifier, onProgress = () => {}) {
+        if (!results.allDependencies || results.allDependencies.length === 0) {
+            return results;
+        }
+
+        onProgress(96, 'Fetching package licenses and version drift data...', 'fetching-metadata');
+
+        try {
+            // Fetch licenses for all ecosystems
+            await this.fetchPyPILicenses(results.allDependencies, identifier);
+            await this.fetchGoLicenses(results.allDependencies, identifier);
+            await this.fetchLicensesForAllEcosystems(results.allDependencies, identifier);
+
+            // Fetch version drift for all packages
+            await this.fetchVersionDriftData(results.allDependencies);
+
+            // Attach version drift to vulnerable dependencies
+            if (results.vulnerabilityAnalysis?.vulnerableDependencies) {
+                let attached = 0;
+                results.vulnerabilityAnalysis.vulnerableDependencies.forEach(vulnDep => {
+                    if (!vulnDep.versionDrift) {
+                        const fullDep = results.allDependencies?.find(d =>
+                            d.name === vulnDep.name &&
+                            (d.version === vulnDep.version ||
+                             d.displayVersion === vulnDep.version ||
+                             d.assumedVersion === vulnDep.version)
+                        );
+                        if (fullDep?.versionDrift) {
+                            vulnDep.versionDrift = fullDep.versionDrift;
+                            attached++;
+                        }
+                    }
+                });
+                if (attached > 0) {
+                    console.log(`📊 Attached version drift to ${attached} vulnerable dependencies`);
+                }
+            }
+
+            // Re-export to include fetched licenses
+            results = this.sbomProcessor.exportData();
+
+            console.log('✅ License and version drift fetching complete');
+        } catch (error) {
+            console.error('❌ License/version drift fetching failed:', error);
+            // Don't fail the entire analysis if this fails
+        }
+
+        return results;
     }
 
     sleep(ms) {
