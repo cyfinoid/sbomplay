@@ -35,6 +35,7 @@
                     <a class="nav-link" href="repos.html">Repos</a>
                     <a class="nav-link" href="authors.html">Authors</a>
                     <a class="nav-link active" href="about.html">About</a>
+                    <a class="nav-link" href="upload.html">Upload <span class="badge bg-warning text-dark">Exp</span></a>
                     <a class="nav-link" href="settings.html">Settings</a>
                 </div>
             </div>
@@ -119,6 +120,98 @@
                     <li><strong>API Calls:</strong> Only public registry APIs are queried (npm, PyPI, crates.io, etc.) - no sensitive data is transmitted</li>
                     <li><strong>GitHub Token:</strong> Optional GitHub Personal Access Token is used only for API rate limits and is never stored</li>
                 </ul>
+            </div>
+        </div>
+
+        <!-- Paranoid Self-Host / Airgapped Deployment -->
+        <div class="card mb-4">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="fas fa-server me-2"></i>Paranoid Self-Host / Airgapped Deployment</h5>
+            </div>
+            <div class="card-body">
+                <p>
+                    For security-conscious environments, airgapped networks, or self-hosted deployments, the following domains 
+                    must be allowed through your firewall or proxy. Domains are grouped by functionality and criticality.
+                </p>
+
+                <h6 class="mt-3"><i class="fas fa-cube me-2 text-primary"></i>CDN / Static Assets (Required for UI)</h6>
+                <table class="table table-sm table-bordered">
+                    <thead class="table-light">
+                        <tr><th>Domain</th><th>Purpose</th></tr>
+                    </thead>
+                    <tbody>
+                        <tr><td><code>cdn.jsdelivr.net</code></td><td>Bootstrap CSS/JS, marked.js, DOMPurify, js-yaml</td></tr>
+                        <tr><td><code>cdnjs.cloudflare.com</code></td><td>Font Awesome icons</td></tr>
+                        <tr><td><code>unpkg.com</code></td><td>Leaflet maps library</td></tr>
+                    </tbody>
+                </table>
+
+                <h6 class="mt-3"><i class="fab fa-github me-2 text-dark"></i>GitHub APIs (Core Functionality)</h6>
+                <table class="table table-sm table-bordered">
+                    <thead class="table-light">
+                        <tr><th>Domain</th><th>Purpose</th></tr>
+                    </thead>
+                    <tbody>
+                        <tr><td><code>api.github.com</code></td><td>REST API and GraphQL API for SBOM fetching</td></tr>
+                        <tr><td><code>raw.githubusercontent.com</code></td><td>Raw file access for FUNDING.yml info</td></tr>
+                        <tr><td><code>github.com</code></td><td>User-facing links (non-essential for analysis)</td></tr>
+                    </tbody>
+                </table>
+
+                <h6 class="mt-3"><i class="fas fa-bug me-2 text-danger"></i>Vulnerability Database</h6>
+                <table class="table table-sm table-bordered">
+                    <thead class="table-light">
+                        <tr><th>Domain</th><th>Purpose</th></tr>
+                    </thead>
+                    <tbody>
+                        <tr><td><code>api.osv.dev</code></td><td>OSV vulnerability lookups</td></tr>
+                    </tbody>
+                </table>
+
+                <h6 class="mt-3"><i class="fas fa-box me-2 text-success"></i>Package Registries (Dependency Resolution)</h6>
+                <table class="table table-sm table-bordered">
+                    <thead class="table-light">
+                        <tr><th>Domain</th><th>Purpose</th></tr>
+                    </thead>
+                    <tbody>
+                        <tr><td><code>registry.npmjs.org</code></td><td>npm package metadata</td></tr>
+                        <tr><td><code>pypi.org</code></td><td>PyPI package metadata</td></tr>
+                        <tr><td><code>crates.io</code></td><td>Cargo/Rust package metadata</td></tr>
+                        <tr><td><code>rubygems.org</code></td><td>RubyGems package metadata</td></tr>
+                        <tr><td><code>search.maven.org</code></td><td>Maven package metadata</td></tr>
+                        <tr><td><code>api.nuget.org</code></td><td>NuGet package metadata</td></tr>
+                        <tr><td><code>proxy.golang.org</code></td><td>Go module metadata</td></tr>
+                        <tr><td><code>api.deps.dev</code></td><td>Google deps.dev API (license/version info)</td></tr>
+                    </tbody>
+                </table>
+
+                <h6 class="mt-3"><i class="fas fa-map-marked-alt me-2 text-info"></i>Map Services (Optional - Authors Page)</h6>
+                <table class="table table-sm table-bordered">
+                    <thead class="table-light">
+                        <tr><th>Domain</th><th>Purpose</th></tr>
+                    </thead>
+                    <tbody>
+                        <tr><td><code>tile.openstreetmap.org</code></td><td>Map tiles for author locations</td></tr>
+                        <tr><td><code>nominatim.openstreetmap.org</code></td><td>Geocoding service</td></tr>
+                    </tbody>
+                </table>
+
+                <h6 class="mt-3"><i class="fas fa-chart-line me-2 text-secondary"></i>Analytics (Optional - Can Be Blocked)</h6>
+                <table class="table table-sm table-bordered">
+                    <thead class="table-light">
+                        <tr><th>Domain</th><th>Purpose</th></tr>
+                    </thead>
+                    <tbody>
+                        <tr><td><code>plausible.io</code></td><td>Privacy-focused analytics (optional)</td></tr>
+                    </tbody>
+                </table>
+
+                <div class="alert alert-info mt-3">
+                    <i class="fas fa-info-circle me-2"></i>
+                    <strong>Fully Airgapped Environments:</strong> For complete network isolation, you can self-host the CDN assets 
+                    (Bootstrap, Font Awesome, Leaflet) and modify the HTML files to reference your local copies. The tool will 
+                    function with reduced features if package registries are unavailable.
+                </div>
             </div>
         </div>
 

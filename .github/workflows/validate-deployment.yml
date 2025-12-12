@@ -37,6 +37,7 @@ jobs:
             "repos.html"
             "about.html"
             "debug.html"
+            "upload.html"
           )
           
           MISSING=0
@@ -112,6 +113,8 @@ jobs:
             "js/version-utils.js"
             "js/view-manager.js"
             "js/vuln-page.js"
+            "js/upload-page.js"
+            "js/sbom-parser.js"
           )
           
           MISSING=0
