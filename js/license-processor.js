@@ -11,11 +11,13 @@ class LicenseProcessor {
                     'MIT', 'MIT-0', 'MIT-CMU',
                     'Apache-2.0', 'Apache-1.1', 'Apache-1.0',
                     'BSD-2-Clause', 'BSD-3-Clause', 'BSD-2-Clause-Views', 'BSD-3-Clause-Modification', '0BSD',
-                    'ISC', 'Unlicense', 'CC0-1.0', 'WTFPL', 'Zlib', 'Boost-1.0', 'Ruby',
+                    'ISC', 'Unlicense', 'CC0-1.0', 'WTFPL', 'Zlib', 'BSL-1.0', 'Ruby',
                     'Python-2.0', 'Python-2.0.1', 'PSF-2.0', 'CNRI-Python',
                     'CC-BY-4.0', 'OFL-1.1', 'BlueOak-1.0.0', 'AFL-2.1',
                     'CDDL-1.0', 'CDDL-1.1',
                     'Unicode-DFS-2016', 'bzip2-1.0.6', 'ImageMagick', 'curl',
+                    // OSI-approved permissive licenses from PyPI classifiers
+                    'AAL', 'Intel', 'OGTSL', 'RSCPL', 'NCSA', 'VSL-1.0', 'W3C-20150513', 'Xnet',
                     'LicenseRef-scancode-public-domain', 'LicenseRef-scancode-other-permissive', 'LicenseRef-scancode-jsr-107-jcache-spec-2013'
                 ],
                 risk: 'low',
@@ -36,17 +38,20 @@ class LicenseProcessor {
                 licenses: [
                     'GPL-2.0', 'GPL-3.0',
                     'GPL-1.0-or-later', 'GPL-2.0-only', 'GPL-2.0-or-later', 'GPL-3.0-only', 'GPL-3.0-or-later',
-                    'AGPL-3.0',
-                    'MPL-2.0', 'MPL-1.1',
+                    'AGPL-3.0', 'AGPL-3.0-only', 'AGPL-3.0-or-later',
+                    'MPL-1.0', 'MPL-1.1', 'MPL-2.0',
                     'EPL-2.0', 'EPL-1.0',
-                    'GPL-2.0-only WITH Classpath-exception-2.0'
+                    'GPL-2.0-only WITH Classpath-exception-2.0',
+                    // OSI-approved copyleft licenses from PyPI classifiers
+                    'Nokia', 'CECILL-2.1', 'CPL-1.0', 'EUPL-1.0', 'EUPL-1.1',
+                    'IPL-1.0', 'Motosoto', 'NGPL', 'Sleepycat', 'SPL-1.0'
                 ],
                 risk: 'high',
                 description: 'Copyleft licenses that may require source code disclosure'
             },
             // Proprietary/Commercial licenses (medium risk)
             proprietary: {
-                licenses: ['Commercial', 'Proprietary', 'Custom'],
+                licenses: ['Commercial', 'Proprietary', 'Custom', 'Aladdin'],
                 risk: 'medium',
                 description: 'Commercial or proprietary licenses with usage restrictions'
             },
@@ -108,15 +113,19 @@ class LicenseProcessor {
         // License family groupings for bulk review
         this.licenseFamilies = {
             'MIT Family': ['MIT', 'MIT-0', 'MIT-CMU', 'ISC', 'Unlicense'],
-            'BSD Family': ['BSD-2-Clause', 'BSD-3-Clause', 'BSD-4-Clause', 'BSD-2-Clause-Views', 'BSD-3-Clause-Modification', '0BSD'],
+            'BSD Family': ['BSD-2-Clause', 'BSD-3-Clause', 'BSD-4-Clause', 'BSD-2-Clause-Views', 'BSD-3-Clause-Modification', '0BSD', 'NCSA'],
             'Apache Family': ['Apache-1.0', 'Apache-1.1', 'Apache-2.0'],
-            'GPL Family': ['GPL-1.0-or-later', 'GPL-2.0', 'GPL-3.0', 'GPL-2.0-only', 'GPL-2.0-or-later', 'GPL-3.0-only', 'GPL-3.0-or-later', 'AGPL-1.0', 'AGPL-3.0'],
+            'GPL Family': ['GPL-1.0-or-later', 'GPL-2.0', 'GPL-3.0', 'GPL-2.0-only', 'GPL-2.0-or-later', 'GPL-3.0-only', 'GPL-3.0-or-later', 'AGPL-1.0', 'AGPL-3.0', 'AGPL-3.0-only', 'AGPL-3.0-or-later'],
             'LGPL Family': ['LGPL-2.0-only', 'LGPL-2.0-or-later', 'LGPL-2.1', 'LGPL-2.1-only', 'LGPL-2.1-or-later', 'LGPL-3.0', 'LGPL-3.0-only', 'LGPL-3.0-or-later'],
             'MPL Family': ['MPL-1.0', 'MPL-1.1', 'MPL-2.0'],
-            'EPL Family': ['EPL-1.0', 'EPL-2.0'],
+            'EPL Family': ['EPL-1.0', 'EPL-2.0', 'CPL-1.0', 'IPL-1.0'],
+            'EUPL Family': ['EUPL-1.0', 'EUPL-1.1', 'EUPL-1.2'],
+            'CeCILL Family': ['CECILL-2.1', 'CECILL-B', 'CECILL-C'],
             'Python Family': ['Python-2.0', 'Python-2.0.1', 'PSF-2.0', 'CNRI-Python'],
-            'CDDL Family': ['CDDL-1.0', 'CDDL-1.1'],
-            'Commercial': ['Commercial', 'Proprietary', 'Custom'],
+            'CDDL Family': ['CDDL-1.0', 'CDDL-1.1', 'SPL-1.0'],
+            'Boost Family': ['BSL-1.0'],
+            'W3C Family': ['W3C', 'W3C-20150513'],
+            'Commercial': ['Commercial', 'Proprietary', 'Custom', 'Aladdin'],
             'Unknown': ['NOASSERTION', 'UNKNOWN', 'NONE', '', 'LicenseRef-scancode-unknown-license-reference', 'LicenseRef-scancode-unknown-spdx', 'LicenseRef-scancode-alliance-open-media-patent-1.0']
         };
     }
@@ -180,6 +189,8 @@ class LicenseProcessor {
             'MIT': 'MIT',
             
             // MPL variants
+            'MPL-1': 'MPL-1.0',
+            'MPL-1.0': 'MPL-1.0',
             'MPL-2': 'MPL-2.0',
             'MPL-2.0': 'MPL-2.0',
             'MPL-1.1': 'MPL-1.1',
@@ -187,7 +198,26 @@ class LicenseProcessor {
             // EPL variants
             'EPL-2': 'EPL-2.0',
             'EPL-2.0': 'EPL-2.0',
-            'EPL-1.0': 'EPL-1.0'
+            'EPL-1.0': 'EPL-1.0',
+            
+            // AGPL variants
+            'AGPL-3': 'AGPL-3.0',
+            'AGPL-3.0': 'AGPL-3.0',
+            'AGPL-3-only': 'AGPL-3.0-only',
+            'AGPL-3.0-only': 'AGPL-3.0-only',
+            'AGPL-3-or-later': 'AGPL-3.0-or-later',
+            'AGPL-3.0-or-later': 'AGPL-3.0-or-later',
+            
+            // Boost variants (BSL-1.0 is the official SPDX ID)
+            'Boost-1.0': 'BSL-1.0',
+            'BSL-1.0': 'BSL-1.0',
+            'Boost Software License 1.0': 'BSL-1.0',
+            
+            // EUPL variants
+            'EUPL-1.0': 'EUPL-1.0',
+            'EUPL-1.1': 'EUPL-1.1',
+            'EUPL 1.0': 'EUPL-1.0',
+            'EUPL 1.1': 'EUPL-1.1'
         };
         
         // Check exact match first
