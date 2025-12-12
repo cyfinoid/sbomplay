@@ -398,7 +398,7 @@ class UploadPage {
         this.sbomProcessor.reset();
         this.sbomProcessor.setTotalRepositories(1);
 
-        // Phase 1: Process SBOM
+        // Phase 1: Process SBOM (10-30%)
         onProgress('sbom', 10, `Processing SBOM data...`);
         const success = await this.sbomProcessor.processSBOM(owner, repo, data, null, false);
         
@@ -407,7 +407,7 @@ class UploadPage {
         }
         this.sbomProcessor.updateProgress(true);
 
-        // Phase 2: Resolve dependency trees
+        // Phase 2: Resolve dependency trees (30-50%)
         onProgress('deps', 30, `Resolving dependency trees...`);
         await this.sbomProcessor.resolveFullDependencyTrees((progress) => {
             if (progress.phase === 'resolving-package') {
@@ -416,50 +416,35 @@ class UploadPage {
             }
         });
 
-        // Phase 3: Vulnerability analysis
-        onProgress('vuln', 50, `Analyzing vulnerabilities...`);
-        if (window.osvService) {
-            await this.sbomProcessor.analyzeVulnerabilities();
-        } else {
-            console.warn('⚠️ OSV service not available, skipping vulnerability analysis');
-        }
-
-        // Phase 4: License compliance (analyze what's in SBOM)
-        onProgress('license', 55, `Analyzing license compliance...`);
+        // Phase 3: License compliance from SBOM data (50-55%)
+        onProgress('license', 50, `Analyzing license compliance...`);
         this.sbomProcessor.analyzeLicenseCompliance();
 
-        // Phase 5: Export initial results
-        onProgress('export', 60, `Exporting results...`);
+        // Phase 4: Export initial results (55%)
+        onProgress('export', 55, `Exporting results...`);
         let results = this.sbomProcessor.exportData();
 
-        // Phase 6: Fetch external licenses for packages missing license info
-        // Uses shared LicenseFetcher module (same as app.js)
-        onProgress('fetch-licenses', 65, `Fetching external license data...`);
-        if (window.licenseFetcher && results.allDependencies) {
-            await window.licenseFetcher.fetchLicenses(
-                results.allDependencies,
-                (processed, total, msg) => {
-                    const pct = 65 + (processed / total) * 15;
-                    onProgress('fetch-licenses', pct, msg);
-                }
-            );
-            // Sync licenses back to processor for re-export
-            window.licenseFetcher.syncToProcessor(results.allDependencies, this.sbomProcessor);
-            // Re-export to include fetched licenses
-            results = this.sbomProcessor.exportData();
-        }
-
-        // Phase 7: Fetch version drift data (reuses window.versionDriftAnalyzer)
-        onProgress('version-drift', 85, `Checking version drift...`);
-        await this.fetchVersionDriftData(results.allDependencies, onProgress);
-        
-        // Add upload metadata
+        // Add upload metadata before enrichment
         results.uploadInfo = {
             filename: item.file.name,
             format: item.parsedData.format,
             uploadedAt: new Date().toISOString(),
             projectName: projectName
         };
+
+        // Phase 5-8: Run shared enrichment pipeline (55-98%)
+        // Uses EnrichmentPipeline - same logic as app.js
+        // This ensures upload flow produces identical results to GitHub flow
+        if (window.EnrichmentPipeline) {
+            const pipeline = new window.EnrichmentPipeline(this.sbomProcessor, this.storageManager);
+            results = await pipeline.runFullEnrichment(results, projectName, (phase, pct, msg) => {
+                onProgress(phase, pct, msg);
+            });
+        } else {
+            console.warn('⚠️ EnrichmentPipeline not available, using fallback');
+            // Fallback to basic enrichment if pipeline not loaded
+            await this.fallbackEnrichment(results, projectName, onProgress);
+        }
 
         // Save to IndexedDB using projectName as the storage key
         // Each uploaded SBOM is stored independently (like a direct repo scan)
@@ -468,6 +453,41 @@ class UploadPage {
         onProgress('complete', 100, `Completed ${item.file.name}`);
         
         return results;
+    }
+
+    /**
+     * Fallback enrichment if EnrichmentPipeline is not available
+     * This provides basic functionality but should not be the primary path
+     */
+    async fallbackEnrichment(results, projectName, onProgress) {
+        // Basic license fetching via LicenseFetcher
+        if (window.licenseFetcher && results.allDependencies) {
+            onProgress('licenses', 65, 'Fetching licenses...');
+            await window.licenseFetcher.fetchLicenses(results.allDependencies);
+            window.licenseFetcher.syncToProcessor(results.allDependencies, this.sbomProcessor);
+        }
+
+        // Basic version drift
+        if (window.versionDriftAnalyzer && results.allDependencies) {
+            onProgress('version-drift', 80, 'Checking version drift...');
+            for (const dep of results.allDependencies.slice(0, 50)) { // Limit for fallback
+                try {
+                    const ecosystem = dep.category?.ecosystem || '';
+                    await window.versionDriftAnalyzer.checkVersionDrift(dep.name, dep.version, ecosystem);
+                } catch (e) { /* skip */ }
+            }
+        }
+
+        // Basic author fetching
+        if (window.AuthorService && results.allDependencies) {
+            onProgress('authors', 90, 'Fetching authors...');
+            const authorService = new window.AuthorService();
+            const packages = results.allDependencies
+                .filter(d => d.name && d.category?.ecosystem)
+                .slice(0, 50) // Limit for fallback
+                .map(d => ({ name: d.name, version: d.version, ecosystem: d.category.ecosystem }));
+            await authorService.fetchAuthorsForPackages(packages);
+        }
     }
 
     showProgressSection() {
@@ -716,56 +736,6 @@ class UploadPage {
         } else {
             resultsContent.innerHTML = html;
         }
-    }
-
-    /**
-     * Fetch version drift data for packages (reuses window.versionDriftAnalyzer)
-     */
-    async fetchVersionDriftData(dependencies, onProgress) {
-        if (!dependencies || dependencies.length === 0 || !window.versionDriftAnalyzer) {
-            return;
-        }
-
-        // Filter dependencies that can be checked for version drift
-        const depsToCheck = dependencies.filter(dep => {
-            return dep.name && dep.version && dep.version !== 'unknown';
-        });
-
-        if (depsToCheck.length === 0) {
-            return;
-        }
-
-        console.log(`📊 Checking version drift for ${depsToCheck.length} packages...`);
-        onProgress('version-drift', 85, `Checking version drift for ${depsToCheck.length} packages...`);
-
-        // Process in batches (version drift API can be slow)
-        const batchSize = 5;
-        let checked = 0;
-
-        for (let i = 0; i < depsToCheck.length; i += batchSize) {
-            const batch = depsToCheck.slice(i, i + batchSize);
-            
-            await Promise.all(batch.map(async (dep) => {
-                try {
-                    const ecosystem = dep.category?.ecosystem || dep.ecosystem || '';
-                    await window.versionDriftAnalyzer.checkVersionDrift(dep.name, dep.version, ecosystem);
-                    checked++;
-                } catch (e) {
-                    // Silently skip failed checks
-                }
-            }));
-
-            // Update progress
-            const progress = 85 + (Math.min(i + batchSize, depsToCheck.length) / depsToCheck.length) * 10;
-            onProgress('version-drift', progress, `Checked ${checked} packages...`);
-
-            // Small delay between batches
-            if (i + batchSize < depsToCheck.length) {
-                await new Promise(resolve => setTimeout(resolve, 50));
-            }
-        }
-
-        console.log(`✅ Version drift check complete: ${checked} packages checked`);
     }
 
     showError(message) {

@@ -1374,16 +1374,37 @@ class SBOMProcessor {
                     }
                 }
                 
+                // Extract license from originalPackage if not already set
+                let license = dep.license || dep.licenseFull;
+                let licenseAugmented = dep._licenseAugmented || false;
+                let licenseSource = dep._licenseSource || null;
+                
+                if (!license && dep.originalPackage && dep.originalPackage.licenseConcluded) {
+                    license = dep.originalPackage.licenseConcluded;
+                    licenseSource = 'sbom';
+                }
+                
                 return {
                     name: dep.name,
                     version: dep.displayVersion || dep.version,  // Use displayVersion (may be assumed)
                     assumedVersion: dep.assumedVersion || null,  // Latest version if assumed
                     count: dep.count,
                     repositories: Array.from(dep.repositories),
+                    directIn: Array.from(dep.directIn || []),  // Repos using as direct dependency
+                    transitiveIn: Array.from(dep.transitiveIn || []),  // Repos using as transitive dependency
+                    parents: dep.parents ? Array.from(dep.parents) : [],  // Parent packages (for transitive deps)
+                    depth: dep.depth || null,  // Depth in dependency tree (1 = direct, 2+ = transitive)
                     category: dep.category,
                     languages: Array.from(dep.languages),
                     purl: purl,  // Include extracted PURL for author analysis
-                    registryNotFound: dep.registryNotFound || false  // Potential dependency confusion risk
+                    registryNotFound: dep.registryNotFound || false,  // Potential dependency confusion risk
+                    // License info
+                    license: license,
+                    licenseFull: dep.licenseFull || license,
+                    licenseAugmented: licenseAugmented,
+                    licenseSource: licenseSource,
+                    // Original package reference for detailed info
+                    originalPackage: dep.originalPackage
                 };
             });
         }

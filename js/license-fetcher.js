@@ -1,6 +1,7 @@
 /**
  * License Fetcher - Shared module for fetching licenses from external APIs
  * Used by both app.js and upload-page.js
+ * Note: Author fetching is handled by AuthorService (author-service.js)
  */
 console.log('📄 License Fetcher loaded');
 
@@ -82,7 +83,7 @@ class LicenseFetcher {
             }
         }
 
-        console.log(`✅ License fetching complete: ${fetched}/${total} licenses fetched from external sources`);
+        console.log(`✅ License fetching complete: ${fetched}/${total} licenses fetched`);
         return { fetched, total };
     }
 

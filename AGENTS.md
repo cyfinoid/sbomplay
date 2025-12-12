@@ -1,5 +1,59 @@
 # Agent Instructions
 
+## Architecture Overview
+
+### Data Input Sources (Two Entry Points, One Processing Pipeline)
+
+The application supports two ways to get SBOM data:
+
+1. **GitHub Dependency Graph** (`app.js`) - Fetches SBOMs via GitHub API
+2. **Direct Upload** (`upload-page.js`) - User uploads SPDX/CycloneDX files
+
+**CRITICAL**: Both entry points MUST use the same processing pipeline and shared services. Do NOT create duplicate implementations.
+
+### Processing Pipeline (Shared)
+
+After SBOM data is obtained (from either source), the processing flow is:
+
+```
+SBOM Data → SBOMParser → SBOMProcessor → [Enrichment Services] → StorageManager → IndexedDB
+                                              ↓
+                         ┌──────────────────────────────────────────┐
+                         │ Enrichment Services (ALL shared):        │
+                         │ - OSVService (vulnerabilities)           │
+                         │ - VersionDriftAnalyzer (version drift)   │
+                         │ - AuthorService (author/maintainer info) │
+                         │ - License fetching (deps.dev API)        │
+                         └──────────────────────────────────────────┘
+```
+
+### Shared Services (Use These, Don't Duplicate)
+
+| Service | File | Purpose |
+|---------|------|---------|
+| `SBOMParser` | `sbom-parser.js` | Parse SPDX/CycloneDX to internal format |
+| `SBOMProcessor` | `sbom-processor.js` | Process SBOM, build dependency graph |
+| `OSVService` | `osv-service.js` | Vulnerability lookups via OSV API |
+| `VersionDriftAnalyzer` | `version-drift-analyzer.js` | Check for newer versions via deps.dev |
+| `AuthorService` | `author-service.js` | Fetch author/maintainer info |
+| `StorageManager` | `storage-manager.js` | Save/load analysis data |
+| `IndexedDBManager` | `indexeddb-manager.js` | Low-level IndexedDB operations |
+| `CacheManager` | `cache-manager.js` | Caching layer for API responses |
+
+### Anti-Patterns to Avoid
+
+1. **Duplicate utility functions** - If `app.js` has a method, don't recreate it in `upload-page.js`
+2. **Parallel implementations** - Don't create `license-fetcher.js` if license fetching exists in `app.js`
+3. **Missing enrichment** - If GitHub flow fetches authors, upload flow must too
+4. **Different data shapes** - Both flows must produce identical output structure
+
+### When Adding New Features
+
+1. Check if feature exists in `app.js` first
+2. If yes, extract to shared service if not already
+3. Use shared service from both `app.js` and `upload-page.js`
+4. Never implement the same logic twice
+
 ## Code Quality Standards
 
 ### No Inline CSS/JavaScript
@@ -44,7 +98,7 @@ When adding/modifying HTML/JS files, update:
 ### Version String Updates
 On release, update cache-busting version strings:
 - Pattern: `?v=X.Y.Z` in all HTML files
-- Files: `index.html`, `licenses.html`, `vuln.html`, `deps.html`, `settings.html`, `authors.html`, `repos.html`, `about.html`, `debug.html`
+- Files: `index.html`, `licenses.html`, `vuln.html`, `deps.html`, `settings.html`, `authors.html`, `repos.html`, `about.html`, `debug.html`, `audit.html`, `upload.html`
 - Update CSS/JS references: `<link href="css/style.css?v=X.Y.Z">` and `<script src="js/*.js?v=X.Y.Z">`
 
 ### Cache Busting
@@ -128,7 +182,7 @@ Update when logical flow changes occur:
 - Examples: `mdfiles/IMPLEMENTATION_SUMMARY.md`, `mdfiles/DEPENDENCY_RESOLUTION_STATUS.md`
 
 ### Required Files (per workflow validation)
-**HTML**: `index.html`, `licenses.html`, `vuln.html`, `deps.html`, `settings.html`, `authors.html`, `repos.html`, `about.html`, `audit.html`, `debug.html`
+**HTML**: `index.html`, `licenses.html`, `vuln.html`, `deps.html`, `settings.html`, `authors.html`, `repos.html`, `about.html`, `audit.html`, `debug.html`, `upload.html`
 
 **JS**: All files in `js/` directory (see `validate-deployment.yml` lines 80-105)
 

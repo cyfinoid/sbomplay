@@ -89,6 +89,7 @@ jobs:
             "js/dependency-tree-resolver.js"
             "js/deps-page.js"
             "js/ecosystem-utils.js"
+            "js/enrichment-pipeline.js"
             "js/github-actions-analyzer.js"
             "js/github-client.js"
             "js/index-page.js"
