@@ -46,6 +46,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - sbom-processor.js now uses these flags to correctly populate `directIn`/`transitiveIn` arrays
   - Previously all uploaded dependencies were marked as transitive with "unknown parent"
 
+- **sbomqs v2.0 Alignment**: SBOM Quality Processor now fully aligned with sbomqs scoring methodology
+  - **7 Categories** (was 6): Identification, Provenance, Integrity, Completeness, Licensing, Vulnerability, Structural
+  - **New Integrity Category** (18% weight): Checksums presence, SHA-256+ strength, digital signatures
+  - **New Structural Category** (10% weight): SPDX/CycloneDX spec compliance, version validation, schema validity
+  - **Enhanced Completeness Category** (15% weight): Dependencies, supplier, source code URIs, component purpose, primary component identification
+  - **Enhanced Provenance Category** (15% weight): Added supplier check, tool version validation, namespace URI validation, lifecycle support (CycloneDX 1.5+)
+  - **Weight Rebalancing**: Aligned with sbomqs v2.0 weights (ID: 12%, Prov: 15%, Int: 18%, Comp: 15%, Lic: 18%, Vuln: 12%, Struct: 10%)
+  - Backward compatible with existing stored assessments
+  - Reference: [sbomqs v2.0 Specification](https://github.com/interlynk-io/sbomqs)
+
 ### Changed
 - **Architecture Refactoring**: Consolidated duplicate enrichment code between `app.js` and `upload-page.js`
   - Created `runLicenseAndVersionDriftEnrichment()` helper in `app.js` to consolidate ~90 lines of duplicate code
