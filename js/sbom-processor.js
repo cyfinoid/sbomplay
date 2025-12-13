@@ -613,7 +613,8 @@ class SBOMProcessor {
         
         repos.forEach(repo => {
             Object.keys(categoryBreakdown).forEach(category => {
-                categoryBreakdown[category] += repo.dependencyCategories[category].size;
+                const depCat = repo.dependencyCategories?.[category];
+                categoryBreakdown[category] += depCat?.size || 0;
             });
         });
         
@@ -636,19 +637,22 @@ class SBOMProcessor {
         return Array.from(this.repositories.values())
             .sort((a, b) => b.totalDependencies - a.totalDependencies)
             .slice(0, limit)
-            .map(repo => ({
-                name: repo.name,
-                owner: repo.owner,
-                totalDependencies: repo.totalDependencies,
-                dependencies: Array.from(repo.dependencies),
-                categoryBreakdown: {
-                    code: repo.dependencyCategories.code.size,
-                    workflow: repo.dependencyCategories.workflow.size,
-                    infrastructure: repo.dependencyCategories.infrastructure.size,
-                    unknown: repo.dependencyCategories.unknown.size
-                },
-                languages: Array.from(repo.languages)
-            }));
+            .map(repo => {
+                const depCat = repo.dependencyCategories || {};
+                return {
+                    name: repo.name,
+                    owner: repo.owner,
+                    totalDependencies: repo.totalDependencies,
+                    dependencies: Array.from(repo.dependencies || []),
+                    categoryBreakdown: {
+                        code: depCat.code?.size || 0,
+                        workflow: depCat.workflow?.size || 0,
+                        infrastructure: depCat.infrastructure?.size || 0,
+                        unknown: depCat.unknown?.size || 0
+                    },
+                    languages: Array.from(repo.languages || [])
+                };
+            });
     }
 
     /**
@@ -1052,25 +1056,28 @@ class SBOMProcessor {
                 repositoryLicense: repositoryLicense  // Include repository license as fallback
             };
         });
-        const allRepos = Array.from(this.repositories.values()).map(repo => ({
-            name: repo.name,
-            owner: repo.owner,
-            license: repo.license || null,  // Include repository license
-            archived: repo.archived || false,  // Include archived status
-            totalDependencies: repo.totalDependencies,
-            dependencies: Array.from(repo.dependencies),
-            directDependencies: Array.from(repo.directDependencies || []),  // Direct dependencies
-            categoryBreakdown: {
-                code: repo.dependencyCategories.code.size,
-                workflow: repo.dependencyCategories.workflow.size,
-                infrastructure: repo.dependencyCategories.infrastructure.size,
-                unknown: repo.dependencyCategories.unknown.size
-            },
-            languages: Array.from(repo.languages),
-            relationships: repo.relationships || [],  // Include ALL relationships for graph visualization
-            spdxPackages: repo.spdxPackages || [],  // Store SPDX package data for mapping
-            qualityAssessment: repo.qualityAssessment || null  // Include SBOM quality assessment
-        }));
+        const allRepos = Array.from(this.repositories.values()).map(repo => {
+            const depCat = repo.dependencyCategories || {};
+            return {
+                name: repo.name,
+                owner: repo.owner,
+                license: repo.license || null,  // Include repository license
+                archived: repo.archived || false,  // Include archived status
+                totalDependencies: repo.totalDependencies,
+                dependencies: Array.from(repo.dependencies || []),
+                directDependencies: Array.from(repo.directDependencies || []),  // Direct dependencies
+                categoryBreakdown: {
+                    code: depCat.code?.size || 0,
+                    workflow: depCat.workflow?.size || 0,
+                    infrastructure: depCat.infrastructure?.size || 0,
+                    unknown: depCat.unknown?.size || 0
+                },
+                languages: Array.from(repo.languages || []),
+                relationships: repo.relationships || [],  // Include ALL relationships for graph visualization
+                spdxPackages: repo.spdxPackages || [],  // Store SPDX package data for mapping
+                qualityAssessment: repo.qualityAssessment || null  // Include SBOM quality assessment
+            };
+        });
 
         // Calculate aggregate quality analysis if quality processor is available
         let qualityAnalysis = null;
@@ -1411,20 +1418,29 @@ class SBOMProcessor {
 
         if (this.repositories.size <= 500) {
             // For smaller datasets, export everything
-            allRepositories = Array.from(this.repositories.values()).map(repo => ({
-                name: repo.name,
-                owner: repo.owner,
-                license: repo.license || null,  // Include repository license
-                totalDependencies: repo.totalDependencies,
-                dependencies: Array.from(repo.dependencies),
-                dependencyCategories: {
-                    code: Array.from(repo.dependencyCategories.code),
-                    workflow: Array.from(repo.dependencyCategories.workflow),
-                    infrastructure: Array.from(repo.dependencyCategories.infrastructure),
-                    unknown: Array.from(repo.dependencyCategories.unknown)
-                },
-                languages: Array.from(repo.languages)
-            }));
+            allRepositories = Array.from(this.repositories.values()).map(repo => {
+                // Defensive: ensure dependencyCategories exists
+                const depCategories = repo.dependencyCategories || {
+                    code: new Set(),
+                    workflow: new Set(),
+                    infrastructure: new Set(),
+                    unknown: new Set()
+                };
+                return {
+                    name: repo.name,
+                    owner: repo.owner,
+                    license: repo.license || null,  // Include repository license
+                    totalDependencies: repo.totalDependencies,
+                    dependencies: Array.from(repo.dependencies || []),
+                    dependencyCategories: {
+                        code: Array.from(depCategories.code || []),
+                        workflow: Array.from(depCategories.workflow || []),
+                        infrastructure: Array.from(depCategories.infrastructure || []),
+                        unknown: Array.from(depCategories.unknown || [])
+                    },
+                    languages: Array.from(repo.languages || [])
+                };
+            });
         }
 
         return {

@@ -2879,20 +2879,52 @@ class SBOMPlayApp {
                 directPackagesWithFunding = results.reduce((sum, pkg) => sum + (pkg.hasFunding && pkg.isDirect ? 1 : 0), 0);
             }
 
-            // Count authors with funding
+            // Count authors with funding - only for authors related to current analysis packages
+            // First try authorAnalysis, then fall back to deriving from package-author relationships
+            const uniqueAuthorKeys = new Set();
+            
             if (data.data.authorAnalysis && data.data.authorAnalysis.authors) {
-                const authorRefs = data.data.authorAnalysis.authors;
-                const uniqueAuthorKeys = new Set();
-
-                authorRefs.forEach(ref => {
+                // Use authorAnalysis if available
+                data.data.authorAnalysis.authors.forEach(ref => {
                     if (ref.authorKey) {
                         uniqueAuthorKeys.add(ref.authorKey);
                     }
                 });
-
+            } else if (window.indexedDBManager && data.data.allDependencies) {
+                // Fall back: derive authors from package-author relationships for current packages
+                const packageKeys = new Set();
+                data.data.allDependencies.forEach(dep => {
+                    let packageKey = null;
+                    if (dep.packageKey) {
+                        packageKey = dep.packageKey;
+                    } else if (dep.purl) {
+                        const purlMatch = dep.purl.match(/pkg:([^\/]+)\/([^@\/]+)/);
+                        if (purlMatch) {
+                            packageKey = `${purlMatch[1]}:${purlMatch[2]}`;
+                        }
+                    } else if (dep.name && dep.category?.ecosystem) {
+                        packageKey = `${dep.category.ecosystem}:${dep.name}`;
+                    }
+                    if (packageKey) packageKeys.add(packageKey);
+                });
+                
+                // Get authors for each package
+                for (const packageKey of packageKeys) {
+                    try {
+                        const packageAuthors = await window.indexedDBManager.getPackageAuthors(packageKey);
+                        packageAuthors.forEach(pa => {
+                            if (pa.authorKey) uniqueAuthorKeys.add(pa.authorKey);
+                        });
+                    } catch (err) {
+                        // Silent fail for individual package lookups
+                    }
+                }
+            }
+            
+            // Now count authors with funding from the collected author keys
+            if (uniqueAuthorKeys.size > 0 && window.cacheManager) {
                 const authorChecks = Array.from(uniqueAuthorKeys).map(async (authorKey) => {
                     const authorEntity = await window.cacheManager.getAuthorEntity(authorKey);
-                    // Check if author has actual funding platforms (same logic as authors.html)
                     if (authorEntity && authorEntity.funding) {
                         const funding = authorEntity.funding;
                         if (funding.github || funding.opencollective || funding.patreon || funding.tidelift || funding.url) {
@@ -2901,7 +2933,6 @@ class SBOMPlayApp {
                     }
                     return 0;
                 });
-
                 const authorResults = await Promise.all(authorChecks);
                 authorsWithFunding = authorResults.reduce((sum, count) => sum + count, 0);
             }
