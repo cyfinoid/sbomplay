@@ -18,14 +18,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Cache support in IndexedDB for EOX data (7-day cache expiry)
 
 - **Enhanced SBOM Audit**: Comprehensive SBOM quality assessment with new features
-  - **NTIA Compliance Check**: Validates SBOMs against NTIA Minimum Elements requirements
-    - Checks 7 required elements: Supplier Name, Component Name, Version, Unique Identifier, Dependency Relationship, SBOM Author, Timestamp
+  - **CISA 2025 Compliance Check**: Validates SBOMs against CISA 2025 Minimum Elements (replaces NTIA 2021)
+    - Checks 11 required elements (4 new from NTIA): Software Producer, Component Name, Version, Software Identifier, Component Hash (NEW), License Information (NEW), Dependency Relationship, SBOM Author, Timestamp, Tool Name (NEW), Generation Context (NEW)
     - 90% coverage threshold for package-level elements
+    - Renamed fields: "Supplier Name" → "Software Producer", "Author of SBOM Data" → "SBOM Author"
+  - **BSI TR-03183-2 v2.0 Compliance Check**: German/EU technical guideline validation
+    - Checks SBOM and component-level requirements including SHA-256+ hashes, licenses, source URIs, unique identifiers
+    - Supports CycloneDX 1.5+ and SPDX 2.2.1+
   - **SBOM Freshness Tracking**: Monitors SBOM generation date and age
     - Status levels: Very Fresh (≤7 days), Fresh (≤30 days), Recent (≤90 days), Aging (≤180 days), Old (≤365 days), Stale (>365 days)
   - **Completeness Score**: Percentage of packages with full metadata (name, version, PURL, license, supplier, download location, checksum)
   - **Comprehensive Audit Report**: `generateAuditReport()` method combines all assessments with risk scoring
-  - New "SBOM Audit" section in Audit page showing per-repository quality breakdown
+    - Risk calculation: Quality (35%), CISA 2025 (25%), BSI (10%), Freshness (15%), Completeness (15%)
+  - New "SBOM Audit" section in Audit page showing per-repository quality breakdown with dual compliance indicators
 
 - **Version Drift Analyzer Enhancements**: Added EOX integration and package status methods
   - `checkEOX()`: Delegates to EOXService for EOL/EOS checking

@@ -1489,88 +1489,144 @@ class SBOMQualityProcessor {
 
     /**
      * ============================================
-     * NTIA MINIMUM ELEMENTS COMPLIANCE CHECK
+     * CISA 2025 MINIMUM ELEMENTS COMPLIANCE CHECK
      * ============================================
-     * Based on NTIA "The Minimum Elements For a Software Bill of Materials (SBOM)"
-     * https://www.ntia.doc.gov/files/ntia/publications/sbom_minimum_elements_report.pdf
+     * Based on CISA "2025 Minimum Elements for a Software Bill of Materials (SBOM)"
+     * https://www.cisa.gov/sites/default/files/2025-08/2025_CISA_SBOM_Minimum_Elements.pdf
+     * 
+     * Updates from NTIA 2021:
+     * - Renamed: "Supplier Name" → "Software Producer"
+     * - Renamed: "Author of SBOM Data" → "SBOM Author"  
+     * - NEW: Component Hash (required)
+     * - NEW: License Information (required)
+     * - NEW: Tool Name (required)
+     * - NEW: Generation Context (required)
      */
     
     /**
-     * Assess NTIA Minimum Elements compliance
+     * Assess CISA 2025 Minimum Elements compliance
      * @param {Object} sbomData - The raw SBOM data
-     * @returns {Object} NTIA compliance assessment
+     * @returns {Object} CISA 2025 compliance assessment
      */
-    assessNTIACompliance(sbomData) {
+    assessCISA2025Compliance(sbomData) {
         if (!sbomData || !sbomData.sbom) {
             return {
+                standard: 'CISA 2025',
                 compliant: false,
                 score: 0,
                 checks: {},
                 missingElements: ['No SBOM data available'],
-                details: 'Cannot assess NTIA compliance without SBOM'
+                details: 'Cannot assess CISA 2025 compliance without SBOM'
             };
         }
 
         const sbom = sbomData.sbom;
         const packages = sbom.packages || [];
         
-        // NTIA Minimum Elements (7 required data fields)
-        const ntiaElements = {
-            // 1. Supplier Name - Organization that created the component
-            supplierName: {
-                name: 'Supplier Name',
-                description: 'Name of the entity that creates, defines, and identifies components',
+        // CISA 2025 Minimum Elements (11 required data fields)
+        const cisaElements = {
+            // 1. Software Producer (was "Supplier Name")
+            softwareProducer: {
+                name: 'Software Producer',
+                description: 'Entity that creates, defines, and identifies components',
                 check: (pkg) => Boolean(pkg.supplier?.name || pkg.originator),
                 required: true
             },
-            // 2. Component Name - Name assigned to the component
+            // 2. Component Name
             componentName: {
                 name: 'Component Name',
-                description: 'Designation assigned to a unit of software defined by the original supplier',
+                description: 'Designation assigned to a unit of software',
                 check: (pkg) => Boolean(pkg.name && pkg.name.trim()),
                 required: true
             },
-            // 3. Version of the Component
+            // 3. Component Version
             componentVersion: {
                 name: 'Component Version',
-                description: 'Identifier used by supplier to specify a change in software',
+                description: 'Identifier to specify a change from previously identified version',
                 check: (pkg) => Boolean(pkg.versionInfo && pkg.versionInfo !== 'NOASSERTION'),
                 required: true
             },
-            // 4. Other Unique Identifiers (PURL, CPE)
-            uniqueIdentifier: {
-                name: 'Unique Identifier',
-                description: 'Other identifiers used to identify components (e.g., PURL)',
+            // 4. Software Identifiers (PURL, CPE, OmniBOR, SWHID)
+            softwareIdentifier: {
+                name: 'Software Identifier',
+                description: 'Unique identifier (PURL, CPE, OmniBOR, SWHID)',
                 check: (pkg) => {
                     if (!pkg.externalRefs) return false;
                     return pkg.externalRefs.some(ref => 
                         ref.referenceType === 'purl' || 
                         ref.referenceType === 'cpe22Type' ||
-                        ref.referenceType === 'cpe23Type'
+                        ref.referenceType === 'cpe23Type' ||
+                        ref.referenceLocator?.startsWith('gitoid:') ||
+                        ref.referenceLocator?.startsWith('swh:')
                     );
                 },
                 required: true
             },
-            // 5. Dependency Relationship
+            // 5. Component Hash (NEW in CISA 2025)
+            componentHash: {
+                name: 'Component Hash',
+                description: 'Cryptographic fingerprint for integrity verification',
+                check: (pkg) => Boolean(pkg.checksums && pkg.checksums.length > 0),
+                required: true
+            },
+            // 6. License Information (NEW in CISA 2025)
+            licenseInfo: {
+                name: 'License Information',
+                description: 'Legal terms under which component is used',
+                check: (pkg) => Boolean(
+                    (pkg.licenseConcluded && pkg.licenseConcluded !== 'NOASSERTION') ||
+                    (pkg.licenseDeclared && pkg.licenseDeclared !== 'NOASSERTION')
+                ),
+                required: true
+            },
+            // 7. Dependency Relationship
             dependencyRelationship: {
                 name: 'Dependency Relationship',
-                description: 'Characterizing the relationship of upstream component to the software',
-                // This is checked at SBOM level, not package level
+                description: 'Relationship of upstream component to the software',
                 checkSbom: (sbom) => Boolean(sbom.relationships && sbom.relationships.length > 0),
                 required: true
             },
-            // 6. Author of SBOM Data
+            // 8. SBOM Author (was "Author of SBOM Data")
             sbomAuthor: {
                 name: 'SBOM Author',
-                description: 'Name of the entity that creates the SBOM data',
+                description: 'Entity that creates the SBOM data',
                 checkSbom: (sbom) => Boolean(sbom.creationInfo?.creators && sbom.creationInfo.creators.length > 0),
                 required: true
             },
-            // 7. Timestamp
+            // 9. Timestamp
             timestamp: {
                 name: 'Timestamp',
-                description: 'Date and time the SBOM data was assembled',
+                description: 'Date and time the SBOM was assembled',
                 checkSbom: (sbom) => Boolean(sbom.creationInfo?.created),
+                required: true
+            },
+            // 10. Tool Name (NEW in CISA 2025)
+            toolName: {
+                name: 'Tool Name',
+                description: 'Tool used to generate the SBOM',
+                checkSbom: (sbom) => {
+                    const creators = sbom.creationInfo?.creators || [];
+                    return creators.some(c => c.startsWith('Tool:'));
+                },
+                required: true
+            },
+            // 11. Generation Context (NEW in CISA 2025)
+            generationContext: {
+                name: 'Generation Context',
+                description: 'Stage at which SBOM was created (pre-build, build, post-build)',
+                checkSbom: (sbom) => {
+                    // Check for lifecycle info in CycloneDX or SPDX
+                    if (sbom.metadata?.lifecycles) return true;
+                    // Check creator comment for context
+                    if (sbom.creationInfo?.comment) return true;
+                    // Check for build-related creator tools
+                    const creators = sbom.creationInfo?.creators || [];
+                    return creators.some(c => 
+                        c.toLowerCase().includes('build') ||
+                        c.toLowerCase().includes('runtime') ||
+                        c.toLowerCase().includes('source')
+                    );
+                },
                 required: true
             }
         };
@@ -1581,7 +1637,238 @@ class SBOMQualityProcessor {
         let totalChecks = 0;
 
         // Check SBOM-level elements
-        for (const [key, element] of Object.entries(ntiaElements)) {
+        for (const [key, element] of Object.entries(cisaElements)) {
+            if (element.checkSbom) {
+                totalChecks++;
+                const passed = element.checkSbom(sbom);
+                checks[key] = {
+                    name: element.name,
+                    description: element.description,
+                    passed: passed,
+                    required: element.required,
+                    isNew: ['toolName', 'generationContext'].includes(key)
+                };
+                if (passed) {
+                    passedChecks++;
+                } else {
+                    missingElements.push(element.name + (['toolName', 'generationContext'].includes(key) ? ' (NEW)' : ''));
+                }
+            }
+        }
+
+        // Check package-level elements (aggregate across all packages)
+        const packageLevelElements = ['softwareProducer', 'componentName', 'componentVersion', 'softwareIdentifier', 'componentHash', 'licenseInfo'];
+        
+        for (const key of packageLevelElements) {
+            const element = cisaElements[key];
+            if (!element.check) continue;
+            
+            totalChecks++;
+            let packagesWithElement = 0;
+            
+            packages.forEach(pkg => {
+                if (element.check(pkg)) {
+                    packagesWithElement++;
+                }
+            });
+            
+            const coverage = packages.length > 0 ? (packagesWithElement / packages.length) : 0;
+            const passed = coverage >= 0.9; // 90% coverage threshold for compliance
+            
+            checks[key] = {
+                name: element.name,
+                description: element.description,
+                passed: passed,
+                required: element.required,
+                coverage: Math.round(coverage * 100),
+                packagesWithElement: packagesWithElement,
+                totalPackages: packages.length,
+                isNew: ['componentHash', 'licenseInfo'].includes(key)
+            };
+            
+            if (passed) {
+                passedChecks++;
+            } else {
+                const newTag = ['componentHash', 'licenseInfo'].includes(key) ? ' (NEW)' : '';
+                missingElements.push(`${element.name}${newTag} (${Math.round(coverage * 100)}% coverage)`);
+            }
+        }
+
+        const score = totalChecks > 0 ? Math.round((passedChecks / totalChecks) * 100) : 0;
+        const compliant = passedChecks === totalChecks;
+
+        return {
+            standard: 'CISA 2025',
+            compliant: compliant,
+            score: score,
+            passedChecks: passedChecks,
+            totalChecks: totalChecks,
+            checks: checks,
+            missingElements: missingElements,
+            details: compliant 
+                ? 'SBOM meets CISA 2025 Minimum Elements requirements'
+                : `Missing ${missingElements.length} CISA 2025 Minimum Element(s)`
+        };
+    }
+
+    /**
+     * Legacy alias for backward compatibility
+     */
+    assessNTIACompliance(sbomData) {
+        // CISA 2025 supersedes NTIA - return CISA assessment
+        return this.assessCISA2025Compliance(sbomData);
+    }
+
+    /**
+     * ============================================
+     * BSI TR-03183-2 v2.0 COMPLIANCE CHECK
+     * ============================================
+     * German Federal Office for Information Security (BSI) Technical Guideline
+     * https://www.bsi.bund.de/SharedDocs/Downloads/EN/BSI/Publications/TechGuidelines/TR03183/BSI-TR-03183-2-2_0_0.pdf
+     */
+    
+    /**
+     * Assess BSI TR-03183-2 v2.0 compliance
+     * @param {Object} sbomData - The raw SBOM data
+     * @returns {Object} BSI compliance assessment
+     */
+    assessBSICompliance(sbomData) {
+        if (!sbomData || !sbomData.sbom) {
+            return {
+                standard: 'BSI TR-03183-2 v2.0',
+                compliant: false,
+                score: 0,
+                checks: {},
+                missingElements: ['No SBOM data available'],
+                details: 'Cannot assess BSI compliance without SBOM'
+            };
+        }
+
+        const sbom = sbomData.sbom;
+        const packages = sbom.packages || [];
+        
+        // BSI TR-03183-2 v2.0 Required Elements
+        const bsiElements = {
+            // SBOM-level required fields
+            specification: {
+                name: 'SBOM Specification',
+                description: 'Valid SPDX or CycloneDX format',
+                checkSbom: (sbom) => Boolean(sbom.spdxVersion || sbom.bomFormat),
+                required: true
+            },
+            specVersion: {
+                name: 'Specification Version',
+                description: 'CycloneDX 1.5+ or SPDX 2.2.1+',
+                checkSbom: (sbom) => {
+                    if (sbom.spdxVersion) {
+                        const match = sbom.spdxVersion.match(/SPDX-(\d+)\.(\d+)/);
+                        if (match) {
+                            const major = parseInt(match[1]);
+                            const minor = parseInt(match[2]);
+                            return major > 2 || (major === 2 && minor >= 2);
+                        }
+                    }
+                    if (sbom.specVersion) {
+                        const parts = sbom.specVersion.split('.');
+                        const major = parseInt(parts[0]);
+                        const minor = parseInt(parts[1] || 0);
+                        return major > 1 || (major === 1 && minor >= 5);
+                    }
+                    return false;
+                },
+                required: true
+            },
+            creator: {
+                name: 'SBOM Creator',
+                description: 'Creator with email or URL',
+                checkSbom: (sbom) => {
+                    const creators = sbom.creationInfo?.creators || [];
+                    return creators.some(c => c.includes('@') || c.includes('http'));
+                },
+                required: true
+            },
+            timestamp: {
+                name: 'Creation Timestamp',
+                description: 'ISO 8601 timestamp',
+                checkSbom: (sbom) => Boolean(sbom.creationInfo?.created),
+                required: true
+            },
+            sbomUri: {
+                name: 'SBOM URI',
+                description: 'Unique SBOM identifier (namespace or serialNumber)',
+                checkSbom: (sbom) => Boolean(sbom.documentNamespace || sbom.serialNumber),
+                required: true
+            },
+            dependencies: {
+                name: 'Dependency Relationships',
+                description: 'Component dependency graph',
+                checkSbom: (sbom) => Boolean(sbom.relationships && sbom.relationships.length > 0),
+                required: true
+            },
+            // Package-level required fields
+            componentName: {
+                name: 'Component Name',
+                description: 'Package name',
+                check: (pkg) => Boolean(pkg.name && pkg.name.trim()),
+                required: true
+            },
+            componentVersion: {
+                name: 'Component Version',
+                description: 'Package version',
+                check: (pkg) => Boolean(pkg.versionInfo && pkg.versionInfo !== 'NOASSERTION'),
+                required: true
+            },
+            componentCreator: {
+                name: 'Component Supplier',
+                description: 'Supplier with email or URL',
+                check: (pkg) => {
+                    const supplier = pkg.supplier?.name || pkg.originator || '';
+                    return supplier.includes('@') || supplier.includes('http') || Boolean(supplier);
+                },
+                required: true
+            },
+            componentLicense: {
+                name: 'Associated License',
+                description: 'Valid SPDX license expression',
+                check: (pkg) => Boolean(
+                    (pkg.licenseConcluded && pkg.licenseConcluded !== 'NOASSERTION') ||
+                    (pkg.licenseDeclared && pkg.licenseDeclared !== 'NOASSERTION')
+                ),
+                required: true
+            },
+            componentHash: {
+                name: 'Component Hash (SHA-256)',
+                description: 'SHA-256 or stronger checksum',
+                check: (pkg) => {
+                    if (!pkg.checksums) return false;
+                    return pkg.checksums.some(c => 
+                        /sha256|sha384|sha512|sha3/i.test(c.algorithm)
+                    );
+                },
+                required: true
+            },
+            uniqueIdentifiers: {
+                name: 'Unique Identifiers',
+                description: 'CPE or PURL identifier',
+                check: (pkg) => {
+                    if (!pkg.externalRefs) return false;
+                    return pkg.externalRefs.some(ref => 
+                        ref.referenceType === 'purl' || 
+                        ref.referenceType === 'cpe22Type' ||
+                        ref.referenceType === 'cpe23Type'
+                    );
+                },
+                required: true
+            }
+        };
+
+        const checks = {};
+        const missingElements = [];
+        let passedChecks = 0;
+        let totalChecks = 0;
+
+        // Check SBOM-level elements
+        for (const [key, element] of Object.entries(bsiElements)) {
             if (element.checkSbom) {
                 totalChecks++;
                 const passed = element.checkSbom(sbom);
@@ -1599,11 +1886,11 @@ class SBOMQualityProcessor {
             }
         }
 
-        // Check package-level elements (aggregate across all packages)
-        const packageLevelElements = ['supplierName', 'componentName', 'componentVersion', 'uniqueIdentifier'];
+        // Check package-level elements
+        const packageLevelElements = ['componentName', 'componentVersion', 'componentCreator', 'componentLicense', 'componentHash', 'uniqueIdentifiers'];
         
         for (const key of packageLevelElements) {
-            const element = ntiaElements[key];
+            const element = bsiElements[key];
             if (!element.check) continue;
             
             totalChecks++;
@@ -1616,7 +1903,7 @@ class SBOMQualityProcessor {
             });
             
             const coverage = packages.length > 0 ? (packagesWithElement / packages.length) : 0;
-            const passed = coverage >= 0.9; // 90% coverage threshold for compliance
+            const passed = coverage >= 0.9; // 90% coverage threshold
             
             checks[key] = {
                 name: element.name,
@@ -1639,6 +1926,7 @@ class SBOMQualityProcessor {
         const compliant = passedChecks === totalChecks;
 
         return {
+            standard: 'BSI TR-03183-2 v2.0',
             compliant: compliant,
             score: score,
             passedChecks: passedChecks,
@@ -1646,8 +1934,21 @@ class SBOMQualityProcessor {
             checks: checks,
             missingElements: missingElements,
             details: compliant 
-                ? 'SBOM meets NTIA Minimum Elements requirements'
-                : `Missing ${missingElements.length} NTIA Minimum Element(s)`
+                ? 'SBOM meets BSI TR-03183-2 v2.0 requirements'
+                : `Missing ${missingElements.length} BSI requirement(s)`
+        };
+    }
+
+    /**
+     * Assess all compliance standards
+     * @param {Object} sbomData - The raw SBOM data
+     * @returns {Object} All compliance assessments
+     */
+    assessAllCompliance(sbomData) {
+        return {
+            cisa2025: this.assessCISA2025Compliance(sbomData),
+            bsi: this.assessBSICompliance(sbomData),
+            timestamp: Date.now()
         };
     }
 
@@ -1853,18 +2154,22 @@ class SBOMQualityProcessor {
      */
     generateAuditReport(sbomData, owner, repo) {
         const quality = this.assessQuality(sbomData, owner, repo);
-        const ntia = this.assessNTIACompliance(sbomData);
+        const cisa2025 = this.assessCISA2025Compliance(sbomData);
+        const bsi = this.assessBSICompliance(sbomData);
         const freshness = this.assessFreshness(sbomData);
         const completeness = this.assessCompleteness(sbomData);
         
         // Calculate audit risk score (0-100, lower is better)
         let riskScore = 0;
         
-        // Quality contributes 40% to risk (inverted from score)
-        riskScore += (100 - quality.overallScore) * 0.4;
+        // Quality contributes 35% to risk (inverted from score)
+        riskScore += (100 - quality.overallScore) * 0.35;
         
-        // NTIA compliance contributes 30% to risk
-        riskScore += (100 - ntia.score) * 0.3;
+        // CISA 2025 compliance contributes 25% to risk
+        riskScore += (100 - cisa2025.score) * 0.25;
+        
+        // BSI compliance contributes 10% to risk
+        riskScore += (100 - bsi.score) * 0.10;
         
         // Freshness contributes 15% to risk
         const freshnessScore = freshness.isFresh ? 100 : 
@@ -1900,27 +2205,31 @@ class SBOMQualityProcessor {
             repository: `${owner}/${repo}`,
             timestamp: Date.now(),
             quality: quality,
-            ntiaCompliance: ntia,
+            cisa2025Compliance: cisa2025,
+            bsiCompliance: bsi,
+            // Legacy alias for backward compatibility
+            ntiaCompliance: cisa2025,
             freshness: freshness,
             completeness: completeness,
             riskScore: riskScore,
             riskLevel: riskLevel,
             riskColor: riskColor,
-            summary: this.generateAuditSummary(quality, ntia, freshness, completeness, riskLevel)
+            summary: this.generateAuditSummary(quality, cisa2025, bsi, freshness, completeness, riskLevel)
         };
     }
 
     /**
      * Generate human-readable audit summary
      */
-    generateAuditSummary(quality, ntia, freshness, completeness, riskLevel) {
+    generateAuditSummary(quality, cisa2025, bsi, freshness, completeness, riskLevel) {
         const summaryParts = [];
         
         summaryParts.push(`SBOM Quality: Grade ${quality.grade} (${quality.displayScore}/10)`);
-        summaryParts.push(`NTIA Compliance: ${ntia.compliant ? 'Yes' : 'No'} (${ntia.score}%)`);
+        summaryParts.push(`CISA 2025: ${cisa2025.compliant ? '✓' : '✗'} (${cisa2025.score}%)`);
+        summaryParts.push(`BSI: ${bsi.compliant ? '✓' : '✗'} (${bsi.score}%)`);
         summaryParts.push(`Freshness: ${freshness.status}`);
         summaryParts.push(`Completeness: ${completeness.percentage}%`);
-        summaryParts.push(`Overall Risk: ${riskLevel}`);
+        summaryParts.push(`Risk: ${riskLevel}`);
         
         return summaryParts.join(' | ');
     }

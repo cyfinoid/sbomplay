@@ -210,6 +210,451 @@ document.addEventListener('DOMContentLoaded', async function() {
         repoFilter.addEventListener('change', loadAuditData);
     }
     
+    // Handle compliance details modal clicks (using event delegation)
+    document.addEventListener('click', function(e) {
+        const link = e.target.closest('.sbom-compliance-details-link');
+        if (link) {
+            const repository = link.dataset.repository;
+            if (repository && window._sbomAuditData && window._sbomAuditData[repository]) {
+                populateComplianceDetailsModal(repository, window._sbomAuditData[repository]);
+            }
+        }
+    });
+    
+    /**
+     * Populate the Compliance Details Modal with CISA 2025 and BSI requirements
+     */
+    function populateComplianceDetailsModal(repository, auditData) {
+        const modalBody = document.getElementById('complianceDetailsModalBody');
+        const modalTitle = document.getElementById('complianceDetailsModalLabel');
+        
+        if (!modalBody) return;
+        
+        // Determine source
+        const isUploaded = auditData.sbomSource === 'uploaded';
+        const sourceIcon = isUploaded ? 'fa-upload' : 'fab fa-github';
+        const sourceLabel = isUploaded ? 'Uploaded SBOM' : 'GitHub Dependency Graph';
+        const sourceClass = isUploaded ? 'info' : 'dark';
+        const displayName = isUploaded ? repository.replace('upload/', '') : repository;
+        
+        // Update title with source indicator
+        if (modalTitle) {
+            modalTitle.innerHTML = `<i class="fas fa-clipboard-check me-2"></i>SBOM Compliance Details`;
+        }
+        
+        let html = '';
+        
+        // Source & Repository Info Banner
+        html += `<div class="alert alert-${sourceClass} mb-4">
+            <div class="d-flex justify-content-between align-items-center">
+                <div>
+                    <strong><i class="${isUploaded ? 'fas' : 'fab'} ${sourceIcon} me-2"></i>${escapeHtml(displayName)}</strong>
+                    <span class="badge bg-${sourceClass} ms-2">${sourceLabel}</span>
+                </div>
+                <div class="text-end">`;
+        
+        if (isUploaded && auditData.uploadInfo) {
+            html += `<small class="d-block">File: ${escapeHtml(auditData.uploadInfo.filename || 'Unknown')}</small>
+                     <small class="d-block">Format: ${escapeHtml(auditData.uploadInfo.format || 'Unknown')}</small>`;
+            if (auditData.uploadInfo.uploadedAt) {
+                const uploadDate = new Date(auditData.uploadInfo.uploadedAt).toLocaleDateString();
+                html += `<small class="d-block">Uploaded: ${uploadDate}</small>`;
+            }
+        } else if (!isUploaded) {
+            html += `<small class="d-block"><a href="https://github.com/${repository}" target="_blank" rel="noreferrer noopener" class="text-white">View on GitHub <i class="fas fa-external-link-alt"></i></a></small>`;
+        }
+        
+        html += `</div></div></div>`;
+        
+        // Summary Cards
+        const gradeColors = { 'A': 'success', 'B': 'info', 'C': 'warning', 'D': 'danger', 'F': 'dark', 'N/A': 'secondary' };
+        const gradeClass = gradeColors[auditData.grade] || 'secondary';
+        
+        html += `<div class="row mb-4">
+            <div class="col-md-3 text-center">
+                <div class="card h-100">
+                    <div class="card-body">
+                        <h1 class="display-4 text-${gradeClass}">${auditData.grade}</h1>
+                        <p class="mb-0">SBOM Grade</p>
+                        <small class="text-muted">${auditData.displayScore}/10 score</small>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3 text-center">
+                <div class="card h-100">
+                    <div class="card-body">
+                        <h3 class="${auditData.cisa2025Compliant ? 'text-success' : 'text-danger'}">
+                            <i class="fas ${auditData.cisa2025Compliant ? 'fa-check-circle' : 'fa-times-circle'}"></i>
+                        </h3>
+                        <p class="mb-0">CISA 2025</p>
+                        <small class="text-muted">${auditData.cisa2025Compliant ? 'Compliant' : 'Not Compliant'}</small>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3 text-center">
+                <div class="card h-100">
+                    <div class="card-body">
+                        <h3 class="${auditData.bsiCompliant ? 'text-success' : 'text-danger'}">
+                            <i class="fas ${auditData.bsiCompliant ? 'fa-check-circle' : 'fa-times-circle'}"></i>
+                        </h3>
+                        <p class="mb-0">BSI TR-03183-2</p>
+                        <small class="text-muted">${auditData.bsiCompliant ? 'Compliant' : 'Not Compliant'}</small>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3 text-center">
+                <div class="card h-100">
+                    <div class="card-body">
+                        <h3 class="${auditData.completeness >= 80 ? 'text-success' : auditData.completeness >= 50 ? 'text-warning' : 'text-danger'}">
+                            ${auditData.completeness}%
+                        </h3>
+                        <p class="mb-0">Completeness</p>
+                        <small class="text-muted">${auditData.freshness?.status || 'Unknown'}</small>
+                    </div>
+                </div>
+            </div>
+        </div>`;
+        
+        // CISA 2025 Requirements Section
+        html += generateCISA2025RequirementsHTML(auditData);
+        
+        // BSI Requirements Section
+        html += generateBSIRequirementsHTML(auditData);
+        
+        // Quality Categories Breakdown
+        html += generateQualityCategoriesHTML(auditData);
+        
+        // Detailed Issues List
+        html += generateDetailedIssuesHTML(auditData);
+        
+        // Recommendations
+        html += generateRecommendationsHTML(auditData);
+        
+        safeSetHTML(modalBody, html);
+    }
+    
+    /**
+     * Generate CISA 2025 Requirements checklist HTML
+     */
+    function generateCISA2025RequirementsHTML(auditData) {
+        // CISA 2025 Minimum Elements
+        const cisa2025Requirements = [
+            { id: 'softwareProducer', name: 'Software Producer', description: 'Entity that creates components', isNew: false, checkCategory: 'provenance' },
+            { id: 'componentName', name: 'Component Name', description: 'Name of each software component', isNew: false, checkCategory: 'identification' },
+            { id: 'componentVersion', name: 'Component Version', description: 'Version identifier for each component', isNew: false, checkCategory: 'identification' },
+            { id: 'softwareIdentifier', name: 'Software Identifier', description: 'PURL, CPE, OmniBOR, or SWHID', isNew: false, checkCategory: 'identification' },
+            { id: 'componentHash', name: 'Component Hash', description: 'Cryptographic fingerprint (NEW in 2025)', isNew: true, checkCategory: 'integrity' },
+            { id: 'licenseInfo', name: 'License Information', description: 'Legal terms for each component (NEW in 2025)', isNew: true, checkCategory: 'licensing' },
+            { id: 'dependencyRelationship', name: 'Dependency Relationship', description: 'Upstream component relationships', isNew: false, checkCategory: 'completeness' },
+            { id: 'sbomAuthor', name: 'SBOM Author', description: 'Entity that created the SBOM', isNew: false, checkCategory: 'provenance' },
+            { id: 'timestamp', name: 'Timestamp', description: 'Date and time SBOM was assembled', isNew: false, checkCategory: 'provenance' },
+            { id: 'toolName', name: 'Tool Name', description: 'Tool used to generate SBOM (NEW in 2025)', isNew: true, checkCategory: 'provenance' },
+            { id: 'generationContext', name: 'Generation Context', description: 'Pre-build, build, or post-build (NEW in 2025)', isNew: true, checkCategory: 'structural' }
+        ];
+        
+        let html = `<div class="card mb-3">
+            <div class="card-header bg-primary bg-opacity-10">
+                <h6 class="mb-0"><i class="fas fa-flag-usa me-2"></i>CISA 2025 Minimum Elements</h6>
+                <small class="text-muted">US Federal SBOM requirements (August 2025)</small>
+            </div>
+            <div class="card-body">
+                <div class="table-responsive">
+                    <table class="table table-sm mb-0">
+                        <thead><tr><th>Status</th><th>Requirement</th><th>Description</th><th>Category</th></tr></thead>
+                        <tbody>`;
+        
+        cisa2025Requirements.forEach(req => {
+            const categoryScore = auditData.categories?.[req.checkCategory]?.score || 0;
+            const isPassing = categoryScore >= 70;
+            const statusIcon = isPassing ? 
+                '<i class="fas fa-check-circle text-success"></i>' : 
+                '<i class="fas fa-times-circle text-danger"></i>';
+            const newBadge = req.isNew ? '<span class="badge bg-warning text-dark ms-1">NEW</span>' : '';
+            
+            html += `<tr>
+                <td class="text-center">${statusIcon}</td>
+                <td><strong>${escapeHtml(req.name)}</strong>${newBadge}</td>
+                <td><small class="text-muted">${escapeHtml(req.description)}</small></td>
+                <td><span class="badge bg-secondary">${req.checkCategory}</span></td>
+            </tr>`;
+        });
+        
+        html += `</tbody></table></div>`;
+        
+        // Add what's needed for compliance
+        if (!auditData.cisa2025Compliant) {
+            html += `<div class="alert alert-warning mt-3 mb-0">
+                <strong><i class="fas fa-lightbulb me-1"></i>To achieve CISA 2025 compliance:</strong>
+                <ul class="mb-0 mt-2">`;
+            
+            if ((auditData.categories?.identification?.score || 0) < 70) {
+                html += '<li>Add unique identifiers (PURLs) to all components</li>';
+                html += '<li>Ensure all components have names and versions</li>';
+            }
+            if ((auditData.categories?.provenance?.score || 0) < 70) {
+                html += '<li>Include SBOM author information</li>';
+                html += '<li>Add generation timestamp</li>';
+                html += '<li>Specify the tool used to generate the SBOM</li>';
+            }
+            if ((auditData.categories?.integrity?.score || 0) < 50) {
+                html += '<li>Add SHA-256 (or stronger) checksums to all components</li>';
+            }
+            if ((auditData.categories?.licensing?.score || 0) < 50) {
+                html += '<li>Include license information for all components</li>';
+            }
+            
+            html += '</ul></div>';
+        }
+        
+        html += '</div></div>';
+        return html;
+    }
+    
+    /**
+     * Generate BSI TR-03183-2 Requirements checklist HTML
+     */
+    function generateBSIRequirementsHTML(auditData) {
+        // BSI TR-03183-2 v2.0 Requirements
+        const bsiRequirements = [
+            { id: 'specification', name: 'SBOM Specification', description: 'Valid SPDX or CycloneDX format', checkCategory: 'structural' },
+            { id: 'specVersion', name: 'Specification Version', description: 'CycloneDX 1.5+ or SPDX 2.2.1+', checkCategory: 'structural' },
+            { id: 'creator', name: 'SBOM Creator', description: 'Creator with email or URL contact', checkCategory: 'provenance' },
+            { id: 'timestamp', name: 'Creation Timestamp', description: 'ISO 8601 format timestamp', checkCategory: 'provenance' },
+            { id: 'sbomUri', name: 'SBOM URI', description: 'Unique namespace or serial number', checkCategory: 'structural' },
+            { id: 'dependencies', name: 'Dependency Relationships', description: 'Component dependency graph', checkCategory: 'completeness' },
+            { id: 'componentName', name: 'Component Name', description: 'Package name for each component', checkCategory: 'identification' },
+            { id: 'componentVersion', name: 'Component Version', description: 'Package version', checkCategory: 'identification' },
+            { id: 'componentCreator', name: 'Component Supplier', description: 'Supplier with contact info', checkCategory: 'provenance' },
+            { id: 'componentLicense', name: 'Associated License', description: 'Valid SPDX license expression', checkCategory: 'licensing' },
+            { id: 'componentHash', name: 'Component Hash (SHA-256)', description: 'SHA-256 or stronger checksum required', checkCategory: 'integrity' },
+            { id: 'uniqueIdentifiers', name: 'Unique Identifiers', description: 'CPE or PURL identifier', checkCategory: 'identification' }
+        ];
+        
+        let html = `<div class="card mb-3">
+            <div class="card-header bg-info bg-opacity-10">
+                <h6 class="mb-0"><i class="fas fa-shield-alt me-2"></i>BSI TR-03183-2 v2.0 Requirements</h6>
+                <small class="text-muted">German/EU Technical Guideline (September 2024)</small>
+            </div>
+            <div class="card-body">
+                <div class="table-responsive">
+                    <table class="table table-sm mb-0">
+                        <thead><tr><th>Status</th><th>Requirement</th><th>Description</th><th>Category</th></tr></thead>
+                        <tbody>`;
+        
+        bsiRequirements.forEach(req => {
+            const categoryScore = auditData.categories?.[req.checkCategory]?.score || 0;
+            // BSI is stricter - needs 70% for most categories
+            const threshold = req.id === 'componentHash' ? 70 : 70;
+            const isPassing = categoryScore >= threshold;
+            const statusIcon = isPassing ? 
+                '<i class="fas fa-check-circle text-success"></i>' : 
+                '<i class="fas fa-times-circle text-danger"></i>';
+            
+            html += `<tr>
+                <td class="text-center">${statusIcon}</td>
+                <td><strong>${escapeHtml(req.name)}</strong></td>
+                <td><small class="text-muted">${escapeHtml(req.description)}</small></td>
+                <td><span class="badge bg-secondary">${req.checkCategory}</span></td>
+            </tr>`;
+        });
+        
+        html += `</tbody></table></div>`;
+        
+        // Add what's needed for compliance
+        if (!auditData.bsiCompliant) {
+            html += `<div class="alert alert-info mt-3 mb-0">
+                <strong><i class="fas fa-lightbulb me-1"></i>To achieve BSI TR-03183-2 compliance:</strong>
+                <ul class="mb-0 mt-2">`;
+            
+            if ((auditData.categories?.integrity?.score || 0) < 70) {
+                html += '<li><strong>Required:</strong> Add SHA-256 (minimum) checksums to ALL components</li>';
+            }
+            if ((auditData.categories?.licensing?.score || 0) < 70) {
+                html += '<li>Use valid SPDX license expressions for all components</li>';
+            }
+            if ((auditData.categories?.provenance?.score || 0) < 70) {
+                html += '<li>Include creator contact information (email or URL)</li>';
+            }
+            if ((auditData.categories?.structural?.score || 0) < 70) {
+                html += '<li>Ensure SBOM uses supported format version (CycloneDX 1.5+ or SPDX 2.2.1+)</li>';
+            }
+            
+            html += '</ul></div>';
+        }
+        
+        html += '</div></div>';
+        return html;
+    }
+    
+    /**
+     * Generate Quality Categories breakdown HTML
+     */
+    function generateQualityCategoriesHTML(auditData) {
+        const categories = auditData.categories || {};
+        const categoryInfo = {
+            identification: { name: 'Identification', icon: 'fa-fingerprint', weight: '12%', description: 'Component names, versions, unique IDs' },
+            provenance: { name: 'Provenance', icon: 'fa-history', weight: '15%', description: 'SBOM creator, timestamp, supplier info' },
+            integrity: { name: 'Integrity', icon: 'fa-lock', weight: '18%', description: 'Checksums, hash algorithms, signatures' },
+            completeness: { name: 'Completeness', icon: 'fa-tasks', weight: '15%', description: 'Dependencies, source URIs, purpose' },
+            licensing: { name: 'Licensing', icon: 'fa-balance-scale', weight: '18%', description: 'License declarations, SPDX expressions' },
+            vulnerability: { name: 'Vulnerability', icon: 'fa-shield-virus', weight: '12%', description: 'Security references, tracking info' },
+            structural: { name: 'Structural', icon: 'fa-sitemap', weight: '10%', description: 'Spec version, format, schema validation' }
+        };
+        
+        let html = `<div class="card mb-3">
+            <div class="card-header">
+                <h6 class="mb-0"><i class="fas fa-chart-bar me-2"></i>Quality Categories Breakdown</h6>
+            </div>
+            <div class="card-body">
+                <div class="row">`;
+        
+        Object.entries(categoryInfo).forEach(([key, info]) => {
+            const score = categories[key]?.score || 0;
+            const colorClass = score >= 80 ? 'success' : score >= 60 ? 'warning' : 'danger';
+            
+            html += `<div class="col-md-6 col-lg-4 mb-3">
+                <div class="d-flex align-items-center mb-1">
+                    <i class="fas ${info.icon} me-2 text-muted"></i>
+                    <strong>${info.name}</strong>
+                    <span class="badge bg-secondary ms-auto">${info.weight}</span>
+                </div>
+                <div class="progress" style="height: 8px;">
+                    <div class="progress-bar bg-${colorClass}" style="width: ${score}%"></div>
+                </div>
+                <div class="d-flex justify-content-between">
+                    <small class="text-muted">${info.description}</small>
+                    <small class="text-${colorClass}">${score}%</small>
+                </div>
+            </div>`;
+        });
+        
+        html += '</div></div></div>';
+        return html;
+    }
+    
+    /**
+     * Generate Detailed Issues list HTML
+     */
+    function generateDetailedIssuesHTML(auditData) {
+        const issues = auditData.issues || [];
+        
+        if (issues.length === 0 || issues.every(cat => !cat.issues || cat.issues.length === 0)) {
+            return `<div class="card mb-3">
+                <div class="card-header bg-success bg-opacity-10">
+                    <h6 class="mb-0"><i class="fas fa-check-circle me-2 text-success"></i>No Issues Found</h6>
+                </div>
+                <div class="card-body">
+                    <p class="mb-0 text-muted">This SBOM has no quality issues detected.</p>
+                </div>
+            </div>`;
+        }
+        
+        let html = `<div class="card mb-3">
+            <div class="card-header">
+                <h6 class="mb-0"><i class="fas fa-exclamation-triangle me-2"></i>Detected Issues</h6>
+            </div>
+            <div class="card-body">`;
+        
+        issues.forEach(category => {
+            if (!category.issues || category.issues.length === 0) return;
+            
+            html += `<h6 class="mb-2"><span class="badge bg-secondary">${escapeHtml(category.category)}</span></h6>
+                <ul class="list-group list-group-flush mb-3">`;
+            
+            category.issues.forEach(issue => {
+                html += `<li class="list-group-item py-2">
+                    <i class="fas fa-chevron-right text-muted me-2"></i>
+                    <span>${escapeHtml(issue)}</span>
+                </li>`;
+            });
+            
+            html += '</ul>';
+        });
+        
+        html += '</div></div>';
+        return html;
+    }
+    
+    /**
+     * Generate Recommendations HTML
+     */
+    function generateRecommendationsHTML(auditData) {
+        const recommendations = [];
+        
+        // Generate recommendations based on lowest scores
+        const categories = auditData.categories || {};
+        
+        if ((categories.integrity?.score || 0) < 50) {
+            recommendations.push({
+                priority: 'high',
+                title: 'Add Cryptographic Hashes',
+                description: 'Include SHA-256 or SHA-512 checksums for all components. This is required by both CISA 2025 and BSI TR-03183-2.',
+                action: 'Use SBOM generation tools that support hash calculation (e.g., syft, cdxgen with --include-hashes flag)'
+            });
+        }
+        
+        if ((categories.licensing?.score || 0) < 60) {
+            recommendations.push({
+                priority: 'high',
+                title: 'Complete License Information',
+                description: 'Ensure all components have valid SPDX license expressions.',
+                action: 'Run license detection tools or manually add license declarations to your SBOM'
+            });
+        }
+        
+        if ((categories.provenance?.score || 0) < 60) {
+            recommendations.push({
+                priority: 'medium',
+                title: 'Improve Provenance Data',
+                description: 'Add SBOM author, creation timestamp, and tool information.',
+                action: 'Ensure your SBOM generation tool populates metadata fields'
+            });
+        }
+        
+        if ((categories.identification?.score || 0) < 70) {
+            recommendations.push({
+                priority: 'medium',
+                title: 'Add Package Identifiers',
+                description: 'Include PURLs (Package URLs) for all components.',
+                action: 'Use tools that automatically generate PURLs (syft, cdxgen, trivy)'
+            });
+        }
+        
+        if ((categories.structural?.score || 0) < 70) {
+            recommendations.push({
+                priority: 'low',
+                title: 'Use Latest SBOM Specification',
+                description: 'Ensure your SBOM uses CycloneDX 1.5+ or SPDX 2.2.1+.',
+                action: 'Update your SBOM generation tools to the latest version'
+            });
+        }
+        
+        if (recommendations.length === 0) {
+            return '';
+        }
+        
+        let html = `<div class="card">
+            <div class="card-header bg-success bg-opacity-10">
+                <h6 class="mb-0"><i class="fas fa-lightbulb me-2"></i>Recommendations</h6>
+            </div>
+            <div class="card-body">`;
+        
+        recommendations.forEach(rec => {
+            const priorityClass = rec.priority === 'high' ? 'danger' : rec.priority === 'medium' ? 'warning' : 'info';
+            html += `<div class="mb-3">
+                <div class="d-flex align-items-center mb-1">
+                    <span class="badge bg-${priorityClass} me-2">${rec.priority.toUpperCase()}</span>
+                    <strong>${escapeHtml(rec.title)}</strong>
+                </div>
+                <p class="mb-1 text-muted">${escapeHtml(rec.description)}</p>
+                <small class="text-primary"><i class="fas fa-arrow-right me-1"></i>${escapeHtml(rec.action)}</small>
+            </div>`;
+        });
+        
+        html += '</div></div>';
+        return html;
+    }
+    
     
     /**
      * Generate all audit sections HTML
@@ -217,11 +662,11 @@ document.addEventListener('DOMContentLoaded', async function() {
     async function generateAllAuditSectionsHTML(orgData, severityFilter = 'all', sectionFilter = 'all', repoFilter = 'all') {
         let html = '';
         
-        // Unified Security & SBOM Audit Findings (combines GitHub Actions and SBOM Deficiencies)
-        if (sectionFilter === 'all' || sectionFilter === 'github-actions' || sectionFilter === 'sbom-deficiencies') {
-            const unifiedHTML = generateUnifiedAuditFindingsHTML(orgData, severityFilter, repoFilter);
-            if (unifiedHTML) {
-                html += `<div id="unified-audit-findings-section" class="audit-section mb-4">${unifiedHTML}</div>`;
+        // SBOM Audit Section (show first as primary audit)
+        if (sectionFilter === 'all' || sectionFilter === 'sbom-audit') {
+            const sbomAuditHTML = await generateSBOMAuditHTML(orgData, severityFilter, repoFilter);
+            if (sbomAuditHTML) {
+                html += `<div id="sbom-audit-section" class="audit-section mb-4">${sbomAuditHTML}</div>`;
             }
         }
         
@@ -262,22 +707,6 @@ document.addEventListener('DOMContentLoaded', async function() {
             const licenseHTML = await generateLicenseCompatibilityHTML(orgData, severityFilter, repoFilter);
             if (licenseHTML) {
                 html += `<div id="license-compatibility-section" class="audit-section mb-4">${licenseHTML}</div>`;
-            }
-        }
-        
-        // SBOM Audit Section
-        if (sectionFilter === 'all' || sectionFilter === 'sbom-audit') {
-            const sbomAuditHTML = await generateSBOMAuditHTML(orgData, severityFilter, repoFilter);
-            if (sbomAuditHTML) {
-                html += `<div id="sbom-audit-section" class="audit-section mb-4">${sbomAuditHTML}</div>`;
-            }
-        }
-        
-        // Repository Audit Section (only show if explicitly selected, since it's a placeholder)
-        if (sectionFilter === 'repository-audit') {
-            const repoAuditHTML = generateRepositoryAuditHTML(orgData, severityFilter);
-            if (repoAuditHTML) {
-                html += `<div id="repository-audit-section" class="audit-section mb-4">${repoAuditHTML}</div>`;
             }
         }
         
@@ -1677,7 +2106,8 @@ document.addEventListener('DOMContentLoaded', async function() {
         // Collect SBOM audit data
         const auditData = [];
         const gradeDistribution = { 'A': 0, 'B': 0, 'C': 0, 'D': 0, 'F': 0, 'N/A': 0 };
-        let totalNTIACompliant = 0;
+        let totalCISA2025Compliant = 0;
+        let totalBSICompliant = 0;
         let totalFresh = 0;
         let totalCompleteness = 0;
         let reposWithSBOM = 0;
@@ -1694,11 +2124,20 @@ document.addEventListener('DOMContentLoaded', async function() {
             reposWithSBOM++;
             gradeDistribution[quality.grade]++;
             
-            // Calculate NTIA compliance (simplified based on quality categories)
-            const ntiaCompliant = quality.overallScore >= 70 && 
+            // Calculate CISA 2025 compliance (based on quality categories)
+            // CISA 2025 requires: identification, provenance, integrity (hash), licensing
+            const cisa2025Compliant = quality.overallScore >= 70 && 
                                  quality.categories?.identification?.score >= 70 &&
-                                 quality.categories?.provenance?.score >= 70;
-            if (ntiaCompliant) totalNTIACompliant++;
+                                 quality.categories?.provenance?.score >= 70 &&
+                                 quality.categories?.integrity?.score >= 50 &&
+                                 quality.categories?.licensing?.score >= 50;
+            if (cisa2025Compliant) totalCISA2025Compliant++;
+            
+            // Calculate BSI compliance (requires SHA-256 hashes)
+            const bsiCompliant = quality.overallScore >= 75 &&
+                                quality.categories?.integrity?.score >= 70 &&
+                                quality.categories?.licensing?.score >= 70;
+            if (bsiCompliant) totalBSICompliant++;
             
             // Estimate freshness from timestamp
             let freshness = { isFresh: false, status: 'Unknown', ageInDays: null };
@@ -1734,17 +2173,25 @@ document.addEventListener('DOMContentLoaded', async function() {
                 includeInResults = quality.grade === 'B' || quality.grade === 'C';
             }
             
+            // Determine SBOM source (uploaded vs GitHub dependency graph)
+            const isUploaded = repo.owner === 'upload';
+            const sbomSource = isUploaded ? 'uploaded' : 'github';
+            const uploadInfo = repo.uploadInfo || null;
+            
             if (includeInResults) {
                 auditData.push({
                     repository: repoKey,
                     grade: quality.grade,
                     score: quality.overallScore,
                     displayScore: quality.displayScore,
-                    ntiaCompliant: ntiaCompliant,
+                    cisa2025Compliant: cisa2025Compliant,
+                    bsiCompliant: bsiCompliant,
                     freshness: freshness,
                     completeness: completenessScore,
                     categories: quality.categories,
-                    issues: quality.issues || []
+                    issues: quality.issues || [],
+                    sbomSource: sbomSource,
+                    uploadInfo: uploadInfo
                 });
             }
         });
@@ -1773,8 +2220,8 @@ document.addEventListener('DOMContentLoaded', async function() {
         html += `<div class="col-md-3">
             <div class="card text-center bg-success bg-opacity-10">
                 <div class="card-body">
-                    <h3>${totalNTIACompliant}</h3>
-                    <p class="stats-card-label mb-0">NTIA Compliant</p>
+                    <h3>${totalCISA2025Compliant}</h3>
+                    <p class="stats-card-label mb-0">CISA 2025</p>
                 </div>
             </div>
         </div>`;
@@ -1807,68 +2254,134 @@ document.addEventListener('DOMContentLoaded', async function() {
         }
         html += '</div>';
         
-        // NTIA Compliance Summary
-        const ntiaPercentage = reposWithSBOM > 0 ? Math.round((totalNTIACompliant / reposWithSBOM) * 100) : 0;
-        const ntiaAlertClass = ntiaPercentage >= 80 ? 'success' : ntiaPercentage >= 50 ? 'warning' : 'danger';
-        html += `<div class="alert alert-${ntiaAlertClass} mb-3">
-            <strong>NTIA Compliance:</strong> ${totalNTIACompliant}/${reposWithSBOM} repositories (${ntiaPercentage}%) 
-            meet NTIA Minimum Elements requirements.
+        // Compliance Summary
+        const cisa2025Percentage = reposWithSBOM > 0 ? Math.round((totalCISA2025Compliant / reposWithSBOM) * 100) : 0;
+        const bsiPercentage = reposWithSBOM > 0 ? Math.round((totalBSICompliant / reposWithSBOM) * 100) : 0;
+        const cisaAlertClass = cisa2025Percentage >= 80 ? 'success' : cisa2025Percentage >= 50 ? 'warning' : 'danger';
+        const bsiAlertClass = bsiPercentage >= 80 ? 'success' : bsiPercentage >= 50 ? 'warning' : 'danger';
+        html += `<div class="row mb-3">
+            <div class="col-md-6">
+                <div class="alert alert-${cisaAlertClass} mb-0">
+                    <strong><i class="fas fa-flag-usa me-1"></i>CISA 2025:</strong> ${totalCISA2025Compliant}/${reposWithSBOM} (${cisa2025Percentage}%)
+                    <small class="d-block text-muted">US Federal SBOM requirements</small>
+                </div>
+            </div>
+            <div class="col-md-6">
+                <div class="alert alert-${bsiAlertClass} mb-0">
+                    <strong><i class="fas fa-shield-alt me-1"></i>BSI TR-03183-2:</strong> ${totalBSICompliant}/${reposWithSBOM} (${bsiPercentage}%)
+                    <small class="d-block text-muted">German/EU technical guideline</small>
+                </div>
+            </div>
         </div>`;
         
-        // Detailed list (only show repos needing attention)
+        // Store audit data globally for modal access
+        window._sbomAuditData = {};
+        auditData.forEach(audit => {
+            window._sbomAuditData[audit.repository] = audit;
+        });
+        
+        // Detailed list - show all repositories
         if (auditData.length > 0) {
             html += '<h6 class="mb-2">Repository SBOM Quality</h6>';
-            html += '<div class="table-responsive"><table class="table table-sm table-hover align-middle">';
-            html += '<thead class="table-light"><tr>';
-            html += '<th style="width: 250px;">Repository</th>';
-            html += '<th style="width: 80px;">Grade</th>';
-            html += '<th style="width: 100px;">Score</th>';
-            html += '<th style="width: 100px;">NTIA</th>';
-            html += '<th style="width: 120px;">Freshness</th>';
-            html += '<th style="width: 100px;">Complete</th>';
-            html += '<th>Top Issues</th>';
+            html += '<div class="table-responsive" style="max-height: 600px; overflow-y: auto;">';
+            html += '<table class="table table-sm table-hover align-middle">';
+            html += '<thead class="table-light sticky-top"><tr>';
+            html += '<th style="width: 70px;">Source</th>';
+            html += '<th style="width: 200px;">Repository</th>';
+            html += '<th style="width: 60px;">Grade</th>';
+            html += '<th style="width: 70px;">Score</th>';
+            html += '<th style="width: 70px;">CISA</th>';
+            html += '<th style="width: 60px;">BSI</th>';
+            html += '<th style="width: 90px;">Freshness</th>';
+            html += '<th style="width: 70px;">Complete</th>';
+            html += '<th>Issue Details</th>';
             html += '</tr></thead><tbody>';
             
-            auditData.slice(0, 50).forEach(audit => {
+            // Show all repositories - sorted by score (lowest first for attention)
+            auditData.forEach(audit => {
                 const gradeClass = gradeColors[audit.grade] || 'secondary';
-                const ntiaIcon = audit.ntiaCompliant ? 
-                    '<i class="fas fa-check-circle text-success"></i>' : 
-                    '<i class="fas fa-times-circle text-danger"></i>';
+                const cisaIcon = audit.cisa2025Compliant ? 
+                    '<i class="fas fa-check-circle text-success" title="CISA 2025 Compliant"></i>' : 
+                    '<i class="fas fa-times-circle text-danger" title="Not CISA 2025 Compliant"></i>';
+                const bsiIcon = audit.bsiCompliant ? 
+                    '<i class="fas fa-check-circle text-success" title="BSI Compliant"></i>' : 
+                    '<i class="fas fa-times-circle text-danger" title="Not BSI Compliant"></i>';
                 const freshnessClass = audit.freshness.isFresh ? 'success' : 
                                       audit.freshness.status === 'Aging' ? 'warning' : 'danger';
                 
-                // Get top issues
-                const topIssues = audit.issues
-                    .flatMap(cat => cat.issues || [])
-                    .slice(0, 2)
-                    .map(issue => `<small class="text-muted">${escapeHtml(issue.substring(0, 50))}...</small>`)
-                    .join('<br>') || '<small class="text-muted">None</small>';
+                // Count total issues
+                const issueCount = audit.issues.reduce((acc, cat) => acc + (cat.issues?.length || 0), 0);
+                const issueClass = issueCount === 0 ? 'success' : issueCount <= 3 ? 'warning' : 'danger';
+                
+                // Source indicator
+                const isUploaded = audit.sbomSource === 'uploaded';
+                const sourceIcon = isUploaded 
+                    ? '<span class="badge bg-info" title="Manually uploaded SBOM"><i class="fas fa-upload me-1"></i>Upload</span>'
+                    : '<span class="badge bg-dark" title="GitHub Dependency Graph"><i class="fab fa-github me-1"></i>GitHub</span>';
+                
+                // Repository link - only link to GitHub if it's from GitHub
+                const repoDisplay = isUploaded
+                    ? `<span class="text-muted"><i class="fas fa-file-code me-1"></i>${escapeHtml(audit.repository.replace('upload/', ''))}</span>`
+                    : `<a href="https://github.com/${audit.repository}" target="_blank" rel="noreferrer noopener" class="text-decoration-none">
+                        <i class="fab fa-github me-1"></i>${escapeHtml(audit.repository)}
+                       </a>`;
                 
                 html += `<tr>
-                    <td>
-                        <a href="https://github.com/${audit.repository}" target="_blank" rel="noreferrer noopener" class="text-decoration-none">
-                            <i class="fab fa-github me-1"></i>${escapeHtml(audit.repository)}
-                        </a>
-                    </td>
+                    <td>${sourceIcon}</td>
+                    <td>${repoDisplay}</td>
                     <td><span class="badge bg-${gradeClass}">${audit.grade}</span></td>
                     <td>${audit.displayScore}/10</td>
-                    <td>${ntiaIcon}</td>
+                    <td>${cisaIcon}</td>
+                    <td>${bsiIcon}</td>
                     <td><span class="badge bg-${freshnessClass}">${audit.freshness.status}</span></td>
                     <td>${audit.completeness}%</td>
-                    <td>${topIssues}</td>
+                    <td>
+                        <a href="#" class="sbom-compliance-details-link text-decoration-none" 
+                           data-repository="${escapeHtml(audit.repository)}"
+                           data-bs-toggle="modal" data-bs-target="#complianceDetailsModal">
+                            <span class="badge bg-${issueClass}">${issueCount} issues</span>
+                            <i class="fas fa-external-link-alt ms-1 small"></i>
+                        </a>
+                    </td>
                 </tr>`;
             });
             
-            if (auditData.length > 50) {
-                html += `<tr><td colspan="7" class="text-center text-muted py-3"><em>... and ${auditData.length - 50} more repositories</em></td></tr>`;
-            }
-            
             html += '</tbody></table></div>';
+            html += `<small class="text-muted">Showing all ${auditData.length} repositories, sorted by score (lowest first)</small>`;
         }
         
         html += '</div></div>';
         
+        // Add Compliance Details Modal
+        html += generateComplianceDetailsModal();
+        
         return html;
+    }
+    
+    /**
+     * Generate the Compliance Details Modal HTML
+     * Shows detailed compliance requirements for CISA 2025 and BSI TR-03183-2
+     */
+    function generateComplianceDetailsModal() {
+        return `
+        <div class="modal fade" id="complianceDetailsModal" tabindex="-1" aria-labelledby="complianceDetailsModalLabel" aria-hidden="true">
+            <div class="modal-dialog modal-xl modal-dialog-scrollable">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h5 class="modal-title" id="complianceDetailsModalLabel">
+                            <i class="fas fa-clipboard-check me-2"></i>SBOM Compliance Details
+                        </h5>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                    </div>
+                    <div class="modal-body" id="complianceDetailsModalBody">
+                        <!-- Content populated dynamically -->
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                    </div>
+                </div>
+            </div>
+        </div>`;
     }
     
     /**

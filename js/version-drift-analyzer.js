@@ -572,7 +572,6 @@ class VersionDriftAnalyzer {
             await new Promise(resolve => setTimeout(resolve, 100));
         }
     }
-}
 
     /**
      * Check EOX (End-of-Life/End-of-Support) status for a package
