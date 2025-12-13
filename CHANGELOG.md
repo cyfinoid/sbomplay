@@ -8,6 +8,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **EOX (End-of-Life) Support**: New service to detect End-of-Life and End-of-Support packages
+  - Created `js/eox-service.js` for integration with endoflife.date API
+  - Automatically identifies packages that have reached EOL/EOS status
+  - Added EOX checking during analysis phase for notable dependencies (runtimes, frameworks, databases)
+  - New "EOX Dependencies" section in Audit page with high severity for EOL, medium for EOS
+  - EOX badges displayed in Dependencies page table
+  - EOX filter checkbox in Dependencies page filters
+  - Cache support in IndexedDB for EOX data (7-day cache expiry)
+
+- **Enhanced SBOM Audit**: Comprehensive SBOM quality assessment with new features
+  - **NTIA Compliance Check**: Validates SBOMs against NTIA Minimum Elements requirements
+    - Checks 7 required elements: Supplier Name, Component Name, Version, Unique Identifier, Dependency Relationship, SBOM Author, Timestamp
+    - 90% coverage threshold for package-level elements
+  - **SBOM Freshness Tracking**: Monitors SBOM generation date and age
+    - Status levels: Very Fresh (≤7 days), Fresh (≤30 days), Recent (≤90 days), Aging (≤180 days), Old (≤365 days), Stale (>365 days)
+  - **Completeness Score**: Percentage of packages with full metadata (name, version, PURL, license, supplier, download location, checksum)
+  - **Comprehensive Audit Report**: `generateAuditReport()` method combines all assessments with risk scoring
+  - New "SBOM Audit" section in Audit page showing per-repository quality breakdown
+
+- **Version Drift Analyzer Enhancements**: Added EOX integration and package status methods
+  - `checkEOX()`: Delegates to EOXService for EOL/EOS checking
+  - `getPackageStatus()`: Returns combined drift, staleness, and EOX status
+  - `getHighestSeverityStatus()`: Determines the most critical status for a package
+
 - **Unified Enrichment Pipeline**: Created shared `EnrichmentPipeline` class (`js/enrichment-pipeline.js`) that orchestrates all data enrichment
   - Vulnerability analysis (OSVService)
   - License fetching (deps.dev API + GitHub fallback)

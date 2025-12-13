@@ -249,11 +249,27 @@ document.addEventListener('DOMContentLoaded', async function() {
             }
         }
         
+        // EOX (End-of-Life) Dependencies Section
+        if (sectionFilter === 'all' || sectionFilter === 'eox-dependencies') {
+            const eoxHTML = await generateEOXDependenciesHTML(orgData, severityFilter, repoFilter);
+            if (eoxHTML) {
+                html += `<div id="eox-dependencies-section" class="audit-section mb-4">${eoxHTML}</div>`;
+            }
+        }
+        
         // License Compatibility Section
         if (sectionFilter === 'all' || sectionFilter === 'license-compatibility') {
             const licenseHTML = await generateLicenseCompatibilityHTML(orgData, severityFilter, repoFilter);
             if (licenseHTML) {
                 html += `<div id="license-compatibility-section" class="audit-section mb-4">${licenseHTML}</div>`;
+            }
+        }
+        
+        // SBOM Audit Section
+        if (sectionFilter === 'all' || sectionFilter === 'sbom-audit') {
+            const sbomAuditHTML = await generateSBOMAuditHTML(orgData, severityFilter, repoFilter);
+            if (sbomAuditHTML) {
+                html += `<div id="sbom-audit-section" class="audit-section mb-4">${sbomAuditHTML}</div>`;
             }
         }
         
@@ -1439,6 +1455,417 @@ document.addEventListener('DOMContentLoaded', async function() {
         }
         
         html += '</tbody></table></div>';
+        html += '</div></div>';
+        
+        return html;
+    }
+    
+    /**
+     * Generate EOX (End-of-Life) Dependencies audit findings HTML
+     * Checks for dependencies that have reached end-of-life or end-of-support
+     */
+    async function generateEOXDependenciesHTML(orgData, severityFilter = 'all', repoFilter = 'all') {
+        let allDependencies = orgData?.data?.allDependencies || [];
+        
+        if (!allDependencies || allDependencies.length === 0) {
+            return '';
+        }
+        
+        // Filter dependencies by repository if specified
+        if (repoFilter && repoFilter !== 'all') {
+            allDependencies = allDependencies.filter(dep => 
+                dep.repositories && dep.repositories.includes(repoFilter)
+            );
+        }
+        
+        if (!window.eoxService) {
+            return '';
+        }
+        
+        // Filter by severity (EOL = high, EOS = medium)
+        if (severityFilter && severityFilter !== 'all' && severityFilter !== 'high' && severityFilter !== 'medium') {
+            return '';
+        }
+        
+        const eolDeps = [];
+        const eosDeps = [];
+        const batchSize = 20; // Smaller batch for EOX since it involves external API
+        
+        // Check EOX status for dependencies
+        for (let i = 0; i < allDependencies.length; i += batchSize) {
+            const batch = allDependencies.slice(i, i + batchSize);
+            const batchChecks = await Promise.all(batch.map(async (dep) => {
+                if (!dep.name || !dep.ecosystem) {
+                    return null;
+                }
+                
+                try {
+                    const eoxStatus = await window.eoxService.checkEOX(
+                        dep.name,
+                        dep.version,
+                        dep.ecosystem
+                    );
+                    
+                    if (eoxStatus && (eoxStatus.isEOL || eoxStatus.isEOS)) {
+                        return {
+                            name: dep.name,
+                            version: dep.version || 'unknown',
+                            ecosystem: dep.ecosystem || 'unknown',
+                            repositories: dep.repositories || [],
+                            isEOL: eoxStatus.isEOL,
+                            isEOS: eoxStatus.isEOS,
+                            eolDate: eoxStatus.eolDate,
+                            eosDate: eoxStatus.eosDate,
+                            latestVersion: eoxStatus.latestVersion,
+                            successor: eoxStatus.successor,
+                            productMatched: eoxStatus.productMatched
+                        };
+                    }
+                } catch (e) {
+                    // Ignore errors
+                }
+                return null;
+            }));
+            
+            batchChecks.filter(d => d !== null).forEach(dep => {
+                if (dep.isEOL) {
+                    eolDeps.push(dep);
+                } else if (dep.isEOS) {
+                    eosDeps.push(dep);
+                }
+            });
+        }
+        
+        // Apply severity filter
+        let filteredEOL = eolDeps;
+        let filteredEOS = eosDeps;
+        
+        if (severityFilter === 'high') {
+            filteredEOS = [];
+        } else if (severityFilter === 'medium') {
+            filteredEOL = [];
+        }
+        
+        const allEOX = [...filteredEOL, ...filteredEOS];
+        
+        if (allEOX.length === 0) {
+            return '';
+        }
+        
+        let html = '<div class="card">';
+        html += '<div class="card-header"><h5 class="mb-0"><i class="fas fa-skull-crossbones me-2"></i>End-of-Life Dependencies</h5></div>';
+        html += '<div class="card-body">';
+        
+        // Statistics
+        html += '<div class="row mb-3">';
+        html += `<div class="col-md-4">
+            <div class="card text-center bg-danger bg-opacity-10">
+                <div class="card-body">
+                    <h3>${filteredEOL.length}</h3>
+                    <p class="stats-card-label mb-0">End of Life (EOL)</p>
+                </div>
+            </div>
+        </div>`;
+        html += `<div class="col-md-4">
+            <div class="card text-center bg-warning bg-opacity-10">
+                <div class="card-body">
+                    <h3>${filteredEOS.length}</h3>
+                    <p class="stats-card-label mb-0">End of Support (EOS)</p>
+                </div>
+            </div>
+        </div>`;
+        html += `<div class="col-md-4">
+            <div class="card text-center bg-light">
+                <div class="card-body">
+                    <h3>${new Set(allEOX.flatMap(d => d.repositories)).size}</h3>
+                    <p class="stats-card-label mb-0">Repositories Affected</p>
+                </div>
+            </div>
+        </div>`;
+        html += '</div>';
+        
+        // Summary
+        html += `<div class="alert alert-danger mb-3">
+            <strong>Critical:</strong> Found <strong>${allEOX.length}</strong> dependencies at end-of-life 
+            (<strong>${filteredEOL.length}</strong> EOL, <strong>${filteredEOS.length}</strong> EOS). 
+            These packages no longer receive updates or security patches.
+        </div>`;
+        
+        // Detailed list
+        html += '<h6 class="mb-2">End-of-Life Dependencies</h6>';
+        html += '<div class="table-responsive"><table class="table table-sm table-hover align-middle">';
+        html += '<thead class="table-light"><tr>';
+        html += '<th style="width: 100px;">Status</th>';
+        html += '<th style="width: 250px;">Package</th>';
+        html += '<th style="width: 150px;">Version</th>';
+        html += '<th style="width: 120px;">Ecosystem</th>';
+        html += '<th style="width: 150px;">EOL/EOS Date</th>';
+        html += '<th>Affected Repositories</th>';
+        html += '</tr></thead><tbody>';
+        
+        // Show EOL first (higher severity)
+        filteredEOL.slice(0, 50).forEach(pkg => {
+            const repoList = generateRepoListHTML(pkg.repositories);
+            const dateDisplay = pkg.eolDate || 'Unknown';
+            
+            html += `<tr>
+                <td><span class="badge bg-danger"><i class="fas fa-skull me-1"></i>EOL</span></td>
+                <td><code class="small">${escapeHtml(pkg.name)}</code></td>
+                <td><span class="text-muted">${escapeHtml(pkg.version)}</span></td>
+                <td><span class="badge bg-secondary">${escapeHtml(pkg.ecosystem)}</span></td>
+                <td><small class="text-danger">${escapeHtml(dateDisplay)}</small></td>
+                <td><small>${repoList}</small></td>
+            </tr>`;
+        });
+        
+        // Then EOS
+        filteredEOS.slice(0, Math.max(0, 50 - filteredEOL.length)).forEach(pkg => {
+            const repoList = generateRepoListHTML(pkg.repositories);
+            const dateDisplay = pkg.eosDate || 'Unknown';
+            
+            html += `<tr>
+                <td><span class="badge bg-warning text-dark"><i class="fas fa-exclamation-triangle me-1"></i>EOS</span></td>
+                <td><code class="small">${escapeHtml(pkg.name)}</code></td>
+                <td><span class="text-muted">${escapeHtml(pkg.version)}</span></td>
+                <td><span class="badge bg-secondary">${escapeHtml(pkg.ecosystem)}</span></td>
+                <td><small class="text-warning">${escapeHtml(dateDisplay)}</small></td>
+                <td><small>${repoList}</small></td>
+            </tr>`;
+        });
+        
+        if (allEOX.length > 50) {
+            html += `<tr><td colspan="6" class="text-center text-muted py-3"><em>... and ${allEOX.length - 50} more EOX packages</em></td></tr>`;
+        }
+        
+        html += '</tbody></table></div>';
+        
+        // Info about data source
+        html += `<div class="alert alert-info mt-3 mb-0">
+            <i class="fas fa-info-circle me-2"></i>
+            <small>EOL/EOS data sourced from <a href="https://endoflife.date" target="_blank" rel="noreferrer noopener">endoflife.date</a>. 
+            Only packages with known EOL information are shown.</small>
+        </div>`;
+        
+        html += '</div></div>';
+        
+        return html;
+    }
+    
+    /**
+     * Generate SBOM Audit section HTML
+     * Provides detailed SBOM quality breakdown, NTIA compliance, and freshness
+     */
+    async function generateSBOMAuditHTML(orgData, severityFilter = 'all', repoFilter = 'all') {
+        const allRepositories = orgData?.data?.allRepositories || [];
+        
+        if (!allRepositories || allRepositories.length === 0) {
+            return '';
+        }
+        
+        if (typeof SBOMQualityProcessor === 'undefined') {
+            return '';
+        }
+        
+        const sbomProcessor = new SBOMQualityProcessor();
+        
+        // Filter repositories
+        let filteredRepos = allRepositories;
+        if (repoFilter && repoFilter !== 'all') {
+            filteredRepos = allRepositories.filter(r => `${r.owner}/${r.name}` === repoFilter);
+        }
+        
+        // Collect SBOM audit data
+        const auditData = [];
+        const gradeDistribution = { 'A': 0, 'B': 0, 'C': 0, 'D': 0, 'F': 0, 'N/A': 0 };
+        let totalNTIACompliant = 0;
+        let totalFresh = 0;
+        let totalCompleteness = 0;
+        let reposWithSBOM = 0;
+        
+        filteredRepos.forEach(repo => {
+            const repoKey = `${repo.owner}/${repo.name}`;
+            const quality = repo.qualityAssessment;
+            
+            if (!quality) {
+                gradeDistribution['N/A']++;
+                return;
+            }
+            
+            reposWithSBOM++;
+            gradeDistribution[quality.grade]++;
+            
+            // Calculate NTIA compliance (simplified based on quality categories)
+            const ntiaCompliant = quality.overallScore >= 70 && 
+                                 quality.categories?.identification?.score >= 70 &&
+                                 quality.categories?.provenance?.score >= 70;
+            if (ntiaCompliant) totalNTIACompliant++;
+            
+            // Estimate freshness from timestamp
+            let freshness = { isFresh: false, status: 'Unknown', ageInDays: null };
+            if (quality.timestamp) {
+                const ageMs = Date.now() - quality.timestamp;
+                const ageInDays = Math.floor(ageMs / (1000 * 60 * 60 * 24));
+                freshness.ageInDays = ageInDays;
+                freshness.isFresh = ageInDays <= 90;
+                freshness.status = ageInDays <= 7 ? 'Very Fresh' :
+                                  ageInDays <= 30 ? 'Fresh' :
+                                  ageInDays <= 90 ? 'Recent' :
+                                  ageInDays <= 180 ? 'Aging' :
+                                  ageInDays <= 365 ? 'Old' : 'Stale';
+            }
+            if (freshness.isFresh) totalFresh++;
+            
+            // Calculate completeness score
+            const completenessScore = Math.round(
+                (quality.categories?.identification?.score || 0) * 0.3 +
+                (quality.categories?.metadata?.score || 0) * 0.3 +
+                (quality.categories?.licensing?.score || 0) * 0.2 +
+                (quality.categories?.vulnerability?.score || 0) * 0.2
+            );
+            totalCompleteness += completenessScore;
+            
+            // Determine if this repo needs attention based on severity filter
+            let includeInResults = true;
+            if (severityFilter === 'high') {
+                includeInResults = quality.grade === 'F' || quality.grade === 'D';
+            } else if (severityFilter === 'medium') {
+                includeInResults = quality.grade === 'C' || quality.grade === 'D';
+            } else if (severityFilter === 'warning' || severityFilter === 'low') {
+                includeInResults = quality.grade === 'B' || quality.grade === 'C';
+            }
+            
+            if (includeInResults) {
+                auditData.push({
+                    repository: repoKey,
+                    grade: quality.grade,
+                    score: quality.overallScore,
+                    displayScore: quality.displayScore,
+                    ntiaCompliant: ntiaCompliant,
+                    freshness: freshness,
+                    completeness: completenessScore,
+                    categories: quality.categories,
+                    issues: quality.issues || []
+                });
+            }
+        });
+        
+        // Sort by score (lowest first for attention)
+        auditData.sort((a, b) => a.score - b.score);
+        
+        if (auditData.length === 0 && severityFilter !== 'all') {
+            return '';
+        }
+        
+        let html = '<div class="card">';
+        html += '<div class="card-header"><h5 class="mb-0"><i class="fas fa-file-invoice me-2"></i>SBOM Audit</h5></div>';
+        html += '<div class="card-body">';
+        
+        // Statistics
+        html += '<div class="row mb-3">';
+        html += `<div class="col-md-3">
+            <div class="card text-center bg-primary bg-opacity-10">
+                <div class="card-body">
+                    <h3>${reposWithSBOM}/${filteredRepos.length}</h3>
+                    <p class="stats-card-label mb-0">Repositories with SBOM</p>
+                </div>
+            </div>
+        </div>`;
+        html += `<div class="col-md-3">
+            <div class="card text-center bg-success bg-opacity-10">
+                <div class="card-body">
+                    <h3>${totalNTIACompliant}</h3>
+                    <p class="stats-card-label mb-0">NTIA Compliant</p>
+                </div>
+            </div>
+        </div>`;
+        html += `<div class="col-md-3">
+            <div class="card text-center bg-info bg-opacity-10">
+                <div class="card-body">
+                    <h3>${totalFresh}</h3>
+                    <p class="stats-card-label mb-0">Fresh SBOMs</p>
+                </div>
+            </div>
+        </div>`;
+        html += `<div class="col-md-3">
+            <div class="card text-center bg-secondary bg-opacity-10">
+                <div class="card-body">
+                    <h3>${reposWithSBOM > 0 ? Math.round(totalCompleteness / reposWithSBOM) : 0}%</h3>
+                    <p class="stats-card-label mb-0">Avg Completeness</p>
+                </div>
+            </div>
+        </div>`;
+        html += '</div>';
+        
+        // Grade Distribution
+        html += '<h6 class="mb-2">Grade Distribution</h6>';
+        html += '<div class="d-flex gap-2 mb-3 flex-wrap">';
+        const gradeColors = { 'A': 'success', 'B': 'info', 'C': 'warning', 'D': 'danger', 'F': 'dark', 'N/A': 'secondary' };
+        for (const [grade, count] of Object.entries(gradeDistribution)) {
+            if (count > 0) {
+                html += `<span class="badge bg-${gradeColors[grade]} fs-6">${grade}: ${count}</span>`;
+            }
+        }
+        html += '</div>';
+        
+        // NTIA Compliance Summary
+        const ntiaPercentage = reposWithSBOM > 0 ? Math.round((totalNTIACompliant / reposWithSBOM) * 100) : 0;
+        const ntiaAlertClass = ntiaPercentage >= 80 ? 'success' : ntiaPercentage >= 50 ? 'warning' : 'danger';
+        html += `<div class="alert alert-${ntiaAlertClass} mb-3">
+            <strong>NTIA Compliance:</strong> ${totalNTIACompliant}/${reposWithSBOM} repositories (${ntiaPercentage}%) 
+            meet NTIA Minimum Elements requirements.
+        </div>`;
+        
+        // Detailed list (only show repos needing attention)
+        if (auditData.length > 0) {
+            html += '<h6 class="mb-2">Repository SBOM Quality</h6>';
+            html += '<div class="table-responsive"><table class="table table-sm table-hover align-middle">';
+            html += '<thead class="table-light"><tr>';
+            html += '<th style="width: 250px;">Repository</th>';
+            html += '<th style="width: 80px;">Grade</th>';
+            html += '<th style="width: 100px;">Score</th>';
+            html += '<th style="width: 100px;">NTIA</th>';
+            html += '<th style="width: 120px;">Freshness</th>';
+            html += '<th style="width: 100px;">Complete</th>';
+            html += '<th>Top Issues</th>';
+            html += '</tr></thead><tbody>';
+            
+            auditData.slice(0, 50).forEach(audit => {
+                const gradeClass = gradeColors[audit.grade] || 'secondary';
+                const ntiaIcon = audit.ntiaCompliant ? 
+                    '<i class="fas fa-check-circle text-success"></i>' : 
+                    '<i class="fas fa-times-circle text-danger"></i>';
+                const freshnessClass = audit.freshness.isFresh ? 'success' : 
+                                      audit.freshness.status === 'Aging' ? 'warning' : 'danger';
+                
+                // Get top issues
+                const topIssues = audit.issues
+                    .flatMap(cat => cat.issues || [])
+                    .slice(0, 2)
+                    .map(issue => `<small class="text-muted">${escapeHtml(issue.substring(0, 50))}...</small>`)
+                    .join('<br>') || '<small class="text-muted">None</small>';
+                
+                html += `<tr>
+                    <td>
+                        <a href="https://github.com/${audit.repository}" target="_blank" rel="noreferrer noopener" class="text-decoration-none">
+                            <i class="fab fa-github me-1"></i>${escapeHtml(audit.repository)}
+                        </a>
+                    </td>
+                    <td><span class="badge bg-${gradeClass}">${audit.grade}</span></td>
+                    <td>${audit.displayScore}/10</td>
+                    <td>${ntiaIcon}</td>
+                    <td><span class="badge bg-${freshnessClass}">${audit.freshness.status}</span></td>
+                    <td>${audit.completeness}%</td>
+                    <td>${topIssues}</td>
+                </tr>`;
+            });
+            
+            if (auditData.length > 50) {
+                html += `<tr><td colspan="7" class="text-center text-muted py-3"><em>... and ${auditData.length - 50} more repositories</em></td></tr>`;
+            }
+            
+            html += '</tbody></table></div>';
+        }
+        
         html += '</div></div>';
         
         return html;

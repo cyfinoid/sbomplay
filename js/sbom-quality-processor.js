@@ -1201,6 +1201,444 @@ class SBOMQualityProcessor {
             repositoriesNeedingAttention: repositoriesNeedingAttention.sort((a, b) => a.score - b.score)
         };
     }
+
+    /**
+     * ============================================
+     * NTIA MINIMUM ELEMENTS COMPLIANCE CHECK
+     * ============================================
+     * Based on NTIA "The Minimum Elements For a Software Bill of Materials (SBOM)"
+     * https://www.ntia.doc.gov/files/ntia/publications/sbom_minimum_elements_report.pdf
+     */
+    
+    /**
+     * Assess NTIA Minimum Elements compliance
+     * @param {Object} sbomData - The raw SBOM data
+     * @returns {Object} NTIA compliance assessment
+     */
+    assessNTIACompliance(sbomData) {
+        if (!sbomData || !sbomData.sbom) {
+            return {
+                compliant: false,
+                score: 0,
+                checks: {},
+                missingElements: ['No SBOM data available'],
+                details: 'Cannot assess NTIA compliance without SBOM'
+            };
+        }
+
+        const sbom = sbomData.sbom;
+        const packages = sbom.packages || [];
+        
+        // NTIA Minimum Elements (7 required data fields)
+        const ntiaElements = {
+            // 1. Supplier Name - Organization that created the component
+            supplierName: {
+                name: 'Supplier Name',
+                description: 'Name of the entity that creates, defines, and identifies components',
+                check: (pkg) => Boolean(pkg.supplier?.name || pkg.originator),
+                required: true
+            },
+            // 2. Component Name - Name assigned to the component
+            componentName: {
+                name: 'Component Name',
+                description: 'Designation assigned to a unit of software defined by the original supplier',
+                check: (pkg) => Boolean(pkg.name && pkg.name.trim()),
+                required: true
+            },
+            // 3. Version of the Component
+            componentVersion: {
+                name: 'Component Version',
+                description: 'Identifier used by supplier to specify a change in software',
+                check: (pkg) => Boolean(pkg.versionInfo && pkg.versionInfo !== 'NOASSERTION'),
+                required: true
+            },
+            // 4. Other Unique Identifiers (PURL, CPE)
+            uniqueIdentifier: {
+                name: 'Unique Identifier',
+                description: 'Other identifiers used to identify components (e.g., PURL)',
+                check: (pkg) => {
+                    if (!pkg.externalRefs) return false;
+                    return pkg.externalRefs.some(ref => 
+                        ref.referenceType === 'purl' || 
+                        ref.referenceType === 'cpe22Type' ||
+                        ref.referenceType === 'cpe23Type'
+                    );
+                },
+                required: true
+            },
+            // 5. Dependency Relationship
+            dependencyRelationship: {
+                name: 'Dependency Relationship',
+                description: 'Characterizing the relationship of upstream component to the software',
+                // This is checked at SBOM level, not package level
+                checkSbom: (sbom) => Boolean(sbom.relationships && sbom.relationships.length > 0),
+                required: true
+            },
+            // 6. Author of SBOM Data
+            sbomAuthor: {
+                name: 'SBOM Author',
+                description: 'Name of the entity that creates the SBOM data',
+                checkSbom: (sbom) => Boolean(sbom.creationInfo?.creators && sbom.creationInfo.creators.length > 0),
+                required: true
+            },
+            // 7. Timestamp
+            timestamp: {
+                name: 'Timestamp',
+                description: 'Date and time the SBOM data was assembled',
+                checkSbom: (sbom) => Boolean(sbom.creationInfo?.created),
+                required: true
+            }
+        };
+
+        const checks = {};
+        const missingElements = [];
+        let passedChecks = 0;
+        let totalChecks = 0;
+
+        // Check SBOM-level elements
+        for (const [key, element] of Object.entries(ntiaElements)) {
+            if (element.checkSbom) {
+                totalChecks++;
+                const passed = element.checkSbom(sbom);
+                checks[key] = {
+                    name: element.name,
+                    description: element.description,
+                    passed: passed,
+                    required: element.required
+                };
+                if (passed) {
+                    passedChecks++;
+                } else {
+                    missingElements.push(element.name);
+                }
+            }
+        }
+
+        // Check package-level elements (aggregate across all packages)
+        const packageLevelElements = ['supplierName', 'componentName', 'componentVersion', 'uniqueIdentifier'];
+        
+        for (const key of packageLevelElements) {
+            const element = ntiaElements[key];
+            if (!element.check) continue;
+            
+            totalChecks++;
+            let packagesWithElement = 0;
+            
+            packages.forEach(pkg => {
+                if (element.check(pkg)) {
+                    packagesWithElement++;
+                }
+            });
+            
+            const coverage = packages.length > 0 ? (packagesWithElement / packages.length) : 0;
+            const passed = coverage >= 0.9; // 90% coverage threshold for compliance
+            
+            checks[key] = {
+                name: element.name,
+                description: element.description,
+                passed: passed,
+                required: element.required,
+                coverage: Math.round(coverage * 100),
+                packagesWithElement: packagesWithElement,
+                totalPackages: packages.length
+            };
+            
+            if (passed) {
+                passedChecks++;
+            } else {
+                missingElements.push(`${element.name} (${Math.round(coverage * 100)}% coverage)`);
+            }
+        }
+
+        const score = totalChecks > 0 ? Math.round((passedChecks / totalChecks) * 100) : 0;
+        const compliant = passedChecks === totalChecks;
+
+        return {
+            compliant: compliant,
+            score: score,
+            passedChecks: passedChecks,
+            totalChecks: totalChecks,
+            checks: checks,
+            missingElements: missingElements,
+            details: compliant 
+                ? 'SBOM meets NTIA Minimum Elements requirements'
+                : `Missing ${missingElements.length} NTIA Minimum Element(s)`
+        };
+    }
+
+    /**
+     * ============================================
+     * SBOM FRESHNESS ASSESSMENT
+     * ============================================
+     */
+
+    /**
+     * Assess SBOM freshness (age and generation date)
+     * @param {Object} sbomData - The raw SBOM data
+     * @returns {Object} Freshness assessment
+     */
+    assessFreshness(sbomData) {
+        if (!sbomData || !sbomData.sbom) {
+            return {
+                isFresh: false,
+                ageInDays: null,
+                ageInMonths: null,
+                generatedAt: null,
+                status: 'unknown',
+                statusColor: 'secondary',
+                details: 'Cannot assess freshness without SBOM'
+            };
+        }
+
+        const sbom = sbomData.sbom;
+        const createdAt = sbom.creationInfo?.created;
+        
+        if (!createdAt) {
+            return {
+                isFresh: false,
+                ageInDays: null,
+                ageInMonths: null,
+                generatedAt: null,
+                status: 'unknown',
+                statusColor: 'secondary',
+                details: 'SBOM has no creation timestamp'
+            };
+        }
+
+        const creationDate = new Date(createdAt);
+        const now = new Date();
+        const ageInMs = now - creationDate;
+        const ageInDays = Math.floor(ageInMs / (1000 * 60 * 60 * 24));
+        const ageInMonths = Math.floor(ageInDays / 30);
+        
+        let status, statusColor, isFresh;
+        
+        if (ageInDays <= 7) {
+            status = 'Very Fresh';
+            statusColor = 'success';
+            isFresh = true;
+        } else if (ageInDays <= 30) {
+            status = 'Fresh';
+            statusColor = 'success';
+            isFresh = true;
+        } else if (ageInDays <= 90) {
+            status = 'Recent';
+            statusColor = 'info';
+            isFresh = true;
+        } else if (ageInDays <= 180) {
+            status = 'Aging';
+            statusColor = 'warning';
+            isFresh = false;
+        } else if (ageInDays <= 365) {
+            status = 'Old';
+            statusColor = 'warning';
+            isFresh = false;
+        } else {
+            status = 'Stale';
+            statusColor = 'danger';
+            isFresh = false;
+        }
+
+        return {
+            isFresh: isFresh,
+            ageInDays: ageInDays,
+            ageInMonths: ageInMonths,
+            generatedAt: createdAt,
+            generatedAtFormatted: creationDate.toLocaleDateString('en-US', {
+                year: 'numeric',
+                month: 'short',
+                day: 'numeric'
+            }),
+            status: status,
+            statusColor: statusColor,
+            details: `SBOM generated ${ageInDays} day(s) ago (${status})`
+        };
+    }
+
+    /**
+     * ============================================
+     * COMPLETENESS SCORE
+     * ============================================
+     */
+
+    /**
+     * Calculate completeness score for an SBOM
+     * Percentage of packages with complete metadata
+     * @param {Object} sbomData - The raw SBOM data
+     * @returns {Object} Completeness assessment
+     */
+    assessCompleteness(sbomData) {
+        if (!sbomData || !sbomData.sbom) {
+            return {
+                score: 0,
+                percentage: 0,
+                completePackages: 0,
+                totalPackages: 0,
+                breakdown: {},
+                details: 'Cannot assess completeness without SBOM'
+            };
+        }
+
+        const sbom = sbomData.sbom;
+        const packages = sbom.packages || [];
+        
+        if (packages.length === 0) {
+            return {
+                score: 0,
+                percentage: 0,
+                completePackages: 0,
+                totalPackages: 0,
+                breakdown: {},
+                details: 'No packages in SBOM'
+            };
+        }
+
+        // Define completeness criteria
+        const fields = {
+            name: { weight: 20, check: (pkg) => Boolean(pkg.name && pkg.name.trim()) },
+            version: { weight: 20, check: (pkg) => Boolean(pkg.versionInfo && pkg.versionInfo !== 'NOASSERTION') },
+            purl: { weight: 20, check: (pkg) => {
+                if (!pkg.externalRefs) return false;
+                return pkg.externalRefs.some(ref => ref.referenceType === 'purl');
+            }},
+            license: { weight: 15, check: (pkg) => Boolean(pkg.licenseConcluded && pkg.licenseConcluded !== 'NOASSERTION') },
+            supplier: { weight: 10, check: (pkg) => Boolean(pkg.supplier?.name || pkg.originator) },
+            downloadLocation: { weight: 10, check: (pkg) => Boolean(pkg.downloadLocation && pkg.downloadLocation !== 'NOASSERTION') },
+            checksum: { weight: 5, check: (pkg) => Boolean(pkg.checksums && pkg.checksums.length > 0) }
+        };
+
+        const breakdown = {};
+        let totalScore = 0;
+        let completePackages = 0;
+
+        // Initialize breakdown
+        for (const [key, field] of Object.entries(fields)) {
+            breakdown[key] = { 
+                count: 0, 
+                percentage: 0,
+                weight: field.weight
+            };
+        }
+
+        // Check each package
+        packages.forEach(pkg => {
+            let packageScore = 0;
+            
+            for (const [key, field] of Object.entries(fields)) {
+                if (field.check(pkg)) {
+                    breakdown[key].count++;
+                    packageScore += field.weight;
+                }
+            }
+            
+            totalScore += packageScore;
+            
+            // A package is "complete" if it has at least 80% of possible score
+            if (packageScore >= 80) {
+                completePackages++;
+            }
+        });
+
+        // Calculate percentages
+        for (const key of Object.keys(breakdown)) {
+            breakdown[key].percentage = Math.round((breakdown[key].count / packages.length) * 100);
+        }
+
+        const maxPossibleScore = packages.length * 100;
+        const overallPercentage = Math.round((totalScore / maxPossibleScore) * 100);
+
+        return {
+            score: overallPercentage,
+            percentage: overallPercentage,
+            completePackages: completePackages,
+            totalPackages: packages.length,
+            completePercentage: Math.round((completePackages / packages.length) * 100),
+            breakdown: breakdown,
+            details: `${overallPercentage}% complete (${completePackages}/${packages.length} packages fully documented)`
+        };
+    }
+
+    /**
+     * Generate comprehensive SBOM audit report
+     * Combines all assessments into a single report
+     * @param {Object} sbomData - The raw SBOM data
+     * @param {string} owner - Repository owner
+     * @param {string} repo - Repository name
+     * @returns {Object} Comprehensive audit report
+     */
+    generateAuditReport(sbomData, owner, repo) {
+        const quality = this.assessQuality(sbomData, owner, repo);
+        const ntia = this.assessNTIACompliance(sbomData);
+        const freshness = this.assessFreshness(sbomData);
+        const completeness = this.assessCompleteness(sbomData);
+        
+        // Calculate audit risk score (0-100, lower is better)
+        let riskScore = 0;
+        
+        // Quality contributes 40% to risk (inverted from score)
+        riskScore += (100 - quality.overallScore) * 0.4;
+        
+        // NTIA compliance contributes 30% to risk
+        riskScore += (100 - ntia.score) * 0.3;
+        
+        // Freshness contributes 15% to risk
+        const freshnessScore = freshness.isFresh ? 100 : 
+                              freshness.status === 'Aging' ? 60 :
+                              freshness.status === 'Old' ? 30 : 0;
+        riskScore += (100 - freshnessScore) * 0.15;
+        
+        // Completeness contributes 15% to risk
+        riskScore += (100 - completeness.score) * 0.15;
+        
+        riskScore = Math.round(riskScore);
+        
+        // Determine risk level
+        let riskLevel, riskColor;
+        if (riskScore <= 20) {
+            riskLevel = 'Low';
+            riskColor = 'success';
+        } else if (riskScore <= 40) {
+            riskLevel = 'Moderate';
+            riskColor = 'info';
+        } else if (riskScore <= 60) {
+            riskLevel = 'Medium';
+            riskColor = 'warning';
+        } else if (riskScore <= 80) {
+            riskLevel = 'High';
+            riskColor = 'danger';
+        } else {
+            riskLevel = 'Critical';
+            riskColor = 'dark';
+        }
+
+        return {
+            repository: `${owner}/${repo}`,
+            timestamp: Date.now(),
+            quality: quality,
+            ntiaCompliance: ntia,
+            freshness: freshness,
+            completeness: completeness,
+            riskScore: riskScore,
+            riskLevel: riskLevel,
+            riskColor: riskColor,
+            summary: this.generateAuditSummary(quality, ntia, freshness, completeness, riskLevel)
+        };
+    }
+
+    /**
+     * Generate human-readable audit summary
+     */
+    generateAuditSummary(quality, ntia, freshness, completeness, riskLevel) {
+        const summaryParts = [];
+        
+        summaryParts.push(`SBOM Quality: Grade ${quality.grade} (${quality.displayScore}/10)`);
+        summaryParts.push(`NTIA Compliance: ${ntia.compliant ? 'Yes' : 'No'} (${ntia.score}%)`);
+        summaryParts.push(`Freshness: ${freshness.status}`);
+        summaryParts.push(`Completeness: ${completeness.percentage}%`);
+        summaryParts.push(`Overall Risk: ${riskLevel}`);
+        
+        return summaryParts.join(' | ');
+    }
 }
 
 // Make available globally

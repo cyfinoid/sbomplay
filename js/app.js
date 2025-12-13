@@ -4254,6 +4254,66 @@ class SBOMPlayApp {
     }
 
     /**
+     * Fetch EOX (End-of-Life) data for notable dependencies
+     * Checks against endoflife.date API for known products
+     * @param {Array} dependencies - Array of dependencies
+     */
+    async fetchEOXData(dependencies) {
+        if (!dependencies || dependencies.length === 0 || !window.eoxService) return;
+        
+        console.log(`🔍 Checking EOX status for notable dependencies...`);
+        
+        // Focus on dependencies that are likely to have EOX data
+        // (runtimes, frameworks, databases - not every npm package)
+        const notableDeps = dependencies.filter(dep => {
+            if (!dep.name) return false;
+            const name = dep.name.toLowerCase();
+            // Check if it matches any known product in EOX service
+            return window.eoxService.findProduct(name, dep.ecosystem) !== null;
+        });
+        
+        if (notableDeps.length === 0) {
+            console.log(`📦 No notable dependencies found for EOX checking`);
+            return;
+        }
+        
+        console.log(`📦 Found ${notableDeps.length} notable dependencies to check EOX status`);
+        
+        const batchSize = 10;
+        let processed = 0;
+        let eoxCount = 0;
+        
+        for (let i = 0; i < notableDeps.length; i += batchSize) {
+            const batch = notableDeps.slice(i, i + batchSize);
+            
+            await Promise.all(batch.map(async (dep) => {
+                try {
+                    const eoxStatus = await window.eoxService.checkEOX(
+                        dep.name,
+                        dep.version,
+                        dep.ecosystem
+                    );
+                    
+                    if (eoxStatus && (eoxStatus.isEOL || eoxStatus.isEOS || eoxStatus.eolDate || eoxStatus.eosDate)) {
+                        dep.eoxStatus = eoxStatus;
+                        eoxCount++;
+                    }
+                    processed++;
+                } catch (e) {
+                    console.debug(`Failed to check EOX for ${dep.name}:`, e);
+                }
+            }));
+            
+            // Small delay between batches
+            if (i + batchSize < notableDeps.length) {
+                await new Promise(resolve => setTimeout(resolve, 200));
+            }
+        }
+        
+        console.log(`✅ EOX checking complete: ${processed} checked, ${eoxCount} with EOX data`);
+    }
+
+    /**
      * Run license fetching and version drift enrichment
      * Consolidates the duplicate enrichment code from analyzeSingleRepository and analyzeOrganization
      * @param {Object} results - Analysis results with allDependencies
@@ -4275,6 +4335,9 @@ class SBOMPlayApp {
 
             // Fetch version drift for all packages
             await this.fetchVersionDriftData(results.allDependencies);
+
+            // Fetch EOX (End-of-Life) data for notable packages
+            await this.fetchEOXData(results.allDependencies);
 
             // Attach version drift to vulnerable dependencies
             if (results.vulnerabilityAnalysis?.vulnerableDependencies) {

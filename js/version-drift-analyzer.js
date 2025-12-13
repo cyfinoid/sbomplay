@@ -574,6 +574,123 @@ class VersionDriftAnalyzer {
     }
 }
 
+    /**
+     * Check EOX (End-of-Life/End-of-Support) status for a package
+     * Uses the EOXService to check against endoflife.date API
+     * @param {string} packageName - Package name
+     * @param {string} version - Package version
+     * @param {string} ecosystem - Package ecosystem
+     * @returns {Promise<Object>} EOX status
+     */
+    async checkEOX(packageName, version, ecosystem) {
+        // Use global EOX service if available
+        if (window.eoxService) {
+            return await window.eoxService.checkEOX(packageName, version, ecosystem);
+        }
+        
+        // Return default non-EOX result if service not available
+        return {
+            isEOL: false,
+            isEOS: false,
+            eolDate: null,
+            eosDate: null,
+            latestVersion: null,
+            successor: null,
+            checkedAt: Date.now(),
+            source: null
+        };
+    }
+    
+    /**
+     * Get comprehensive package status including drift, staleness, and EOX
+     * @param {string} packageName - Package name
+     * @param {string} version - Package version
+     * @param {string} ecosystem - Package ecosystem
+     * @returns {Promise<Object>} Combined status
+     */
+    async getPackageStatus(packageName, version, ecosystem) {
+        const [drift, staleness, eox] = await Promise.all([
+            this.checkVersionDrift(packageName, version, ecosystem),
+            this.checkStaleness(packageName, version, ecosystem),
+            this.checkEOX(packageName, version, ecosystem)
+        ]);
+        
+        return {
+            packageName,
+            version,
+            ecosystem,
+            drift,
+            staleness,
+            eox,
+            checkedAt: Date.now()
+        };
+    }
+    
+    /**
+     * Get the highest severity status for a package
+     * Priority: EOL > EOS > Stale > Outdated > OK
+     * @param {Object} status - Package status from getPackageStatus
+     * @returns {Object} Highest severity status
+     */
+    getHighestSeverityStatus(status) {
+        if (!status) {
+            return { severity: 'unknown', label: 'Unknown', color: 'secondary' };
+        }
+        
+        // EOL is highest priority
+        if (status.eox?.isEOL) {
+            return { 
+                severity: 'high', 
+                label: 'End of Life', 
+                color: 'danger',
+                date: status.eox.eolDate
+            };
+        }
+        
+        // EOS is second priority
+        if (status.eox?.isEOS) {
+            return { 
+                severity: 'medium', 
+                label: 'End of Support', 
+                color: 'warning',
+                date: status.eox.eosDate
+            };
+        }
+        
+        // Stale is third priority
+        if (status.staleness?.isStale) {
+            return { 
+                severity: 'low', 
+                label: 'Stale', 
+                color: 'info',
+                months: status.staleness.monthsSinceRelease
+            };
+        }
+        
+        // Major update available
+        if (status.drift?.hasMajorUpdate) {
+            return { 
+                severity: 'low', 
+                label: 'Major Update Available', 
+                color: 'warning',
+                latestVersion: status.drift.latestVersion
+            };
+        }
+        
+        // Minor update available
+        if (status.drift?.hasMinorUpdate) {
+            return { 
+                severity: 'info', 
+                label: 'Minor Update Available', 
+                color: 'info',
+                latestVersion: status.drift.latestVersion
+            };
+        }
+        
+        return { severity: 'none', label: 'Up to Date', color: 'success' };
+    }
+}
+
 // Create global instance
 if (typeof window !== 'undefined') {
     window.VersionDriftAnalyzer = VersionDriftAnalyzer;

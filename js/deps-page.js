@@ -305,6 +305,7 @@ document.addEventListener('DOMContentLoaded', function() {
         document.getElementById('vulnerableFilter').addEventListener('change', () => filterTable());
         document.getElementById('sponsorshipFilter').addEventListener('change', () => filterTable());
         document.getElementById('statusFilter').addEventListener('change', () => filterTable());
+        document.getElementById('eoxFilter').addEventListener('change', () => filterTable());
         document.getElementById('majorDriftFilter').addEventListener('change', () => filterTable());
         document.getElementById('minorDriftFilter').addEventListener('change', () => filterTable());
         document.getElementById('exportBtn').addEventListener('click', () => {
@@ -1213,6 +1214,7 @@ document.addEventListener('DOMContentLoaded', function() {
             const repoFilter = document.getElementById('repoFilter').value;
             const sponsorshipFilter = document.getElementById('sponsorshipFilter').checked;
             const statusFilter = document.getElementById('statusFilter').checked;
+            const eoxFilter = document.getElementById('eoxFilter').checked;
             const majorDriftFilter = document.getElementById('majorDriftFilter').checked;
             const minorDriftFilter = document.getElementById('minorDriftFilter').checked;
             
@@ -1334,6 +1336,40 @@ document.addEventListener('DOMContentLoaded', function() {
                 }
                 
                 filtered = filtered.filter((dep, index) => statusResults[index]);
+            }
+            
+            // Apply EOX (End-of-Life) filter if active
+            if (eoxFilter && window.eoxService) {
+                // Filter to only packages at end-of-life or end-of-support
+                const batchSize = 20; // Smaller batch for EOX since it may involve API calls
+                const batches = [];
+                for (let i = 0; i < filtered.length; i += batchSize) {
+                    batches.push(filtered.slice(i, i + batchSize));
+                }
+                
+                const eoxResults = [];
+                for (const batch of batches) {
+                    const batchChecks = await Promise.all(batch.map(async (dep) => {
+                        if (!dep.ecosystem || !dep.name) {
+                            return false;
+                        }
+                        
+                        try {
+                            const eoxStatus = await window.eoxService.checkEOX(
+                                dep.name,
+                                dep.version,
+                                dep.ecosystem
+                            );
+                            
+                            return eoxStatus && (eoxStatus.isEOL || eoxStatus.isEOS);
+                        } catch (e) {
+                            return false;
+                        }
+                    }));
+                    eoxResults.push(...batchChecks);
+                }
+                
+                filtered = filtered.filter((dep, index) => eoxResults[index]);
             }
             
             // Apply version drift filters (major/minor) if active
@@ -2078,6 +2114,27 @@ document.addEventListener('DOMContentLoaded', function() {
                                                 
                                                 if (staleness && staleness.isStale) {
                                                     badgeHtml = `<span class="badge bg-warning" title="Stale: Last release ${staleness.monthsSinceRelease} months ago"><i class="fas fa-clock"></i> Stale (${staleness.monthsSinceRelease}m)</span>`;
+                                                }
+                                                
+                                                // Check EOX (End-of-Life) status
+                                                if (!badgeHtml && window.eoxService) {
+                                                    try {
+                                                        const eoxStatus = await window.eoxService.checkEOX(
+                                                            dep.name,
+                                                            dep.version,
+                                                            dep.ecosystem
+                                                        );
+                                                        
+                                                        if (eoxStatus && eoxStatus.isEOL) {
+                                                            const dateInfo = eoxStatus.eolDate ? ` (${eoxStatus.eolDate})` : '';
+                                                            badgeHtml = `<span class="badge bg-danger" title="End of Life${dateInfo}"><i class="fas fa-skull-crossbones"></i> EOL</span>`;
+                                                        } else if (eoxStatus && eoxStatus.isEOS) {
+                                                            const dateInfo = eoxStatus.eosDate ? ` (${eoxStatus.eosDate})` : '';
+                                                            badgeHtml = `<span class="badge bg-warning text-dark" title="End of Support${dateInfo}"><i class="fas fa-exclamation-triangle"></i> EOS</span>`;
+                                                        }
+                                                    } catch (e) {
+                                                        // Ignore EOX check errors
+                                                    }
                                                 }
                                                 
                                                 // Check if this is an independent entity (no dependencies)

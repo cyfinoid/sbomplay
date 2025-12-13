@@ -4,7 +4,7 @@
 class IndexedDBManager {
     constructor() {
         this.dbName = 'sbomplay_db';
-        this.version = 5; // Current database version
+        this.version = 6; // Current database version - v6 adds eoxData store
         this.db = null;
     }
 
@@ -126,6 +126,13 @@ class IndexedDBManager {
                     const locationStore = db.createObjectStore('locations', { keyPath: 'locationString' });
                     locationStore.createIndex('timestamp', 'timestamp', { unique: false });
                     console.log('✅ Created locations object store');
+                }
+
+                // NEW: EOX (End-of-Life) data cache
+                if (!db.objectStoreNames.contains('eoxData')) {
+                    const eoxStore = db.createObjectStore('eoxData', { keyPath: 'key' });
+                    eoxStore.createIndex('fetchedAt', 'fetchedAt', { unique: false });
+                    console.log('✅ Created eoxData object store');
                 }
             };
         });
