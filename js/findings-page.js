@@ -241,18 +241,24 @@ document.addEventListener('DOMContentLoaded', async function() {
                     return;
                 }
                 
+                // Use confusionPurlName if available (when PURL name differs from SBOM name)
+                const checkedName = dep.confusionPurlName || dep.name;
+                const checkedPurl = dep.confusionPurl || dep.purl || null;
+                
                 allFindings.push({
                     category: 'dependency-confusion',
                     type: 'NAMESPACE_NOT_IN_REGISTRY',
                     typeName: 'HIGH-CONFIDENCE Dependency Confusion (Namespace Missing)',
                     description: getFindingDescription('NAMESPACE_NOT_IN_REGISTRY'),
                     severity: 'high',
-                    package: `${dep.name}@${dep.version || 'unknown'}`,
+                    package: `${checkedName}@${dep.version || 'unknown'}`,
+                    sbomName: dep.name,  // Original SBOM name for reference
+                    purl: checkedPurl,
                     ecosystem: dep.category?.ecosystem || 'unknown',
                     repository: repos.length > 0 ? repos[0] : null,
                     repositories: repos,
                     confusionEvidence: dep.confusionEvidence || null,
-                    message: `Namespace for "${dep.name}" not found in public registry (${dep.category?.ecosystem || 'unknown'}). HIGH-CONFIDENCE dependency confusion risk - attacker could register entire namespace.`
+                    message: `Namespace for "${checkedName}" not found in public registry (${dep.category?.ecosystem || 'unknown'}). HIGH-CONFIDENCE dependency confusion risk - attacker could register entire namespace.`
                 });
             });
             
@@ -273,18 +279,24 @@ document.addEventListener('DOMContentLoaded', async function() {
                     return;
                 }
                 
+                // Use confusionPurlName if available (when PURL name differs from SBOM name)
+                const checkedName = dep.confusionPurlName || dep.name;
+                const checkedPurl = dep.confusionPurl || dep.purl || null;
+                
                 allFindings.push({
                     category: 'dependency-confusion',
                     type: 'PACKAGE_NOT_IN_REGISTRY',
                     typeName: 'Potential Dependency Confusion',
                     description: getFindingDescription('PACKAGE_NOT_IN_REGISTRY'),
                     severity: 'high',
-                    package: `${dep.name}@${dep.version || 'unknown'}`,
+                    package: `${checkedName}@${dep.version || 'unknown'}`,
+                    sbomName: dep.name,  // Original SBOM name for reference
+                    purl: checkedPurl,
                     ecosystem: dep.category?.ecosystem || 'unknown',
                     repository: repos.length > 0 ? repos[0] : null,
                     repositories: repos,
                     confusionEvidence: dep.confusionEvidence || null,
-                    message: `Package "${dep.name}" not found in public registry (${dep.category?.ecosystem || 'unknown'}). Could be hijacked via dependency confusion attack.`
+                    message: `Package "${checkedName}" not found in public registry (${dep.category?.ecosystem || 'unknown'}). Could be hijacked via dependency confusion attack.`
                 });
             });
         }
@@ -439,8 +451,15 @@ document.addEventListener('DOMContentLoaded', async function() {
                                             </tr>`;
                                         } else {
                                             // Dependency confusion
+                                            // Show PURL if available, and note if SBOM name differs
+                                            const packageDisplay = escapeHtml(instance.package || '-');
+                                            const purlDisplay = instance.purl ? `<br><small class="text-muted">PURL: ${escapeHtml(instance.purl)}</small>` : '';
+                                            const sbomNote = (instance.sbomName && instance.sbomName !== instance.package?.split('@')[0]) 
+                                                ? `<br><small class="text-muted">SBOM name: ${escapeHtml(instance.sbomName)}</small>` 
+                                                : '';
+                                            
                                             return `<tr>
-                                                <td><code class="small">${escapeHtml(instance.package || '-')}</code></td>
+                                                <td><code class="small">${packageDisplay}</code>${purlDisplay}${sbomNote}</td>
                                                 <td><span class="badge bg-secondary">${escapeHtml(instance.ecosystem || '-')}</span></td>
                                                 <td>${instance.repositories && instance.repositories.length > 0 ? generateRepoListHTML(instance.repositories) : '-'}</td>
                                                 <td class="small">${escapeHtml(instance.message || '-')}</td>

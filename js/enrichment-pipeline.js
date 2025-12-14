@@ -43,38 +43,54 @@ class EnrichmentPipeline {
         }
 
         const deps = results.allDependencies;
+        const uploadInfo = results.uploadInfo; // Preserve upload metadata
         console.log(`🔧 Starting enrichment pipeline for ${deps.length} dependencies`);
+
+        // Helper to save current state after each phase
+        const saveProgress = async (phaseName) => {
+            const currentResults = this.sbomProcessor.exportData();
+            if (uploadInfo) {
+                currentResults.uploadInfo = uploadInfo;
+            }
+            await this.storageManager.saveAnalysisData(identifier, currentResults);
+            console.log(`💾 Saved after ${phaseName}`);
+            return currentResults;
+        };
 
         // Phase 1: Vulnerability analysis (60-70%)
         onProgress('vulnerability', 60, 'Analyzing vulnerabilities...');
         await this.analyzeVulnerabilities(identifier, (pct, msg) => {
             onProgress('vulnerability', 60 + pct * 0.1, msg);
         });
+        await saveProgress('Enrichment Phase 1: Vulnerabilities');
 
         // Phase 2: License fetching (70-80%)
         onProgress('licenses', 70, 'Fetching license information...');
         await this.fetchAllLicenses(deps, identifier, (pct, msg) => {
             onProgress('licenses', 70 + pct * 0.1, msg);
         });
+        await saveProgress('Enrichment Phase 2: Licenses');
 
         // Phase 3: Version drift (80-90%)
         onProgress('version-drift', 80, 'Checking version drift...');
         await this.fetchVersionDrift(deps, (pct, msg) => {
             onProgress('version-drift', 80 + pct * 0.1, msg);
         });
+        await saveProgress('Enrichment Phase 3: Version Drift');
 
         // Phase 4: Author information (90-98%)
         onProgress('authors', 90, 'Fetching author information...');
         await this.fetchAuthors(deps, identifier, (pct, msg) => {
             onProgress('authors', 90 + pct * 0.08, msg);
         });
+        await saveProgress('Enrichment Phase 4: Authors');
 
         // Re-export to include enriched data
         const enrichedResults = this.sbomProcessor.exportData();
         
         // Merge upload metadata if present
-        if (results.uploadInfo) {
-            enrichedResults.uploadInfo = results.uploadInfo;
+        if (uploadInfo) {
+            enrichedResults.uploadInfo = uploadInfo;
         }
 
         console.log('✅ Enrichment pipeline complete');

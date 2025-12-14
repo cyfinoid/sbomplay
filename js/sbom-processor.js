@@ -1053,6 +1053,10 @@ class SBOMProcessor {
                 
                 if (result.vulnerable) {
                     vulnerable++;
+                    // Store the PURL that was actually checked (may differ from dep.name)
+                    dep.confusionPurl = purl;
+                    dep.confusionPurlName = purlPackageName;
+                    
                     if (result.type === 'namespace_not_found') {
                         dep.namespaceNotFound = true;
                         dep.registryNotFound = true;
@@ -1157,6 +1161,8 @@ class SBOMProcessor {
                 registryNotFound: dep.registryNotFound || false,  // Potential dependency confusion risk
                 namespaceNotFound: dep.namespaceNotFound || false,  // HIGH-CONFIDENCE dependency confusion (namespace missing)
                 confusionEvidence: dep.confusionEvidence || null,  // URL proving the package/namespace doesn't exist
+                confusionPurl: dep.confusionPurl || null,  // The PURL that was checked (may differ from name)
+                confusionPurlName: dep.confusionPurlName || null,  // Package name from PURL that was not found
                 originalPackage: dep.originalPackage,  // Include original package data
                 depth: dep.depth || null,  // Depth in dependency tree (1 = direct, 2+ = transitive)
                 parents: dep.parents || [],  // Parent dependencies (what brings this in)
@@ -1519,6 +1525,8 @@ class SBOMProcessor {
                     registryNotFound: dep.registryNotFound || false,  // Potential dependency confusion risk
                     namespaceNotFound: dep.namespaceNotFound || false,  // HIGH-CONFIDENCE dependency confusion (namespace missing)
                     confusionEvidence: dep.confusionEvidence || null,  // URL proving the package/namespace doesn't exist
+                    confusionPurl: dep.confusionPurl || null,  // The PURL that was checked (may differ from name)
+                    confusionPurlName: dep.confusionPurlName || null,  // Package name from PURL that was not found
                     // License info
                     license: license,
                     licenseFull: dep.licenseFull || license,

@@ -34,10 +34,39 @@ class UploadPage {
             await this.storageManager.init();
         }
         
+        // Load GitHub token from sessionStorage (shared across pages)
+        this.loadGitHubToken();
+        
         // Setup UI event listeners
         this.setupEventListeners();
         
         console.log('✅ Upload Page initialized');
+    }
+    
+    /**
+     * Load GitHub token from sessionStorage and display status
+     * Token is shared across all pages via sessionStorage
+     */
+    loadGitHubToken() {
+        const token = sessionStorage.getItem('github_token');
+        const tokenStatusEl = document.getElementById('tokenStatus');
+        
+        if (token) {
+            const maskedToken = token.length > 8 
+                ? `${token.substring(0, 4)}...${token.substring(token.length - 4)}` 
+                : '****';
+            console.log(`🔑 GitHub token loaded from sessionStorage: ${maskedToken}`);
+            
+            if (tokenStatusEl) {
+                tokenStatusEl.innerHTML = `<span class="text-success"><i class="fas fa-check-circle me-1"></i>Token active</span>`;
+            }
+        } else {
+            console.log('⚠️ No GitHub token found - author enrichment will be rate-limited');
+            
+            if (tokenStatusEl) {
+                tokenStatusEl.innerHTML = `<span class="text-warning"><i class="fas fa-exclamation-triangle me-1"></i>No token - <a href="settings.html">add in Settings</a></span>`;
+            }
+        }
     }
 
     async waitForDependencies() {
@@ -398,6 +427,23 @@ class UploadPage {
         this.sbomProcessor.reset();
         this.sbomProcessor.setTotalRepositories(1);
 
+        // Upload metadata to persist across saves
+        const uploadInfo = {
+            filename: item.file.name,
+            format: item.parsedData.format,
+            uploadedAt: new Date().toISOString(),
+            projectName: projectName
+        };
+
+        // Helper to save current state
+        const saveProgress = async (phaseName) => {
+            let results = this.sbomProcessor.exportData();
+            results.uploadInfo = uploadInfo;
+            await this.storageManager.saveAnalysisData(projectName, results);
+            console.log(`💾 Saved after ${phaseName}`);
+            return results;
+        };
+
         // Phase 1: Process SBOM (10-30%)
         onProgress('sbom', 10, `Processing SBOM data...`);
         const success = await this.sbomProcessor.processSBOM(owner, repo, data, null, false);
@@ -406,6 +452,7 @@ class UploadPage {
             throw new Error('Failed to process SBOM data');
         }
         this.sbomProcessor.updateProgress(true);
+        await saveProgress('Phase 1: SBOM Processing');
 
         // Phase 2: Resolve dependency trees (30-50%)
         onProgress('deps', 30, `Resolving dependency trees...`);
@@ -415,22 +462,17 @@ class UploadPage {
                 onProgress('deps', pct, `Resolving ${progress.packageName || 'dependencies'}...`);
             }
         });
+        await saveProgress('Phase 2: Dependency Trees + Confusion Detection');
 
         // Phase 3: License compliance from SBOM data (50-55%)
         onProgress('license', 50, `Analyzing license compliance...`);
         this.sbomProcessor.analyzeLicenseCompliance();
+        await saveProgress('Phase 3: License Compliance');
 
         // Phase 4: Export initial results (55%)
         onProgress('export', 55, `Exporting results...`);
         let results = this.sbomProcessor.exportData();
-
-        // Add upload metadata before enrichment
-        results.uploadInfo = {
-            filename: item.file.name,
-            format: item.parsedData.format,
-            uploadedAt: new Date().toISOString(),
-            projectName: projectName
-        };
+        results.uploadInfo = uploadInfo;
 
         // Phase 5-8: Run shared enrichment pipeline (55-98%)
         // Uses EnrichmentPipeline - same logic as app.js
