@@ -17,12 +17,17 @@ class SBOMPlayApp {
         
         this.sbomProcessor = new SBOMProcessor();
         this.storageManager = window.storageManager || new StorageManager();
+        this.sbomParser = window.SBOMParser ? new window.SBOMParser() : null;
         this.isAnalyzing = false;
         this.rateLimitTimer = null;
         this.initialized = false;
         this.analysisStartTime = null;
         this.analysisEndTime = null;
         this.elapsedTimeInterval = null;
+        
+        // Upload functionality
+        this.uploadQueue = [];
+        this.isProcessingUpload = false;
         
         // Time-based progress tracking
         this.progressTracker = {
@@ -86,6 +91,10 @@ class SBOMPlayApp {
             }
             if (document.getElementById('githubToken') && document.getElementById('orgName') && document.getElementById('analyzeBtn')) {
                 this.setupEventListeners();
+            }
+            // Setup upload listeners if upload elements exist
+            if (document.getElementById('uploadDropZone')) {
+                this.setupUploadListeners();
             }
             if (document.getElementById('resumeSection')) {
                 this.checkRateLimitState();
@@ -289,6 +298,348 @@ class SBOMPlayApp {
         this.githubClient.addEventListener('rateLimitReset', () => {
             this.hideRateLimitWaiting();
         });
+    }
+
+    /**
+     * Setup upload-related event listeners
+     */
+    setupUploadListeners() {
+        const dropZone = document.getElementById('uploadDropZone');
+        const fileInput = document.getElementById('sbomFileInput');
+        const analyzeBtn = document.getElementById('analyzeUploadBtn');
+        const clearQueueBtn = document.getElementById('clearUploadQueueBtn');
+        
+        if (!dropZone || !fileInput) return;
+        
+        // Drag and drop events
+        dropZone.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            dropZone.classList.add('drag-over');
+        });
+        
+        dropZone.addEventListener('dragleave', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            dropZone.classList.remove('drag-over');
+        });
+        
+        dropZone.addEventListener('drop', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            dropZone.classList.remove('drag-over');
+            
+            const files = e.dataTransfer?.files;
+            if (files && files.length > 0) {
+                this.addFilesToUploadQueue(Array.from(files));
+            }
+        });
+        
+        dropZone.addEventListener('click', () => fileInput?.click());
+        
+        // File input change
+        fileInput.addEventListener('change', (e) => {
+            const files = e.target?.files;
+            if (files && files.length > 0) {
+                this.addFilesToUploadQueue(Array.from(files));
+            }
+            e.target.value = ''; // Reset for re-selection
+        });
+        
+        // Start analysis button
+        if (analyzeBtn) {
+            analyzeBtn.addEventListener('click', () => this.startUploadAnalysis());
+        }
+        
+        // Clear queue button
+        if (clearQueueBtn) {
+            clearQueueBtn.addEventListener('click', () => this.clearUploadQueue());
+        }
+        
+        console.log('📤 Upload listeners initialized');
+    }
+
+    /**
+     * Add files to upload queue
+     */
+    async addFilesToUploadQueue(files) {
+        if (!this.sbomParser) {
+            this.showAlert('SBOM parser not available. Please refresh the page.', 'danger');
+            return;
+        }
+        
+        for (const file of files) {
+            // Validate file extension
+            if (!this.sbomParser.isValidExtension(file.name)) {
+                this.showAlert(`Invalid file type: ${file.name}. Supported formats: ${this.sbomParser.getSupportedExtensions().join(', ')}`, 'warning');
+                continue;
+            }
+            
+            try {
+                // Read and parse file
+                const content = await this.readFileContent(file);
+                const parsed = this.sbomParser.parse(content, file.name);
+                
+                if (!parsed || !parsed.format) {
+                    this.showAlert(`Failed to parse ${file.name}. Not a valid SPDX or CycloneDX file.`, 'warning');
+                    continue;
+                }
+                
+                // Add to queue
+                this.uploadQueue.push({
+                    file: file,
+                    content: content,
+                    parsedData: parsed,
+                    status: 'pending'
+                });
+                
+                console.log(`📄 Added to queue: ${file.name} (${parsed.format})`);
+            } catch (error) {
+                console.error(`Failed to process ${file.name}:`, error);
+                this.showAlert(`Failed to read ${file.name}: ${error.message}`, 'danger');
+            }
+        }
+        
+        this.updateUploadQueueUI();
+    }
+
+    /**
+     * Read file content as text
+     */
+    readFileContent(file) {
+        return new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = (e) => resolve(e.target.result);
+            reader.onerror = (e) => reject(new Error('Failed to read file'));
+            reader.readAsText(file);
+        });
+    }
+
+    /**
+     * Update upload queue UI
+     */
+    updateUploadQueueUI() {
+        const queueSection = document.getElementById('uploadQueueSection');
+        const queueList = document.getElementById('uploadQueueList');
+        const queueCount = document.getElementById('uploadQueueCount');
+        const analyzeBtn = document.getElementById('analyzeUploadBtn');
+        
+        if (!queueSection || !queueList) return;
+        
+        if (this.uploadQueue.length === 0) {
+            queueSection.classList.add('d-none');
+            return;
+        }
+        
+        queueSection.classList.remove('d-none');
+        queueCount.textContent = this.uploadQueue.length;
+        
+        queueList.innerHTML = this.uploadQueue.map((item, index) => {
+            const statusIcon = item.status === 'pending' ? 'fas fa-clock text-muted' :
+                              item.status === 'processing' ? 'fas fa-spinner fa-spin text-primary' :
+                              item.status === 'completed' ? 'fas fa-check-circle text-success' :
+                              'fas fa-times-circle text-danger';
+            
+            return `
+                <div class="list-group-item d-flex justify-content-between align-items-center py-2">
+                    <div>
+                        <i class="${statusIcon} me-2"></i>
+                        <span class="fw-medium">${this.escapeHtml(item.file.name)}</span>
+                        <span class="badge bg-secondary ms-2">${item.parsedData.format}</span>
+                        <small class="text-muted ms-2">${item.parsedData.packages?.length || 0} packages</small>
+                    </div>
+                    ${item.status === 'pending' ? `
+                        <button class="btn btn-sm btn-outline-danger" onclick="window.sbomPlayApp.removeFromUploadQueue(${index})">
+                            <i class="fas fa-times"></i>
+                        </button>
+                    ` : ''}
+                </div>
+            `;
+        }).join('');
+        
+        // Enable/disable analyze button
+        const hasPending = this.uploadQueue.some(item => item.status === 'pending');
+        analyzeBtn.disabled = !hasPending || this.isProcessingUpload;
+    }
+
+    /**
+     * Remove item from upload queue
+     */
+    removeFromUploadQueue(index) {
+        if (index >= 0 && index < this.uploadQueue.length) {
+            this.uploadQueue.splice(index, 1);
+            this.updateUploadQueueUI();
+        }
+    }
+
+    /**
+     * Clear upload queue
+     */
+    clearUploadQueue() {
+        this.uploadQueue = [];
+        this.updateUploadQueueUI();
+    }
+
+    /**
+     * Start processing uploaded files
+     */
+    async startUploadAnalysis() {
+        if (this.isProcessingUpload || this.uploadQueue.length === 0) return;
+        
+        this.isProcessingUpload = true;
+        this.isAnalyzing = true;
+        
+        // Show progress section
+        const progressSection = document.getElementById('progressSection');
+        const progressBar = document.getElementById('progressBar');
+        const progressText = document.getElementById('progressText');
+        
+        if (progressSection) {
+            progressSection.classList.remove('d-none');
+        }
+        
+        // Reset progress header to show spinner
+        this.setProgressHeaderState('running');
+        
+        // Start elapsed time tracking
+        this.analysisStartTime = Date.now();
+        this.startTiming();
+        
+        const pendingItems = this.uploadQueue.filter(item => item.status === 'pending');
+        let processedCount = 0;
+        
+        for (const item of pendingItems) {
+            item.status = 'processing';
+            this.updateUploadQueueUI();
+            
+            try {
+                await this.processUploadedSBOM(item, (phase, percent, message) => {
+                    const overallPercent = ((processedCount / pendingItems.length) * 100) + (percent / pendingItems.length);
+                    if (progressBar) {
+                        progressBar.style.width = `${overallPercent}%`;
+                        progressBar.textContent = `${Math.round(overallPercent)}%`;
+                    }
+                    if (progressText) {
+                        progressText.textContent = `[${processedCount + 1}/${pendingItems.length}] ${item.file.name}: ${message}`;
+                    }
+                });
+                
+                item.status = 'completed';
+                processedCount++;
+            } catch (error) {
+                console.error(`Failed to process ${item.file.name}:`, error);
+                item.status = 'error';
+                item.error = error.message;
+            }
+            
+            this.updateUploadQueueUI();
+        }
+        
+        // Stop elapsed time tracking
+        this.stopTiming();
+        
+        this.isProcessingUpload = false;
+        this.isAnalyzing = false;
+        
+        // Update progress header to show completion
+        this.setProgressHeaderState('complete');
+        
+        // Show completion message
+        if (progressText) {
+            const totalTime = ((this.analysisEndTime - this.analysisStartTime) / 1000).toFixed(1);
+            progressText.innerHTML = `
+                <div class="alert alert-success">
+                    <i class="fas fa-check-circle me-2"></i>
+                    Analysis complete! Processed ${processedCount} file(s) in ${totalTime}s.
+                    <br><small class="text-muted">Results are now available on all pages (Deps, Vulns, Licenses, etc.)</small>
+                </div>
+            `;
+        }
+        
+        // Refresh results display
+        await this.loadPreviousResults();
+        await this.displayStatsDashboard();
+        
+        // Show results section
+        const resultsSection = document.getElementById('resultsSection');
+        if (resultsSection) {
+            resultsSection.classList.remove('d-none');
+        }
+    }
+
+    /**
+     * Process a single uploaded SBOM file
+     */
+    async processUploadedSBOM(item, onProgress) {
+        const data = item.parsedData.data;
+        const projectName = `upload/${item.file.name.replace(/\.[^/.]+$/, '')}`;
+        const owner = 'upload';
+        const repo = projectName;
+        
+        // Reset processor
+        this.sbomProcessor.reset();
+        this.sbomProcessor.setTotalRepositories(1);
+        
+        // Upload metadata
+        const uploadInfo = {
+            filename: item.file.name,
+            format: item.parsedData.format,
+            uploadedAt: new Date().toISOString(),
+            projectName: projectName
+        };
+        
+        // Helper to save current state
+        const saveProgress = async (phaseName) => {
+            let results = this.sbomProcessor.exportData();
+            results.uploadInfo = uploadInfo;
+            await this.storageManager.saveAnalysisData(projectName, results);
+            console.log(`💾 Saved after ${phaseName}`);
+            return results;
+        };
+        
+        // Phase 1: Process SBOM (10-30%)
+        onProgress('sbom', 10, 'Processing SBOM data...');
+        const success = await this.sbomProcessor.processSBOM(owner, repo, data, null, false);
+        
+        if (!success) {
+            throw new Error('Failed to process SBOM data');
+        }
+        this.sbomProcessor.updateProgress(true);
+        await saveProgress('Phase 1: SBOM Processing');
+        
+        // Phase 2: Resolve dependency trees (30-50%)
+        onProgress('deps', 30, 'Resolving dependency trees...');
+        await this.sbomProcessor.resolveFullDependencyTrees((progress) => {
+            if (progress.phase === 'resolving-package') {
+                const pct = 30 + (progress.processed / Math.max(progress.total, 1)) * 20;
+                onProgress('deps', pct, `Resolving ${progress.packageName || 'dependencies'}...`);
+            }
+        });
+        await saveProgress('Phase 2: Dependency Trees + Confusion Detection');
+        
+        // Phase 3: License compliance (50-55%)
+        onProgress('license', 50, 'Analyzing license compliance...');
+        this.sbomProcessor.analyzeLicenseCompliance();
+        await saveProgress('Phase 3: License Compliance');
+        
+        // Phase 4: Export initial results (55%)
+        onProgress('export', 55, 'Exporting results...');
+        let results = this.sbomProcessor.exportData();
+        results.uploadInfo = uploadInfo;
+        
+        // Phase 5-8: Run shared enrichment pipeline (55-98%)
+        if (window.EnrichmentPipeline) {
+            const pipeline = new window.EnrichmentPipeline(this.sbomProcessor, this.storageManager);
+            results = await pipeline.runFullEnrichment(results, projectName, (phase, pct, msg) => {
+                onProgress(phase, pct, msg);
+            });
+        }
+        
+        // Final save
+        await this.storageManager.saveAnalysisData(projectName, results);
+        onProgress('complete', 100, 'Complete');
+        
+        return results;
     }
 
     /**
@@ -548,6 +899,8 @@ class SBOMPlayApp {
             progressSection.classList.remove('d-none');
             progressSection.classList.add('d-block');
         }
+        // Reset progress header to show spinner
+        this.setProgressHeaderState('running');
         // Clear previous ecosystem progress bars
         this.clearEcosystemProgress();
         if (resultsSection) {
@@ -824,11 +1177,13 @@ class SBOMPlayApp {
             
             this.updateProgress(100, 'Analysis complete!');
             this.stopTiming();
+            this.setProgressHeaderState('complete');
             this.showAlert(`Analysis complete for ${repoKey}!`, 'success');
             
         } catch (error) {
             console.error('Single repository analysis failed:', error);
             this.stopTiming();
+            this.setProgressHeaderState('error');
             this.showAlert(`Analysis failed: ${error.message}`, 'danger');
         } finally {
             this.finishAnalysis();
@@ -855,6 +1210,8 @@ class SBOMPlayApp {
             progressSection.classList.remove('d-none');
             progressSection.classList.add('d-block');
         }
+        // Reset progress header to show spinner
+        this.setProgressHeaderState('running');
         // Clear previous ecosystem progress bars
         this.clearEcosystemProgress();
         if (resultsSection) {
@@ -1281,10 +1638,12 @@ class SBOMPlayApp {
             
             this.updateProgress(100, 'Analysis complete!');
             this.stopTiming();
+            this.setProgressHeaderState('complete');
             
         } catch (error) {
             console.error('Analysis failed:', error);
             this.stopTiming();
+            this.setProgressHeaderState('error');
             this.showAlert(`Analysis failed: ${error.message}`, 'danger');
         } finally {
             this.finishAnalysis();
@@ -3473,6 +3832,32 @@ class SBOMPlayApp {
             phaseTiming: phaseTiming,
             enrichedAt: new Date().toISOString()
         };
+    }
+
+    /**
+     * Set progress header icon and text based on state
+     * @param {string} state - 'running', 'complete', or 'error'
+     */
+    setProgressHeaderState(state) {
+        const icon = document.getElementById('progressHeaderIcon');
+        const text = document.getElementById('progressHeaderText');
+        
+        if (!icon) return;
+        
+        switch (state) {
+            case 'running':
+                icon.className = 'fas fa-spinner fa-spin me-2';
+                if (text) text.textContent = 'Analysis Progress';
+                break;
+            case 'complete':
+                icon.className = 'fas fa-check-circle text-success me-2';
+                if (text) text.textContent = 'Analysis Complete';
+                break;
+            case 'error':
+                icon.className = 'fas fa-exclamation-circle text-danger me-2';
+                if (text) text.textContent = 'Analysis Failed';
+                break;
+        }
     }
 
     /**

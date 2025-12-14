@@ -8,8 +8,8 @@
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
     <link href="css/style.css?v=0.0.4" rel="stylesheet">
     <link href="css/themes.css?v=0.0.4" rel="stylesheet">
-    <script src="js/theme-manager.js?v=0.0.4&cb=1765728235000"></script>
-    <script src="js/analytics.js?v=0.0.4&cb=1765728235000"></script>
+    <script src="js/theme-manager.js?v=0.0.4&cb=1765731606000"></script>
+    <script src="js/analytics.js?v=0.0.4&cb=1765731606000"></script>
     <script defer data-domain="cyfinoid.github.io" src="https://plausible.io/js/script.outbound-links.js"></script>
 
 </head>
@@ -38,7 +38,7 @@
                     <a class="nav-link" href="deps.html">Deps</a>
                     <a class="nav-link" href="repos.html">Repos</a>
                     <a class="nav-link" href="authors.html">Authors</a>
-                    <a class="nav-link" href="upload.html">Upload</a>
+                    
                     <a class="nav-link" href="settings.html">Settings</a>
                     <a class="nav-link" href="about.html">About</a>
                 </div>
@@ -87,23 +87,67 @@
             </div>
         </div>
 
-        <!-- Organization Input -->
+        <!-- Input Options: GitHub or Upload -->
         <div class="card mb-4">
             <div class="card-header">
-                <h5 class="mb-0">
-                    <i class="fas fa-search me-2"></i>Analyze GitHub Organization or User
-                </h5>
+                <ul class="nav nav-tabs card-header-tabs" id="inputTabs" role="tablist">
+                    <li class="nav-item" role="presentation">
+                        <button class="nav-link active" id="github-tab" data-bs-toggle="tab" data-bs-target="#github-input" type="button" role="tab" aria-controls="github-input" aria-selected="true">
+                            <i class="fab fa-github me-2"></i>GitHub
+                        </button>
+                    </li>
+                    <li class="nav-item" role="presentation">
+                        <button class="nav-link" id="upload-tab" data-bs-toggle="tab" data-bs-target="#upload-input" type="button" role="tab" aria-controls="upload-input" aria-selected="false">
+                            <i class="fas fa-upload me-2"></i>Upload SBOM
+                        </button>
+                    </li>
+                </ul>
             </div>
             <div class="card-body">
-                <div class="row">
-                    <div class="col-md-8">
-                        <label for="orgName" class="form-label">Enter a GitHub organization, username, repository, or URL to analyze<sup>*</sup></label>
-                        <input type="text" class="form-control" id="orgName" 
-                               placeholder="e.g., microsoft, torvalds, microsoft/vscode, or https://github.com/cyfinoid/sbomplay">
+                <div class="tab-content" id="inputTabsContent">
+                    <!-- GitHub Input Tab -->
+                    <div class="tab-pane fade show active" id="github-input" role="tabpanel" aria-labelledby="github-tab">
+                        <div class="row">
+                            <div class="col-md-8">
+                                <label for="orgName" class="form-label">Enter a GitHub organization, username, repository, or URL to analyze<sup>*</sup></label>
+                                <input type="text" class="form-control" id="orgName" 
+                                       placeholder="e.g., microsoft, torvalds, microsoft/vscode, or https://github.com/cyfinoid/sbomplay">
+                            </div>
+                            <div class="col-md-4">
+                                <div class="d-flex align-items-end h-100 gap-2">
+                                    <button class="btn btn-primary" id="analyzeBtn">
+                                        <i class="fas fa-play me-2"></i>Start Analysis
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
                     </div>
-                    <div class="col-md-4">
-                        <div class="d-flex align-items-end h-100 gap-2">
-                            <button class="btn btn-primary" id="analyzeBtn">
+                    
+                    <!-- Upload SBOM Tab -->
+                    <div class="tab-pane fade" id="upload-input" role="tabpanel" aria-labelledby="upload-tab">
+                        <div id="uploadDropZone" class="upload-drop-zone text-center p-4 mb-3">
+                            <i class="fas fa-cloud-upload-alt fa-2x text-muted mb-2"></i>
+                            <h6>Drag & drop SBOM files here</h6>
+                            <p class="text-muted mb-2 small">or click to select files (multiple files supported)</p>
+                            <small class="text-muted">Supported: SPDX JSON, CycloneDX JSON</small>
+                            <input type="file" id="sbomFileInput" class="d-none" accept=".json,.spdx,.cdx" multiple>
+                        </div>
+                        
+                        <!-- Upload Queue -->
+                        <div id="uploadQueueSection" class="d-none">
+                            <div class="d-flex justify-content-between align-items-center mb-2">
+                                <span class="fw-bold">
+                                    <i class="fas fa-list me-1"></i>Files to Analyze
+                                    <span class="badge bg-primary ms-1" id="uploadQueueCount">0</span>
+                                </span>
+                                <button id="clearUploadQueueBtn" class="btn btn-sm btn-outline-secondary">
+                                    <i class="fas fa-trash-alt me-1"></i>Clear
+                                </button>
+                            </div>
+                            <div id="uploadQueueList" class="list-group mb-3">
+                                <!-- Queue items populated by JavaScript -->
+                            </div>
+                            <button id="analyzeUploadBtn" class="btn btn-primary" disabled>
                                 <i class="fas fa-play me-2"></i>Start Analysis
                             </button>
                         </div>
@@ -151,7 +195,7 @@
         <div id="progressSection" class="card mb-4 d-none">
             <div class="card-header">
                 <h5 class="mb-0">
-                    <i class="fas fa-spinner fa-spin me-2"></i>Analysis Progress
+                    <i id="progressHeaderIcon" class="fas fa-spinner fa-spin me-2"></i><span id="progressHeaderText">Analysis Progress</span>
                 </h5>
             </div>
             <div class="card-body">
@@ -414,29 +458,30 @@
     <!-- Scripts -->
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/js-yaml@4.1.0/dist/js-yaml.min.js"></script>
-        <script src="js/indexeddb-manager.js?v=0.0.4&cb=1765728235000"></script>
-        <script src="js/github-client.js?v=0.0.4&cb=1765728235000"></script>
-        <script src="js/registry-utils.js?v=0.0.4&cb=1765728235000"></script>
-        <script src="js/version-utils.js?v=0.0.4&cb=1765728235000"></script>
-        <script src="js/ecosystem-utils.js?v=0.0.4&cb=1765728235000"></script>
-        <script src="js/depconfuse-service.js?v=0.0.4&cb=1765728235000"></script>
-        <script src="js/dependency-tree-resolver.js?v=0.0.4&cb=1765728235000"></script>
-        <script src="js/sbom-quality-processor.js?v=0.0.4&cb=1765728235000"></script>
-        <script src="js/license-processor.js?v=0.0.4&cb=1765728235000"></script>
-        <script src="js/sbom-processor.js?v=0.0.4&cb=1765728235000"></script>
-        <script src="js/github-actions-analyzer.js?v=0.0.4&cb=1765728235000"></script>
-        <script src="js/cache-manager.js?v=0.0.4&cb=1765728235000"></script>
-        <script src="js/eox-service.js?v=0.0.4&cb=1765728235000"></script>
-        <script src="js/version-drift-analyzer.js?v=0.0.4&cb=1765728235000"></script>
-        <script src="js/request-queue-manager.js?v=0.0.4&cb=1765728235000"></script>
-        <script src="js/osv-service.js?v=0.0.4&cb=1765728235000"></script>
-        <script src="js/author-service.js?v=0.0.4&cb=1765728235000"></script>
-        <script src="js/enrichment-pipeline.js?v=0.0.4&cb=1765728235000"></script>
-        <script src="js/location-service.js?v=0.0.4&cb=1765728235000"></script>
-        <script src="js/storage-manager.js?v=0.0.4&cb=1765728235000"></script>
-        <script src="js/view-manager.js?v=0.0.4&cb=1765728235000"></script>
-        <script src="js/utils.js?v=0.0.4&cb=1765728235000"></script>
-    <script src="js/app.js?v=0.0.4&cb=1765728235000"></script>
-    <script src="js/index-page.js?v=0.0.4&cb=1765728235000"></script>
+        <script src="js/indexeddb-manager.js?v=0.0.4&cb=1765731606000"></script>
+        <script src="js/github-client.js?v=0.0.4&cb=1765731606000"></script>
+        <script src="js/registry-utils.js?v=0.0.4&cb=1765731606000"></script>
+        <script src="js/version-utils.js?v=0.0.4&cb=1765731606000"></script>
+        <script src="js/ecosystem-utils.js?v=0.0.4&cb=1765731606000"></script>
+        <script src="js/depconfuse-service.js?v=0.0.4&cb=1765731606000"></script>
+        <script src="js/dependency-tree-resolver.js?v=0.0.4&cb=1765731606000"></script>
+        <script src="js/sbom-quality-processor.js?v=0.0.4&cb=1765731606000"></script>
+        <script src="js/license-processor.js?v=0.0.4&cb=1765731606000"></script>
+        <script src="js/sbom-processor.js?v=0.0.4&cb=1765731606000"></script>
+        <script src="js/github-actions-analyzer.js?v=0.0.4&cb=1765731606000"></script>
+        <script src="js/cache-manager.js?v=0.0.4&cb=1765731606000"></script>
+        <script src="js/eox-service.js?v=0.0.4&cb=1765731606000"></script>
+        <script src="js/version-drift-analyzer.js?v=0.0.4&cb=1765731606000"></script>
+        <script src="js/request-queue-manager.js?v=0.0.4&cb=1765731606000"></script>
+        <script src="js/osv-service.js?v=0.0.4&cb=1765731606000"></script>
+        <script src="js/author-service.js?v=0.0.4&cb=1765731606000"></script>
+        <script src="js/enrichment-pipeline.js?v=0.0.4&cb=1765731606000"></script>
+        <script src="js/sbom-parser.js?v=0.0.4&cb=1765731606000"></script>
+        <script src="js/location-service.js?v=0.0.4&cb=1765731606000"></script>
+        <script src="js/storage-manager.js?v=0.0.4&cb=1765731606000"></script>
+        <script src="js/view-manager.js?v=0.0.4&cb=1765731606000"></script>
+        <script src="js/utils.js?v=0.0.4&cb=1765731606000"></script>
+    <script src="js/app.js?v=0.0.4&cb=1765731606000"></script>
+    <script src="js/index-page.js?v=0.0.4&cb=1765731606000"></script>
 </body>
 </html> 
