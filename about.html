@@ -8,8 +8,8 @@
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
     <link href="css/style.css?v=0.0.4" rel="stylesheet">
     <link href="css/themes.css?v=0.0.4" rel="stylesheet">
-    <script src="js/theme-manager.js?v=0.0.4&cb=1765665093000"></script>
-    <script src="js/depconfuse-service.js?v=0.0.4&cb=1765665093000"></script>
+    <script src="js/theme-manager.js?v=0.0.4&cb=1765696275000"></script>
+    <script src="js/depconfuse-service.js?v=0.0.4&cb=1765696275000"></script>
 </head>
 <body>
     <!-- Navigation -->
@@ -32,10 +32,11 @@
                     <a class="nav-link" href="licenses.html">License</a>
                     <a class="nav-link" href="vuln.html">Vulns</a>
                     <a class="nav-link" href="audit.html">Audit</a>
+                    <a class="nav-link" href="findings.html">Findings</a>
                     <a class="nav-link" href="deps.html">Deps</a>
                     <a class="nav-link" href="repos.html">Repos</a>
                     <a class="nav-link" href="authors.html">Authors</a>
-                    <a class="nav-link" href="upload.html">Upload <span class="badge bg-warning text-dark">Exp</span></a>
+                    <a class="nav-link" href="upload.html">Upload</a>
                     <a class="nav-link" href="settings.html">Settings</a>
                     <a class="nav-link active" href="about.html">About</a>
                 </div>
@@ -245,6 +246,182 @@
             </div>
         </div>
 
+        <!-- EOX Detection Methodology -->
+        <div class="card mb-4">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="fas fa-skull-crossbones me-2"></i>End-of-Life (EOX) Detection Methodology</h5>
+            </div>
+            <div class="card-body">
+                <p>
+                    SBOM Play uses multiple data sources and heuristics to identify end-of-life (EOL) and end-of-support (EOS) 
+                    dependencies. Understanding which software components are no longer maintained is critical for supply chain security.
+                </p>
+
+                <h6 class="mt-4"><i class="fas fa-database me-2 text-danger"></i>1. Confirmed EOL/EOS (Primary Source)</h6>
+                <p>
+                    We query the <a href="https://endoflife.date" target="_blank" rel="noreferrer noopener">endoflife.date</a> API 
+                    for official end-of-life information. This database tracks EOL dates for major software products including:
+                </p>
+                <ul>
+                    <li><strong>Programming languages:</strong> Python, Node.js, Ruby, PHP, Go, Java, .NET, Rust</li>
+                    <li><strong>Frameworks:</strong> Django, Rails, Laravel, Angular, React, Vue, Spring</li>
+                    <li><strong>Databases:</strong> PostgreSQL, MySQL, MongoDB, Redis, Elasticsearch</li>
+                    <li><strong>Infrastructure:</strong> Kubernetes, Docker, Terraform, Nginx, Apache</li>
+                </ul>
+                <div class="alert alert-light border">
+                    <strong>Definitions:</strong><br>
+                    • <span class="badge bg-danger">EOL</span> <strong>End-of-Life:</strong> No updates of any kind (features, bug fixes, or security patches)<br>
+                    • <span class="badge bg-warning text-dark">EOS</span> <strong>End-of-Support:</strong> No security updates, but may still receive critical bug fixes
+                </div>
+
+                <h6 class="mt-4"><i class="fas fa-clock me-2 text-secondary"></i>2. Probable EOL (Staleness Heuristic)</h6>
+                <p>
+                    When official EOL data is unavailable, we use staleness analysis to infer probable abandonment. 
+                    Research shows that packages without updates for extended periods are likely unmaintained.
+                </p>
+                <table class="table table-sm table-bordered">
+                    <thead class="table-light">
+                        <tr><th>Threshold</th><th>Classification</th><th>Rationale</th></tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td><strong>24+ months</strong> (2 years)</td>
+                            <td><span class="badge bg-secondary">Probable EOL</span></td>
+                            <td>Most active packages release at least once per year. 2 years of inactivity suggests abandonment.</td>
+                        </tr>
+                        <tr>
+                            <td><strong>36+ months</strong> (3 years)</td>
+                            <td><span class="badge bg-dark">Highly Likely EOL</span></td>
+                            <td>Very high confidence of abandonment. Security vulnerabilities likely unpatched.</td>
+                        </tr>
+                    </tbody>
+                </table>
+                <p class="text-muted small">
+                    <i class="fas fa-info-circle me-1"></i>
+                    Note: This heuristic has limitations. Some stable packages (e.g., small utilities) may be "complete" 
+                    and not require updates. We recommend manual review for probable EOL findings.
+                </p>
+
+                <h6 class="mt-4"><i class="fas fa-archive me-2 text-info"></i>3. Archived Repositories</h6>
+                <p>
+                    When a GitHub repository is archived, it's a clear signal from the maintainer that the project is no longer active. 
+                    We detect dependencies whose source repositories have been archived and flag them accordingly.
+                </p>
+                <div class="alert alert-info">
+                    <i class="fas fa-archive me-2"></i>
+                    <strong>Archived = Definitive Signal:</strong> Unlike staleness (which is probabilistic), an archived 
+                    repository is an explicit declaration by the maintainer that development has ceased.
+                </div>
+
+                <h6 class="mt-4"><i class="fas fa-book me-2"></i>References</h6>
+                <ul>
+                    <li><a href="https://endoflife.date/docs/api" target="_blank" rel="noreferrer noopener">endoflife.date API Documentation</a></li>
+                    <li><a href="https://openeox.org/" target="_blank" rel="noreferrer noopener">OpenEOX Standard</a> - Emerging standard for EOL data exchange</li>
+                    <li><a href="https://docs.github.com/en/repositories/archiving-a-github-repository/archiving-repositories" target="_blank" rel="noreferrer noopener">GitHub: Archiving Repositories</a></li>
+                </ul>
+            </div>
+        </div>
+
+        <!-- SBOM Compliance Standards -->
+        <div class="card mb-4">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="fas fa-clipboard-check me-2"></i>SBOM Compliance Standards</h5>
+            </div>
+            <div class="card-body">
+                <p>
+                    SBOM Play assesses SBOMs against multiple international compliance standards. Understanding these standards 
+                    helps organizations ensure their SBOMs meet regulatory requirements.
+                </p>
+
+                <h6 class="mt-4"><i class="fas fa-flag-usa me-2 text-primary"></i>CISA 2025 Minimum Elements (US Federal)</h6>
+                <p>
+                    The Cybersecurity and Infrastructure Security Agency (CISA) updated SBOM requirements in August 2025, 
+                    building upon the 2021 NTIA guidelines. Key additions marked with <span class="badge bg-warning text-dark">NEW</span>.
+                </p>
+                <table class="table table-sm table-bordered">
+                    <thead class="table-light">
+                        <tr><th>Element</th><th>Description</th><th>Status</th></tr>
+                    </thead>
+                    <tbody>
+                        <tr><td>Software Producer</td><td>Entity that creates components (was "Supplier Name")</td><td>Renamed</td></tr>
+                        <tr><td>Component Name</td><td>Name of each software component</td><td>Required</td></tr>
+                        <tr><td>Component Version</td><td>Version identifier</td><td>Required</td></tr>
+                        <tr><td>Software Identifier</td><td>PURL, CPE, OmniBOR, or SWHID</td><td>Required</td></tr>
+                        <tr><td>Component Hash</td><td>Cryptographic fingerprint (SHA-256+)</td><td><span class="badge bg-warning text-dark">NEW</span></td></tr>
+                        <tr><td>License Information</td><td>Legal terms for each component</td><td><span class="badge bg-warning text-dark">NEW</span></td></tr>
+                        <tr><td>Dependency Relationship</td><td>Upstream component relationships</td><td>Required</td></tr>
+                        <tr><td>SBOM Author</td><td>Entity that created the SBOM (was "Author of SBOM Data")</td><td>Renamed</td></tr>
+                        <tr><td>Timestamp</td><td>Date and time SBOM was assembled</td><td>Required</td></tr>
+                        <tr><td>Tool Name</td><td>Tool used to generate SBOM</td><td><span class="badge bg-warning text-dark">NEW</span></td></tr>
+                        <tr><td>Generation Context</td><td>Pre-build, build, or post-build stage</td><td><span class="badge bg-warning text-dark">NEW</span></td></tr>
+                    </tbody>
+                </table>
+
+                <h6 class="mt-4"><i class="fas fa-shield-alt me-2 text-info"></i>BSI TR-03183-2 v2.0 (German/EU)</h6>
+                <p>
+                    The German Federal Office for Information Security (BSI) Technical Guideline provides requirements 
+                    for SBOMs in the European context, with stricter requirements around cryptographic hashes.
+                </p>
+                <table class="table table-sm table-bordered">
+                    <thead class="table-light">
+                        <tr><th>Requirement</th><th>Description</th></tr>
+                    </thead>
+                    <tbody>
+                        <tr><td>SBOM Specification</td><td>Must use CycloneDX 1.5+ or SPDX 2.2.1+</td></tr>
+                        <tr><td>Creator Contact</td><td>Email or URL required for SBOM creator</td></tr>
+                        <tr><td>Component Hash</td><td><strong>SHA-256 minimum</strong> (stricter than CISA)</td></tr>
+                        <tr><td>License Expression</td><td>Valid SPDX license expression required</td></tr>
+                        <tr><td>SBOM URI</td><td>Unique namespace or serial number</td></tr>
+                        <tr><td>Source Code URI</td><td>Link to component source (where available)</td></tr>
+                    </tbody>
+                </table>
+
+                <h6 class="mt-4"><i class="fas fa-book me-2"></i>References</h6>
+                <ul>
+                    <li><a href="https://www.cisa.gov/resources-tools/resources/2025-minimum-elements-software-bill-materials-sbom" target="_blank" rel="noreferrer noopener">CISA 2025 SBOM Minimum Elements</a></li>
+                    <li><a href="https://www.cisa.gov/sites/default/files/2025-08/2025_CISA_SBOM_Minimum_Elements.pdf" target="_blank" rel="noreferrer noopener">CISA 2025 SBOM PDF Document</a></li>
+                    <li><a href="https://www.bsi.bund.de/SharedDocs/Downloads/EN/BSI/Publications/TechGuidelines/TR03183/BSI-TR-03183-2-2_0_0.pdf" target="_blank" rel="noreferrer noopener">BSI TR-03183-2 v2.0 (PDF)</a></li>
+                    <li><a href="https://www.ntia.doc.gov/files/ntia/publications/sbom_minimum_elements_report.pdf" target="_blank" rel="noreferrer noopener">NTIA 2021 Minimum Elements (Historical)</a></li>
+                    <li><a href="https://github.com/interlynk-io/sbomqs" target="_blank" rel="noreferrer noopener">sbomqs - SBOM Quality Scoring Tool</a></li>
+                </ul>
+            </div>
+        </div>
+
+        <!-- SBOM Quality Assessment -->
+        <div class="card mb-4">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="fas fa-chart-bar me-2"></i>SBOM Quality Assessment Methodology</h5>
+            </div>
+            <div class="card-body">
+                <p>
+                    Our quality scoring is aligned with <a href="https://github.com/interlynk-io/sbomqs" target="_blank" rel="noreferrer noopener">sbomqs v2.0</a>, 
+                    an industry-leading SBOM quality assessment tool. The overall score is calculated from 7 weighted categories:
+                </p>
+                <table class="table table-sm table-bordered">
+                    <thead class="table-light">
+                        <tr><th>Category</th><th>Weight</th><th>What It Measures</th></tr>
+                    </thead>
+                    <tbody>
+                        <tr><td><strong>Identification</strong></td><td>12%</td><td>Component names, versions, unique identifiers (PURLs, CPEs)</td></tr>
+                        <tr><td><strong>Provenance</strong></td><td>15%</td><td>SBOM author, timestamp, tool info, supplier data</td></tr>
+                        <tr><td><strong>Integrity</strong></td><td>18%</td><td>Cryptographic hashes (SHA-256+), digital signatures</td></tr>
+                        <tr><td><strong>Completeness</strong></td><td>15%</td><td>Dependencies, source URIs, component purpose</td></tr>
+                        <tr><td><strong>Licensing</strong></td><td>18%</td><td>Valid SPDX expressions, concluded/declared licenses</td></tr>
+                        <tr><td><strong>Vulnerability</strong></td><td>12%</td><td>Security references, vulnerability tracking readiness</td></tr>
+                        <tr><td><strong>Structural</strong></td><td>10%</td><td>Spec version, format validity, schema compliance</td></tr>
+                    </tbody>
+                </table>
+                <div class="alert alert-light border mt-3">
+                    <strong>Grading Scale:</strong><br>
+                    <span class="badge bg-success">A</span> 90-100% | 
+                    <span class="badge bg-info">B</span> 80-89% | 
+                    <span class="badge bg-warning text-dark">C</span> 70-79% | 
+                    <span class="badge bg-danger">D</span> 60-69% | 
+                    <span class="badge bg-dark">F</span> Below 60%
+                </div>
+            </div>
+        </div>
+
         <!-- Version Info -->
         <div class="card mb-4">
             <div class="card-header">
@@ -252,7 +429,7 @@
             </div>
             <div class="card-body">
                 <p>
-                    <strong>Current Version:</strong> 0.0.3
+                    <strong>Current Version:</strong> 0.0.4
                 </p>
                 <p>
                     <a href="CHANGELOG.md" target="_blank" class="btn btn-outline-primary btn-sm">

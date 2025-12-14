@@ -3,13 +3,13 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>SBOM Play - GitHub Actions Audit</title>
+    <title>SBOM Play - SBOM Quality Audit</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
     <link href="css/style.css?v=0.0.4" rel="stylesheet">
     <link href="css/themes.css?v=0.0.4" rel="stylesheet">
-    <script src="js/theme-manager.js?v=0.0.4&cb=1765665093000"></script>
-    <script src="js/analytics.js?v=0.0.4&cb=1765665093000"></script>
+    <script src="js/theme-manager.js?v=0.0.4&cb=1765696275000"></script>
+    <script src="js/analytics.js?v=0.0.4&cb=1765696275000"></script>
     <script defer data-domain="cyfinoid.github.io" src="https://plausible.io/js/script.outbound-links.js"></script>
 </head>
 <body>
@@ -33,10 +33,11 @@
                     <a class="nav-link" href="licenses.html">License</a>
                     <a class="nav-link" href="vuln.html">Vulns</a>
                     <a class="nav-link active" href="audit.html">Audit</a>
+                    <a class="nav-link" href="findings.html">Findings</a>
                     <a class="nav-link" href="deps.html">Deps</a>
                     <a class="nav-link" href="repos.html">Repos</a>
                     <a class="nav-link" href="authors.html">Authors</a>
-                    <a class="nav-link" href="upload.html">Upload <span class="badge bg-warning text-dark">Exp</span></a>
+                    <a class="nav-link" href="upload.html">Upload</a>
                     <a class="nav-link" href="settings.html">Settings</a>
                     <a class="nav-link" href="about.html">About</a>
                 </div>
@@ -49,8 +50,8 @@
             <div class="col-12">
                 <div class="d-flex justify-content-between align-items-center">
                     <div>
-                        <h1><i class="fas fa-search me-2"></i>Audit Findings</h1>
-                        <p class="text-muted">Security audit findings including GitHub Actions, package deprecation, and repository-level audits</p>
+                        <h1><i class="fas fa-clipboard-check me-2"></i>SBOM Quality Audit</h1>
+                        <p class="text-muted">SBOM quality audit findings including completeness, missing fields, and package deprecation</p>
                     </div>
                     <div>
                         <a href="index.html" class="btn btn-outline-primary">
@@ -66,8 +67,10 @@
             <div class="col-12">
                 <div class="alert alert-info" role="alert">
                     <i class="fas fa-info-circle me-2"></i>
-                    <strong>Audit Findings:</strong> This page shows security audit findings including GitHub Actions security issues, 
-                    deprecated packages, and repository-level audit findings. All processing happens in your browser for maximum privacy and security.
+                    <strong>SBOM Quality Audit:</strong> This page shows SBOM quality audit findings including missing versions, 
+                    missing PURLs, missing licenses, SBOM completeness issues, and deprecated packages.
+                    For security findings like GitHub Actions pinnability and dependency confusion, see the <a href="findings.html">Findings</a> page.
+                    For version drift, staleness, and end-of-life status, see the <a href="deps.html">Deps</a> page.
                 </div>
             </div>
         </div>
@@ -97,10 +100,6 @@
                             <option value="all">All Sections</option>
                             <option value="sbom-audit">SBOM Compliance</option>
                             <option value="package-deprecation">Package Deprecation</option>
-                            <option value="version-drift">Version Drift</option>
-                            <option value="stale-dependencies">Stale Dependencies</option>
-                            <option value="eox-dependencies">EOX (End-of-Life)</option>
-                            <option value="license-compatibility">License Compatibility</option>
                         </select>
                     </div>
                     <div class="col-md-3">
@@ -197,25 +196,18 @@
         </div>
     </footer>
     
-    <script src="js/indexeddb-manager.js?v=0.0.4&cb=1765665093000"></script>
-    <script src="js/utils.js?v=0.0.4&cb=1765665093000"></script>
-    <script src="js/eox-service.js?v=0.0.4&cb=1765665093000"></script>
-    <script src="js/registry-utils.js?v=0.0.4&cb=1765665093000"></script>
-    <script src="js/version-utils.js?v=0.0.4&cb=1765665093000"></script>
-    <script src="js/ecosystem-utils.js?v=0.0.4&cb=1765665093000"></script>
-    <script src="js/depconfuse-service.js?v=0.0.4&cb=1765665093000"></script>
-    <script src="js/cache-manager.js?v=0.0.4&cb=1765665093000"></script>
-    <script src="js/view-manager.js?v=0.0.4&cb=1765665093000"></script>
-    <script src="js/license-processor.js?v=0.0.4&cb=1765665093000"></script>
-    <script src="js/sbom-processor.js?v=0.0.4&cb=1765665093000"></script>
-    <script src="js/sbom-quality-processor.js?v=0.0.4&cb=1765665093000"></script>
-    <script src="js/version-drift-analyzer.js?v=0.0.4&cb=1765665093000"></script>
-    <script src="js/storage-manager.js?v=0.0.4&cb=1765665093000"></script>
-    <script src="js/github-client.js?v=0.0.4&cb=1765665093000"></script>
-    <script src="js/app.js?v=0.0.4&cb=1765665093000"></script>
+    <script src="js/indexeddb-manager.js?v=0.0.4&cb=1765696275000"></script>
+    <script src="js/utils.js?v=0.0.4&cb=1765696275000"></script>
+    <script src="js/cache-manager.js?v=0.0.4&cb=1765696275000"></script>
+    <script src="js/view-manager.js?v=0.0.4&cb=1765696275000"></script>
+    <script src="js/sbom-processor.js?v=0.0.4&cb=1765696275000"></script>
+    <script src="js/sbom-quality-processor.js?v=0.0.4&cb=1765696275000"></script>
+    <script src="js/storage-manager.js?v=0.0.4&cb=1765696275000"></script>
+    <script src="js/github-client.js?v=0.0.4&cb=1765696275000"></script>
+    <script src="js/app.js?v=0.0.4&cb=1765696275000"></script>
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
-    <script src="js/page-common.js?v=0.0.4&cb=1765665093000"></script>
-    <script src="js/audit-page.js?v=0.0.4&cb=1765665093000"></script>
+    <script src="js/page-common.js?v=0.0.4&cb=1765696275000"></script>
+    <script src="js/audit-page.js?v=0.0.4&cb=1765696275000"></script>
 </body>
 </html>
 

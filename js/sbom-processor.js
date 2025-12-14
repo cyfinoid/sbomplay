@@ -984,11 +984,97 @@ class SBOMProcessor {
             this.dependencyTreesResolved = true;
             this.resolvedDependencyTrees = resolvedTrees;
             
+            // Proactively check all dependencies for confusion using their original PURLs
+            // This catches cases where SBOM name != PURL package name (e.g., mislabeled dependencies)
+            await this.checkDependencyConfusionFromPurls();
+            
             return resolvedTrees;
             
         } catch (error) {
             console.error('❌ Error during dependency tree resolution:', error);
             return null;
+        }
+    }
+
+    /**
+     * Proactively check all dependencies for dependency confusion using their original PURLs
+     * This catches cases where the SBOM package name differs from the PURL package name
+     * (e.g., name: "content-type" but purl: "pkg:npm/internal-package@1.0.4")
+     */
+    async checkDependencyConfusionFromPurls() {
+        if (!window.depConfuseService) {
+            console.log('⚠️ DepConfuseService not available, skipping proactive PURL confusion check');
+            return;
+        }
+
+        console.log('🔍 Proactively checking dependencies for confusion using original PURLs...');
+        let checked = 0;
+        let vulnerable = 0;
+
+        for (const [depKey, dep] of this.dependencies) {
+            // Skip if already marked as not found (already checked)
+            if (dep.registryNotFound || dep.namespaceNotFound) {
+                continue;
+            }
+
+            // Get original PURL from the dependency
+            let purl = null;
+            if (dep.originalPackage && dep.originalPackage.externalRefs) {
+                const purlRef = dep.originalPackage.externalRefs.find(ref => ref.referenceType === 'purl');
+                if (purlRef && purlRef.referenceLocator) {
+                    purl = purlRef.referenceLocator;
+                }
+            }
+
+            if (!purl) continue;
+
+            // Extract package name from PURL and compare with dependency name
+            // If they differ, this is a potential mislabeling that needs checking
+            const purlMatch = purl.match(/pkg:[^\/]+\/([^@]+)/);
+            if (!purlMatch) continue;
+
+            let purlPackageName = decodeURIComponent(purlMatch[1]);
+            // Handle scoped packages (remove @ prefix for comparison)
+            if (purlPackageName.startsWith('%40')) {
+                purlPackageName = '@' + purlPackageName.substring(3);
+            }
+
+            // If PURL package name matches dependency name, skip (already checked during tree resolution)
+            if (purlPackageName === dep.name || purlPackageName.endsWith('/' + dep.name)) {
+                continue;
+            }
+
+            // PURL has different package name - check it for confusion
+            console.log(`    🔍 Checking PURL with different name: ${dep.name} vs PURL: ${purl}`);
+            checked++;
+
+            try {
+                const result = await window.depConfuseService.checkPackageForConfusion(purl);
+                
+                if (result.vulnerable) {
+                    vulnerable++;
+                    if (result.type === 'namespace_not_found') {
+                        dep.namespaceNotFound = true;
+                        dep.registryNotFound = true;
+                        console.log(`    ⚠️⚠️ PURL namespace not found: ${purl} - HIGH-CONFIDENCE dependency confusion`);
+                    } else {
+                        dep.registryNotFound = true;
+                        console.log(`    ⚠️ PURL package not found: ${purl} - potential dependency confusion`);
+                    }
+                    
+                    if (result.evidenceUrl) {
+                        dep.confusionEvidence = result.evidenceUrl;
+                    }
+                }
+            } catch (error) {
+                console.warn(`    ⚠️ Failed to check PURL ${purl}: ${error.message}`);
+            }
+        }
+
+        if (checked > 0) {
+            console.log(`✅ Proactive PURL check complete: ${checked} checked, ${vulnerable} vulnerable`);
+        } else {
+            console.log('✅ No mismatched PURL names found to check');
         }
     }
 

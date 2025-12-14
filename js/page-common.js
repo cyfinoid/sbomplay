@@ -4,6 +4,24 @@
  */
 
 /**
+ * Safely set innerHTML on an element
+ * Uses viewManager if available, otherwise sets directly
+ * Note: HTML should already have user data escaped before calling this
+ * @param {HTMLElement} element - The element to set HTML content for
+ * @param {string} html - The HTML string to insert
+ */
+function safeSetHTML(element, html) {
+    if (!element) return;
+    
+    if (window.viewManager && typeof window.viewManager.safeSetHTML === 'function') {
+        window.viewManager.safeSetHTML(element, html);
+    } else {
+        // Fallback - set innerHTML directly (HTML should already be escaped)
+        element.innerHTML = html || '';
+    }
+}
+
+/**
  * Load analyses list into a selector dropdown
  * Shows aggregated data by default, individual analyses when selected
  * @param {string} selectorId - ID of the select element
@@ -209,5 +227,149 @@ function getUrlParams(filterNames = []) {
     });
     
     return result;
+}
+
+/**
+ * Get finding name from rule ID
+ * Shared function for audit and findings pages
+ * @param {string} ruleId - Rule identifier
+ * @returns {string} - Human-readable name
+ */
+function getFindingName(ruleId) {
+    const names = {
+        'UNPINNED_ACTION_REFERENCE': 'Unpinned Action Reference',
+        'MUTABLE_TAG_REFERENCE': 'Mutable Tag Reference',
+        'DOCKER_FLOATING_TAG': 'Docker Floating Tag',
+        'DOCKER_IMPLICIT_LATEST': 'Docker Implicit Latest Tag',
+        'DOCKERFILE_FLOATING_BASE_IMAGE': 'Dockerfile Floating Base Image',
+        'DOCKER_UNPINNED_DEPENDENCIES': 'Docker Unpinned Dependencies',
+        'DOCKER_REMOTE_CODE_NO_INTEGRITY': 'Docker Remote Code Without Integrity Check',
+        'COMPOSITE_NESTED_UNPINNED_ACTION': 'Composite Nested Unpinned Action',
+        'COMPOSITE_UNPINNED_DEPENDENCIES': 'Composite Unpinned Dependencies',
+        'COMPOSITE_REMOTE_CODE_NO_INTEGRITY': 'Composite Remote Code Without Integrity Check',
+        'JS_REMOTE_CODE_NO_INTEGRITY': 'JavaScript Remote Code Without Integrity Check',
+        'JS_RUNTIME_UNPINNED_DEPENDENCIES': 'JavaScript Runtime Unpinned Dependencies',
+        'INDIRECT_UNPINNABLE_ACTION': 'Indirect Unpinnable Action',
+        'NAMESPACE_NOT_IN_REGISTRY': 'Namespace Not Found (Dependency Confusion)',
+        'PACKAGE_NOT_IN_REGISTRY': 'Package Not Found (Dependency Confusion)',
+        'PULL_REQUEST_TARGET_CHECKOUT': 'Dangerous PR Target Checkout',
+        'EXCESSIVE_WORKFLOW_PERMISSIONS': 'Excessive Workflow Permissions',
+        'EXCESSIVE_JOB_PERMISSIONS': 'Excessive Job Permissions',
+        'POTENTIAL_HARDCODED_SECRET': 'Potential Hardcoded Secret',
+        'ACTION_METADATA_UNAVAILABLE': 'Action Metadata Unavailable',
+        'ANALYSIS_ERROR': 'Analysis Error'
+    };
+    return names[ruleId] || ruleId;
+}
+
+/**
+ * Get finding description from rule ID
+ * Shared function for audit and findings pages
+ * @param {string} ruleId - Rule identifier
+ * @returns {string} - Description of the finding
+ */
+function getFindingDescription(ruleId) {
+    const descriptions = {
+        'UNPINNED_ACTION_REFERENCE': 'Actions referenced without a commit SHA are mutable and can change, posing security risks. Always pin actions to a full 40-character commit SHA.',
+        'MUTABLE_TAG_REFERENCE': 'Tags like "latest", "main", or version ranges can change over time. Use immutable commit SHAs instead.',
+        'DOCKER_FLOATING_TAG': 'Docker images using floating tags (e.g., "latest", version ranges) are not immutable and can introduce unexpected changes.',
+        'DOCKER_IMPLICIT_LATEST': 'Docker images without explicit tags default to "latest", which is mutable and insecure.',
+        'DOCKERFILE_FLOATING_BASE_IMAGE': 'Dockerfile base images using floating tags can change, affecting build reproducibility and security.',
+        'DOCKER_UNPINNED_DEPENDENCIES': 'Docker container dependencies should be pinned to specific versions for security and reproducibility.',
+        'DOCKER_REMOTE_CODE_NO_INTEGRITY': 'Remote code execution in Docker without integrity checks can lead to supply chain attacks.',
+        'COMPOSITE_NESTED_UNPINNED_ACTION': 'Composite actions calling other actions without pinning create nested security risks.',
+        'COMPOSITE_UNPINNED_DEPENDENCIES': 'Composite actions with unpinned dependencies can introduce vulnerabilities.',
+        'COMPOSITE_REMOTE_CODE_NO_INTEGRITY': 'Composite actions executing remote code without integrity verification pose security risks.',
+        'JS_REMOTE_CODE_NO_INTEGRITY': 'JavaScript actions executing remote code without integrity checks can be compromised.',
+        'JS_RUNTIME_UNPINNED_DEPENDENCIES': 'JavaScript actions with unpinned runtime dependencies may include vulnerable packages.',
+        'INDIRECT_UNPINNABLE_ACTION': 'Actions that cannot be pinned due to indirect references create security blind spots.',
+        'NAMESPACE_NOT_IN_REGISTRY': 'Namespace/organization not found in public registry. This is a HIGH-CONFIDENCE dependency confusion risk. An attacker could register this namespace and all packages under it would be vulnerable to hijacking.',
+        'PACKAGE_NOT_IN_REGISTRY': 'Package not found in public registry. This could indicate a private/internal package that is vulnerable to dependency confusion attacks. Attackers can register a package with the same name on public registries.',
+        'PULL_REQUEST_TARGET_CHECKOUT': 'Dangerous pattern: pull_request_target workflow checks out PR code, which can execute untrusted code with elevated permissions.',
+        'EXCESSIVE_WORKFLOW_PERMISSIONS': 'Workflow uses broad permissions like write-all, violating the principle of least privilege.',
+        'EXCESSIVE_JOB_PERMISSIONS': 'Job uses write-all permissions. Specify only the required permissions.',
+        'POTENTIAL_HARDCODED_SECRET': 'Environment variable appears to contain a hardcoded secret. Use GitHub Secrets instead.',
+        'ACTION_METADATA_UNAVAILABLE': 'Could not retrieve action metadata. The action may be unavailable or the repository may have been deleted.',
+        'ANALYSIS_ERROR': 'An error occurred during analysis of this action.'
+    };
+    return descriptions[ruleId] || 'Security issue detected.';
+}
+
+/**
+ * Get severity badge class for Bootstrap
+ * Shared function for audit and findings pages
+ * @param {string} severity - Severity level
+ * @returns {string} - Bootstrap badge class
+ */
+function getSeverityBadgeClass(severity) {
+    switch (severity?.toLowerCase()) {
+        case 'high':
+        case 'error':
+            return 'bg-danger';
+        case 'medium':
+            return 'bg-warning text-dark';
+        case 'warning':
+            return 'bg-info text-dark';
+        case 'low':
+            return 'bg-secondary';
+        default:
+            return 'bg-secondary';
+    }
+}
+
+/**
+ * Generate repository list HTML with modal support for many repos
+ * Shared function for audit and findings pages
+ * @param {Array} repositories - Array of repository names
+ * @returns {string} - HTML string with repository links
+ */
+function generateRepoListHTML(repositories) {
+    if (!repositories || repositories.length === 0) {
+        return '-';
+    }
+    
+    const repoCount = repositories.length;
+    const repoLinks = repositories.map(r => 
+        `<a href="https://github.com/${escapeHtml(r)}" target="_blank" rel="noreferrer noopener" class="text-decoration-none"><i class="fab fa-github me-1"></i>${escapeHtml(r)}</a>`
+    );
+    
+    if (repoCount <= 3) {
+        return repoLinks.join(', ');
+    } else {
+        const modalId = `repos-modal-${Math.random().toString(36).substr(2, 9)}`;
+        const visibleRepos = repoLinks.slice(0, 3).join(', ');
+        
+        return `${visibleRepos} 
+            <a href="#" class="text-primary" data-bs-toggle="modal" data-bs-target="#${modalId}" onclick="event.preventDefault();">
+                and ${repoCount - 3} more
+            </a>
+            <div class="modal fade" id="${modalId}" tabindex="-1" aria-hidden="true">
+                <div class="modal-dialog modal-lg">
+                    <div class="modal-content">
+                        <div class="modal-header">
+                            <h5 class="modal-title">All Repositories (${repoCount})</h5>
+                            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                        </div>
+                        <div class="modal-body">
+                            <div class="list-group">
+                                ${repositories.map((repo, idx) => `
+                                    <div class="list-group-item">
+                                        <div class="d-flex align-items-center gap-2">
+                                            <span class="badge bg-secondary">${idx + 1}</span>
+                                            <a href="https://github.com/${escapeHtml(repo)}" target="_blank" rel="noreferrer noopener" class="text-decoration-none">
+                                                <i class="fab fa-github me-1"></i>${escapeHtml(repo)}
+                                            </a>
+                                        </div>
+                                    </div>
+                                `).join('')}
+                            </div>
+                        </div>
+                        <div class="modal-footer">
+                            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                        </div>
+                    </div>
+                </div>
+            </div>`;
+    }
 }
 

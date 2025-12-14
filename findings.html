@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>SBOM Play - Vulnerability Analysis</title>
+    <title>SBOM Play - Security Findings</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
     <link href="css/style.css?v=0.0.4" rel="stylesheet">
@@ -31,9 +31,9 @@
                 <div class="navbar-nav ms-auto">
                     <a class="nav-link" href="index.html">Home</a>
                     <a class="nav-link" href="licenses.html">License</a>
-                    <a class="nav-link active" href="vuln.html">Vulns</a>
+                    <a class="nav-link" href="vuln.html">Vulns</a>
                     <a class="nav-link" href="audit.html">Audit</a>
-                    <a class="nav-link" href="findings.html">Findings</a>
+                    <a class="nav-link active" href="findings.html">Findings</a>
                     <a class="nav-link" href="deps.html">Deps</a>
                     <a class="nav-link" href="repos.html">Repos</a>
                     <a class="nav-link" href="authors.html">Authors</a>
@@ -50,8 +50,8 @@
             <div class="col-12">
                 <div class="d-flex justify-content-between align-items-center">
                     <div>
-                        <h1><i class="fas fa-bug me-2"></i>Vulnerability Analysis</h1>
-                        <p class="text-muted">Check for known vulnerabilities in your dependencies using OSV database</p>
+                        <h1><i class="fas fa-shield-alt me-2"></i>Security Findings</h1>
+                        <p class="text-muted">Security findings including GitHub Actions pinnability, dependency hijacking risks, and workflow security issues</p>
                     </div>
                     <div>
                         <a href="index.html" class="btn btn-outline-primary">
@@ -62,13 +62,13 @@
             </div>
         </div>
 
-        <!-- Tool Description and Assurance -->
+        <!-- Tool Description -->
         <div class="row mb-4">
             <div class="col-12">
-                <div class="alert alert-warning text-center" role="alert">
-                    <i class="fas fa-exclamation-triangle me-2"></i>
-                    <strong>Vulnerability Analysis:</strong> This tool checks for known vulnerabilities in your dependencies using the OSV database. 
-                    All processing happens in your browser for maximum privacy and security.
+                <div class="alert alert-info" role="alert">
+                    <i class="fas fa-info-circle me-2"></i>
+                    <strong>Security Findings:</strong> This page shows security-related findings including GitHub Actions security issues (unpinned actions, mutable tags, floating Docker images),
+                    dependency hijacking/confusion risks (packages not found in public registries), and other supply chain security findings. All processing happens in your browser for maximum privacy.
                 </div>
             </div>
         </div>
@@ -77,28 +77,41 @@
         <div class="card mb-4">
             <div class="card-body">
                 <div class="row">
-                    <div class="col-md-6">
+                    <div class="col-md-3">
                         <label class="form-label">Select Analysis</label>
                         <select class="form-select" id="analysisSelector">
                             <!-- Options populated dynamically, defaults to "All Analyses" (aggregated) -->
                         </select>
                     </div>
-                    <div class="col-md-6">
+                    <div class="col-md-2">
                         <label class="form-label">Filter by Severity</label>
                         <select class="form-select" id="severityFilter">
                             <option value="all">All Severities</option>
-                            <option value="critical">Critical</option>
                             <option value="high">High</option>
                             <option value="medium">Medium</option>
-                            <option value="low">Low</option>
+                            <option value="warning">Warning</option>
+                        </select>
+                    </div>
+                    <div class="col-md-3">
+                        <label class="form-label">Filter by Finding Type</label>
+                        <select class="form-select" id="findingTypeFilter">
+                            <option value="all">All Types</option>
+                            <option value="github-actions">GitHub Actions Security</option>
+                            <option value="dependency-confusion">Dependency Confusion</option>
+                        </select>
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label">Filter by Repository</label>
+                        <select class="form-select" id="repoFilter">
+                            <option value="all">All Repositories</option>
                         </select>
                     </div>
                 </div>
             </div>
         </div>
         
-        <div id="vulnerability-analysis-page">
-            <!-- Vulnerability Analysis content will be rendered here by JS -->
+        <div id="findings-page-content">
+            <!-- Findings content will be rendered here by JS -->
         </div>
 
         <!-- No Data Section -->
@@ -109,8 +122,8 @@
                 </h5>
             </div>
             <div class="card-body text-center">
-                <i class="fas fa-bug fa-3x text-muted mb-3"></i>
-                <h5>No Vulnerability Analysis Data Found</h5>
+                <i class="fas fa-search fa-3x text-muted mb-3"></i>
+                <h5>No Security Findings Data Found</h5>
                 <p class="text-muted">
                     You haven't analyzed any organizations yet, or all data has been cleared.
                 </p>
@@ -144,16 +157,16 @@
                 <div class="col-md-4">
                     <h6 class="text-primary">Resources</h6>
                     <div class="d-flex flex-column gap-2">
-                        <a href="https://cyfinoid.com/" target="_blank" class="btn btn-outline-primary btn-sm">
+                        <a href="https://cyfinoid.com/" target="_blank" rel="noreferrer noopener" class="btn btn-outline-primary btn-sm">
                             <i class="fas fa-globe me-1"></i>Website
                         </a>
-                        <a href="https://cyfinoid.com/blog/" target="_blank" class="btn btn-outline-primary btn-sm">
+                        <a href="https://cyfinoid.com/blog/" target="_blank" rel="noreferrer noopener" class="btn btn-outline-primary btn-sm">
                             <i class="fas fa-blog me-1"></i>Blog
                         </a>
-                        <a href="https://cyfinoid.com/trainings/#upcoming-trainings" target="_blank" class="btn btn-outline-primary btn-sm">
+                        <a href="https://cyfinoid.com/trainings/#upcoming-trainings" target="_blank" rel="noreferrer noopener" class="btn btn-outline-primary btn-sm">
                             <i class="fas fa-graduation-cap me-1"></i>Upcoming Trainings
                         </a>
-                        <a href="https://cyfinoid.com/opensource-by-cyfinoid/" target="_blank" class="btn btn-outline-primary btn-sm">
+                        <a href="https://cyfinoid.com/opensource-by-cyfinoid/" target="_blank" rel="noreferrer noopener" class="btn btn-outline-primary btn-sm">
                             <i class="fab fa-github me-1"></i>Open Source by Cyfinoid
                         </a>
                     </div>
@@ -173,16 +186,13 @@
             <div class="text-center">
                 <small class="text-muted">
                     © 2025 Cyfinoid Research. All rights reserved. | 
-                    <a href="https://github.com/cyfinoid/sbomplay" target="_blank" class="text-muted">
+                    <a href="https://github.com/cyfinoid/sbomplay" target="_blank" rel="noreferrer noopener" class="text-muted">
                         <i class="fab fa-github me-1"></i>View on GitHub
                     </a>
                 </small>
             </div>
         </div>
     </footer>
-    <!-- Markdown rendering libraries (for safe vulnerability description rendering) -->
-    <script src="https://cdn.jsdelivr.net/npm/marked@11.1.1/marked.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/dompurify@3.0.6/dist/purify.min.js"></script>
     
     <script src="js/indexeddb-manager.js?v=0.0.4&cb=1765696275000"></script>
     <script src="js/utils.js?v=0.0.4&cb=1765696275000"></script>
@@ -191,16 +201,14 @@
     <script src="js/ecosystem-utils.js?v=0.0.4&cb=1765696275000"></script>
     <script src="js/depconfuse-service.js?v=0.0.4&cb=1765696275000"></script>
     <script src="js/cache-manager.js?v=0.0.4&cb=1765696275000"></script>
-    <script src="js/version-drift-analyzer.js?v=0.0.4&cb=1765696275000"></script>
     <script src="js/view-manager.js?v=0.0.4&cb=1765696275000"></script>
     <script src="js/license-processor.js?v=0.0.4&cb=1765696275000"></script>
-    <script src="js/osv-service.js?v=0.0.4&cb=1765696275000"></script>
     <script src="js/sbom-processor.js?v=0.0.4&cb=1765696275000"></script>
     <script src="js/storage-manager.js?v=0.0.4&cb=1765696275000"></script>
     <script src="js/github-client.js?v=0.0.4&cb=1765696275000"></script>
     <script src="js/app.js?v=0.0.4&cb=1765696275000"></script>
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
     <script src="js/page-common.js?v=0.0.4&cb=1765696275000"></script>
-    <script src="js/vuln-page.js?v=0.0.4&cb=1765696275000"></script>
+    <script src="js/findings-page.js?v=0.0.4&cb=1765696275000"></script>
 </body>
-</html> 
+</html>

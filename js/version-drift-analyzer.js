@@ -220,15 +220,18 @@ class VersionDriftAnalyzer {
 
     /**
      * Check if a dependency is stale (6+ months old, no newer version)
+     * Also detects probable EOL based on age thresholds
      * @param {string} packageName - Package name
      * @param {string} currentVersion - Current version
      * @param {string} ecosystem - Ecosystem
-     * @returns {Promise<Object>} - {isStale: bool, lastReleaseDate: date, monthsSinceRelease: number}
+     * @returns {Promise<Object>} - {isStale: bool, isProbableEOL: bool, probableEOLReason: string, lastReleaseDate: date, monthsSinceRelease: number}
      */
     async checkStaleness(packageName, currentVersion, ecosystem) {
         if (!packageName || !currentVersion || !ecosystem) {
             return {
                 isStale: false,
+                isProbableEOL: false,
+                probableEOLReason: null,
                 lastReleaseDate: null,
                 monthsSinceRelease: 0
             };
@@ -270,6 +273,8 @@ class VersionDriftAnalyzer {
         if (cached && cached.stalenessCheckedAt && (Date.now() - cached.stalenessCheckedAt) < (7 * 24 * 60 * 60 * 1000)) {
             return cached.staleness || {
                 isStale: false,
+                isProbableEOL: false,
+                probableEOLReason: null,
                 lastReleaseDate: null,
                 monthsSinceRelease: 0
             };
@@ -283,6 +288,8 @@ class VersionDriftAnalyzer {
             if (drift.hasMajorUpdate || drift.hasMinorUpdate || drift.latestVersion !== currentVersion) {
                 const result = {
                     isStale: false,
+                    isProbableEOL: false,
+                    probableEOLReason: null,
                     lastReleaseDate: null,
                     monthsSinceRelease: 0,
                     stalenessCheckedAt: Date.now()
@@ -301,6 +308,8 @@ class VersionDriftAnalyzer {
             if (!publishDate) {
                 const result = {
                     isStale: false,
+                    isProbableEOL: false,
+                    probableEOLReason: null,
                     lastReleaseDate: null,
                     monthsSinceRelease: 0,
                     stalenessCheckedAt: Date.now()
@@ -311,9 +320,22 @@ class VersionDriftAnalyzer {
 
             const monthsSinceRelease = this.calculateMonthsSince(publishDate);
             const isStale = monthsSinceRelease >= 6;
+            
+            // Probable EOL thresholds:
+            // - 24+ months (2 years) with no updates = probable EOL
+            // - 36+ months (3 years) = highly likely EOL
+            const isProbableEOL = monthsSinceRelease >= 24;
+            let probableEOLReason = null;
+            if (monthsSinceRelease >= 36) {
+                probableEOLReason = `No updates for ${Math.floor(monthsSinceRelease / 12)} years - highly likely abandoned/EOL`;
+            } else if (monthsSinceRelease >= 24) {
+                probableEOLReason = `No updates for 2+ years - probable EOL`;
+            }
 
             const result = {
                 isStale: isStale,
+                isProbableEOL: isProbableEOL,
+                probableEOLReason: probableEOLReason,
                 lastReleaseDate: publishDate,
                 monthsSinceRelease: monthsSinceRelease,
                 stalenessCheckedAt: Date.now()
@@ -330,6 +352,8 @@ class VersionDriftAnalyzer {
             console.warn(`⚠️ Staleness check failed for ${ecosystem}:${packageName}:`, error);
             return {
                 isStale: false,
+                isProbableEOL: false,
+                probableEOLReason: null,
                 lastReleaseDate: null,
                 monthsSinceRelease: 0
             };

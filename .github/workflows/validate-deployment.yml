@@ -38,6 +38,7 @@ jobs:
             "about.html"
             "debug.html"
             "upload.html"
+            "findings.html"
           )
           
           MISSING=0
@@ -119,6 +120,7 @@ jobs:
             "js/vuln-page.js"
             "js/upload-page.js"
             "js/sbom-parser.js"
+            "js/findings-page.js"
           )
           
           MISSING=0

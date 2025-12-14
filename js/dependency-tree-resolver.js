@@ -873,15 +873,24 @@ class DependencyTreeResolver {
      * @param {string} version - Package version
      * @param {string} ecosystem - Ecosystem (npm, pypi, etc.)
      * @param {string} packageKey - Package key (name@version)
+     * @param {string} originalPurl - Original PURL from SBOM (optional, preferred over constructed PURL)
      */
-    async checkPackageForConfusion(packageName, version, ecosystem, packageKey) {
+    async checkPackageForConfusion(packageName, version, ecosystem, packageKey, originalPurl = null) {
         // Use DepConfuseService if available for enhanced namespace checking
         if (window.depConfuseService) {
             try {
-                // Build PURL from package info
-                const purlType = this.ecosystemToPurlType(ecosystem);
-                if (purlType) {
-                    const purl = `pkg:${purlType}/${encodeURIComponent(packageName)}@${version}`;
+                let purl = originalPurl;
+                
+                // If no original PURL provided, construct one from package info
+                if (!purl) {
+                    const purlType = this.ecosystemToPurlType(ecosystem);
+                    if (purlType) {
+                        purl = `pkg:${purlType}/${encodeURIComponent(packageName)}@${version}`;
+                    }
+                }
+                
+                if (purl) {
+                    console.log(`    🔍 Checking PURL for dependency confusion: ${purl}`);
                     const result = await window.depConfuseService.checkPackageForConfusion(purl);
                     
                     if (result.vulnerable) {
