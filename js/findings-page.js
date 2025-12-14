@@ -274,8 +274,11 @@ document.addEventListener('DOMContentLoaded', async function() {
                     return;
                 }
                 
-                // Filter by severity (these are high)
-                if (severityFilter && severityFilter !== 'all' && severityFilter !== 'high') {
+                // Use confusionSeverity from dep if available, default to 'high'
+                const findingSeverity = dep.confusionSeverity || 'high';
+                
+                // Filter by severity
+                if (severityFilter && severityFilter !== 'all' && severityFilter !== findingSeverity) {
                     return;
                 }
                 
@@ -283,20 +286,30 @@ document.addEventListener('DOMContentLoaded', async function() {
                 const checkedName = dep.confusionPurlName || dep.name;
                 const checkedPurl = dep.confusionPurl || dep.purl || null;
                 
+                // Use confusionMessage if available, otherwise generate default message
+                const ecosystem = dep.category?.ecosystem || 'unknown';
+                const defaultMessage = `Package "${checkedName}" not found in public registry (${ecosystem}). Could be hijacked via dependency confusion attack.`;
+                const findingMessage = dep.confusionMessage || defaultMessage;
+                
+                // Determine type name based on severity
+                const typeName = findingSeverity === 'low' 
+                    ? 'Potential Dependency Confusion (Low Risk - Likely System Package)' 
+                    : 'Potential Dependency Confusion';
+                
                 allFindings.push({
                     category: 'dependency-confusion',
                     type: 'PACKAGE_NOT_IN_REGISTRY',
-                    typeName: 'Potential Dependency Confusion',
+                    typeName: typeName,
                     description: getFindingDescription('PACKAGE_NOT_IN_REGISTRY'),
-                    severity: 'high',
+                    severity: findingSeverity,
                     package: `${checkedName}@${dep.version || 'unknown'}`,
                     sbomName: dep.name,  // Original SBOM name for reference
                     purl: checkedPurl,
-                    ecosystem: dep.category?.ecosystem || 'unknown',
+                    ecosystem: ecosystem,
                     repository: repos.length > 0 ? repos[0] : null,
                     repositories: repos,
                     confusionEvidence: dep.confusionEvidence || null,
-                    message: `Package "${checkedName}" not found in public registry (${dep.category?.ecosystem || 'unknown'}). Could be hijacked via dependency confusion attack.`
+                    message: findingMessage
                 });
             });
         }

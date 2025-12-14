@@ -1069,6 +1069,14 @@ class SBOMProcessor {
                     if (result.evidenceUrl) {
                         dep.confusionEvidence = result.evidenceUrl;
                     }
+                    
+                    // Store severity and message from the check result
+                    if (result.severity) {
+                        dep.confusionSeverity = result.severity;
+                    }
+                    if (result.message) {
+                        dep.confusionMessage = result.message;
+                    }
                 }
             } catch (error) {
                 console.warn(`    ⚠️ Failed to check PURL ${purl}: ${error.message}`);
@@ -1163,6 +1171,8 @@ class SBOMProcessor {
                 confusionEvidence: dep.confusionEvidence || null,  // URL proving the package/namespace doesn't exist
                 confusionPurl: dep.confusionPurl || null,  // The PURL that was checked (may differ from name)
                 confusionPurlName: dep.confusionPurlName || null,  // Package name from PURL that was not found
+                confusionSeverity: dep.confusionSeverity || null,  // Severity level from confusion check (e.g., 'low' for PyPI system packages)
+                confusionMessage: dep.confusionMessage || null,  // Detailed message from confusion check
                 originalPackage: dep.originalPackage,  // Include original package data
                 depth: dep.depth || null,  // Depth in dependency tree (1 = direct, 2+ = transitive)
                 parents: dep.parents || [],  // Parent dependencies (what brings this in)
@@ -1527,6 +1537,8 @@ class SBOMProcessor {
                     confusionEvidence: dep.confusionEvidence || null,  // URL proving the package/namespace doesn't exist
                     confusionPurl: dep.confusionPurl || null,  // The PURL that was checked (may differ from name)
                     confusionPurlName: dep.confusionPurlName || null,  // Package name from PURL that was not found
+                    confusionSeverity: dep.confusionSeverity || null,  // Severity level from confusion check (e.g., 'low' for PyPI system packages)
+                    confusionMessage: dep.confusionMessage || null,  // Detailed message from confusion check
                     // License info
                     license: license,
                     licenseFull: dep.licenseFull || license,

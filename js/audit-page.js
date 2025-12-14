@@ -903,18 +903,38 @@ document.addEventListener('DOMContentLoaded', async function() {
         if (packageNotFoundDeps.length > 0) {
             packageNotFoundDeps.forEach(dep => {
                 const repos = dep.repositories || [];
+                
+                // Use confusionSeverity from dep if available, default to 'high'
+                const findingSeverity = dep.confusionSeverity || 'high';
+                
+                // Use confusionPurlName if available (when PURL name differs from SBOM name)
+                const checkedName = dep.confusionPurlName || dep.name;
+                const checkedPurl = dep.confusionPurl || dep.purl || null;
+                
+                // Use confusionMessage if available, otherwise generate default message
+                const ecosystem = dep.category?.ecosystem || 'unknown';
+                const defaultMessage = `Package "${checkedName}" not found in public registry (${ecosystem}). Could be hijacked via dependency confusion attack.`;
+                const findingMessage = dep.confusionMessage || defaultMessage;
+                
+                // Determine type name based on severity
+                const typeName = findingSeverity === 'low' 
+                    ? 'Potential Dependency Confusion (Low Risk - Likely System Package)' 
+                    : 'Potential Dependency Confusion';
+                
                 allFindings.push({
                     category: 'dependency-confusion',
                     type: 'PACKAGE_NOT_IN_REGISTRY',
-                    typeName: 'Potential Dependency Confusion',
+                    typeName: typeName,
                     description: getFindingDescription('PACKAGE_NOT_IN_REGISTRY'),
-                    severity: 'high',
-                    package: `${dep.name}@${dep.version || 'unknown'}`,
-                    ecosystem: dep.category?.ecosystem || 'unknown',
+                    severity: findingSeverity,
+                    package: `${checkedName}@${dep.version || 'unknown'}`,
+                    sbomName: dep.name,  // Original SBOM name for reference
+                    purl: checkedPurl,
+                    ecosystem: ecosystem,
                     repository: repos.length > 0 ? repos[0] : null,
                     repositories: repos,
                     confusionEvidence: dep.confusionEvidence || null,
-                    message: `Package "${dep.name}" not found in public registry (${dep.category?.ecosystem || 'unknown'}). Could be hijacked via dependency confusion attack.`
+                    message: findingMessage
                 });
             });
             console.log(`📍 Found ${packageNotFoundDeps.length} dependency confusion risks (package not found)`);
@@ -1609,6 +1629,7 @@ document.addEventListener('DOMContentLoaded', async function() {
                     grade: quality.grade,
                     score: quality.overallScore,
                     displayScore: quality.displayScore,
+                    sbomFormat: quality.sbomFormat || { type: 'Unknown', version: null, displayName: 'Unknown' },
                     cisa2025Compliant: cisa2025Compliant,
                     bsiCompliant: bsiCompliant,
                     freshness: freshness,
@@ -1713,6 +1734,7 @@ document.addEventListener('DOMContentLoaded', async function() {
             html += '<thead class="table-light sticky-top"><tr>';
             html += '<th style="width: 70px;">Source</th>';
             html += '<th style="width: 200px;">Repository</th>';
+            html += '<th style="width: 100px;">Format</th>';
             html += '<th style="width: 60px;">Grade</th>';
             html += '<th style="width: 70px;">Score</th>';
             html += '<th style="width: 70px;">CISA</th>';
@@ -1751,9 +1773,22 @@ document.addEventListener('DOMContentLoaded', async function() {
                         <i class="fab fa-github me-1"></i>${escapeHtml(audit.repository)}
                        </a>`;
                 
+                // SBOM Format display with icon
+                const formatType = audit.sbomFormat?.type || 'Unknown';
+                const formatVersion = audit.sbomFormat?.version || '';
+                const formatDisplay = audit.sbomFormat?.displayName || 'Unknown';
+                const formatIcon = formatType === 'CycloneDX' ? 'fa-recycle' : 
+                                   formatType === 'SPDX' ? 'fa-file-alt' : 'fa-question-circle';
+                const formatBadgeClass = formatType === 'CycloneDX' ? 'info' : 
+                                         formatType === 'SPDX' ? 'primary' : 'secondary';
+                const formatHtml = `<span class="badge bg-${formatBadgeClass}" title="${escapeHtml(formatDisplay)}">
+                    <i class="fas ${formatIcon} me-1"></i>${escapeHtml(formatType)}${formatVersion ? ' ' + escapeHtml(formatVersion) : ''}
+                </span>`;
+                
                 html += `<tr>
                     <td>${sourceIcon}</td>
                     <td>${repoDisplay}</td>
+                    <td>${formatHtml}</td>
                     <td><span class="badge bg-${gradeClass}">${audit.grade}</span></td>
                     <td>${audit.displayScore}/10</td>
                     <td>${cisaIcon}</td>

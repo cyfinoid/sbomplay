@@ -55,9 +55,8 @@ jobs:
           cp repos.html _site/
           cp about.html _site/
           cp debug.html _site/
-          cp upload.html _site/
           cp findings.html _site/
-          echo "✅ Copied 12 HTML files"
+          echo "✅ Copied 11 HTML files"
           
           # Copy JavaScript and CSS directories (matching update-prod.sh)
           cp -r js _site/

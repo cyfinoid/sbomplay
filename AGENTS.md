@@ -2,11 +2,10 @@
 
 ## Architecture Overview
 
-Two entry points, one shared pipeline:
-- **GitHub API** (`index.html` → `app.js`) - Fetches SBOMs from GitHub
-- **File Upload** (`upload.html` → `upload-page.js`) - User uploads SPDX/CycloneDX
+Single entry point with unified pipeline:
+- **Main App** (`index.html` → `app.js`) - Fetches SBOMs from GitHub or accepts file uploads
 
-**CRITICAL**: Both MUST use the same shared services. Never duplicate implementations.
+**CRITICAL**: All features MUST use shared services. Never duplicate implementations.
 
 ```
 Input → SBOMParser → SBOMProcessor → EnrichmentPipeline → StorageManager → IndexedDB
@@ -32,7 +31,7 @@ Input → SBOMParser → SBOMProcessor → EnrichmentPipeline → StorageManager
 ### Adding New Features
 1. Check if feature exists in `app.js` first
 2. Extract to shared service if not already shared
-3. Use from both `app.js` and `upload-page.js`
+3. Add to `common.js` if reusable across pages
 
 ## Code Standards
 
@@ -47,8 +46,8 @@ Input → SBOMParser → SBOMProcessor → EnrichmentPipeline → StorageManager
 - Use `var(--bg-primary)` not hardcoded colors
 
 ### JavaScript
+- Common utilities: `js/common.js` (load first on all pages)
 - Page-specific: `js/{page}-page.js`
-- Shared utilities: `js/utils.js`
 
 ### Security
 - Use `safeSetHTML()` not `innerHTML` for user data
@@ -66,7 +65,7 @@ Update both workflow files:
 ### Cache Busting
 - Pattern: `?v=X.Y.Z&cb=<timestamp>` on all script/CSS tags
 - **Never** use inline JS for cache busting - edit src attributes directly
-- HTML files: `index.html`, `upload.html`, `licenses.html`, `vuln.html`, `deps.html`, `settings.html`, `authors.html`, `repos.html`, `about.html`, `debug.html`, `audit.html`
+- HTML files: `index.html`, `licenses.html`, `vuln.html`, `deps.html`, `settings.html`, `authors.html`, `repos.html`, `about.html`, `debug.html`, `audit.html`, `findings.html`
 
 ### CHANGELOG
 - Format: [Keep a Changelog](https://keepachangelog.com/)

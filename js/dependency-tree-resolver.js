@@ -877,6 +877,7 @@ class DependencyTreeResolver {
      */
     async checkPackageForConfusion(packageName, version, ecosystem, packageKey, originalPurl = null) {
         // Use DepConfuseService if available for enhanced namespace checking
+        // This includes GitHub Actions - we check if the repo exists on GitHub
         if (window.depConfuseService) {
             try {
                 let purl = originalPurl;

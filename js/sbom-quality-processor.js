@@ -64,6 +64,9 @@ class SBOMQualityProcessor {
 
         const sbom = sbomData.sbom;
         
+        // Detect SBOM format and version
+        const sbomFormat = this.detectSBOMFormat(sbom, sbomData);
+        
         // Calculate individual category scores (7 categories aligned with sbomqs v2.0)
         const identification = this.assessIdentification(sbom);
         const provenance = this.assessProvenance(sbom);
@@ -87,6 +90,7 @@ class SBOMQualityProcessor {
         return {
             repository: `${owner}/${repo}`,
             timestamp: Date.now(),
+            sbomFormat: sbomFormat,  // SBOM format info (type and version)
             overallScore: overallScore,  // 0-100 scale
             displayScore: this.toDisplayScore(overallScore),  // 0-10 scale for display
             grade: this.getGrade(overallScore),
@@ -102,6 +106,78 @@ class SBOMQualityProcessor {
             },
             summary: this.generateSummary7Categories(overallScore, identification, provenance, integrity, completeness, licensing, vulnerability, structural),
             issues: this.collectIssues7Categories(identification, provenance, integrity, completeness, licensing, vulnerability, structural)
+        };
+    }
+    
+    /**
+     * Detect SBOM format and version
+     * @param {Object} sbom - The SBOM data (sbomData.sbom)
+     * @param {Object} sbomData - The full SBOM wrapper (may contain original format info)
+     * @returns {Object} - { type: 'SPDX'|'CycloneDX'|'Unknown', version: string|null, displayName: string }
+     */
+    detectSBOMFormat(sbom, sbomData) {
+        // Check for CycloneDX markers in the wrapper or sbom
+        // CycloneDX converted to internal format may have Tool: CycloneDX-X.X in creators
+        const creators = sbom.creationInfo?.creators || [];
+        const cycloneDXCreator = creators.find(c => c.includes('CycloneDX-'));
+        
+        if (cycloneDXCreator) {
+            // Extract version from "Tool: CycloneDX-1.5" format
+            const versionMatch = cycloneDXCreator.match(/CycloneDX-([0-9.]+)/);
+            const version = versionMatch ? versionMatch[1] : null;
+            return {
+                type: 'CycloneDX',
+                version: version,
+                displayName: version ? `CycloneDX ${version}` : 'CycloneDX'
+            };
+        }
+        
+        // Check for bomFormat field (direct CycloneDX)
+        if (sbomData.bomFormat === 'CycloneDX' || sbom.bomFormat === 'CycloneDX') {
+            const version = sbomData.specVersion || sbom.specVersion || null;
+            return {
+                type: 'CycloneDX',
+                version: version,
+                displayName: version ? `CycloneDX ${version}` : 'CycloneDX'
+            };
+        }
+        
+        // Check for SPDX version
+        if (sbom.spdxVersion) {
+            // Parse version from "SPDX-2.3" format
+            const versionMatch = sbom.spdxVersion.match(/SPDX-([0-9.]+)/);
+            const version = versionMatch ? versionMatch[1] : sbom.spdxVersion;
+            return {
+                type: 'SPDX',
+                version: version,
+                displayName: `SPDX ${version}`
+            };
+        }
+        
+        // Check for SPDXVersion (alternative casing)
+        if (sbom.SPDXVersion) {
+            const versionMatch = sbom.SPDXVersion.match(/SPDX-([0-9.]+)/);
+            const version = versionMatch ? versionMatch[1] : sbom.SPDXVersion;
+            return {
+                type: 'SPDX',
+                version: version,
+                displayName: `SPDX ${version}`
+            };
+        }
+        
+        // Check if it looks like SPDX (has SPDXID, packages, relationships)
+        if (sbom.SPDXID && sbom.packages && sbom.relationships) {
+            return {
+                type: 'SPDX',
+                version: null,
+                displayName: 'SPDX (version unknown)'
+            };
+        }
+        
+        return {
+            type: 'Unknown',
+            version: null,
+            displayName: 'Unknown Format'
         };
     }
 
@@ -1377,6 +1453,7 @@ class SBOMQualityProcessor {
         return {
             repository: `${owner}/${repo}`,
             timestamp: Date.now(),
+            sbomFormat: { type: 'Unknown', version: null, displayName: 'N/A' },
             overallScore: 0,
             displayScore: 0,
             grade: 'N/A',

@@ -7,15 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- **Dependency Confusion Detection**: Reduced false positives for PyPI packages
+  - PyPI packages not found in registry now marked as LOW severity with message: "Double-check if this dependency could be fulfilled via native OS installers (apt, dnf, brew)"
+  - Finding type name updated to "Potential Dependency Confusion (Low Risk - Likely System Package)" for low severity findings
+  - Added `confusionSeverity` and `confusionMessage` fields to dependency data for accurate severity tracking
+
+### Removed
+- **Composer/Packagist Dependency Confusion**: Temporarily disabled to prevent false positives from platform packages (e.g., `php@8.2`)
+
 ### Added
 - **Enhanced Dependency Confusion Detection**: Ported detection capabilities from DepConfuse project
   - Created new `js/depconfuse-service.js` service with namespace and package existence checking
   - **Namespace Checking**: Detects when a package's namespace/organization doesn't exist in public registries (HIGH-CONFIDENCE risk)
-  - **38 Registry Support**: Extended from ~10 to 38 package registries via ecosyste.ms API
+  - **36 Registries + GitHub Actions**: Extended from ~10 to 36 package registries via ecosyste.ms API, plus GitHub Actions verification via GitHub API
     - New ecosystems: CocoaPods, Bower, Pub (Dart), CPAN, CRAN, Clojars, Hackage, Hex (Elixir), Julia, Swift Package Index, Conda, Homebrew, Puppet Forge, Deno, Elm, Racket, vcpkg, Bioconductor, and more
   - **Evidence URLs**: Findings now include proof links to the ecosyste.ms API response showing the package/namespace doesn't exist
   - **Separate Finding Types**: Distinguished between `NAMESPACE_NOT_IN_REGISTRY` (higher severity) and `PACKAGE_NOT_IN_REGISTRY`
-  - Updated `js/ecosystem-utils.js` and `js/registry-utils.js` with all 38 ecosystem mappings
+  - Updated `js/ecosystem-utils.js` and `js/registry-utils.js` with ecosystem mappings
   - Integrated with `js/dependency-tree-resolver.js` for automatic checking during dependency resolution
   - Enhanced Audit page to display dependency confusion findings with evidence links
 
@@ -72,6 +81,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Backward compatible with existing stored assessments
   - Reference: [sbomqs v2.0 Specification](https://github.com/interlynk-io/sbomqs)
 
+- **SBOM Format Display**: Audit page now shows SBOM format type and version
+  - Detects SPDX (e.g., "SPDX 2.3") and CycloneDX (e.g., "CycloneDX 1.5") formats
+  - New "Format" column in SBOM Audit table with color-coded badges
+  - Format info stored in quality assessment for persistent display
+  - Handles converted formats (CycloneDX uploaded and converted to internal SPDX-like format)
+
 ### Changed
 - **Architecture Refactoring**: Consolidated duplicate enrichment code between `app.js` and `upload-page.js`
   - Created `runLicenseAndVersionDriftEnrichment()` helper in `app.js` to consolidate ~90 lines of duplicate code
@@ -85,6 +100,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Upload flow now performs the same enrichment as GitHub flow
 
 ### Fixed
+- **GitHub Actions Dependency Confusion Detection**: Fixed false positives and added proper GitHub API verification
+  - **Issue**: Actions like `actions/setup-node@4.*.*` were incorrectly flagged because ecosyste.ms API doesn't properly check GitHub repos
+  - **Fix**: Implemented GitHub API-based verification for GitHub Actions:
+    - Checks if the repository exists using `api.github.com/repos/{owner}/{repo}`
+    - Checks if the organization/user exists using `api.github.com/users/{owner}`
+    - HIGH-CONFIDENCE risk: Organization/username doesn't exist (attacker can register it)
+    - Lower risk: Org exists but repo doesn't (risk if org allows public repo creation)
+  - Results are cached (24hr) to minimize API calls
+  - Graceful handling of rate limits (fails safe, doesn't flag on errors)
+  - Valid actions like `actions/setup-node` now correctly show as existing
+
 - **No Direct Dependencies in Uploaded SBOMs**: Fixed issue where all dependencies from uploaded CycloneDX SBOMs showed as transitive
   - Root cause: sbom-parser.js wasn't passing root component's bom-ref to identify direct dependencies
   - Root cause: sbom-processor.js was looking for main package with wrong name pattern for uploaded files

@@ -3692,4 +3692,23 @@ body {
 
 .queue-item:hover .remove-queue-item {
     opacity: 1;
+}
+
+/* =============================================================================
+   Utility Classes (replacing inline styles)
+   ============================================================================= */
+
+/* Form select with auto width - used in pagination selectors */
+.form-select-auto-width {
+    width: auto;
+}
+
+/* Progress bar with fixed height - used in debug page */
+.progress-h-25 {
+    height: 25px;
+}
+
+/* Progress bar initial state - width 0% */
+.progress-bar-initial {
+    width: 0%;
 } 
