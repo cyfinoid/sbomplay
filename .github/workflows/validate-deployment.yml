@@ -87,6 +87,7 @@ jobs:
             "js/audit-page.js"
             "js/cache-manager.js"
             "js/dependency-tree-resolver.js"
+            "js/depconfuse-service.js"
             "js/deps-page.js"
             "js/ecosystem-utils.js"
             "js/enrichment-pipeline.js"

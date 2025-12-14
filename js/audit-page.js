@@ -738,6 +738,7 @@ document.addEventListener('DOMContentLoaded', async function() {
             'JS_REMOTE_CODE_NO_INTEGRITY': 'JavaScript actions executing remote code without integrity checks can be compromised.',
             'JS_RUNTIME_UNPINNED_DEPENDENCIES': 'JavaScript actions with unpinned runtime dependencies may include vulnerable packages.',
             'INDIRECT_UNPINNABLE_ACTION': 'Actions that cannot be pinned due to indirect references create security blind spots.',
+            'NAMESPACE_NOT_IN_REGISTRY': 'Namespace/organization not found in public registry. This is a HIGH-CONFIDENCE dependency confusion risk. An attacker could register this namespace and all packages under it would be vulnerable to hijacking.',
             'PACKAGE_NOT_IN_REGISTRY': 'Package not found in public registry. This could indicate a private/internal package that is vulnerable to dependency confusion attacks. Attackers can register a package with the same name on public registries.',
             'PULL_REQUEST_TARGET_CHECKOUT': 'Dangerous pattern: pull_request_target workflow checks out PR code, which can execute untrusted code with elevated permissions.',
             'EXCESSIVE_WORKFLOW_PERMISSIONS': 'Workflow uses broad permissions like write-all, violating the principle of least privilege.',
@@ -902,11 +903,37 @@ document.addEventListener('DOMContentLoaded', async function() {
             });
         }
         
-        // Collect Dependency Confusion findings (packages not found in public registries)
+        // Collect Dependency Confusion findings (packages/namespaces not found in public registries)
         const allDependencies = orgData?.data?.allDependencies || [];
-        const notFoundDeps = allDependencies.filter(dep => dep.registryNotFound === true);
-        if (notFoundDeps.length > 0) {
-            notFoundDeps.forEach(dep => {
+        
+        // HIGH-CONFIDENCE: Namespace not found (more severe - attacker can register entire namespace)
+        const namespaceNotFoundDeps = allDependencies.filter(dep => dep.namespaceNotFound === true);
+        if (namespaceNotFoundDeps.length > 0) {
+            namespaceNotFoundDeps.forEach(dep => {
+                const repos = dep.repositories || [];
+                allFindings.push({
+                    category: 'dependency-confusion',
+                    type: 'NAMESPACE_NOT_IN_REGISTRY',
+                    typeName: 'HIGH-CONFIDENCE Dependency Confusion (Namespace Missing)',
+                    description: getFindingDescription('NAMESPACE_NOT_IN_REGISTRY'),
+                    severity: 'high',
+                    package: `${dep.name}@${dep.version || 'unknown'}`,
+                    ecosystem: dep.category?.ecosystem || 'unknown',
+                    repository: repos.length > 0 ? repos[0] : null,
+                    repositories: repos,
+                    confusionEvidence: dep.confusionEvidence || null,
+                    message: `Namespace for "${dep.name}" not found in public registry (${dep.category?.ecosystem || 'unknown'}). HIGH-CONFIDENCE dependency confusion risk - attacker could register entire namespace.`
+                });
+            });
+            console.log(`📍 Found ${namespaceNotFoundDeps.length} HIGH-CONFIDENCE dependency confusion risks (namespace missing)`);
+        }
+        
+        // Package not found (less severe than namespace not found, but still a risk)
+        const packageNotFoundDeps = allDependencies.filter(dep => 
+            dep.registryNotFound === true && !dep.namespaceNotFound
+        );
+        if (packageNotFoundDeps.length > 0) {
+            packageNotFoundDeps.forEach(dep => {
                 const repos = dep.repositories || [];
                 allFindings.push({
                     category: 'dependency-confusion',
@@ -918,10 +945,11 @@ document.addEventListener('DOMContentLoaded', async function() {
                     ecosystem: dep.category?.ecosystem || 'unknown',
                     repository: repos.length > 0 ? repos[0] : null,
                     repositories: repos,
+                    confusionEvidence: dep.confusionEvidence || null,
                     message: `Package "${dep.name}" not found in public registry (${dep.category?.ecosystem || 'unknown'}). Could be hijacked via dependency confusion attack.`
                 });
             });
-            console.log(`📍 Found ${notFoundDeps.length} dependency confusion risks`);
+            console.log(`📍 Found ${packageNotFoundDeps.length} dependency confusion risks (package not found)`);
         }
         
         if (allFindings.length === 0) {
@@ -1309,9 +1337,16 @@ document.addEventListener('DOMContentLoaded', async function() {
                             <i class="fab fa-github me-1"></i>${escapeHtml(instance.repository)}
                         </a>`;
                     }
+                    
+                    // Build message with evidence URL for dependency confusion findings
+                    let messageContent = escapeHtml(instance.message || '—');
+                    if (instance.confusionEvidence) {
+                        messageContent += `<br><a href="${escapeHtml(instance.confusionEvidence)}" target="_blank" rel="noopener noreferrer" class="text-info small"><i class="fas fa-external-link-alt me-1"></i>View evidence</a>`;
+                    }
+                    
                     html += `<tr>
                         <td>${repoLink}</td>
-                        <td><small class="text-muted">${escapeHtml(instance.message || '—')}</small></td>
+                        <td><small class="text-muted">${messageContent}</small></td>
                     </tr>`;
                 }
             });
@@ -2615,6 +2650,7 @@ document.addEventListener('DOMContentLoaded', async function() {
             'JS_REMOTE_CODE_NO_INTEGRITY': 'JavaScript Remote Code Without Integrity',
             'JS_RUNTIME_UNPINNED_DEPENDENCIES': 'JavaScript Runtime Unpinned Dependencies',
             'INDIRECT_UNPINNABLE_ACTION': 'Indirect Unpinnable Action',
+            'NAMESPACE_NOT_IN_REGISTRY': 'HIGH-CONFIDENCE Dependency Confusion (Namespace Missing)',
             'PACKAGE_NOT_IN_REGISTRY': 'Potential Dependency Confusion',
             'PULL_REQUEST_TARGET_CHECKOUT': 'Dangerous PR Target Pattern',
             'EXCESSIVE_WORKFLOW_PERMISSIONS': 'Excessive Workflow Permissions',

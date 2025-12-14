@@ -8,6 +8,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Enhanced Dependency Confusion Detection**: Ported detection capabilities from DepConfuse project
+  - Created new `js/depconfuse-service.js` service with namespace and package existence checking
+  - **Namespace Checking**: Detects when a package's namespace/organization doesn't exist in public registries (HIGH-CONFIDENCE risk)
+  - **38 Registry Support**: Extended from ~10 to 38 package registries via ecosyste.ms API
+    - New ecosystems: CocoaPods, Bower, Pub (Dart), CPAN, CRAN, Clojars, Hackage, Hex (Elixir), Julia, Swift Package Index, Conda, Homebrew, Puppet Forge, Deno, Elm, Racket, vcpkg, Bioconductor, and more
+  - **Evidence URLs**: Findings now include proof links to the ecosyste.ms API response showing the package/namespace doesn't exist
+  - **Separate Finding Types**: Distinguished between `NAMESPACE_NOT_IN_REGISTRY` (higher severity) and `PACKAGE_NOT_IN_REGISTRY`
+  - Updated `js/ecosystem-utils.js` and `js/registry-utils.js` with all 38 ecosystem mappings
+  - Integrated with `js/dependency-tree-resolver.js` for automatic checking during dependency resolution
+  - Enhanced Audit page to display dependency confusion findings with evidence links
+
 - **EOX (End-of-Life) Support**: New service to detect End-of-Life and End-of-Support packages
   - Created `js/eox-service.js` for integration with endoflife.date API
   - Automatically identifies packages that have reached EOL/EOS status

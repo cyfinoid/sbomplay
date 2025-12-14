@@ -127,6 +127,16 @@ body {
     }
 }
 
+/* Active nav-link styling - works in both light and dark modes */
+/* Using font-weight and underline instead of color to avoid being overridden */
+.navbar-nav .nav-link.active,
+.navbar .nav-link.active {
+    font-weight: 700 !important;
+    text-decoration: underline !important;
+    text-decoration-thickness: 2px !important;
+    text-underline-offset: 4px !important;
+}
+
 /* Ensure theme toggle is always visible */
 .theme-toggle {
     flex-shrink: 0;

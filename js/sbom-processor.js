@@ -755,6 +755,29 @@ class SBOMProcessor {
                             const dep = this.dependencies.get(pkgKey);
                             if (dep) {
                                 dep.registryNotFound = true;
+                                // Get evidence URL if available
+                                const evidence = resolver.getConfusionEvidence(pkgKey);
+                                if (evidence) {
+                                    dep.confusionEvidence = evidence;
+                                }
+                            }
+                        });
+                    }
+                    
+                    // Track packages with namespaces not found (higher confidence dependency confusion)
+                    const namespaceNotFound = resolver.getNamespaceNotFoundPackages();
+                    if (namespaceNotFound && namespaceNotFound.size > 0) {
+                        console.log(`    ⚠️⚠️ ${namespaceNotFound.size} package(s) with NAMESPACE not found in ${ecosystem} registry (HIGH-CONFIDENCE dependency confusion)`);
+                        namespaceNotFound.forEach(pkgKey => {
+                            const dep = this.dependencies.get(pkgKey);
+                            if (dep) {
+                                dep.namespaceNotFound = true;
+                                dep.registryNotFound = true; // Also mark as registry not found for backward compatibility
+                                // Get evidence URL if available
+                                const evidence = resolver.getConfusionEvidence(pkgKey);
+                                if (evidence) {
+                                    dep.confusionEvidence = evidence;
+                                }
                             }
                         });
                     }
@@ -1405,6 +1428,8 @@ class SBOMProcessor {
                     languages: Array.from(dep.languages),
                     purl: purl,  // Include extracted PURL for author analysis
                     registryNotFound: dep.registryNotFound || false,  // Potential dependency confusion risk
+                    namespaceNotFound: dep.namespaceNotFound || false,  // HIGH-CONFIDENCE dependency confusion (namespace missing)
+                    confusionEvidence: dep.confusionEvidence || null,  // URL proving the package/namespace doesn't exist
                     // License info
                     license: license,
                     licenseFull: dep.licenseFull || license,

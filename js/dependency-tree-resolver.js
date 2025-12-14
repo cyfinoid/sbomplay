@@ -9,6 +9,8 @@ class DependencyTreeResolver {
         this.ecosystemsApiCache = new Map();
         this.depsDevCache = new Map();
         this.registryNotFoundPackages = new Set(); // Track packages not found in any registry (potential dependency confusion)
+        this.namespaceNotFoundPackages = new Set(); // Track packages with namespaces not found (higher confidence confusion risk)
+        this.confusionEvidence = new Map(); // Map packageKey -> evidence URL
         // Load maxDepth from localStorage or use default of 10
         const savedMaxDepth = localStorage.getItem('maxDepth');
         this.maxDepth = savedMaxDepth ? parseInt(savedMaxDepth, 10) : 10;
@@ -316,8 +318,8 @@ class DependencyTreeResolver {
             // Track packages not found in any registry (potential dependency confusion vulnerability)
             // This could indicate a private/internal package that could be hijacked
             if (dependencies === null) {
-                this.registryNotFoundPackages.add(packageKey);
-                console.log(`    ⚠️  Package ${packageKey} not found in any registry - potential dependency confusion risk`);
+                // Use DepConfuseService for enhanced detection if available
+                await this.checkPackageForConfusion(packageName, resolvedVersion, ecosystem, packageKey);
             }
             return;
         }
@@ -838,6 +840,104 @@ class DependencyTreeResolver {
      */
     isPackageNotInRegistry(packageKey) {
         return this.registryNotFoundPackages.has(packageKey);
+    }
+
+    /**
+     * Get packages with namespaces not found in any registry (high confidence confusion)
+     * @returns {Set<string>} - Set of package keys (name@version) with missing namespaces
+     */
+    getNamespaceNotFoundPackages() {
+        return this.namespaceNotFoundPackages;
+    }
+
+    /**
+     * Get confusion evidence URL for a package
+     * @param {string} packageKey - Package key (name@version)
+     * @returns {string|null} - Evidence URL or null
+     */
+    getConfusionEvidence(packageKey) {
+        return this.confusionEvidence.get(packageKey) || null;
+    }
+
+    /**
+     * Clear namespace not found tracking
+     */
+    clearNamespaceNotFoundTracking() {
+        this.namespaceNotFoundPackages.clear();
+        this.confusionEvidence.clear();
+    }
+
+    /**
+     * Check a package for dependency confusion using DepConfuseService
+     * @param {string} packageName - Package name
+     * @param {string} version - Package version
+     * @param {string} ecosystem - Ecosystem (npm, pypi, etc.)
+     * @param {string} packageKey - Package key (name@version)
+     */
+    async checkPackageForConfusion(packageName, version, ecosystem, packageKey) {
+        // Use DepConfuseService if available for enhanced namespace checking
+        if (window.depConfuseService) {
+            try {
+                // Build PURL from package info
+                const purlType = this.ecosystemToPurlType(ecosystem);
+                if (purlType) {
+                    const purl = `pkg:${purlType}/${encodeURIComponent(packageName)}@${version}`;
+                    const result = await window.depConfuseService.checkPackageForConfusion(purl);
+                    
+                    if (result.vulnerable) {
+                        if (result.type === 'namespace_not_found') {
+                            this.namespaceNotFoundPackages.add(packageKey);
+                            console.log(`    ⚠️  Namespace "${result.namespace}" not found for ${packageKey} - HIGH-CONFIDENCE dependency confusion risk`);
+                        } else {
+                            this.registryNotFoundPackages.add(packageKey);
+                            console.log(`    ⚠️  Package ${packageKey} not found in ${result.registry} registry - potential dependency confusion risk`);
+                        }
+                        
+                        // Store evidence URL
+                        if (result.evidenceUrl) {
+                            this.confusionEvidence.set(packageKey, result.evidenceUrl);
+                        }
+                    }
+                    return;
+                }
+            } catch (error) {
+                console.warn(`    ⚠️  DepConfuse check failed for ${packageKey}: ${error.message}`);
+            }
+        }
+        
+        // Fallback: Just track as registry not found
+        this.registryNotFoundPackages.add(packageKey);
+        console.log(`    ⚠️  Package ${packageKey} not found in any registry - potential dependency confusion risk`);
+    }
+
+    /**
+     * Convert ecosystem name to PURL type
+     * @param {string} ecosystem - Ecosystem name
+     * @returns {string|null} - PURL type or null
+     */
+    ecosystemToPurlType(ecosystem) {
+        const mapping = {
+            'npm': 'npm',
+            'pypi': 'pypi',
+            'maven': 'maven',
+            'nuget': 'nuget',
+            'cargo': 'cargo',
+            'rubygems': 'gem',
+            'gem': 'gem',
+            'go': 'golang',
+            'golang': 'golang',
+            'composer': 'composer',
+            'packagist': 'composer',
+            'docker': 'docker',
+            'cocoapods': 'cocoapods',
+            'hex': 'hex',
+            'pub': 'pub',
+            'conda': 'conda',
+            'github actions': 'githubactions',
+            'githubactions': 'githubactions'
+        };
+        
+        return mapping[ecosystem.toLowerCase()] || null;
     }
 
     /**

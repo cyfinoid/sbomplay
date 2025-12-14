@@ -148,11 +148,12 @@ class RegistryManager {
     /**
      * Get default mappings as fallback
      * Based on https://packages.ecosyste.ms/api/v1/registries
-     * Includes comprehensive mapping for all supported ecosystems
+     * Includes comprehensive mapping for all 38 supported ecosystems
+     * Ported from DepConfuse: projects/DepConfuse/src/constants.go
      */
     getDefaultMappings() {
         return {
-            // Map purl types to ecosyste.ms registry names
+            // Primary package registries (most common)
             'npm': 'npmjs.org',
             'pypi': 'pypi.org',
             'cargo': 'crates.io',
@@ -164,7 +165,37 @@ class RegistryManager {
             'nuget': 'nuget.org',
             'composer': 'packagist.org',
             'packagist': 'packagist.org',
-            'docker': 'hub.docker.com'
+            'docker': 'hub.docker.com',
+            
+            // Additional ecosystems (ported from DepConfuse)
+            'cocoapods': 'cocoapods.org',
+            'bower': 'bower.io',
+            'pub': 'pub.dev',
+            'cpan': 'metacpan.org',
+            'alpine': 'alpine',
+            'github': 'github%20actions',
+            'githubactions': 'github%20actions',
+            'cran': 'cran.r-project.org',
+            'clojars': 'clojars.org',
+            'conda': 'conda-forge.org',
+            'anaconda': 'anaconda.org',
+            'hackage': 'hackage.haskell.org',
+            'hex': 'hex.pm',
+            'julia': 'juliahub.com',
+            'swift': 'swiftpackageindex.com',
+            'spack': 'spack.io',
+            'homebrew': 'formulae.brew.sh',
+            'adelie': 'pkg.adelielinux.org',
+            'puppet': 'forge.puppet.com',
+            'deno': 'deno.land',
+            'elm': 'package.elm-lang.org',
+            'racket': 'pkgs.racket-lang.org',
+            'vcpkg': 'vcpkg.io',
+            'bioconductor': 'bioconductor.org',
+            'carthage': 'carthage',
+            'postmarketos': 'postmarketos',
+            'elpa': 'elpa.gnu.org',
+            'nongnu': 'elpa.nongnu.org'
         };
     }
 
