@@ -441,9 +441,7 @@ document.addEventListener('DOMContentLoaded', async function() {
                                     ${typeData.instances.map(instance => {
                                         if (typeData.category === 'github-actions') {
                                             const actionDisplay = instance.action ? escapeHtml(instance.action) : (instance.file ? escapeHtml(instance.file) : '-');
-                                            const repoDisplay = instance.repository ? 
-                                                `<a href="https://github.com/${escapeHtml(instance.repository)}" target="_blank" rel="noreferrer noopener"><i class="fab fa-github me-1"></i>${escapeHtml(instance.repository)}</a>` : 
-                                                '-';
+                                            const repoDisplay = instance.repository ? formatRepoHTML(instance.repository) : '-';
                                             return `<tr>
                                                 <td><code class="small">${actionDisplay}</code>${instance.line ? ` (line ${instance.line})` : ''}</td>
                                                 <td>${repoDisplay}</td>

@@ -318,6 +318,53 @@ function getSeverityBadgeClass(severity) {
 }
 
 /**
+ * Format a single repository name as HTML
+ * Uploaded SBOMs (starting with 'upload/') are shown without GitHub link
+ * @param {string} repo - Repository name
+ * @returns {string} - HTML string for the repository
+ */
+function formatRepoHTML(repo) {
+    const escapedRepo = escapeHtml(repo);
+    // Check if this is an uploaded SBOM (not from GitHub)
+    if (repo.startsWith('upload/')) {
+        // Display with upload icon instead of GitHub link
+        const displayName = repo.replace(/^upload\//, '');
+        return `<span class="text-muted"><i class="fas fa-upload me-1" title="Uploaded SBOM"></i>${escapeHtml(displayName)}</span>`;
+    }
+    // Regular GitHub repository - show as link
+    return `<a href="https://github.com/${escapedRepo}" target="_blank" rel="noreferrer noopener" class="text-decoration-none"><i class="fab fa-github me-1"></i>${escapedRepo}</a>`;
+}
+
+/**
+ * Format a single repository for modal list
+ * @param {string} repo - Repository name
+ * @param {number} idx - Index for badge
+ * @returns {string} - HTML string for the list item
+ */
+function formatRepoListItem(repo, idx) {
+    const escapedRepo = escapeHtml(repo);
+    if (repo.startsWith('upload/')) {
+        const displayName = repo.replace(/^upload\//, '');
+        return `
+            <div class="list-group-item">
+                <div class="d-flex align-items-center gap-2">
+                    <span class="badge bg-secondary">${idx + 1}</span>
+                    <span class="text-muted"><i class="fas fa-upload me-1" title="Uploaded SBOM"></i>${escapeHtml(displayName)}</span>
+                </div>
+            </div>`;
+    }
+    return `
+        <div class="list-group-item">
+            <div class="d-flex align-items-center gap-2">
+                <span class="badge bg-secondary">${idx + 1}</span>
+                <a href="https://github.com/${escapedRepo}" target="_blank" rel="noreferrer noopener" class="text-decoration-none">
+                    <i class="fab fa-github me-1"></i>${escapedRepo}
+                </a>
+            </div>
+        </div>`;
+}
+
+/**
  * Generate repository list HTML with modal support for many repos
  * Shared function for audit and findings pages
  * @param {Array} repositories - Array of repository names
@@ -329,9 +376,7 @@ function generateRepoListHTML(repositories) {
     }
     
     const repoCount = repositories.length;
-    const repoLinks = repositories.map(r => 
-        `<a href="https://github.com/${escapeHtml(r)}" target="_blank" rel="noreferrer noopener" class="text-decoration-none"><i class="fab fa-github me-1"></i>${escapeHtml(r)}</a>`
-    );
+    const repoLinks = repositories.map(r => formatRepoHTML(r));
     
     if (repoCount <= 3) {
         return repoLinks.join(', ');
@@ -352,16 +397,7 @@ function generateRepoListHTML(repositories) {
                         </div>
                         <div class="modal-body">
                             <div class="list-group">
-                                ${repositories.map((repo, idx) => `
-                                    <div class="list-group-item">
-                                        <div class="d-flex align-items-center gap-2">
-                                            <span class="badge bg-secondary">${idx + 1}</span>
-                                            <a href="https://github.com/${escapeHtml(repo)}" target="_blank" rel="noreferrer noopener" class="text-decoration-none">
-                                                <i class="fab fa-github me-1"></i>${escapeHtml(repo)}
-                                            </a>
-                                        </div>
-                                    </div>
-                                `).join('')}
+                                ${repositories.map((repo, idx) => formatRepoListItem(repo, idx)).join('')}
                             </div>
                         </div>
                         <div class="modal-footer">
