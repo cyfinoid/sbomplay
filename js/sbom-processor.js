@@ -1154,6 +1154,9 @@ class SBOMProcessor {
                 category: dep.category,
                 languages: Array.from(dep.languages),
                 purl: purl,  // Include extracted PURL for author analysis
+                registryNotFound: dep.registryNotFound || false,  // Potential dependency confusion risk
+                namespaceNotFound: dep.namespaceNotFound || false,  // HIGH-CONFIDENCE dependency confusion (namespace missing)
+                confusionEvidence: dep.confusionEvidence || null,  // URL proving the package/namespace doesn't exist
                 originalPackage: dep.originalPackage,  // Include original package data
                 depth: dep.depth || null,  // Depth in dependency tree (1 = direct, 2+ = transitive)
                 parents: dep.parents || [],  // Parent dependencies (what brings this in)
