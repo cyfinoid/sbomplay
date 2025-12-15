@@ -69,6 +69,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Removed
 - **Composer/Packagist Dependency Confusion**: Temporarily disabled to prevent false positives from platform packages (e.g., `php@8.2`)
 
+### Security
+- **URL Hostname Validation**: Fixed incomplete URL substring sanitization in `sbom-quality-processor.js`
+  - Replaced insecure `.includes('github.com')` checks with `isUrlFromHostname()` for VCS URL validation
+  - Prevents potential bypass where malicious URLs like `evil.com/github.com/fake` could be misidentified as valid source repos
+  - Affects source code URI detection in SBOM completeness checks
+
 ### Fixed
 - **SBOM File Upload**: Fixed `[object Object]` display and package count when uploading files
   - `parsed.format` is an object, not a string - now correctly accesses `parsed.format.format`

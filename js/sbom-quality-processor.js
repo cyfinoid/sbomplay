@@ -530,9 +530,9 @@ class SBOMQualityProcessor {
                     ref.referenceType === 'vcs' || 
                     ref.referenceCategory === 'SOURCE' ||
                     (ref.referenceLocator && (
-                        ref.referenceLocator.includes('github.com') ||
-                        ref.referenceLocator.includes('gitlab.com') ||
-                        ref.referenceLocator.includes('bitbucket.org')
+                        isUrlFromHostname(ref.referenceLocator, 'github.com') ||
+                        isUrlFromHostname(ref.referenceLocator, 'gitlab.com') ||
+                        isUrlFromHostname(ref.referenceLocator, 'bitbucket.org')
                     ))
                 );
                 if (hasSourceRef) {
