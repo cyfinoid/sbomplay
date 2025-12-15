@@ -210,6 +210,451 @@ document.addEventListener('DOMContentLoaded', async function() {
         repoFilter.addEventListener('change', loadAuditData);
     }
     
+    // Handle compliance details modal clicks (using event delegation)
+    document.addEventListener('click', function(e) {
+        const link = e.target.closest('.sbom-compliance-details-link');
+        if (link) {
+            const repository = link.dataset.repository;
+            if (repository && window._sbomAuditData && window._sbomAuditData[repository]) {
+                populateComplianceDetailsModal(repository, window._sbomAuditData[repository]);
+            }
+        }
+    });
+    
+    /**
+     * Populate the Compliance Details Modal with CISA 2025 and BSI requirements
+     */
+    function populateComplianceDetailsModal(repository, auditData) {
+        const modalBody = document.getElementById('complianceDetailsModalBody');
+        const modalTitle = document.getElementById('complianceDetailsModalLabel');
+        
+        if (!modalBody) return;
+        
+        // Determine source
+        const isUploaded = auditData.sbomSource === 'uploaded';
+        const sourceIcon = isUploaded ? 'fa-upload' : 'fab fa-github';
+        const sourceLabel = isUploaded ? 'Uploaded SBOM' : 'GitHub Dependency Graph';
+        const sourceClass = isUploaded ? 'info' : 'dark';
+        const displayName = isUploaded ? repository.replace('upload/', '') : repository;
+        
+        // Update title with source indicator
+        if (modalTitle) {
+            modalTitle.innerHTML = `<i class="fas fa-clipboard-check me-2"></i>SBOM Compliance Details`;
+        }
+        
+        let html = '';
+        
+        // Source & Repository Info Banner
+        html += `<div class="alert alert-${sourceClass} mb-4">
+            <div class="d-flex justify-content-between align-items-center">
+                <div>
+                    <strong><i class="${isUploaded ? 'fas' : 'fab'} ${sourceIcon} me-2"></i>${escapeHtml(displayName)}</strong>
+                    <span class="badge bg-${sourceClass} ms-2">${sourceLabel}</span>
+                </div>
+                <div class="text-end">`;
+        
+        if (isUploaded && auditData.uploadInfo) {
+            html += `<small class="d-block">File: ${escapeHtml(auditData.uploadInfo.filename || 'Unknown')}</small>
+                     <small class="d-block">Format: ${escapeHtml(auditData.uploadInfo.format || 'Unknown')}</small>`;
+            if (auditData.uploadInfo.uploadedAt) {
+                const uploadDate = new Date(auditData.uploadInfo.uploadedAt).toLocaleDateString();
+                html += `<small class="d-block">Uploaded: ${uploadDate}</small>`;
+            }
+        } else if (!isUploaded) {
+            html += `<small class="d-block"><a href="https://github.com/${repository}" target="_blank" rel="noreferrer noopener" class="text-white">View on GitHub <i class="fas fa-external-link-alt"></i></a></small>`;
+        }
+        
+        html += `</div></div></div>`;
+        
+        // Summary Cards
+        const gradeColors = { 'A': 'success', 'B': 'info', 'C': 'warning', 'D': 'danger', 'F': 'dark', 'N/A': 'secondary' };
+        const gradeClass = gradeColors[auditData.grade] || 'secondary';
+        
+        html += `<div class="row mb-4">
+            <div class="col-md-3 text-center">
+                <div class="card h-100">
+                    <div class="card-body">
+                        <h1 class="display-4 text-${gradeClass}">${auditData.grade}</h1>
+                        <p class="mb-0">SBOM Grade</p>
+                        <small class="text-muted">${auditData.displayScore}/10 score</small>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3 text-center">
+                <div class="card h-100">
+                    <div class="card-body">
+                        <h3 class="${auditData.cisa2025Compliant ? 'text-success' : 'text-danger'}">
+                            <i class="fas ${auditData.cisa2025Compliant ? 'fa-check-circle' : 'fa-times-circle'}"></i>
+                        </h3>
+                        <p class="mb-0">CISA 2025</p>
+                        <small class="text-muted">${auditData.cisa2025Compliant ? 'Compliant' : 'Not Compliant'}</small>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3 text-center">
+                <div class="card h-100">
+                    <div class="card-body">
+                        <h3 class="${auditData.bsiCompliant ? 'text-success' : 'text-danger'}">
+                            <i class="fas ${auditData.bsiCompliant ? 'fa-check-circle' : 'fa-times-circle'}"></i>
+                        </h3>
+                        <p class="mb-0">BSI TR-03183-2</p>
+                        <small class="text-muted">${auditData.bsiCompliant ? 'Compliant' : 'Not Compliant'}</small>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3 text-center">
+                <div class="card h-100">
+                    <div class="card-body">
+                        <h3 class="${auditData.completeness >= 80 ? 'text-success' : auditData.completeness >= 50 ? 'text-warning' : 'text-danger'}">
+                            ${auditData.completeness}%
+                        </h3>
+                        <p class="mb-0">Completeness</p>
+                        <small class="text-muted">${auditData.freshness?.status || 'Unknown'}</small>
+                    </div>
+                </div>
+            </div>
+        </div>`;
+        
+        // CISA 2025 Requirements Section
+        html += generateCISA2025RequirementsHTML(auditData);
+        
+        // BSI Requirements Section
+        html += generateBSIRequirementsHTML(auditData);
+        
+        // Quality Categories Breakdown
+        html += generateQualityCategoriesHTML(auditData);
+        
+        // Detailed Issues List
+        html += generateDetailedIssuesHTML(auditData);
+        
+        // Recommendations
+        html += generateRecommendationsHTML(auditData);
+        
+        safeSetHTML(modalBody, html);
+    }
+    
+    /**
+     * Generate CISA 2025 Requirements checklist HTML
+     */
+    function generateCISA2025RequirementsHTML(auditData) {
+        // CISA 2025 Minimum Elements
+        const cisa2025Requirements = [
+            { id: 'softwareProducer', name: 'Software Producer', description: 'Entity that creates components', isNew: false, checkCategory: 'provenance' },
+            { id: 'componentName', name: 'Component Name', description: 'Name of each software component', isNew: false, checkCategory: 'identification' },
+            { id: 'componentVersion', name: 'Component Version', description: 'Version identifier for each component', isNew: false, checkCategory: 'identification' },
+            { id: 'softwareIdentifier', name: 'Software Identifier', description: 'PURL, CPE, OmniBOR, or SWHID', isNew: false, checkCategory: 'identification' },
+            { id: 'componentHash', name: 'Component Hash', description: 'Cryptographic fingerprint (NEW in 2025)', isNew: true, checkCategory: 'integrity' },
+            { id: 'licenseInfo', name: 'License Information', description: 'Legal terms for each component (NEW in 2025)', isNew: true, checkCategory: 'licensing' },
+            { id: 'dependencyRelationship', name: 'Dependency Relationship', description: 'Upstream component relationships', isNew: false, checkCategory: 'completeness' },
+            { id: 'sbomAuthor', name: 'SBOM Author', description: 'Entity that created the SBOM', isNew: false, checkCategory: 'provenance' },
+            { id: 'timestamp', name: 'Timestamp', description: 'Date and time SBOM was assembled', isNew: false, checkCategory: 'provenance' },
+            { id: 'toolName', name: 'Tool Name', description: 'Tool used to generate SBOM (NEW in 2025)', isNew: true, checkCategory: 'provenance' },
+            { id: 'generationContext', name: 'Generation Context', description: 'Pre-build, build, or post-build (NEW in 2025)', isNew: true, checkCategory: 'structural' }
+        ];
+        
+        let html = `<div class="card mb-3">
+            <div class="card-header bg-primary bg-opacity-10">
+                <h6 class="mb-0"><i class="fas fa-flag-usa me-2"></i>CISA 2025 Minimum Elements</h6>
+                <small class="text-muted">US Federal SBOM requirements (August 2025)</small>
+            </div>
+            <div class="card-body">
+                <div class="table-responsive">
+                    <table class="table table-sm mb-0">
+                        <thead><tr><th>Status</th><th>Requirement</th><th>Description</th><th>Category</th></tr></thead>
+                        <tbody>`;
+        
+        cisa2025Requirements.forEach(req => {
+            const categoryScore = auditData.categories?.[req.checkCategory]?.score || 0;
+            const isPassing = categoryScore >= 70;
+            const statusIcon = isPassing ? 
+                '<i class="fas fa-check-circle text-success"></i>' : 
+                '<i class="fas fa-times-circle text-danger"></i>';
+            const newBadge = req.isNew ? '<span class="badge bg-warning text-dark ms-1">NEW</span>' : '';
+            
+            html += `<tr>
+                <td class="text-center">${statusIcon}</td>
+                <td><strong>${escapeHtml(req.name)}</strong>${newBadge}</td>
+                <td><small class="text-muted">${escapeHtml(req.description)}</small></td>
+                <td><span class="badge bg-secondary">${req.checkCategory}</span></td>
+            </tr>`;
+        });
+        
+        html += `</tbody></table></div>`;
+        
+        // Add what's needed for compliance
+        if (!auditData.cisa2025Compliant) {
+            html += `<div class="alert alert-warning mt-3 mb-0">
+                <strong><i class="fas fa-lightbulb me-1"></i>To achieve CISA 2025 compliance:</strong>
+                <ul class="mb-0 mt-2">`;
+            
+            if ((auditData.categories?.identification?.score || 0) < 70) {
+                html += '<li>Add unique identifiers (PURLs) to all components</li>';
+                html += '<li>Ensure all components have names and versions</li>';
+            }
+            if ((auditData.categories?.provenance?.score || 0) < 70) {
+                html += '<li>Include SBOM author information</li>';
+                html += '<li>Add generation timestamp</li>';
+                html += '<li>Specify the tool used to generate the SBOM</li>';
+            }
+            if ((auditData.categories?.integrity?.score || 0) < 50) {
+                html += '<li>Add SHA-256 (or stronger) checksums to all components</li>';
+            }
+            if ((auditData.categories?.licensing?.score || 0) < 50) {
+                html += '<li>Include license information for all components</li>';
+            }
+            
+            html += '</ul></div>';
+        }
+        
+        html += '</div></div>';
+        return html;
+    }
+    
+    /**
+     * Generate BSI TR-03183-2 Requirements checklist HTML
+     */
+    function generateBSIRequirementsHTML(auditData) {
+        // BSI TR-03183-2 v2.0 Requirements
+        const bsiRequirements = [
+            { id: 'specification', name: 'SBOM Specification', description: 'Valid SPDX or CycloneDX format', checkCategory: 'structural' },
+            { id: 'specVersion', name: 'Specification Version', description: 'CycloneDX 1.5+ or SPDX 2.2.1+', checkCategory: 'structural' },
+            { id: 'creator', name: 'SBOM Creator', description: 'Creator with email or URL contact', checkCategory: 'provenance' },
+            { id: 'timestamp', name: 'Creation Timestamp', description: 'ISO 8601 format timestamp', checkCategory: 'provenance' },
+            { id: 'sbomUri', name: 'SBOM URI', description: 'Unique namespace or serial number', checkCategory: 'structural' },
+            { id: 'dependencies', name: 'Dependency Relationships', description: 'Component dependency graph', checkCategory: 'completeness' },
+            { id: 'componentName', name: 'Component Name', description: 'Package name for each component', checkCategory: 'identification' },
+            { id: 'componentVersion', name: 'Component Version', description: 'Package version', checkCategory: 'identification' },
+            { id: 'componentCreator', name: 'Component Supplier', description: 'Supplier with contact info', checkCategory: 'provenance' },
+            { id: 'componentLicense', name: 'Associated License', description: 'Valid SPDX license expression', checkCategory: 'licensing' },
+            { id: 'componentHash', name: 'Component Hash (SHA-256)', description: 'SHA-256 or stronger checksum required', checkCategory: 'integrity' },
+            { id: 'uniqueIdentifiers', name: 'Unique Identifiers', description: 'CPE or PURL identifier', checkCategory: 'identification' }
+        ];
+        
+        let html = `<div class="card mb-3">
+            <div class="card-header bg-info bg-opacity-10">
+                <h6 class="mb-0"><i class="fas fa-shield-alt me-2"></i>BSI TR-03183-2 v2.0 Requirements</h6>
+                <small class="text-muted">German/EU Technical Guideline (September 2024)</small>
+            </div>
+            <div class="card-body">
+                <div class="table-responsive">
+                    <table class="table table-sm mb-0">
+                        <thead><tr><th>Status</th><th>Requirement</th><th>Description</th><th>Category</th></tr></thead>
+                        <tbody>`;
+        
+        bsiRequirements.forEach(req => {
+            const categoryScore = auditData.categories?.[req.checkCategory]?.score || 0;
+            // BSI is stricter - needs 70% for most categories
+            const threshold = req.id === 'componentHash' ? 70 : 70;
+            const isPassing = categoryScore >= threshold;
+            const statusIcon = isPassing ? 
+                '<i class="fas fa-check-circle text-success"></i>' : 
+                '<i class="fas fa-times-circle text-danger"></i>';
+            
+            html += `<tr>
+                <td class="text-center">${statusIcon}</td>
+                <td><strong>${escapeHtml(req.name)}</strong></td>
+                <td><small class="text-muted">${escapeHtml(req.description)}</small></td>
+                <td><span class="badge bg-secondary">${req.checkCategory}</span></td>
+            </tr>`;
+        });
+        
+        html += `</tbody></table></div>`;
+        
+        // Add what's needed for compliance
+        if (!auditData.bsiCompliant) {
+            html += `<div class="alert alert-info mt-3 mb-0">
+                <strong><i class="fas fa-lightbulb me-1"></i>To achieve BSI TR-03183-2 compliance:</strong>
+                <ul class="mb-0 mt-2">`;
+            
+            if ((auditData.categories?.integrity?.score || 0) < 70) {
+                html += '<li><strong>Required:</strong> Add SHA-256 (minimum) checksums to ALL components</li>';
+            }
+            if ((auditData.categories?.licensing?.score || 0) < 70) {
+                html += '<li>Use valid SPDX license expressions for all components</li>';
+            }
+            if ((auditData.categories?.provenance?.score || 0) < 70) {
+                html += '<li>Include creator contact information (email or URL)</li>';
+            }
+            if ((auditData.categories?.structural?.score || 0) < 70) {
+                html += '<li>Ensure SBOM uses supported format version (CycloneDX 1.5+ or SPDX 2.2.1+)</li>';
+            }
+            
+            html += '</ul></div>';
+        }
+        
+        html += '</div></div>';
+        return html;
+    }
+    
+    /**
+     * Generate Quality Categories breakdown HTML
+     */
+    function generateQualityCategoriesHTML(auditData) {
+        const categories = auditData.categories || {};
+        const categoryInfo = {
+            identification: { name: 'Identification', icon: 'fa-fingerprint', weight: '12%', description: 'Component names, versions, unique IDs' },
+            provenance: { name: 'Provenance', icon: 'fa-history', weight: '15%', description: 'SBOM creator, timestamp, supplier info' },
+            integrity: { name: 'Integrity', icon: 'fa-lock', weight: '18%', description: 'Checksums, hash algorithms, signatures' },
+            completeness: { name: 'Completeness', icon: 'fa-tasks', weight: '15%', description: 'Dependencies, source URIs, purpose' },
+            licensing: { name: 'Licensing', icon: 'fa-balance-scale', weight: '18%', description: 'License declarations, SPDX expressions' },
+            vulnerability: { name: 'Vulnerability', icon: 'fa-shield-virus', weight: '12%', description: 'Security references, tracking info' },
+            structural: { name: 'Structural', icon: 'fa-sitemap', weight: '10%', description: 'Spec version, format, schema validation' }
+        };
+        
+        let html = `<div class="card mb-3">
+            <div class="card-header">
+                <h6 class="mb-0"><i class="fas fa-chart-bar me-2"></i>Quality Categories Breakdown</h6>
+            </div>
+            <div class="card-body">
+                <div class="row">`;
+        
+        Object.entries(categoryInfo).forEach(([key, info]) => {
+            const score = categories[key]?.score || 0;
+            const colorClass = score >= 80 ? 'success' : score >= 60 ? 'warning' : 'danger';
+            
+            html += `<div class="col-md-6 col-lg-4 mb-3">
+                <div class="d-flex align-items-center mb-1">
+                    <i class="fas ${info.icon} me-2 text-muted"></i>
+                    <strong>${info.name}</strong>
+                    <span class="badge bg-secondary ms-auto">${info.weight}</span>
+                </div>
+                <div class="progress" style="height: 8px;">
+                    <div class="progress-bar bg-${colorClass}" style="width: ${score}%"></div>
+                </div>
+                <div class="d-flex justify-content-between">
+                    <small class="text-muted">${info.description}</small>
+                    <small class="text-${colorClass}">${score}%</small>
+                </div>
+            </div>`;
+        });
+        
+        html += '</div></div></div>';
+        return html;
+    }
+    
+    /**
+     * Generate Detailed Issues list HTML
+     */
+    function generateDetailedIssuesHTML(auditData) {
+        const issues = auditData.issues || [];
+        
+        if (issues.length === 0 || issues.every(cat => !cat.issues || cat.issues.length === 0)) {
+            return `<div class="card mb-3">
+                <div class="card-header bg-success bg-opacity-10">
+                    <h6 class="mb-0"><i class="fas fa-check-circle me-2 text-success"></i>No Issues Found</h6>
+                </div>
+                <div class="card-body">
+                    <p class="mb-0 text-muted">This SBOM has no quality issues detected.</p>
+                </div>
+            </div>`;
+        }
+        
+        let html = `<div class="card mb-3">
+            <div class="card-header">
+                <h6 class="mb-0"><i class="fas fa-exclamation-triangle me-2"></i>Detected Issues</h6>
+            </div>
+            <div class="card-body">`;
+        
+        issues.forEach(category => {
+            if (!category.issues || category.issues.length === 0) return;
+            
+            html += `<h6 class="mb-2"><span class="badge bg-secondary">${escapeHtml(category.category)}</span></h6>
+                <ul class="list-group list-group-flush mb-3">`;
+            
+            category.issues.forEach(issue => {
+                html += `<li class="list-group-item py-2">
+                    <i class="fas fa-chevron-right text-muted me-2"></i>
+                    <span>${escapeHtml(issue)}</span>
+                </li>`;
+            });
+            
+            html += '</ul>';
+        });
+        
+        html += '</div></div>';
+        return html;
+    }
+    
+    /**
+     * Generate Recommendations HTML
+     */
+    function generateRecommendationsHTML(auditData) {
+        const recommendations = [];
+        
+        // Generate recommendations based on lowest scores
+        const categories = auditData.categories || {};
+        
+        if ((categories.integrity?.score || 0) < 50) {
+            recommendations.push({
+                priority: 'high',
+                title: 'Add Cryptographic Hashes',
+                description: 'Include SHA-256 or SHA-512 checksums for all components. This is required by both CISA 2025 and BSI TR-03183-2.',
+                action: 'Use SBOM generation tools that support hash calculation (e.g., syft, cdxgen with --include-hashes flag)'
+            });
+        }
+        
+        if ((categories.licensing?.score || 0) < 60) {
+            recommendations.push({
+                priority: 'high',
+                title: 'Complete License Information',
+                description: 'Ensure all components have valid SPDX license expressions.',
+                action: 'Run license detection tools or manually add license declarations to your SBOM'
+            });
+        }
+        
+        if ((categories.provenance?.score || 0) < 60) {
+            recommendations.push({
+                priority: 'medium',
+                title: 'Improve Provenance Data',
+                description: 'Add SBOM author, creation timestamp, and tool information.',
+                action: 'Ensure your SBOM generation tool populates metadata fields'
+            });
+        }
+        
+        if ((categories.identification?.score || 0) < 70) {
+            recommendations.push({
+                priority: 'medium',
+                title: 'Add Package Identifiers',
+                description: 'Include PURLs (Package URLs) for all components.',
+                action: 'Use tools that automatically generate PURLs (syft, cdxgen, trivy)'
+            });
+        }
+        
+        if ((categories.structural?.score || 0) < 70) {
+            recommendations.push({
+                priority: 'low',
+                title: 'Use Latest SBOM Specification',
+                description: 'Ensure your SBOM uses CycloneDX 1.5+ or SPDX 2.2.1+.',
+                action: 'Update your SBOM generation tools to the latest version'
+            });
+        }
+        
+        if (recommendations.length === 0) {
+            return '';
+        }
+        
+        let html = `<div class="card">
+            <div class="card-header bg-success bg-opacity-10">
+                <h6 class="mb-0"><i class="fas fa-lightbulb me-2"></i>Recommendations</h6>
+            </div>
+            <div class="card-body">`;
+        
+        recommendations.forEach(rec => {
+            const priorityClass = rec.priority === 'high' ? 'danger' : rec.priority === 'medium' ? 'warning' : 'info';
+            html += `<div class="mb-3">
+                <div class="d-flex align-items-center mb-1">
+                    <span class="badge bg-${priorityClass} me-2">${rec.priority.toUpperCase()}</span>
+                    <strong>${escapeHtml(rec.title)}</strong>
+                </div>
+                <p class="mb-1 text-muted">${escapeHtml(rec.description)}</p>
+                <small class="text-primary"><i class="fas fa-arrow-right me-1"></i>${escapeHtml(rec.action)}</small>
+            </div>`;
+        });
+        
+        html += '</div></div>';
+        return html;
+    }
+    
     
     /**
      * Generate all audit sections HTML
@@ -217,11 +662,11 @@ document.addEventListener('DOMContentLoaded', async function() {
     async function generateAllAuditSectionsHTML(orgData, severityFilter = 'all', sectionFilter = 'all', repoFilter = 'all') {
         let html = '';
         
-        // Unified Security & SBOM Audit Findings (combines GitHub Actions and SBOM Deficiencies)
-        if (sectionFilter === 'all' || sectionFilter === 'github-actions' || sectionFilter === 'sbom-deficiencies') {
-            const unifiedHTML = generateUnifiedAuditFindingsHTML(orgData, severityFilter, repoFilter);
-            if (unifiedHTML) {
-                html += `<div id="unified-audit-findings-section" class="audit-section mb-4">${unifiedHTML}</div>`;
+        // SBOM Audit Section (show first as primary audit)
+        if (sectionFilter === 'all' || sectionFilter === 'sbom-audit') {
+            const sbomAuditHTML = await generateSBOMAuditHTML(orgData, severityFilter, repoFilter);
+            if (sbomAuditHTML) {
+                html += `<div id="sbom-audit-section" class="audit-section mb-4">${sbomAuditHTML}</div>`;
             }
         }
         
@@ -230,38 +675,6 @@ document.addEventListener('DOMContentLoaded', async function() {
             const deprecationHTML = await generatePackageDeprecationHTML(orgData, severityFilter, repoFilter);
             if (deprecationHTML) {
                 html += `<div id="package-deprecation-section" class="audit-section mb-4">${deprecationHTML}</div>`;
-            }
-        }
-        
-        // Version Drift Section
-        if (sectionFilter === 'all' || sectionFilter === 'version-drift') {
-            const versionDriftHTML = await generateVersionDriftHTML(orgData, severityFilter, repoFilter);
-            if (versionDriftHTML) {
-                html += `<div id="version-drift-section" class="audit-section mb-4">${versionDriftHTML}</div>`;
-            }
-        }
-        
-        // Stale Dependencies Section
-        if (sectionFilter === 'all' || sectionFilter === 'stale-dependencies') {
-            const staleHTML = await generateStaleDependenciesHTML(orgData, severityFilter, repoFilter);
-            if (staleHTML) {
-                html += `<div id="stale-dependencies-section" class="audit-section mb-4">${staleHTML}</div>`;
-            }
-        }
-        
-        // License Compatibility Section
-        if (sectionFilter === 'all' || sectionFilter === 'license-compatibility') {
-            const licenseHTML = await generateLicenseCompatibilityHTML(orgData, severityFilter, repoFilter);
-            if (licenseHTML) {
-                html += `<div id="license-compatibility-section" class="audit-section mb-4">${licenseHTML}</div>`;
-            }
-        }
-        
-        // Repository Audit Section (only show if explicitly selected, since it's a placeholder)
-        if (sectionFilter === 'repository-audit') {
-            const repoAuditHTML = generateRepositoryAuditHTML(orgData, severityFilter);
-            if (repoAuditHTML) {
-                html += `<div id="repository-audit-section" class="audit-section mb-4">${repoAuditHTML}</div>`;
             }
         }
         
@@ -292,9 +705,15 @@ document.addEventListener('DOMContentLoaded', async function() {
             'COMPOSITE_REMOTE_CODE_NO_INTEGRITY': 'Composite actions executing remote code without integrity verification pose security risks.',
             'JS_REMOTE_CODE_NO_INTEGRITY': 'JavaScript actions executing remote code without integrity checks can be compromised.',
             'JS_RUNTIME_UNPINNED_DEPENDENCIES': 'JavaScript actions with unpinned runtime dependencies may include vulnerable packages.',
-            'INDIRECT_UNPINNABLE_ACTION': 'Actions that cannot be pinned due to indirect references create security blind spots.'
+            'INDIRECT_UNPINNABLE_ACTION': 'Actions that cannot be pinned due to indirect references create security blind spots.',
+            'NAMESPACE_NOT_IN_REGISTRY': 'Namespace/organization not found in public registry. This is a HIGH-CONFIDENCE dependency confusion risk. An attacker could register this namespace and all packages under it would be vulnerable to hijacking.',
+            'PACKAGE_NOT_IN_REGISTRY': 'Package not found in public registry. This could indicate a private/internal package that is vulnerable to dependency confusion attacks. Attackers can register a package with the same name on public registries.',
+            'PULL_REQUEST_TARGET_CHECKOUT': 'Dangerous pattern: pull_request_target workflow checks out PR code, which can execute untrusted code with elevated permissions.',
+            'EXCESSIVE_WORKFLOW_PERMISSIONS': 'Workflow uses broad permissions like write-all, violating the principle of least privilege.',
+            'EXCESSIVE_JOB_PERMISSIONS': 'Job uses write-all permissions. Specify only the required permissions.',
+            'POTENTIAL_HARDCODED_SECRET': 'Environment variable appears to contain a hardcoded secret. Use GitHub Secrets instead.'
         };
-        return descriptions[ruleId] || 'Security issue detected in GitHub Actions workflow.';
+        return descriptions[ruleId] || 'Security issue detected.';
     }
     
     /**
@@ -450,6 +869,75 @@ document.addEventListener('DOMContentLoaded', async function() {
                     }
                 });
             });
+        }
+        
+        // Collect Dependency Confusion findings (packages/namespaces not found in public registries)
+        const allDependencies = orgData?.data?.allDependencies || [];
+        
+        // HIGH-CONFIDENCE: Namespace not found (more severe - attacker can register entire namespace)
+        const namespaceNotFoundDeps = allDependencies.filter(dep => dep.namespaceNotFound === true);
+        if (namespaceNotFoundDeps.length > 0) {
+            namespaceNotFoundDeps.forEach(dep => {
+                const repos = dep.repositories || [];
+                allFindings.push({
+                    category: 'dependency-confusion',
+                    type: 'NAMESPACE_NOT_IN_REGISTRY',
+                    typeName: 'HIGH-CONFIDENCE Dependency Confusion (Namespace Missing)',
+                    description: getFindingDescription('NAMESPACE_NOT_IN_REGISTRY'),
+                    severity: 'high',
+                    package: `${dep.name}@${dep.version || 'unknown'}`,
+                    ecosystem: dep.category?.ecosystem || 'unknown',
+                    repository: repos.length > 0 ? repos[0] : null,
+                    repositories: repos,
+                    confusionEvidence: dep.confusionEvidence || null,
+                    message: `Namespace for "${dep.name}" not found in public registry (${dep.category?.ecosystem || 'unknown'}). HIGH-CONFIDENCE dependency confusion risk - attacker could register entire namespace.`
+                });
+            });
+            console.log(`📍 Found ${namespaceNotFoundDeps.length} HIGH-CONFIDENCE dependency confusion risks (namespace missing)`);
+        }
+        
+        // Package not found (less severe than namespace not found, but still a risk)
+        const packageNotFoundDeps = allDependencies.filter(dep => 
+            dep.registryNotFound === true && !dep.namespaceNotFound
+        );
+        if (packageNotFoundDeps.length > 0) {
+            packageNotFoundDeps.forEach(dep => {
+                const repos = dep.repositories || [];
+                
+                // Use confusionSeverity from dep if available, default to 'high'
+                const findingSeverity = dep.confusionSeverity || 'high';
+                
+                // Use confusionPurlName if available (when PURL name differs from SBOM name)
+                const checkedName = dep.confusionPurlName || dep.name;
+                const checkedPurl = dep.confusionPurl || dep.purl || null;
+                
+                // Use confusionMessage if available, otherwise generate default message
+                const ecosystem = dep.category?.ecosystem || 'unknown';
+                const defaultMessage = `Package "${checkedName}" not found in public registry (${ecosystem}). Could be hijacked via dependency confusion attack.`;
+                const findingMessage = dep.confusionMessage || defaultMessage;
+                
+                // Determine type name based on severity
+                const typeName = findingSeverity === 'low' 
+                    ? 'Potential Dependency Confusion (Low Risk - Likely System Package)' 
+                    : 'Potential Dependency Confusion';
+                
+                allFindings.push({
+                    category: 'dependency-confusion',
+                    type: 'PACKAGE_NOT_IN_REGISTRY',
+                    typeName: typeName,
+                    description: getFindingDescription('PACKAGE_NOT_IN_REGISTRY'),
+                    severity: findingSeverity,
+                    package: `${checkedName}@${dep.version || 'unknown'}`,
+                    sbomName: dep.name,  // Original SBOM name for reference
+                    purl: checkedPurl,
+                    ecosystem: ecosystem,
+                    repository: repos.length > 0 ? repos[0] : null,
+                    repositories: repos,
+                    confusionEvidence: dep.confusionEvidence || null,
+                    message: findingMessage
+                });
+            });
+            console.log(`📍 Found ${packageNotFoundDeps.length} dependency confusion risks (package not found)`);
         }
         
         if (allFindings.length === 0) {
@@ -837,9 +1325,16 @@ document.addEventListener('DOMContentLoaded', async function() {
                             <i class="fab fa-github me-1"></i>${escapeHtml(instance.repository)}
                         </a>`;
                     }
+                    
+                    // Build message with evidence URL for dependency confusion findings
+                    let messageContent = escapeHtml(instance.message || '—');
+                    if (instance.confusionEvidence) {
+                        messageContent += `<br><a href="${escapeHtml(instance.confusionEvidence)}" target="_blank" rel="noopener noreferrer" class="text-info small"><i class="fas fa-external-link-alt me-1"></i>View evidence</a>`;
+                    }
+                    
                     html += `<tr>
                         <td>${repoLink}</td>
-                        <td><small class="text-muted">${escapeHtml(instance.message || '—')}</small></td>
+                        <td><small class="text-muted">${messageContent}</small></td>
                     </tr>`;
                 }
             });
@@ -1026,528 +1521,136 @@ document.addEventListener('DOMContentLoaded', async function() {
         return html;
     }
     
+    // Note: Version Drift, Stale Dependencies, EOX, and License Compatibility sections
+    // have been removed from the audit page. These features are available on the Deps page.
+    
     
     /**
-     * Generate Version Drift audit findings HTML
-     * Checks for major and minor version updates available
+     * Generate SBOM Audit section HTML
+     * Provides detailed SBOM quality breakdown, NTIA compliance, and freshness
      */
-    async function generateVersionDriftHTML(orgData, severityFilter = 'all', repoFilter = 'all') {
-        let allDependencies = orgData?.data?.allDependencies || [];
-        
-        if (!allDependencies || allDependencies.length === 0) {
-            return '';
-        }
-        
-        // Filter dependencies by repository if specified
-        if (repoFilter && repoFilter !== 'all') {
-            allDependencies = allDependencies.filter(dep => 
-                dep.repositories && dep.repositories.includes(repoFilter)
-            );
-        }
-        
-        if (!window.versionDriftAnalyzer) {
-            return '';
-        }
-        
-        const majorDrift = [];
-        const minorDrift = [];
-        const batchSize = 50;
-        
-        // Check version drift for dependencies
-        for (let i = 0; i < allDependencies.length; i += batchSize) {
-            const batch = allDependencies.slice(i, i + batchSize);
-            const batchChecks = await Promise.all(batch.map(async (dep) => {
-                if (!dep.name || !dep.version || !dep.ecosystem) {
-                    return null;
-                }
-                
-                try {
-                    // Normalize ecosystem
-                    let ecosystem = dep.ecosystem.toLowerCase();
-                    if (ecosystem === 'rubygems' || ecosystem === 'gem') {
-                        ecosystem = 'gem';
-                    } else if (ecosystem === 'go' || ecosystem === 'golang') {
-                        ecosystem = 'golang';
-                    } else if (ecosystem === 'packagist' || ecosystem === 'composer') {
-                        ecosystem = 'composer';
-                    }
-                    
-                    const packageKey = `${ecosystem}:${dep.name}`;
-                    let driftData = await window.versionDriftAnalyzer.getVersionDriftFromCache(packageKey, dep.version);
-                    
-                    if (!driftData) {
-                        driftData = await window.versionDriftAnalyzer.checkVersionDrift(
-                            dep.name,
-                            dep.version,
-                            dep.ecosystem
-                        );
-                    }
-                    
-                    if (driftData && driftData.hasMajorUpdate) {
-                        return {
-                            name: dep.name,
-                            version: dep.version,
-                            latestVersion: driftData.latestVersion,
-                            ecosystem: dep.ecosystem || 'unknown',
-                            repositories: dep.repositories || [],
-                            driftType: 'major'
-                        };
-                    } else if (driftData && driftData.hasMinorUpdate) {
-                        return {
-                            name: dep.name,
-                            version: dep.version,
-                            latestVersion: driftData.latestVersion,
-                            ecosystem: dep.ecosystem || 'unknown',
-                            repositories: dep.repositories || [],
-                            driftType: 'minor'
-                        };
-                    }
-                } catch (e) {
-                    // Ignore errors
-                }
-                return null;
-            }));
-            
-            batchChecks.forEach(result => {
-                if (result) {
-                    if (result.driftType === 'major') {
-                        majorDrift.push(result);
-                    } else if (result.driftType === 'minor') {
-                        minorDrift.push(result);
-                    }
-                }
-            });
-        }
-        
-        // Filter by severity (major = high, minor = medium)
-        let filteredMajor = majorDrift;
-        let filteredMinor = minorDrift;
-        
-        if (severityFilter === 'high') {
-            filteredMinor = [];
-        } else if (severityFilter === 'medium') {
-            filteredMajor = [];
-        } else if (severityFilter === 'warning' || severityFilter === 'low') {
-            return '';
-        }
-        
-        const allDrift = [...filteredMajor, ...filteredMinor];
-        
-        if (allDrift.length === 0) {
-            return '';
-        }
-        
-        let html = '<div class="card">';
-        html += '<div class="card-header"><h5 class="mb-0"><i class="fas fa-arrow-up me-2"></i>Version Drift</h5></div>';
-        html += '<div class="card-body">';
-        
-        // Statistics
-        html += '<div class="row mb-3">';
-        html += `<div class="col-md-4">
-            <div class="card text-center bg-danger bg-opacity-10">
-                <div class="card-body">
-                    <h3>${filteredMajor.length}</h3>
-                    <p class="stats-card-label mb-0">Major Updates Available</p>
-                </div>
-            </div>
-        </div>`;
-        html += `<div class="col-md-4">
-            <div class="card text-center bg-warning bg-opacity-10">
-                <div class="card-body">
-                    <h3>${filteredMinor.length}</h3>
-                    <p class="stats-card-label mb-0">Minor Updates Available</p>
-                </div>
-            </div>
-        </div>`;
-        html += `<div class="col-md-4">
-            <div class="card text-center bg-light">
-                <div class="card-body">
-                    <h3>${new Set(allDrift.flatMap(d => d.repositories)).size}</h3>
-                    <p class="stats-card-label mb-0">Repositories Affected</p>
-                </div>
-            </div>
-        </div>`;
-        html += '</div>';
-        
-        // Summary
-        html += `<div class="alert alert-info mb-3">
-            <strong>Summary:</strong> Found <strong>${allDrift.length}</strong> packages with version drift 
-            (<strong>${filteredMajor.length}</strong> major, <strong>${filteredMinor.length}</strong> minor updates available).
-        </div>`;
-        
-        // Detailed list
-        html += '<h6 class="mb-2">Packages with Version Drift</h6>';
-        html += '<div class="table-responsive"><table class="table table-sm table-hover align-middle">';
-        html += '<thead class="table-light"><tr>';
-        html += '<th style="width: 100px;">Severity</th>';
-        html += '<th style="width: 250px;">Package</th>';
-        html += '<th style="width: 150px;">Current Version</th>';
-        html += '<th style="width: 150px;">Latest Version</th>';
-        html += '<th style="width: 120px;">Ecosystem</th>';
-        html += '<th>Affected Repositories</th>';
-        html += '</tr></thead><tbody>';
-        
-        // Show major drift first
-        filteredMajor.slice(0, 100).forEach(pkg => {
-            const repoList = generateRepoListHTML(pkg.repositories);
-            
-            html += `<tr>
-                <td><span class="badge bg-danger">HIGH</span></td>
-                <td><code class="small">${escapeHtml(pkg.name)}</code></td>
-                <td><span class="text-muted">${escapeHtml(pkg.version)}</span></td>
-                <td><strong class="text-success">${escapeHtml(pkg.latestVersion)}</strong></td>
-                <td><span class="badge bg-secondary">${escapeHtml(pkg.ecosystem)}</span></td>
-                <td><small>${repoList}</small></td>
-            </tr>`;
-        });
-        
-        // Then minor drift
-        filteredMinor.slice(0, Math.max(0, 100 - filteredMajor.length)).forEach(pkg => {
-            const repoList = generateRepoListHTML(pkg.repositories);
-            
-            html += `<tr>
-                <td><span class="badge bg-warning text-dark">MEDIUM</span></td>
-                <td><code class="small">${escapeHtml(pkg.name)}</code></td>
-                <td><span class="text-muted">${escapeHtml(pkg.version)}</span></td>
-                <td><strong class="text-success">${escapeHtml(pkg.latestVersion)}</strong></td>
-                <td><span class="badge bg-secondary">${escapeHtml(pkg.ecosystem)}</span></td>
-                <td><small>${repoList}</small></td>
-            </tr>`;
-        });
-        
-        html += '</tbody></table></div>';
-        
-        if (allDrift.length > 100) {
-            const modalId = `all-drift-modal-${Math.random().toString(36).substr(2, 9)}`;
-            html += `<div class="text-center mt-3">
-                <button class="btn btn-outline-primary" data-bs-toggle="modal" data-bs-target="#${modalId}">
-                    <i class="fas fa-list me-2"></i>Show All ${allDrift.length} Packages with Version Drift
-                </button>
-            </div>
-            <div class="modal fade" id="${modalId}" tabindex="-1" aria-hidden="true">
-                <div class="modal-dialog modal-xl">
-                    <div class="modal-content">
-                        <div class="modal-header">
-                            <h5 class="modal-title">All Packages with Version Drift (${allDrift.length})</h5>
-                            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
-                        </div>
-                        <div class="modal-body" style="max-height: 70vh; overflow-y: auto;">
-                            <table class="table table-striped table-hover">
-                                <thead>
-                                    <tr>
-                                        <th style="width: 100px;">Severity</th>
-                                        <th>Package</th>
-                                        <th style="width: 120px;">Current</th>
-                                        <th style="width: 120px;">Latest</th>
-                                        <th style="width: 120px;">Ecosystem</th>
-                                        <th>Affected Repositories</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    ${allDrift.map(pkg => {
-                                        const badge = pkg.hasMajorUpdate ? '<span class="badge bg-danger">HIGH</span>' : '<span class="badge bg-warning text-dark">MEDIUM</span>';
-                                        const repoList = generateRepoListHTML(pkg.repositories);
-                                        return `<tr>
-                                            <td>${badge}</td>
-                                            <td><code class="small">${escapeHtml(pkg.name)}</code></td>
-                                            <td><span class="text-muted">${escapeHtml(pkg.version)}</span></td>
-                                            <td><strong class="text-success">${escapeHtml(pkg.latestVersion)}</strong></td>
-                                            <td><span class="badge bg-secondary">${escapeHtml(pkg.ecosystem)}</span></td>
-                                            <td><small>${repoList}</small></td>
-                                        </tr>`;
-                                    }).join('')}
-                                </tbody>
-                            </table>
-                        </div>
-                        <div class="modal-footer">
-                            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
-                        </div>
-                    </div>
-                </div>
-            </div>`;
-        }
-        
-        html += '</div></div>';
-        
-        return html;
-    }
-    
-    /**
-     * Generate Stale Dependencies audit findings HTML
-     * Checks for dependencies that are 6+ months old with no newer version
-     */
-    async function generateStaleDependenciesHTML(orgData, severityFilter = 'all', repoFilter = 'all') {
-        let allDependencies = orgData?.data?.allDependencies || [];
-        
-        if (!allDependencies || allDependencies.length === 0) {
-            return '';
-        }
-        
-        // Filter dependencies by repository if specified
-        if (repoFilter && repoFilter !== 'all') {
-            allDependencies = allDependencies.filter(dep => 
-                dep.repositories && dep.repositories.includes(repoFilter)
-            );
-        }
-        
-        if (!window.versionDriftAnalyzer) {
-            return '';
-        }
-        
-        // Filter by severity (stale dependencies are low severity)
-        if (severityFilter && severityFilter !== 'all' && severityFilter !== 'low' && severityFilter !== 'warning') {
-            return '';
-        }
-        
-        const staleDeps = [];
-        const batchSize = 50;
-        
-        // Check staleness for dependencies
-        for (let i = 0; i < allDependencies.length; i += batchSize) {
-            const batch = allDependencies.slice(i, i + batchSize);
-            const batchChecks = await Promise.all(batch.map(async (dep) => {
-                if (!dep.name || !dep.version || !dep.ecosystem) {
-                    return null;
-                }
-                
-                try {
-                    const staleness = await window.versionDriftAnalyzer.checkStaleness(
-                        dep.name,
-                        dep.version,
-                        dep.ecosystem
-                    );
-                    
-                    if (staleness && staleness.isStale) {
-                        return {
-                            name: dep.name,
-                            version: dep.version,
-                            ecosystem: dep.ecosystem || 'unknown',
-                            repositories: dep.repositories || [],
-                            monthsSinceRelease: staleness.monthsSinceRelease,
-                            lastReleaseDate: staleness.lastReleaseDate
-                        };
-                    }
-                } catch (e) {
-                    // Ignore errors
-                }
-                return null;
-            }));
-            
-            staleDeps.push(...batchChecks.filter(d => d !== null));
-        }
-        
-        if (staleDeps.length === 0) {
-            return '';
-        }
-        
-        let html = '<div class="card">';
-        html += '<div class="card-header"><h5 class="mb-0"><i class="fas fa-clock me-2"></i>Stale Dependencies</h5></div>';
-        html += '<div class="card-body">';
-        
-        // Statistics
-        html += '<div class="row mb-3">';
-        html += `<div class="col-md-4">
-            <div class="card text-center bg-warning bg-opacity-10">
-                <div class="card-body">
-                    <h3>${staleDeps.length}</h3>
-                    <p class="stats-card-label mb-0">Stale Packages</p>
-                </div>
-            </div>
-        </div>`;
-        html += `<div class="col-md-4">
-            <div class="card text-center bg-light">
-                <div class="card-body">
-                    <h3>${new Set(staleDeps.map(d => d.ecosystem)).size}</h3>
-                    <p class="stats-card-label mb-0">Ecosystems Affected</p>
-                </div>
-            </div>
-        </div>`;
-        html += `<div class="col-md-4">
-            <div class="card text-center bg-light">
-                <div class="card-body">
-                    <h3>${new Set(staleDeps.flatMap(d => d.repositories)).size}</h3>
-                    <p class="stats-card-label mb-0">Repositories Affected</p>
-                </div>
-            </div>
-        </div>`;
-        html += '</div>';
-        
-        // Summary
-        html += `<div class="alert alert-warning mb-3">
-            <strong>Summary:</strong> Found <strong>${staleDeps.length}</strong> stale dependencies 
-            (6+ months old with no newer version available).
-        </div>`;
-        
-        // Detailed list
-        html += '<h6 class="mb-2">Stale Dependencies</h6>';
-        html += '<div class="table-responsive"><table class="table table-sm table-hover align-middle">';
-        html += '<thead class="table-light"><tr>';
-        html += '<th style="width: 250px;">Package</th>';
-        html += '<th style="width: 150px;">Version</th>';
-        html += '<th style="width: 120px;">Ecosystem</th>';
-        html += '<th style="width: 180px;">Age</th>';
-        html += '<th>Affected Repositories</th>';
-        html += '</tr></thead><tbody>';
-        
-        staleDeps.slice(0, 100).sort((a, b) => b.monthsSinceRelease - a.monthsSinceRelease).forEach(pkg => {
-            const repoCount = pkg.repositories.length;
-            const repoList = repoCount > 3 
-                ? `${pkg.repositories.slice(0, 3).map(r => `<a href="https://github.com/${r}" target="_blank" rel="noreferrer noopener" class="text-decoration-none"><i class="fab fa-github me-1"></i>${escapeHtml(r)}</a>`).join(', ')} and ${repoCount - 3} more`
-                : pkg.repositories.map(r => `<a href="https://github.com/${r}" target="_blank" rel="noreferrer noopener" class="text-decoration-none"><i class="fab fa-github me-1"></i>${escapeHtml(r)}</a>`).join(', ');
-            
-            const ageBadgeClass = pkg.monthsSinceRelease >= 12 ? 'bg-danger' : 
-                                 pkg.monthsSinceRelease >= 9 ? 'bg-warning' : 'bg-warning text-dark';
-            
-            html += `<tr>
-                <td><code class="small">${escapeHtml(pkg.name)}</code></td>
-                <td><span class="text-muted">${escapeHtml(pkg.version)}</span></td>
-                <td><span class="badge bg-secondary">${escapeHtml(pkg.ecosystem)}</span></td>
-                <td><span class="badge ${ageBadgeClass}"><i class="fas fa-clock me-1"></i>${pkg.monthsSinceRelease} months</span></td>
-                <td><small>${repoList}</small></td>
-            </tr>`;
-        });
-        
-        if (staleDeps.length > 100) {
-            html += `<tr><td colspan="5" class="text-center text-muted py-3"><em>... and ${staleDeps.length - 100} more stale packages</em></td></tr>`;
-        }
-        
-        html += '</tbody></table></div>';
-        html += '</div></div>';
-        
-        return html;
-    }
-    
-    /**
-     * Generate License Compatibility audit findings HTML
-     * Checks for incompatible license chains
-     */
-    async function generateLicenseCompatibilityHTML(orgData, severityFilter = 'all', repoFilter = 'all') {
-        const allDependencies = orgData?.data?.allDependencies || [];
+    async function generateSBOMAuditHTML(orgData, severityFilter = 'all', repoFilter = 'all') {
         const allRepositories = orgData?.data?.allRepositories || [];
         
-        if (!allDependencies || allDependencies.length === 0) {
+        if (!allRepositories || allRepositories.length === 0) {
             return '';
         }
         
-        if (typeof LicenseProcessor === 'undefined') {
+        if (typeof SBOMQualityProcessor === 'undefined') {
             return '';
         }
         
-        const licenseProcessor = new LicenseProcessor();
-        const conflicts = [];
+        const sbomProcessor = new SBOMQualityProcessor();
         
-        // Filter dependencies by repository if specified
-        let filteredDependencies = allDependencies;
+        // Filter repositories
+        let filteredRepos = allRepositories;
         if (repoFilter && repoFilter !== 'all') {
-            filteredDependencies = allDependencies.filter(dep => 
-                dep.repositories && dep.repositories.includes(repoFilter)
-            );
+            filteredRepos = allRepositories.filter(r => `${r.owner}/${r.name}` === repoFilter);
         }
         
-        // Check license conflicts for each dependency
-        filteredDependencies.forEach(dep => {
-            // Skip dependencies without any package information
-            if (!dep.originalPackage && !dep.license && !dep.licenseFull) {
+        // Collect SBOM audit data
+        const auditData = [];
+        const gradeDistribution = { 'A': 0, 'B': 0, 'C': 0, 'D': 0, 'F': 0, 'N/A': 0 };
+        let totalCISA2025Compliant = 0;
+        let totalBSICompliant = 0;
+        let totalFresh = 0;
+        let totalCompleteness = 0;
+        let reposWithSBOM = 0;
+        
+        filteredRepos.forEach(repo => {
+            const repoKey = `${repo.owner}/${repo.name}`;
+            const quality = repo.qualityAssessment;
+            
+            if (!quality) {
+                gradeDistribution['N/A']++;
                 return;
             }
             
-            // Try to get license from multiple sources (in order of preference)
-            let dependencyLicense = null;
+            reposWithSBOM++;
+            gradeDistribution[quality.grade]++;
             
-            // 1. Check dep.licenseFull (most complete, from deps.dev API)
-            if (dep.licenseFull && 
-                dep.licenseFull !== 'Unknown' && 
-                dep.licenseFull !== 'NOASSERTION' && 
-                String(dep.licenseFull).trim() !== '') {
-                dependencyLicense = dep.licenseFull;
+            // Calculate CISA 2025 compliance (based on quality categories)
+            // CISA 2025 requires: identification, provenance, integrity (hash), licensing
+            const cisa2025Compliant = quality.overallScore >= 70 && 
+                                 quality.categories?.identification?.score >= 70 &&
+                                 quality.categories?.provenance?.score >= 70 &&
+                                 quality.categories?.integrity?.score >= 50 &&
+                                 quality.categories?.licensing?.score >= 50;
+            if (cisa2025Compliant) totalCISA2025Compliant++;
+            
+            // Calculate BSI compliance (requires SHA-256 hashes)
+            const bsiCompliant = quality.overallScore >= 75 &&
+                                quality.categories?.integrity?.score >= 70 &&
+                                quality.categories?.licensing?.score >= 70;
+            if (bsiCompliant) totalBSICompliant++;
+            
+            // Estimate freshness from timestamp
+            let freshness = { isFresh: false, status: 'Unknown', ageInDays: null };
+            if (quality.timestamp) {
+                const ageMs = Date.now() - quality.timestamp;
+                const ageInDays = Math.floor(ageMs / (1000 * 60 * 60 * 24));
+                freshness.ageInDays = ageInDays;
+                freshness.isFresh = ageInDays <= 90;
+                freshness.status = ageInDays <= 7 ? 'Very Fresh' :
+                                  ageInDays <= 30 ? 'Fresh' :
+                                  ageInDays <= 90 ? 'Recent' :
+                                  ageInDays <= 180 ? 'Aging' :
+                                  ageInDays <= 365 ? 'Old' : 'Stale';
             }
-            // 2. Check dep.license (short form, from deps.dev API) - only if licenseFull not found
-            if (!dependencyLicense && dep.license && 
-                dep.license !== 'Unknown' && 
-                dep.license !== 'NOASSERTION' && 
-                String(dep.license).trim() !== '') {
-                dependencyLicense = dep.license;
-            }
-            // 3. Parse from originalPackage (from SBOM) - always check this as fallback
-            if (!dependencyLicense && dep.originalPackage) {
-            const licenseInfo = licenseProcessor.parseLicense(dep.originalPackage);
-                if (licenseInfo.license && 
-                    licenseInfo.license !== 'NOASSERTION' && 
-                    licenseInfo.license !== 'Unknown' &&
-                    String(licenseInfo.license).trim() !== '') {
-                    dependencyLicense = licenseInfo.license;
-                }
-            }
+            if (freshness.isFresh) totalFresh++;
             
-            // Skip if no license found after checking all sources
-            if (!dependencyLicense || dependencyLicense === 'NOASSERTION' || dependencyLicense === 'Unknown' || dependencyLicense.trim() === '') {
-                return;
+            // Calculate completeness score
+            const completenessScore = Math.round(
+                (quality.categories?.identification?.score || 0) * 0.3 +
+                (quality.categories?.metadata?.score || 0) * 0.3 +
+                (quality.categories?.licensing?.score || 0) * 0.2 +
+                (quality.categories?.vulnerability?.score || 0) * 0.2
+            );
+            totalCompleteness += completenessScore;
+            
+            // Determine if this repo needs attention based on severity filter
+            let includeInResults = true;
+            if (severityFilter === 'high') {
+                includeInResults = quality.grade === 'F' || quality.grade === 'D';
+            } else if (severityFilter === 'medium') {
+                includeInResults = quality.grade === 'C' || quality.grade === 'D';
+            } else if (severityFilter === 'warning' || severityFilter === 'low') {
+                includeInResults = quality.grade === 'B' || quality.grade === 'C';
             }
             
-            // Parse license to get category for severity determination
-            // Create a temporary package object for parsing if needed
-            const tempPackage = dep.originalPackage || {
-                licenseConcluded: dependencyLicense,
-                licenseDeclared: dependencyLicense
-            };
-            const licenseInfo = licenseProcessor.parseLicense(tempPackage);
+            // Determine SBOM source (uploaded vs GitHub dependency graph)
+            const isUploaded = repo.owner === 'upload';
+            const sbomSource = isUploaded ? 'uploaded' : 'github';
+            const uploadInfo = repo.uploadInfo || null;
             
-            const depRepos = dep.repositories || [];
-            
-            // Filter repositories if repo filter is specified
-            const reposToCheck = repoFilter && repoFilter !== 'all' 
-                ? depRepos.filter(r => r === repoFilter)
-                : depRepos;
-            
-            // Check compatibility with repository licenses
-            reposToCheck.forEach(repoKey => {
-                const repo = allRepositories.find(r => `${r.owner}/${r.name}` === repoKey);
-                if (repo && repo.license) {
-                    const compatibility = licenseProcessor.isDependencyCompatibleWithRepository(
-                        dependencyLicense,
-                        repo.license
-                    );
-                    
-                    if (compatibility === false) {
-                        conflicts.push({
-                            dependency: dep.name,
-                            dependencyVersion: dep.version,
-                            dependencyLicense: dependencyLicense,
-                            repository: repoKey,
-                            repositoryLicense: repo.license,
-                            ecosystem: dep.ecosystem || dep.category?.ecosystem || 'unknown',
-                            severity: licenseInfo.category === 'copyleft' ? 'high' : 'medium'
-                        });
-                    }
-                }
-            });
+            if (includeInResults) {
+                auditData.push({
+                    repository: repoKey,
+                    grade: quality.grade,
+                    score: quality.overallScore,
+                    displayScore: quality.displayScore,
+                    sbomFormat: quality.sbomFormat || { type: 'Unknown', version: null, displayName: 'Unknown' },
+                    cisa2025Compliant: cisa2025Compliant,
+                    bsiCompliant: bsiCompliant,
+                    freshness: freshness,
+                    completeness: completenessScore,
+                    categories: quality.categories,
+                    issues: quality.issues || [],
+                    sbomSource: sbomSource,
+                    uploadInfo: uploadInfo
+                });
+            }
         });
         
-        if (conflicts.length === 0) {
+        // Sort by score (lowest first for attention)
+        auditData.sort((a, b) => a.score - b.score);
+        
+        if (auditData.length === 0 && severityFilter !== 'all') {
             return '';
         }
-        
-        // Filter by severity if specified
-        let filteredConflicts = conflicts;
-        if (severityFilter && severityFilter !== 'all') {
-            filteredConflicts = conflicts.filter(c => c.severity === severityFilter);
-        }
-        
-        if (filteredConflicts.length === 0) {
-            return '';
-        }
-        
-        // Calculate statistics
-        const stats = {
-            total: filteredConflicts.length,
-            high: filteredConflicts.filter(c => c.severity === 'high').length,
-            medium: filteredConflicts.filter(c => c.severity === 'medium').length,
-            uniqueRepos: new Set(filteredConflicts.map(c => c.repository)).size,
-            uniqueDeps: new Set(filteredConflicts.map(c => `${c.dependency}@${c.dependencyVersion}`)).size
-        };
         
         let html = '<div class="card">';
-        html += '<div class="card-header"><h5 class="mb-0"><i class="fas fa-balance-scale me-2"></i>License Compatibility</h5></div>';
+        html += '<div class="card-header"><h5 class="mb-0"><i class="fas fa-file-invoice me-2"></i>SBOM Audit</h5></div>';
         html += '<div class="card-body">';
         
         // Statistics
@@ -1555,79 +1658,190 @@ document.addEventListener('DOMContentLoaded', async function() {
         html += `<div class="col-md-3">
             <div class="card text-center bg-primary bg-opacity-10">
                 <div class="card-body">
-                    <h3>${stats.total}</h3>
-                    <p class="stats-card-label mb-0">Total Conflicts</p>
+                    <h3>${reposWithSBOM}/${filteredRepos.length}</h3>
+                    <p class="stats-card-label mb-0">Repositories with SBOM</p>
                 </div>
             </div>
         </div>`;
         html += `<div class="col-md-3">
-            <div class="card text-center bg-danger bg-opacity-10">
+            <div class="card text-center bg-success bg-opacity-10">
                 <div class="card-body">
-                    <h3>${stats.high}</h3>
-                    <p class="stats-card-label mb-0">High Severity</p>
+                    <h3>${totalCISA2025Compliant}</h3>
+                    <p class="stats-card-label mb-0">CISA 2025</p>
                 </div>
             </div>
         </div>`;
         html += `<div class="col-md-3">
-            <div class="card text-center bg-warning bg-opacity-10">
+            <div class="card text-center bg-info bg-opacity-10">
                 <div class="card-body">
-                    <h3>${stats.medium}</h3>
-                    <p class="stats-card-label mb-0">Medium Severity</p>
+                    <h3>${totalFresh}</h3>
+                    <p class="stats-card-label mb-0">Fresh SBOMs</p>
                 </div>
             </div>
         </div>`;
         html += `<div class="col-md-3">
-            <div class="card text-center bg-light">
+            <div class="card text-center bg-secondary bg-opacity-10">
                 <div class="card-body">
-                    <h3>${stats.uniqueRepos}</h3>
-                    <p class="stats-card-label mb-0">Repositories Affected</p>
+                    <h3>${reposWithSBOM > 0 ? Math.round(totalCompleteness / reposWithSBOM) : 0}%</h3>
+                    <p class="stats-card-label mb-0">Avg Completeness</p>
                 </div>
             </div>
         </div>`;
         html += '</div>';
         
-        // Summary
-        html += `<div class="alert alert-danger mb-3">
-            <strong>Warning:</strong> Found <strong>${stats.total}</strong> incompatible license combinations 
-            across <strong>${stats.uniqueRepos}</strong> repositories and <strong>${stats.uniqueDeps}</strong> dependencies.
+        // Grade Distribution
+        html += '<h6 class="mb-2">Grade Distribution</h6>';
+        html += '<div class="d-flex gap-2 mb-3 flex-wrap">';
+        const gradeColors = { 'A': 'success', 'B': 'info', 'C': 'warning', 'D': 'danger', 'F': 'dark', 'N/A': 'secondary' };
+        for (const [grade, count] of Object.entries(gradeDistribution)) {
+            if (count > 0) {
+                html += `<span class="badge bg-${gradeColors[grade]} fs-6">${grade}: ${count}</span>`;
+            }
+        }
+        html += '</div>';
+        
+        // Compliance Summary
+        const cisa2025Percentage = reposWithSBOM > 0 ? Math.round((totalCISA2025Compliant / reposWithSBOM) * 100) : 0;
+        const bsiPercentage = reposWithSBOM > 0 ? Math.round((totalBSICompliant / reposWithSBOM) * 100) : 0;
+        const cisaAlertClass = cisa2025Percentage >= 80 ? 'success' : cisa2025Percentage >= 50 ? 'warning' : 'danger';
+        const bsiAlertClass = bsiPercentage >= 80 ? 'success' : bsiPercentage >= 50 ? 'warning' : 'danger';
+        html += `<div class="row mb-3">
+            <div class="col-md-6">
+                <div class="alert alert-${cisaAlertClass} mb-0">
+                    <strong><i class="fas fa-flag-usa me-1"></i>CISA 2025:</strong> ${totalCISA2025Compliant}/${reposWithSBOM} (${cisa2025Percentage}%)
+                    <small class="d-block text-muted">US Federal SBOM requirements</small>
+                </div>
+            </div>
+            <div class="col-md-6">
+                <div class="alert alert-${bsiAlertClass} mb-0">
+                    <strong><i class="fas fa-shield-alt me-1"></i>BSI TR-03183-2:</strong> ${totalBSICompliant}/${reposWithSBOM} (${bsiPercentage}%)
+                    <small class="d-block text-muted">German/EU technical guideline</small>
+                </div>
+            </div>
         </div>`;
         
-        // Detailed list
-        html += '<h6 class="mb-2">Incompatible License Chains</h6>';
-        html += '<div class="table-responsive"><table class="table table-sm table-hover align-middle">';
-        html += '<thead class="table-light"><tr>';
-        html += '<th style="width: 100px;">Severity</th>';
-        html += '<th style="width: 250px;">Dependency</th>';
-        html += '<th style="width: 180px;">Dependency License</th>';
-        html += '<th style="width: 250px;">Repository</th>';
-        html += '<th style="width: 180px;">Repository License</th>';
-        html += '<th style="width: 120px;">Ecosystem</th>';
-        html += '</tr></thead><tbody>';
-        
-        filteredConflicts.slice(0, 100).forEach(conflict => {
-            const severityClass = conflict.severity === 'high' ? 'danger' : 'warning';
-            const repoLink = `<a href="https://github.com/${conflict.repository}" target="_blank" rel="noreferrer noopener" class="text-decoration-none">
-                <i class="fab fa-github me-1"></i>${escapeHtml(conflict.repository)}
-            </a>`;
-            
-            html += `<tr>
-                <td><span class="badge bg-${severityClass}">${conflict.severity.toUpperCase()}</span></td>
-                <td><code class="small">${escapeHtml(conflict.dependency)}@${escapeHtml(conflict.dependencyVersion)}</code></td>
-                <td><span class="badge bg-secondary">${escapeHtml(conflict.dependencyLicense)}</span></td>
-                <td>${repoLink}</td>
-                <td><span class="badge bg-info">${escapeHtml(conflict.repositoryLicense)}</span></td>
-                <td><span class="badge bg-secondary">${escapeHtml(conflict.ecosystem)}</span></td>
-            </tr>`;
+        // Store audit data globally for modal access
+        window._sbomAuditData = {};
+        auditData.forEach(audit => {
+            window._sbomAuditData[audit.repository] = audit;
         });
         
-        if (filteredConflicts.length > 100) {
-            html += `<tr><td colspan="6" class="text-center text-muted py-3"><em>... and ${filteredConflicts.length - 100} more conflicts</em></td></tr>`;
+        // Detailed list - show all repositories
+        if (auditData.length > 0) {
+            html += '<h6 class="mb-2">Repository SBOM Quality</h6>';
+            html += '<div class="table-responsive" style="max-height: 600px; overflow-y: auto;">';
+            html += '<table class="table table-sm table-hover align-middle">';
+            html += '<thead class="table-light sticky-top"><tr>';
+            html += '<th style="width: 70px;">Source</th>';
+            html += '<th style="width: 200px;">Repository</th>';
+            html += '<th style="width: 100px;">Format</th>';
+            html += '<th style="width: 60px;">Grade</th>';
+            html += '<th style="width: 70px;">Score</th>';
+            html += '<th style="width: 70px;">CISA</th>';
+            html += '<th style="width: 60px;">BSI</th>';
+            html += '<th style="width: 90px;">Freshness</th>';
+            html += '<th style="width: 70px;">Complete</th>';
+            html += '<th>Issue Details</th>';
+            html += '</tr></thead><tbody>';
+            
+            // Show all repositories - sorted by score (lowest first for attention)
+            auditData.forEach(audit => {
+                const gradeClass = gradeColors[audit.grade] || 'secondary';
+                const cisaIcon = audit.cisa2025Compliant ? 
+                    '<i class="fas fa-check-circle text-success" title="CISA 2025 Compliant"></i>' : 
+                    '<i class="fas fa-times-circle text-danger" title="Not CISA 2025 Compliant"></i>';
+                const bsiIcon = audit.bsiCompliant ? 
+                    '<i class="fas fa-check-circle text-success" title="BSI Compliant"></i>' : 
+                    '<i class="fas fa-times-circle text-danger" title="Not BSI Compliant"></i>';
+                const freshnessClass = audit.freshness.isFresh ? 'success' : 
+                                      audit.freshness.status === 'Aging' ? 'warning' : 'danger';
+                
+                // Count total issues
+                const issueCount = audit.issues.reduce((acc, cat) => acc + (cat.issues?.length || 0), 0);
+                const issueClass = issueCount === 0 ? 'success' : issueCount <= 3 ? 'warning' : 'danger';
+                
+                // Source indicator
+                const isUploaded = audit.sbomSource === 'uploaded';
+                const sourceIcon = isUploaded 
+                    ? '<span class="badge bg-info" title="Manually uploaded SBOM"><i class="fas fa-upload me-1"></i>Upload</span>'
+                    : '<span class="badge bg-dark" title="GitHub Dependency Graph"><i class="fab fa-github me-1"></i>GitHub</span>';
+                
+                // Repository link - only link to GitHub if it's from GitHub
+                const repoDisplay = isUploaded
+                    ? `<span class="text-muted"><i class="fas fa-file-code me-1"></i>${escapeHtml(audit.repository.replace('upload/', ''))}</span>`
+                    : `<a href="https://github.com/${audit.repository}" target="_blank" rel="noreferrer noopener" class="text-decoration-none">
+                        <i class="fab fa-github me-1"></i>${escapeHtml(audit.repository)}
+                       </a>`;
+                
+                // SBOM Format display with icon
+                const formatType = audit.sbomFormat?.type || 'Unknown';
+                const formatVersion = audit.sbomFormat?.version || '';
+                const formatDisplay = audit.sbomFormat?.displayName || 'Unknown';
+                const formatIcon = formatType === 'CycloneDX' ? 'fa-recycle' : 
+                                   formatType === 'SPDX' ? 'fa-file-alt' : 'fa-question-circle';
+                const formatBadgeClass = formatType === 'CycloneDX' ? 'info' : 
+                                         formatType === 'SPDX' ? 'primary' : 'secondary';
+                const formatHtml = `<span class="badge bg-${formatBadgeClass}" title="${escapeHtml(formatDisplay)}">
+                    <i class="fas ${formatIcon} me-1"></i>${escapeHtml(formatType)}${formatVersion ? ' ' + escapeHtml(formatVersion) : ''}
+                </span>`;
+                
+                html += `<tr>
+                    <td>${sourceIcon}</td>
+                    <td>${repoDisplay}</td>
+                    <td>${formatHtml}</td>
+                    <td><span class="badge bg-${gradeClass}">${audit.grade}</span></td>
+                    <td>${audit.displayScore}/10</td>
+                    <td>${cisaIcon}</td>
+                    <td>${bsiIcon}</td>
+                    <td><span class="badge bg-${freshnessClass}">${audit.freshness.status}</span></td>
+                    <td>${audit.completeness}%</td>
+                    <td>
+                        <a href="#" class="sbom-compliance-details-link text-decoration-none" 
+                           data-repository="${escapeHtml(audit.repository)}"
+                           data-bs-toggle="modal" data-bs-target="#complianceDetailsModal">
+                            <span class="badge bg-${issueClass}">${issueCount} issues</span>
+                            <i class="fas fa-external-link-alt ms-1 small"></i>
+                        </a>
+                    </td>
+                </tr>`;
+            });
+            
+            html += '</tbody></table></div>';
+            html += `<small class="text-muted">Showing all ${auditData.length} repositories, sorted by score (lowest first)</small>`;
         }
         
-        html += '</tbody></table></div>';
         html += '</div></div>';
         
+        // Add Compliance Details Modal
+        html += generateComplianceDetailsModal();
+        
         return html;
+    }
+    
+    /**
+     * Generate the Compliance Details Modal HTML
+     * Shows detailed compliance requirements for CISA 2025 and BSI TR-03183-2
+     */
+    function generateComplianceDetailsModal() {
+        return `
+        <div class="modal fade" id="complianceDetailsModal" tabindex="-1" aria-labelledby="complianceDetailsModalLabel" aria-hidden="true">
+            <div class="modal-dialog modal-xl modal-dialog-scrollable">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h5 class="modal-title" id="complianceDetailsModalLabel">
+                            <i class="fas fa-clipboard-check me-2"></i>SBOM Compliance Details
+                        </h5>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                    </div>
+                    <div class="modal-body" id="complianceDetailsModalBody">
+                        <!-- Content populated dynamically -->
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                    </div>
+                </div>
+            </div>
+        </div>`;
     }
     
     /**
@@ -1647,7 +1861,13 @@ document.addEventListener('DOMContentLoaded', async function() {
             'COMPOSITE_REMOTE_CODE_NO_INTEGRITY': 'Composite Remote Code Without Integrity',
             'JS_REMOTE_CODE_NO_INTEGRITY': 'JavaScript Remote Code Without Integrity',
             'JS_RUNTIME_UNPINNED_DEPENDENCIES': 'JavaScript Runtime Unpinned Dependencies',
-            'INDIRECT_UNPINNABLE_ACTION': 'Indirect Unpinnable Action'
+            'INDIRECT_UNPINNABLE_ACTION': 'Indirect Unpinnable Action',
+            'NAMESPACE_NOT_IN_REGISTRY': 'HIGH-CONFIDENCE Dependency Confusion (Namespace Missing)',
+            'PACKAGE_NOT_IN_REGISTRY': 'Potential Dependency Confusion',
+            'PULL_REQUEST_TARGET_CHECKOUT': 'Dangerous PR Target Pattern',
+            'EXCESSIVE_WORKFLOW_PERMISSIONS': 'Excessive Workflow Permissions',
+            'EXCESSIVE_JOB_PERMISSIONS': 'Excessive Job Permissions',
+            'POTENTIAL_HARDCODED_SECRET': 'Potential Hardcoded Secret'
         };
         return findingNames[ruleId] || ruleId;
     }

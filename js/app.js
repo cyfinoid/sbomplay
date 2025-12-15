@@ -17,12 +17,17 @@ class SBOMPlayApp {
         
         this.sbomProcessor = new SBOMProcessor();
         this.storageManager = window.storageManager || new StorageManager();
+        this.sbomParser = window.SBOMParser ? new window.SBOMParser() : null;
         this.isAnalyzing = false;
         this.rateLimitTimer = null;
         this.initialized = false;
         this.analysisStartTime = null;
         this.analysisEndTime = null;
         this.elapsedTimeInterval = null;
+        
+        // Upload functionality
+        this.uploadQueue = [];
+        this.isProcessingUpload = false;
         
         // Time-based progress tracking
         this.progressTracker = {
@@ -86,6 +91,10 @@ class SBOMPlayApp {
             }
             if (document.getElementById('githubToken') && document.getElementById('orgName') && document.getElementById('analyzeBtn')) {
                 this.setupEventListeners();
+            }
+            // Setup upload listeners if upload elements exist
+            if (document.getElementById('uploadDropZone')) {
+                this.setupUploadListeners();
             }
             if (document.getElementById('resumeSection')) {
                 this.checkRateLimitState();
@@ -289,6 +298,357 @@ class SBOMPlayApp {
         this.githubClient.addEventListener('rateLimitReset', () => {
             this.hideRateLimitWaiting();
         });
+    }
+
+    /**
+     * Setup upload-related event listeners
+     */
+    setupUploadListeners() {
+        const dropZone = document.getElementById('uploadDropZone');
+        const fileInput = document.getElementById('sbomFileInput');
+        const analyzeBtn = document.getElementById('analyzeUploadBtn');
+        const clearQueueBtn = document.getElementById('clearUploadQueueBtn');
+        
+        if (!dropZone || !fileInput) return;
+        
+        // Drag and drop events
+        dropZone.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            dropZone.classList.add('drag-over');
+        });
+        
+        dropZone.addEventListener('dragleave', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            dropZone.classList.remove('drag-over');
+        });
+        
+        dropZone.addEventListener('drop', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            dropZone.classList.remove('drag-over');
+            
+            const files = e.dataTransfer?.files;
+            if (files && files.length > 0) {
+                this.addFilesToUploadQueue(Array.from(files));
+            }
+        });
+        
+        dropZone.addEventListener('click', () => fileInput?.click());
+        
+        // File input change
+        fileInput.addEventListener('change', (e) => {
+            const files = e.target?.files;
+            if (files && files.length > 0) {
+                this.addFilesToUploadQueue(Array.from(files));
+            }
+            e.target.value = ''; // Reset for re-selection
+        });
+        
+        // Start analysis button
+        if (analyzeBtn) {
+            analyzeBtn.addEventListener('click', () => this.startUploadAnalysis());
+        }
+        
+        // Clear queue button
+        if (clearQueueBtn) {
+            clearQueueBtn.addEventListener('click', () => this.clearUploadQueue());
+        }
+        
+        console.log('📤 Upload listeners initialized');
+    }
+
+    /**
+     * Add files to upload queue
+     */
+    async addFilesToUploadQueue(files) {
+        if (!this.sbomParser) {
+            this.showAlert('SBOM parser not available. Please refresh the page.', 'danger');
+            return;
+        }
+        
+        for (const file of files) {
+            // Validate file extension
+            if (!this.sbomParser.isValidExtension(file.name)) {
+                this.showAlert(`Invalid file type: ${file.name}. Supported formats: ${this.sbomParser.getSupportedExtensions().join(', ')}`, 'warning');
+                continue;
+            }
+            
+            try {
+                // Read and parse file
+                const content = await this.readFileContent(file);
+                const parsed = this.sbomParser.parse(content, file.name);
+                
+                // parsed.format is an object { format: 'spdx'|'cyclonedx'|'unknown', version: string|null }
+                if (!parsed || !parsed.format || parsed.format.format === 'unknown') {
+                    const errorMsg = parsed?.error || 'Not a valid SPDX or CycloneDX file.';
+                    this.showAlert(`Failed to parse ${file.name}. ${errorMsg}`, 'warning');
+                    continue;
+                }
+                
+                // Add to queue
+                this.uploadQueue.push({
+                    file: file,
+                    content: content,
+                    parsedData: parsed,
+                    status: 'pending'
+                });
+                
+                const pkgCount = parsed.data?.sbom?.packages?.length || 0;
+                console.log(`📄 Added to queue: ${file.name} (${parsed.format.format} ${parsed.format.version || ''}, ${pkgCount} packages)`);
+            } catch (error) {
+                console.error(`Failed to process ${file.name}:`, error);
+                this.showAlert(`Failed to read ${file.name}: ${error.message}`, 'danger');
+            }
+        }
+        
+        this.updateUploadQueueUI();
+    }
+
+    /**
+     * Read file content as text
+     */
+    readFileContent(file) {
+        return new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = (e) => resolve(e.target.result);
+            reader.onerror = (e) => reject(new Error('Failed to read file'));
+            reader.readAsText(file);
+        });
+    }
+
+    /**
+     * Update upload queue UI
+     */
+    updateUploadQueueUI() {
+        const queueSection = document.getElementById('uploadQueueSection');
+        const queueList = document.getElementById('uploadQueueList');
+        const queueCount = document.getElementById('uploadQueueCount');
+        const analyzeBtn = document.getElementById('analyzeUploadBtn');
+        
+        if (!queueSection || !queueList) return;
+        
+        if (this.uploadQueue.length === 0) {
+            queueSection.classList.add('d-none');
+            return;
+        }
+        
+        queueSection.classList.remove('d-none');
+        queueCount.textContent = this.uploadQueue.length;
+        
+        queueList.innerHTML = this.uploadQueue.map((item, index) => {
+            const statusIcon = item.status === 'pending' ? 'fas fa-clock text-muted' :
+                              item.status === 'processing' ? 'fas fa-spinner fa-spin text-primary' :
+                              item.status === 'completed' ? 'fas fa-check-circle text-success' :
+                              'fas fa-times-circle text-danger';
+            
+            // Get format string with version (e.g., "cyclonedx 1.5" or "spdx 2.3")
+            const formatStr = item.parsedData.format?.format || 'unknown';
+            const versionStr = item.parsedData.format?.version ? ` ${item.parsedData.format.version}` : '';
+            // Packages are at data.sbom.packages (internal SPDX-like format)
+            const packageCount = item.parsedData.data?.sbom?.packages?.length || 0;
+            
+            return `
+                <div class="list-group-item d-flex justify-content-between align-items-center py-2">
+                    <div>
+                        <i class="${statusIcon} me-2"></i>
+                        <span class="fw-medium">${this.escapeHtml(item.file.name)}</span>
+                        <span class="badge bg-secondary ms-2">${formatStr}${versionStr}</span>
+                        <small class="text-muted ms-2">${packageCount} packages</small>
+                    </div>
+                    ${item.status === 'pending' ? `
+                        <button class="btn btn-sm btn-outline-danger" onclick="window.sbomPlayApp.removeFromUploadQueue(${index})">
+                            <i class="fas fa-times"></i>
+                        </button>
+                    ` : ''}
+                </div>
+            `;
+        }).join('');
+        
+        // Enable/disable analyze button
+        const hasPending = this.uploadQueue.some(item => item.status === 'pending');
+        analyzeBtn.disabled = !hasPending || this.isProcessingUpload;
+    }
+
+    /**
+     * Remove item from upload queue
+     */
+    removeFromUploadQueue(index) {
+        if (index >= 0 && index < this.uploadQueue.length) {
+            this.uploadQueue.splice(index, 1);
+            this.updateUploadQueueUI();
+        }
+    }
+
+    /**
+     * Clear upload queue
+     */
+    clearUploadQueue() {
+        this.uploadQueue = [];
+        this.updateUploadQueueUI();
+    }
+
+    /**
+     * Start processing uploaded files
+     */
+    async startUploadAnalysis() {
+        if (this.isProcessingUpload || this.uploadQueue.length === 0) return;
+        
+        this.isProcessingUpload = true;
+        this.isAnalyzing = true;
+        
+        // Show progress section
+        const progressSection = document.getElementById('progressSection');
+        const progressBar = document.getElementById('progressBar');
+        const progressText = document.getElementById('progressText');
+        
+        if (progressSection) {
+            progressSection.classList.remove('d-none');
+        }
+        
+        // Reset progress header to show spinner
+        this.setProgressHeaderState('running');
+        
+        // Start elapsed time tracking
+        this.analysisStartTime = Date.now();
+        this.startTiming();
+        
+        const pendingItems = this.uploadQueue.filter(item => item.status === 'pending');
+        let processedCount = 0;
+        
+        for (const item of pendingItems) {
+            item.status = 'processing';
+            this.updateUploadQueueUI();
+            
+            try {
+                await this.processUploadedSBOM(item, (phase, percent, message) => {
+                    const overallPercent = ((processedCount / pendingItems.length) * 100) + (percent / pendingItems.length);
+                    if (progressBar) {
+                        progressBar.style.width = `${overallPercent}%`;
+                        progressBar.textContent = `${Math.round(overallPercent)}%`;
+                    }
+                    if (progressText) {
+                        progressText.textContent = `[${processedCount + 1}/${pendingItems.length}] ${item.file.name}: ${message}`;
+                    }
+                });
+                
+                item.status = 'completed';
+                processedCount++;
+            } catch (error) {
+                console.error(`Failed to process ${item.file.name}:`, error);
+                item.status = 'error';
+                item.error = error.message;
+            }
+            
+            this.updateUploadQueueUI();
+        }
+        
+        // Stop elapsed time tracking
+        this.stopTiming();
+        
+        this.isProcessingUpload = false;
+        this.isAnalyzing = false;
+        
+        // Update progress header to show completion
+        this.setProgressHeaderState('complete');
+        
+        // Show completion message
+        if (progressText) {
+            const totalTime = ((this.analysisEndTime - this.analysisStartTime) / 1000).toFixed(1);
+            progressText.innerHTML = `
+                <div class="alert alert-success">
+                    <i class="fas fa-check-circle me-2"></i>
+                    Analysis complete! Processed ${processedCount} file(s) in ${totalTime}s.
+                    <br><small class="text-muted">Results are now available on all pages (Deps, Vulns, Licenses, etc.)</small>
+                </div>
+            `;
+        }
+        
+        // Refresh results display
+        await this.loadPreviousResults();
+        await this.displayStatsDashboard();
+        
+        // Show results section
+        const resultsSection = document.getElementById('resultsSection');
+        if (resultsSection) {
+            resultsSection.classList.remove('d-none');
+        }
+    }
+
+    /**
+     * Process a single uploaded SBOM file
+     */
+    async processUploadedSBOM(item, onProgress) {
+        const data = item.parsedData.data;
+        const projectName = `upload/${item.file.name.replace(/\.[^/.]+$/, '')}`;
+        const owner = 'upload';
+        const repo = projectName;
+        
+        // Reset processor
+        this.sbomProcessor.reset();
+        this.sbomProcessor.setTotalRepositories(1);
+        
+        // Upload metadata
+        const uploadInfo = {
+            filename: item.file.name,
+            format: item.parsedData.format,
+            uploadedAt: new Date().toISOString(),
+            projectName: projectName
+        };
+        
+        // Helper to save current state
+        const saveProgress = async (phaseName) => {
+            let results = this.sbomProcessor.exportData();
+            results.uploadInfo = uploadInfo;
+            await this.storageManager.saveAnalysisData(projectName, results);
+            console.log(`💾 Saved after ${phaseName}`);
+            return results;
+        };
+        
+        // Phase 1: Process SBOM (10-30%)
+        onProgress('sbom', 10, 'Processing SBOM data...');
+        const success = await this.sbomProcessor.processSBOM(owner, repo, data, null, false);
+        
+        if (!success) {
+            throw new Error('Failed to process SBOM data');
+        }
+        this.sbomProcessor.updateProgress(true);
+        await saveProgress('Phase 1: SBOM Processing');
+        
+        // Phase 2: Resolve dependency trees (30-50%)
+        onProgress('deps', 30, 'Resolving dependency trees...');
+        await this.sbomProcessor.resolveFullDependencyTrees((progress) => {
+            if (progress.phase === 'resolving-package') {
+                const pct = 30 + (progress.processed / Math.max(progress.total, 1)) * 20;
+                onProgress('deps', pct, `Resolving ${progress.packageName || 'dependencies'}...`);
+            }
+        });
+        await saveProgress('Phase 2: Dependency Trees + Confusion Detection');
+        
+        // Phase 3: License compliance (50-55%)
+        onProgress('license', 50, 'Analyzing license compliance...');
+        this.sbomProcessor.analyzeLicenseCompliance();
+        await saveProgress('Phase 3: License Compliance');
+        
+        // Phase 4: Export initial results (55%)
+        onProgress('export', 55, 'Exporting results...');
+        let results = this.sbomProcessor.exportData();
+        results.uploadInfo = uploadInfo;
+        
+        // Phase 5-8: Run shared enrichment pipeline (55-98%)
+        if (window.EnrichmentPipeline) {
+            const pipeline = new window.EnrichmentPipeline(this.sbomProcessor, this.storageManager);
+            results = await pipeline.runFullEnrichment(results, projectName, (phase, pct, msg) => {
+                onProgress(phase, pct, msg);
+            });
+        }
+        
+        // Final save
+        await this.storageManager.saveAnalysisData(projectName, results);
+        onProgress('complete', 100, 'Complete');
+        
+        return results;
     }
 
     /**
@@ -548,6 +908,10 @@ class SBOMPlayApp {
             progressSection.classList.remove('d-none');
             progressSection.classList.add('d-block');
         }
+        // Reset progress header to show spinner
+        this.setProgressHeaderState('running');
+        // Clear previous ecosystem progress bars
+        this.clearEcosystemProgress();
         if (resultsSection) {
             resultsSection.classList.add('d-none');
             resultsSection.classList.remove('d-block');
@@ -657,6 +1021,9 @@ class SBOMPlayApp {
                 console.error('❌ Dependency tree resolution failed:', error);
                 console.log('⚠️ Continuing with partial dependency information...');
             }
+            
+            // Hide ecosystem progress section now that resolution is complete
+            this.clearEcosystemProgress();
             
             // Generate results (use let so we can reload after author analysis)
             this.updateProgress(80, 'Generating analysis results...', 'generating-results');
@@ -794,51 +1161,13 @@ class SBOMPlayApp {
             console.log(`📊 Single Repository Analysis Summary for ${repoKey}:`);
             console.log(`   Total dependencies: ${results.statistics.totalDependencies}`);
             
-            // Fetch licenses for PyPI packages and version drift data in background
-            // These are non-blocking and will save to IndexedDB for future use
+            // Run license and version drift enrichment (consolidated method)
             if (repoStats && repoStats.totalDependencies > 0 && results.allDependencies) {
-                this.updateProgress(96, 'Fetching package licenses and version drift data...', 'fetching-metadata');
-                try {
-                    // Fetch licenses for PyPI packages missing license info
-                    await this.fetchPyPILicenses(results.allDependencies, repoKey);
-                    
-                    // Fetch licenses for Go packages missing license info
-                    await this.fetchGoLicenses(results.allDependencies, repoKey);
-                    
-                    // Fetch licenses for other ecosystems (npm, maven, cargo, etc.)
-                    await this.fetchLicensesForAllEcosystems(results.allDependencies, repoKey);
-                    
-                    // Fetch version drift for all packages (already saves to cache/IndexedDB)
-                    await this.fetchVersionDriftData(results.allDependencies);
-                    
-                    // Update vulnerableDependencies with version drift data
-                    // (vulnerability analysis happens before version drift is fetched)
-                    if (results.vulnerabilityAnalysis?.vulnerableDependencies) {
-                        let versionDriftAttached = 0;
-                        results.vulnerabilityAnalysis.vulnerableDependencies.forEach(vulnDep => {
-                            if (!vulnDep.versionDrift) {
-                                const fullDep = results.allDependencies?.find(d => 
-                                    d.name === vulnDep.name && 
-                                    (d.version === vulnDep.version || 
-                                     d.displayVersion === vulnDep.version ||
-                                     d.assumedVersion === vulnDep.version)
-                                );
-                                if (fullDep?.versionDrift) {
-                                    vulnDep.versionDrift = fullDep.versionDrift;
-                                    versionDriftAttached++;
-                                }
-                            }
-                        });
-                        if (versionDriftAttached > 0) {
-                            console.log(`📊 Attached version drift to ${versionDriftAttached} vulnerable dependencies`);
-                        }
-                    }
-                    
-                    console.log('✅ License and version drift fetching complete');
-                } catch (error) {
-                    console.error('❌ License/version drift fetching failed:', error);
-                    // Don't fail the entire analysis if this fails
-                }
+                results = await this.runLicenseAndVersionDriftEnrichment(
+                    results, 
+                    repoKey, 
+                    (pct, msg, phase) => this.updateProgress(pct, msg, phase)
+                );
             }
             
             // Final save to storage (to include vulnerability, author, license, and version drift data)
@@ -860,11 +1189,13 @@ class SBOMPlayApp {
             
             this.updateProgress(100, 'Analysis complete!');
             this.stopTiming();
+            this.setProgressHeaderState('complete');
             this.showAlert(`Analysis complete for ${repoKey}!`, 'success');
             
         } catch (error) {
             console.error('Single repository analysis failed:', error);
             this.stopTiming();
+            this.setProgressHeaderState('error');
             this.showAlert(`Analysis failed: ${error.message}`, 'danger');
         } finally {
             this.finishAnalysis();
@@ -891,6 +1222,10 @@ class SBOMPlayApp {
             progressSection.classList.remove('d-none');
             progressSection.classList.add('d-block');
         }
+        // Reset progress header to show spinner
+        this.setProgressHeaderState('running');
+        // Clear previous ecosystem progress bars
+        this.clearEcosystemProgress();
         if (resultsSection) {
             resultsSection.classList.add('d-none');
             resultsSection.classList.remove('d-block');
@@ -1130,6 +1465,9 @@ class SBOMPlayApp {
                 console.log('⚠️ Continuing with partial dependency information...');
             }
             
+            // Hide ecosystem progress section now that resolution is complete
+            this.clearEcosystemProgress();
+            
             // Generate results (use let so we can reload after author analysis)
             this.updateProgress(80, 'Generating analysis results...', 'generating-results');
             let results = this.sbomProcessor.exportData();
@@ -1278,55 +1616,13 @@ class SBOMPlayApp {
                 }
             }
             
-            // Fetch licenses for PyPI and Go packages and version drift data in background
-            // These are non-blocking and will save to IndexedDB for future use
+            // Run license and version drift enrichment (consolidated method)
             if (reposWithDeps > 0 && results.allDependencies) {
-                this.updateProgress(96, 'Fetching package licenses and version drift data...', 'fetching-metadata');
-                try {
-                    // Fetch licenses for PyPI packages missing license info
-                    await this.fetchPyPILicenses(results.allDependencies, ownerName);
-                    
-                    // Fetch licenses for Go packages missing license info
-                    await this.fetchGoLicenses(results.allDependencies, ownerName);
-                    
-                    // Fetch licenses for other ecosystems (npm, maven, cargo, etc.)
-                    await this.fetchLicensesForAllEcosystems(results.allDependencies, ownerName);
-                    
-                    // Fetch version drift for all packages (already saves to cache/IndexedDB)
-                    await this.fetchVersionDriftData(results.allDependencies);
-                    
-                    // Update vulnerableDependencies with version drift data
-                    // (vulnerability analysis happens before version drift is fetched)
-                    if (results.vulnerabilityAnalysis?.vulnerableDependencies) {
-                        let versionDriftAttached = 0;
-                        results.vulnerabilityAnalysis.vulnerableDependencies.forEach(vulnDep => {
-                            if (!vulnDep.versionDrift) {
-                                // Find matching dependency in allDependencies to get version drift
-                                const fullDep = results.allDependencies?.find(d => 
-                                    d.name === vulnDep.name && 
-                                    (d.version === vulnDep.version || 
-                                     d.displayVersion === vulnDep.version ||
-                                     d.assumedVersion === vulnDep.version)
-                                );
-                                if (fullDep?.versionDrift) {
-                                    vulnDep.versionDrift = fullDep.versionDrift;
-                                    versionDriftAttached++;
-                                }
-                            }
-                        });
-                        if (versionDriftAttached > 0) {
-                            console.log(`📊 Attached version drift to ${versionDriftAttached} vulnerable dependencies`);
-                        }
-                    }
-                    
-                    // Re-export data to include fetched licenses in results
-                    results = this.sbomProcessor.exportData();
-                    
-                    console.log('✅ License and version drift fetching complete');
-                } catch (error) {
-                    console.error('❌ License/version drift fetching failed:', error);
-                    // Don't fail the entire analysis if this fails
-                }
+                results = await this.runLicenseAndVersionDriftEnrichment(
+                    results,
+                    ownerName,
+                    (pct, msg, phase) => this.updateProgress(pct, msg, phase)
+                );
             }
             
             // Final save to storage (to include vulnerability, author, license, and version drift data)
@@ -1357,10 +1653,12 @@ class SBOMPlayApp {
             
             this.updateProgress(100, 'Analysis complete!');
             this.stopTiming();
+            this.setProgressHeaderState('complete');
             
         } catch (error) {
             console.error('Analysis failed:', error);
             this.stopTiming();
+            this.setProgressHeaderState('error');
             this.showAlert(`Analysis failed: ${error.message}`, 'danger');
         } finally {
             this.finishAnalysis();
@@ -1506,6 +1804,83 @@ class SBOMPlayApp {
         // Log progress for pages without UI elements
         if (!progressBar && !progressText) {
             console.log(`Progress: ${Math.round(calculatedPercentage)}% - ${enhancedMessage}`);
+        }
+        
+        // Update ecosystem-specific progress bars
+        if (subProgress && subProgress.ecosystem) {
+            this.updateEcosystemProgress(subProgress.ecosystem, subProgress.processed, subProgress.total);
+        }
+    }
+
+    /**
+     * Update ecosystem-specific progress bar
+     * @param {string} ecosystem - Ecosystem name
+     * @param {number} processed - Number of processed dependencies
+     * @param {number} total - Total number of dependencies
+     */
+    updateEcosystemProgress(ecosystem, processed, total) {
+        const container = document.getElementById('ecosystemProgressContainer');
+        const barsContainer = document.getElementById('ecosystemProgressBars');
+        
+        if (!container || !barsContainer) return;
+        
+        // Show the container
+        container.classList.remove('d-none');
+        
+        // Find or create the progress bar for this ecosystem
+        let barRow = document.getElementById(`ecosystem-progress-${ecosystem}`);
+        
+        if (!barRow) {
+            // Create new progress bar row
+            barRow = document.createElement('div');
+            barRow.id = `ecosystem-progress-${ecosystem}`;
+            barRow.className = 'mb-2';
+            barRow.innerHTML = `
+                <div class="d-flex justify-content-between align-items-center mb-1">
+                    <span class="badge bg-secondary me-2" style="min-width: 80px;">${escapeHtml(ecosystem)}</span>
+                    <small class="text-muted" id="ecosystem-count-${ecosystem}">0/0</small>
+                </div>
+                <div class="progress" style="height: 12px;">
+                    <div id="ecosystem-bar-${ecosystem}" class="progress-bar" role="progressbar" style="width: 0%"></div>
+                </div>
+            `;
+            barsContainer.appendChild(barRow);
+        }
+        
+        // Update the progress bar
+        const bar = document.getElementById(`ecosystem-bar-${ecosystem}`);
+        const countEl = document.getElementById(`ecosystem-count-${ecosystem}`);
+        
+        if (bar && total > 0) {
+            const percent = Math.round((processed / total) * 100);
+            bar.style.width = `${percent}%`;
+            
+            // Color based on completion
+            bar.classList.remove('bg-primary', 'bg-success');
+            if (percent >= 100) {
+                bar.classList.add('bg-success');
+            } else {
+                bar.classList.add('bg-primary');
+            }
+        }
+        
+        if (countEl) {
+            countEl.textContent = `${processed}/${total}`;
+        }
+    }
+
+    /**
+     * Clear ecosystem progress bars
+     */
+    clearEcosystemProgress() {
+        const barsContainer = document.getElementById('ecosystemProgressBars');
+        const container = document.getElementById('ecosystemProgressContainer');
+        
+        if (barsContainer) {
+            barsContainer.innerHTML = '';
+        }
+        if (container) {
+            container.classList.add('d-none');
         }
     }
 
@@ -2878,20 +3253,52 @@ class SBOMPlayApp {
                 directPackagesWithFunding = results.reduce((sum, pkg) => sum + (pkg.hasFunding && pkg.isDirect ? 1 : 0), 0);
             }
 
-            // Count authors with funding
+            // Count authors with funding - only for authors related to current analysis packages
+            // First try authorAnalysis, then fall back to deriving from package-author relationships
+            const uniqueAuthorKeys = new Set();
+            
             if (data.data.authorAnalysis && data.data.authorAnalysis.authors) {
-                const authorRefs = data.data.authorAnalysis.authors;
-                const uniqueAuthorKeys = new Set();
-
-                authorRefs.forEach(ref => {
+                // Use authorAnalysis if available
+                data.data.authorAnalysis.authors.forEach(ref => {
                     if (ref.authorKey) {
                         uniqueAuthorKeys.add(ref.authorKey);
                     }
                 });
-
+            } else if (window.indexedDBManager && data.data.allDependencies) {
+                // Fall back: derive authors from package-author relationships for current packages
+                const packageKeys = new Set();
+                data.data.allDependencies.forEach(dep => {
+                    let packageKey = null;
+                    if (dep.packageKey) {
+                        packageKey = dep.packageKey;
+                    } else if (dep.purl) {
+                        const purlMatch = dep.purl.match(/pkg:([^\/]+)\/([^@\/]+)/);
+                        if (purlMatch) {
+                            packageKey = `${purlMatch[1]}:${purlMatch[2]}`;
+                        }
+                    } else if (dep.name && dep.category?.ecosystem) {
+                        packageKey = `${dep.category.ecosystem}:${dep.name}`;
+                    }
+                    if (packageKey) packageKeys.add(packageKey);
+                });
+                
+                // Get authors for each package
+                for (const packageKey of packageKeys) {
+                    try {
+                        const packageAuthors = await window.indexedDBManager.getPackageAuthors(packageKey);
+                        packageAuthors.forEach(pa => {
+                            if (pa.authorKey) uniqueAuthorKeys.add(pa.authorKey);
+                        });
+                    } catch (err) {
+                        // Silent fail for individual package lookups
+                    }
+                }
+            }
+            
+            // Now count authors with funding from the collected author keys
+            if (uniqueAuthorKeys.size > 0 && window.cacheManager) {
                 const authorChecks = Array.from(uniqueAuthorKeys).map(async (authorKey) => {
                     const authorEntity = await window.cacheManager.getAuthorEntity(authorKey);
-                    // Check if author has actual funding platforms (same logic as authors.html)
                     if (authorEntity && authorEntity.funding) {
                         const funding = authorEntity.funding;
                         if (funding.github || funding.opencollective || funding.patreon || funding.tidelift || funding.url) {
@@ -2900,7 +3307,6 @@ class SBOMPlayApp {
                     }
                     return 0;
                 });
-
                 const authorResults = await Promise.all(authorChecks);
                 authorsWithFunding = authorResults.reduce((sum, count) => sum + count, 0);
             }
@@ -3441,6 +3847,32 @@ class SBOMPlayApp {
             phaseTiming: phaseTiming,
             enrichedAt: new Date().toISOString()
         };
+    }
+
+    /**
+     * Set progress header icon and text based on state
+     * @param {string} state - 'running', 'complete', or 'error'
+     */
+    setProgressHeaderState(state) {
+        const icon = document.getElementById('progressHeaderIcon');
+        const text = document.getElementById('progressHeaderText');
+        
+        if (!icon) return;
+        
+        switch (state) {
+            case 'running':
+                icon.className = 'fas fa-spinner fa-spin me-2';
+                if (text) text.textContent = 'Analysis Progress';
+                break;
+            case 'complete':
+                icon.className = 'fas fa-check-circle text-success me-2';
+                if (text) text.textContent = 'Analysis Complete';
+                break;
+            case 'error':
+                icon.className = 'fas fa-exclamation-circle text-danger me-2';
+                if (text) text.textContent = 'Analysis Failed';
+                break;
+        }
     }
 
     /**
@@ -4221,6 +4653,126 @@ class SBOMPlayApp {
         console.log(`✅ Version drift and staleness fetching complete: ${processed} versions fetched, ${attachedCount} attached to dependencies`);
     }
 
+    /**
+     * Fetch EOX (End-of-Life) data for notable dependencies
+     * Checks against endoflife.date API for known products
+     * @param {Array} dependencies - Array of dependencies
+     */
+    async fetchEOXData(dependencies) {
+        if (!dependencies || dependencies.length === 0 || !window.eoxService) return;
+        
+        console.log(`🔍 Checking EOX status for notable dependencies...`);
+        
+        // Focus on dependencies that are likely to have EOX data
+        // (runtimes, frameworks, databases - not every npm package)
+        const notableDeps = dependencies.filter(dep => {
+            if (!dep.name) return false;
+            const name = dep.name.toLowerCase();
+            // Check if it matches any known product in EOX service
+            return window.eoxService.findProduct(name, dep.ecosystem) !== null;
+        });
+        
+        if (notableDeps.length === 0) {
+            console.log(`📦 No notable dependencies found for EOX checking`);
+            return;
+        }
+        
+        console.log(`📦 Found ${notableDeps.length} notable dependencies to check EOX status`);
+        
+        const batchSize = 10;
+        let processed = 0;
+        let eoxCount = 0;
+        
+        for (let i = 0; i < notableDeps.length; i += batchSize) {
+            const batch = notableDeps.slice(i, i + batchSize);
+            
+            await Promise.all(batch.map(async (dep) => {
+                try {
+                    const eoxStatus = await window.eoxService.checkEOX(
+                        dep.name,
+                        dep.version,
+                        dep.ecosystem
+                    );
+                    
+                    if (eoxStatus && (eoxStatus.isEOL || eoxStatus.isEOS || eoxStatus.eolDate || eoxStatus.eosDate)) {
+                        dep.eoxStatus = eoxStatus;
+                        eoxCount++;
+                    }
+                    processed++;
+                } catch (e) {
+                    console.debug(`Failed to check EOX for ${dep.name}:`, e);
+                }
+            }));
+            
+            // Small delay between batches
+            if (i + batchSize < notableDeps.length) {
+                await new Promise(resolve => setTimeout(resolve, 200));
+            }
+        }
+        
+        console.log(`✅ EOX checking complete: ${processed} checked, ${eoxCount} with EOX data`);
+    }
+
+    /**
+     * Run license fetching and version drift enrichment
+     * Consolidates the duplicate enrichment code from analyzeSingleRepository and analyzeOrganization
+     * @param {Object} results - Analysis results with allDependencies
+     * @param {string} identifier - Project/org identifier
+     * @param {Function} onProgress - Progress callback
+     */
+    async runLicenseAndVersionDriftEnrichment(results, identifier, onProgress = () => {}) {
+        if (!results.allDependencies || results.allDependencies.length === 0) {
+            return results;
+        }
+
+        onProgress(96, 'Fetching package licenses and version drift data...', 'fetching-metadata');
+
+        try {
+            // Fetch licenses for all ecosystems
+            await this.fetchPyPILicenses(results.allDependencies, identifier);
+            await this.fetchGoLicenses(results.allDependencies, identifier);
+            await this.fetchLicensesForAllEcosystems(results.allDependencies, identifier);
+
+            // Fetch version drift for all packages
+            await this.fetchVersionDriftData(results.allDependencies);
+
+            // Fetch EOX (End-of-Life) data for notable packages
+            await this.fetchEOXData(results.allDependencies);
+
+            // Attach version drift to vulnerable dependencies
+            if (results.vulnerabilityAnalysis?.vulnerableDependencies) {
+                let attached = 0;
+                results.vulnerabilityAnalysis.vulnerableDependencies.forEach(vulnDep => {
+                    if (!vulnDep.versionDrift) {
+                        const fullDep = results.allDependencies?.find(d =>
+                            d.name === vulnDep.name &&
+                            (d.version === vulnDep.version ||
+                             d.displayVersion === vulnDep.version ||
+                             d.assumedVersion === vulnDep.version)
+                        );
+                        if (fullDep?.versionDrift) {
+                            vulnDep.versionDrift = fullDep.versionDrift;
+                            attached++;
+                        }
+                    }
+                });
+                if (attached > 0) {
+                    console.log(`📊 Attached version drift to ${attached} vulnerable dependencies`);
+                }
+            }
+
+            // Re-export to include fetched licenses
+            results = this.sbomProcessor.exportData();
+
+            console.log('✅ License and version drift fetching complete');
+        } catch (error) {
+            console.error('❌ License/version drift fetching failed:', error);
+            // Don't fail the entire analysis if this fails
+        }
+
+        return results;
+    }
+
     sleep(ms) {
         return new Promise(resolve => setTimeout(resolve, ms));
     }
@@ -4339,8 +4891,8 @@ class SBOMPlayApp {
                     const authorKeys = Array.from(authorResults.keys());
                     console.log(`📍 Processing ${authorKeys.length} author entities for location data...`);
                     
-                    // First pass: Collect locations and identify authors that need location fetching
-                    const locationFetchPromises = [];
+                    // First pass: Collect authors that need location fetching
+                    const authorsNeedingFetch = [];
                     for (const authorKey of authorKeys) {
                         try {
                             let authorEntity = await window.cacheManager.getAuthorEntity(authorKey);
@@ -4359,14 +4911,7 @@ class SBOMPlayApp {
                                 );
                                 
                                 if (needsLocationFetch) {
-                                    console.log(`📍 Queueing location fetch for ${authorKey} (GitHub: ${authorEntity.metadata.github}${hasLocation ? ', needs geocoding' : ''})`);
-                                    locationFetchPromises.push(
-                                        authorService.fetchAuthorLocation(authorKey, authorEntity)
-                                            .catch(err => {
-                                                console.debug(`Failed to fetch location for ${authorKey}:`, err.message);
-                                                return null;
-                                            })
-                                    );
+                                    authorsNeedingFetch.push({ authorKey, authorEntity });
                                 }
                             }
                         } catch (e) {
@@ -4374,11 +4919,11 @@ class SBOMPlayApp {
                         }
                     }
                     
-                    // Wait for all location fetches to complete
-                    if (locationFetchPromises.length > 0) {
-                        console.log(`📍 Fetching locations for ${locationFetchPromises.length} authors...`);
-                        await Promise.allSettled(locationFetchPromises);
-                        console.log(`✅ Completed fetching author locations`);
+                    // Batch fetch all author locations using single GraphQL query
+                    if (authorsNeedingFetch.length > 0) {
+                        console.log(`📍 Batch fetching locations for ${authorsNeedingFetch.length} authors via GraphQL...`);
+                        await authorService.fetchAuthorLocationsBatch(authorsNeedingFetch);
+                        console.log(`✅ Completed batch fetching author locations`);
                     }
                     
                     // Collect locations that still need geocoding (missing countryCode)

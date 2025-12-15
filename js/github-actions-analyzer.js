@@ -130,6 +130,11 @@ class GitHubActionsAnalyzer {
             // Step 4: Check workflow-level unpinned references
             const workflowFindings = [];
             for (const scan of workflowScans) {
+                // Add actsense-inspired security findings from workflow scanning
+                if (scan.securityFindings && scan.securityFindings.length > 0) {
+                    workflowFindings.push(...scan.securityFindings);
+                }
+                
                 for (const use of scan.uses || []) {
                     if (use.type === 'remote' && !use.isPinned) {
                         const workflowFinding = this.checkWorkflowLevel(use.owner, use.repo, use.ref, use.path || '');
@@ -266,11 +271,16 @@ class GitHubActionsAnalyzer {
     /**
      * Scan a single workflow file
      * Enhanced to capture reusable workflows and their dependencies
+     * Now includes line number tracking for 'uses:' statements
      */
     async scanWorkflow(repository, workflowPath, content) {
         try {
-            const parsed = this.parseYAML(content);
-            const uses = this.extractUsesReferences(parsed, workflowPath);
+            // Parse YAML and extract line numbers for uses statements
+            const { parsed, lineNumbers } = this.parseYAMLWithLineNumbers(content);
+            const uses = this.extractUsesReferences(parsed, workflowPath, lineNumbers);
+            
+            // Check for workflow-level security patterns (actsense-inspired)
+            const securityFindings = this.checkWorkflowSecurityPatterns(parsed, workflowPath);
 
             const classified = uses.map(use => {
                 const classified = this.classifyAction(use.uses);
@@ -290,9 +300,12 @@ class GitHubActionsAnalyzer {
                 for (const [jobId, job] of Object.entries(parsed.jobs)) {
                     if (job.uses) {
                         const classified = this.classifyAction(job.uses);
+                        // Get line number for this reusable workflow
+                        const lineNum = lineNumbers.get(job.uses) || null;
                         reusableWorkflows.push({
                             jobId,
                             uses: job.uses,
+                            line: lineNum,
                             ...classified,
                             workflow: workflowPath,
                             repository
@@ -306,7 +319,8 @@ class GitHubActionsAnalyzer {
                 workflow: workflowPath,
                 parsed,
                 uses: classified,
-                reusableWorkflows: reusableWorkflows
+                reusableWorkflows: reusableWorkflows,
+                securityFindings: securityFindings // Actsense-inspired security checks
             };
         } catch (error) {
             console.warn(`Failed to scan workflow ${workflowPath}:`, error);
@@ -316,6 +330,7 @@ class GitHubActionsAnalyzer {
                 parsed: null,
                 uses: [],
                 reusableWorkflows: [],
+                securityFindings: [],
                 error: error.message
             };
         }
@@ -1004,10 +1019,55 @@ class GitHubActionsAnalyzer {
     }
 
     /**
+     * Extract line numbers for all 'uses:' statements in YAML content
+     * Returns a map of 'uses' value -> line number
+     */
+    extractUsesLineNumbers(content) {
+        const lineNumbers = new Map();
+        
+        if (!content || typeof content !== 'string') {
+            return lineNumbers;
+        }
+
+        // Normalize line endings
+        const normalizedContent = content.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+        const lines = normalizedContent.split('\n');
+        
+        // Pattern to match 'uses:' statements
+        // Handles: uses: owner/repo@ref, uses: "owner/repo@ref", uses: 'owner/repo@ref'
+        const usesPattern = /^\s*(?:-\s+)?uses:\s*['"]?([^'"#\s]+)['"]?/;
+        
+        for (let i = 0; i < lines.length; i++) {
+            const line = lines[i];
+            const match = line.match(usesPattern);
+            if (match) {
+                const usesValue = match[1].trim();
+                // Line numbers are 1-indexed
+                lineNumbers.set(usesValue, i + 1);
+            }
+        }
+        
+        return lineNumbers;
+    }
+
+    /**
+     * Parse YAML content with line number tracking
+     * Returns both parsed content and line number map
+     */
+    parseYAMLWithLineNumbers(content) {
+        const parsed = this.parseYAML(content);
+        const lineNumbers = this.extractUsesLineNumbers(content);
+        return { parsed, lineNumbers };
+    }
+
+    /**
      * Extract all uses references from a workflow or action
      * Enhanced to capture reusable workflows and complete dependency graph
+     * @param {Object} parsed - Parsed YAML content
+     * @param {string} path - Path prefix for location
+     * @param {Map} lineNumbers - Map of uses values to line numbers (optional)
      */
-    extractUsesReferences(parsed, path = '') {
+    extractUsesReferences(parsed, path = '', lineNumbers = new Map()) {
         const uses = [];
         
         if (!parsed || typeof parsed !== 'object') {
@@ -1019,10 +1079,12 @@ class GitHubActionsAnalyzer {
             for (const [jobId, job] of Object.entries(parsed.jobs)) {
                 // Check for reusable workflow calls
                 if (job.uses) {
+                    // Get line number from our extracted line numbers map
+                    const lineNum = lineNumbers.get(job.uses) || null;
                     uses.push({
                         uses: job.uses,
                         location: `${path}.jobs.${jobId}`,
-                        line: job._line || null,
+                        line: lineNum,
                         type: 'reusable-workflow'
                     });
                 }
@@ -1031,10 +1093,12 @@ class GitHubActionsAnalyzer {
                 if (job.steps && Array.isArray(job.steps)) {
                     for (const step of job.steps) {
                         if (step.uses) {
+                            // Get line number from our extracted line numbers map
+                            const lineNum = lineNumbers.get(step.uses) || null;
                             uses.push({
                                 uses: step.uses,
                                 location: `${path}.jobs.${jobId}.steps`,
-                                line: step._line || null,
+                                line: lineNum,
                                 type: 'action'
                             });
                         }
@@ -1047,10 +1111,12 @@ class GitHubActionsAnalyzer {
         if (parsed.runs && parsed.runs.steps && Array.isArray(parsed.runs.steps)) {
             for (const step of parsed.runs.steps) {
                 if (step.uses) {
+                    // Get line number from our extracted line numbers map
+                    const lineNum = lineNumbers.get(step.uses) || null;
                     uses.push({
                         uses: step.uses,
                         location: `${path}.runs.steps`,
-                        line: step._line || null,
+                        line: lineNum,
                         type: 'action'
                     });
                 }
@@ -1216,6 +1282,171 @@ class GitHubActionsAnalyzer {
     }
 
     // ========== Security Check Methods ==========
+
+    /**
+     * Check for dangerous workflow patterns (actsense-inspired rules)
+     * @param {Object} workflowContent - Parsed workflow YAML content
+     * @param {string} workflowPath - Path to workflow file
+     * @returns {Array} - Array of findings
+     */
+    checkWorkflowSecurityPatterns(workflowContent, workflowPath) {
+        const findings = [];
+        
+        if (!workflowContent) return findings;
+        
+        // Rule 1: PULL_REQUEST_TARGET_CHECKOUT
+        // Detect dangerous pattern where pull_request_target is used with checkout of PR code
+        const triggers = workflowContent.on || workflowContent.true;
+        if (triggers) {
+            const hasPRTarget = triggers === 'pull_request_target' || 
+                               (typeof triggers === 'object' && triggers.pull_request_target);
+            
+            if (hasPRTarget) {
+                // Check if any job checks out the PR branch (dangerous)
+                const jobs = workflowContent.jobs || {};
+                for (const [jobName, job] of Object.entries(jobs)) {
+                    const steps = job.steps || [];
+                    for (const step of steps) {
+                        const uses = step.uses || '';
+                        const with_ = step.with || {};
+                        
+                        // Check for checkout with ref to PR head
+                        if (uses.includes('actions/checkout') && 
+                            (with_.ref === '${{ github.event.pull_request.head.ref }}' ||
+                             with_.ref === '${{ github.event.pull_request.head.sha }}' ||
+                             (typeof with_.ref === 'string' && with_.ref.includes('pull_request')))) {
+                            findings.push({
+                                rule_id: 'PULL_REQUEST_TARGET_CHECKOUT',
+                                severity: 'high',
+                                message: `Dangerous pattern: pull_request_target with PR code checkout in job '${jobName}'`,
+                                file: workflowPath,
+                                action: uses,
+                                details: 'Checking out pull request code in a pull_request_target workflow can execute untrusted code with elevated permissions. Consider using pull_request event or implementing proper validation.'
+                            });
+                        }
+                    }
+                }
+            }
+        }
+        
+        // Rule 2: EXCESSIVE_PERMISSIONS
+        // Detect workflows with overly broad permissions
+        const permissions = workflowContent.permissions;
+        if (permissions === 'write-all' || permissions === 'read-all') {
+            findings.push({
+                rule_id: 'EXCESSIVE_WORKFLOW_PERMISSIONS',
+                severity: 'medium',
+                message: `Workflow uses broad permissions: ${permissions}`,
+                file: workflowPath,
+                details: 'Using broad permissions like write-all or read-all violates the principle of least privilege. Specify only the permissions needed for each job.'
+            });
+        }
+        
+        // Check job-level permissions
+        const jobs = workflowContent.jobs || {};
+        for (const [jobName, job] of Object.entries(jobs)) {
+            if (job.permissions === 'write-all') {
+                findings.push({
+                    rule_id: 'EXCESSIVE_JOB_PERMISSIONS',
+                    severity: 'medium',
+                    message: `Job '${jobName}' uses write-all permissions`,
+                    file: workflowPath,
+                    details: 'Specify only the permissions needed for this job instead of write-all.'
+                });
+            }
+        }
+        
+        // Rule 3: PWNED_ENV_PATTERNS
+        // Detect potential secrets in environment variables (common mistake)
+        const env = workflowContent.env || {};
+        for (const [key, value] of Object.entries(env)) {
+            if (typeof value === 'string') {
+                // Check for potential API keys, tokens, passwords
+                if (this.looksLikeSecret(key, value)) {
+                    findings.push({
+                        rule_id: 'POTENTIAL_HARDCODED_SECRET',
+                        severity: 'high',
+                        message: `Potential hardcoded secret in environment variable: ${key}`,
+                        file: workflowPath,
+                        details: 'This environment variable appears to contain a hardcoded secret. Use GitHub Secrets instead.'
+                    });
+                }
+            }
+        }
+        
+        // Check job and step level env
+        for (const [jobName, job] of Object.entries(jobs)) {
+            const jobEnv = job.env || {};
+            for (const [key, value] of Object.entries(jobEnv)) {
+                if (typeof value === 'string' && this.looksLikeSecret(key, value)) {
+                    findings.push({
+                        rule_id: 'POTENTIAL_HARDCODED_SECRET',
+                        severity: 'high',
+                        message: `Potential hardcoded secret in job '${jobName}' env: ${key}`,
+                        file: workflowPath,
+                        details: 'This environment variable appears to contain a hardcoded secret. Use GitHub Secrets instead.'
+                    });
+                }
+            }
+        }
+        
+        return findings;
+    }
+    
+    /**
+     * Check if an environment variable looks like a hardcoded secret
+     */
+    looksLikeSecret(key, value) {
+        // Skip if it's using a secret reference
+        if (value.includes('${{ secrets.') || value.includes('${secrets.')) {
+            return false;
+        }
+        
+        // Skip if it's an empty string or short value
+        if (!value || value.length < 8) {
+            return false;
+        }
+        
+        // Skip known non-secret patterns
+        if (value === 'true' || value === 'false' || /^\d+$/.test(value)) {
+            return false;
+        }
+        
+        // Check key name for secret-like patterns
+        const secretKeyPatterns = [
+            /password/i, /secret/i, /token/i, /api[_-]?key/i, 
+            /auth/i, /credential/i, /private/i
+        ];
+        
+        const keyMatches = secretKeyPatterns.some(pattern => pattern.test(key));
+        
+        // Check value for secret-like patterns (high entropy, looks like key)
+        const looksLikeApiKey = /^[a-zA-Z0-9_-]{20,}$/.test(value);
+        const hasHighEntropy = this.calculateEntropy(value) > 4;
+        
+        return keyMatches && (looksLikeApiKey || hasHighEntropy);
+    }
+    
+    /**
+     * Calculate Shannon entropy of a string
+     */
+    calculateEntropy(str) {
+        const len = str.length;
+        if (len === 0) return 0;
+        
+        const freq = {};
+        for (const char of str) {
+            freq[char] = (freq[char] || 0) + 1;
+        }
+        
+        let entropy = 0;
+        for (const count of Object.values(freq)) {
+            const p = count / len;
+            entropy -= p * Math.log2(p);
+        }
+        
+        return entropy;
+    }
 
     /**
      * Check workflow-level unpinned references

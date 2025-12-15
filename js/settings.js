@@ -160,14 +160,40 @@ class SettingsApp {
 
         // Analysis settings
         const maxDepthInput = document.getElementById('maxDepth');
+        const currentMaxDepthEl = document.getElementById('currentMaxDepth');
         if (maxDepthInput) {
             // Load saved max depth
             const savedMaxDepth = localStorage.getItem('maxDepth') || '10';
             maxDepthInput.value = savedMaxDepth;
-            document.getElementById('currentMaxDepth').textContent = savedMaxDepth;
+            if (currentMaxDepthEl) currentMaxDepthEl.textContent = savedMaxDepth;
             
             maxDepthInput.addEventListener('input', (e) => {
-                document.getElementById('currentMaxDepth').textContent = e.target.value;
+                if (currentMaxDepthEl) currentMaxDepthEl.textContent = e.target.value;
+            });
+        }
+
+        // Parallel processing settings
+        const parallelThresholdInput = document.getElementById('parallelDepthThreshold');
+        const currentParallelThresholdEl = document.getElementById('currentParallelThreshold');
+        if (parallelThresholdInput) {
+            const savedThreshold = localStorage.getItem('parallelDepthThreshold') || '4';
+            parallelThresholdInput.value = savedThreshold;
+            if (currentParallelThresholdEl) currentParallelThresholdEl.textContent = savedThreshold;
+            
+            parallelThresholdInput.addEventListener('input', (e) => {
+                if (currentParallelThresholdEl) currentParallelThresholdEl.textContent = e.target.value;
+            });
+        }
+
+        const parallelBatchSizeInput = document.getElementById('parallelBatchSize');
+        const currentParallelBatchSizeEl = document.getElementById('currentParallelBatchSize');
+        if (parallelBatchSizeInput) {
+            const savedBatchSize = localStorage.getItem('parallelBatchSize') || '10';
+            parallelBatchSizeInput.value = savedBatchSize;
+            if (currentParallelBatchSizeEl) currentParallelBatchSizeEl.textContent = savedBatchSize;
+            
+            parallelBatchSizeInput.addEventListener('input', (e) => {
+                if (currentParallelBatchSizeEl) currentParallelBatchSizeEl.textContent = e.target.value;
             });
         }
 
@@ -259,7 +285,13 @@ class SettingsApp {
      * Save analysis settings
      */
     saveAnalysisSettings() {
-        const maxDepth = document.getElementById('maxDepth').value;
+        const maxDepthInput = document.getElementById('maxDepth');
+        const parallelThresholdInput = document.getElementById('parallelDepthThreshold');
+        const parallelBatchSizeInput = document.getElementById('parallelBatchSize');
+        
+        if (!maxDepthInput) return;
+        
+        const maxDepth = maxDepthInput.value;
         const depth = parseInt(maxDepth, 10);
         
         if (isNaN(depth) || depth < 1 || depth > 50) {
@@ -269,13 +301,35 @@ class SettingsApp {
 
         localStorage.setItem('maxDepth', depth.toString());
         
+        // Save parallel processing settings
+        if (parallelThresholdInput) {
+            const threshold = parseInt(parallelThresholdInput.value, 10);
+            if (!isNaN(threshold) && threshold >= 1 && threshold <= 20) {
+                localStorage.setItem('parallelDepthThreshold', threshold.toString());
+            }
+        }
+        
+        if (parallelBatchSizeInput) {
+            const batchSize = parseInt(parallelBatchSizeInput.value, 10);
+            if (!isNaN(batchSize) && batchSize >= 1 && batchSize <= 50) {
+                localStorage.setItem('parallelBatchSize', batchSize.toString());
+            }
+        }
+        
         // Update dependency tree resolver if available
         if (window.dependencyTreeResolver) {
             window.dependencyTreeResolver.maxDepth = depth;
+            if (parallelThresholdInput) {
+                window.dependencyTreeResolver.parallelDepthThreshold = parseInt(parallelThresholdInput.value, 10);
+            }
+            if (parallelBatchSizeInput) {
+                window.dependencyTreeResolver.parallelBatchSize = parseInt(parallelBatchSizeInput.value, 10);
+            }
         }
         
-        this.showAlert(`Settings saved! Maximum depth set to ${depth}`, 'success');
-        document.getElementById('currentMaxDepth').textContent = depth.toString();
+        this.showAlert(`Settings saved! Max depth: ${depth}, Parallel at depth ${parallelThresholdInput?.value || 4}+`, 'success');
+        const currentMaxDepthEl = document.getElementById('currentMaxDepth');
+        if (currentMaxDepthEl) currentMaxDepthEl.textContent = depth.toString();
     }
 
     /**
@@ -283,12 +337,30 @@ class SettingsApp {
      */
     resetAnalysisSettings() {
         if (confirm('Reset all analysis settings to defaults?')) {
+            // Reset max depth
             localStorage.removeItem('maxDepth');
-            document.getElementById('maxDepth').value = '10';
-            document.getElementById('currentMaxDepth').textContent = '10';
+            const maxDepthInput = document.getElementById('maxDepth');
+            const currentMaxDepthEl = document.getElementById('currentMaxDepth');
+            if (maxDepthInput) maxDepthInput.value = '10';
+            if (currentMaxDepthEl) currentMaxDepthEl.textContent = '10';
+            
+            // Reset parallel processing settings
+            localStorage.removeItem('parallelDepthThreshold');
+            localStorage.removeItem('parallelBatchSize');
+            const parallelThresholdInput = document.getElementById('parallelDepthThreshold');
+            const currentParallelThresholdEl = document.getElementById('currentParallelThreshold');
+            const parallelBatchSizeInput = document.getElementById('parallelBatchSize');
+            const currentParallelBatchSizeEl = document.getElementById('currentParallelBatchSize');
+            
+            if (parallelThresholdInput) parallelThresholdInput.value = '4';
+            if (currentParallelThresholdEl) currentParallelThresholdEl.textContent = '4';
+            if (parallelBatchSizeInput) parallelBatchSizeInput.value = '10';
+            if (currentParallelBatchSizeEl) currentParallelBatchSizeEl.textContent = '10';
             
             if (window.dependencyTreeResolver) {
                 window.dependencyTreeResolver.maxDepth = 10;
+                window.dependencyTreeResolver.parallelDepthThreshold = 4;
+                window.dependencyTreeResolver.parallelBatchSize = 10;
             }
             
             this.showAlert('Settings reset to defaults', 'success');
@@ -302,9 +374,10 @@ class SettingsApp {
         const apiTimeout = localStorage.getItem('apiTimeout');
         const timeoutSeconds = apiTimeout ? parseInt(apiTimeout, 10) / 1000 : 10;
         const apiTimeoutInput = document.getElementById('apiTimeout');
+        const currentApiTimeoutEl = document.getElementById('currentApiTimeout');
         if (apiTimeoutInput) {
             apiTimeoutInput.value = timeoutSeconds.toString();
-            document.getElementById('currentApiTimeout').textContent = timeoutSeconds.toString();
+            if (currentApiTimeoutEl) currentApiTimeoutEl.textContent = timeoutSeconds.toString();
         }
 
         const debugUrlLogging = localStorage.getItem('debugUrlLogging') === 'true';
@@ -319,6 +392,8 @@ class SettingsApp {
      */
     saveApiSettings() {
         const apiTimeoutInput = document.getElementById('apiTimeout');
+        if (!apiTimeoutInput) return;
+        
         const timeoutSeconds = parseInt(apiTimeoutInput.value, 10);
         
         if (isNaN(timeoutSeconds) || timeoutSeconds < 1 || timeoutSeconds > 300) {
@@ -328,11 +403,13 @@ class SettingsApp {
 
         const timeoutMs = timeoutSeconds * 1000;
         localStorage.setItem('apiTimeout', timeoutMs.toString());
-        document.getElementById('currentApiTimeout').textContent = timeoutSeconds.toString();
+        const currentApiTimeoutEl = document.getElementById('currentApiTimeout');
+        if (currentApiTimeoutEl) currentApiTimeoutEl.textContent = timeoutSeconds.toString();
 
         const debugUrlLoggingCheckbox = document.getElementById('debugUrlLogging');
-        const debugUrlLogging = debugUrlLoggingCheckbox.checked;
-        localStorage.setItem('debugUrlLogging', debugUrlLogging.toString());
+        if (debugUrlLoggingCheckbox) {
+            localStorage.setItem('debugUrlLogging', debugUrlLoggingCheckbox.checked.toString());
+        }
 
         this.showAlert('API settings saved!', 'success');
     }
@@ -345,9 +422,13 @@ class SettingsApp {
             localStorage.removeItem('apiTimeout');
             localStorage.removeItem('debugUrlLogging');
             
-            document.getElementById('apiTimeout').value = '10';
-            document.getElementById('currentApiTimeout').textContent = '10';
-            document.getElementById('debugUrlLogging').checked = false;
+            const apiTimeoutInput = document.getElementById('apiTimeout');
+            const currentApiTimeoutEl = document.getElementById('currentApiTimeout');
+            const debugUrlLoggingCheckbox = document.getElementById('debugUrlLogging');
+            
+            if (apiTimeoutInput) apiTimeoutInput.value = '10';
+            if (currentApiTimeoutEl) currentApiTimeoutEl.textContent = '10';
+            if (debugUrlLoggingCheckbox) debugUrlLoggingCheckbox.checked = false;
             
             this.showAlert('API settings reset to defaults', 'success');
         }
@@ -736,8 +817,12 @@ class SettingsApp {
      */
     loadSavedToken() {
         const savedToken = sessionStorage.getItem('github_token');
+        const tokenInput = document.getElementById('githubToken');
+        
         if (savedToken) {
-            document.getElementById('githubToken').value = savedToken;
+            if (tokenInput) {
+                tokenInput.value = savedToken;
+            }
             this.githubClient.setToken(savedToken);
             const maskedToken = savedToken.length > 8 ? `${savedToken.substring(0, 4)}...${savedToken.substring(savedToken.length - 4)}` : '****';
             console.log(`🔑 Loaded GitHub token from sessionStorage: ${maskedToken}`);
@@ -751,7 +836,12 @@ class SettingsApp {
      * Save token to session storage
      */
     saveToken() {
-        const token = document.getElementById('githubToken').value.trim();
+        const tokenInput = document.getElementById('githubToken');
+        if (!tokenInput) {
+            console.warn('⚠️ Token input element not found');
+            return;
+        }
+        const token = tokenInput.value.trim();
         
         if (token) {
             if (!token.startsWith('ghp_')) {
@@ -783,6 +873,8 @@ class SettingsApp {
      */
     updateTokenStatus(message, type) {
         const statusElement = document.getElementById('tokenStatus');
+        if (!statusElement) return;
+        
         if (message) {
             const alertClass = type === 'success' ? 'alert-success' : 
                              type === 'warning' ? 'alert-warning' : 
@@ -798,6 +890,8 @@ class SettingsApp {
      */
     async loadRateLimitInfo() {
         const statusElement = document.getElementById('rateLimitStatus');
+        if (!statusElement) return;
+        
         statusElement.innerHTML = '<p class="text-muted">Loading rate limit information...</p>';
         
         try {
@@ -823,9 +917,10 @@ class SettingsApp {
      * Show storage status
      */
     async showStorageStatus() {
-        const storageInfo = await this.storageManager.getStorageInfo();
         const statusElement = document.getElementById('storageStatus');
+        if (!statusElement) return;
         
+        const storageInfo = await this.storageManager.getStorageInfo();
         const usagePercentage = storageInfo.usagePercent || 0;
         let statusClass = 'success';
         if (usagePercentage > 90) statusClass = 'danger';

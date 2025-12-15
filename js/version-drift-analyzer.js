@@ -220,15 +220,18 @@ class VersionDriftAnalyzer {
 
     /**
      * Check if a dependency is stale (6+ months old, no newer version)
+     * Also detects probable EOL based on age thresholds
      * @param {string} packageName - Package name
      * @param {string} currentVersion - Current version
      * @param {string} ecosystem - Ecosystem
-     * @returns {Promise<Object>} - {isStale: bool, lastReleaseDate: date, monthsSinceRelease: number}
+     * @returns {Promise<Object>} - {isStale: bool, isProbableEOL: bool, probableEOLReason: string, lastReleaseDate: date, monthsSinceRelease: number}
      */
     async checkStaleness(packageName, currentVersion, ecosystem) {
         if (!packageName || !currentVersion || !ecosystem) {
             return {
                 isStale: false,
+                isProbableEOL: false,
+                probableEOLReason: null,
                 lastReleaseDate: null,
                 monthsSinceRelease: 0
             };
@@ -270,6 +273,8 @@ class VersionDriftAnalyzer {
         if (cached && cached.stalenessCheckedAt && (Date.now() - cached.stalenessCheckedAt) < (7 * 24 * 60 * 60 * 1000)) {
             return cached.staleness || {
                 isStale: false,
+                isProbableEOL: false,
+                probableEOLReason: null,
                 lastReleaseDate: null,
                 monthsSinceRelease: 0
             };
@@ -283,6 +288,8 @@ class VersionDriftAnalyzer {
             if (drift.hasMajorUpdate || drift.hasMinorUpdate || drift.latestVersion !== currentVersion) {
                 const result = {
                     isStale: false,
+                    isProbableEOL: false,
+                    probableEOLReason: null,
                     lastReleaseDate: null,
                     monthsSinceRelease: 0,
                     stalenessCheckedAt: Date.now()
@@ -301,6 +308,8 @@ class VersionDriftAnalyzer {
             if (!publishDate) {
                 const result = {
                     isStale: false,
+                    isProbableEOL: false,
+                    probableEOLReason: null,
                     lastReleaseDate: null,
                     monthsSinceRelease: 0,
                     stalenessCheckedAt: Date.now()
@@ -311,9 +320,22 @@ class VersionDriftAnalyzer {
 
             const monthsSinceRelease = this.calculateMonthsSince(publishDate);
             const isStale = monthsSinceRelease >= 6;
+            
+            // Probable EOL thresholds:
+            // - 24+ months (2 years) with no updates = probable EOL
+            // - 36+ months (3 years) = highly likely EOL
+            const isProbableEOL = monthsSinceRelease >= 24;
+            let probableEOLReason = null;
+            if (monthsSinceRelease >= 36) {
+                probableEOLReason = `No updates for ${Math.floor(monthsSinceRelease / 12)} years - highly likely abandoned/EOL`;
+            } else if (monthsSinceRelease >= 24) {
+                probableEOLReason = `No updates for 2+ years - probable EOL`;
+            }
 
             const result = {
                 isStale: isStale,
+                isProbableEOL: isProbableEOL,
+                probableEOLReason: probableEOLReason,
                 lastReleaseDate: publishDate,
                 monthsSinceRelease: monthsSinceRelease,
                 stalenessCheckedAt: Date.now()
@@ -330,6 +352,8 @@ class VersionDriftAnalyzer {
             console.warn(`⚠️ Staleness check failed for ${ecosystem}:${packageName}:`, error);
             return {
                 isStale: false,
+                isProbableEOL: false,
+                probableEOLReason: null,
                 lastReleaseDate: null,
                 monthsSinceRelease: 0
             };
@@ -469,214 +493,20 @@ class VersionDriftAnalyzer {
 
     /**
      * Fetch latest version from registry
+     * Delegates to shared RegistryManager implementation
      * @param {string} packageName - Package name
      * @param {string} ecosystem - Ecosystem
      * @returns {Promise<string|null>} - Latest version string or null
      */
     async fetchLatestVersion(packageName, ecosystem) {
-        const normalizedEcosystem = ecosystem.toLowerCase();
-        
-        try {
-            switch (normalizedEcosystem) {
-                case 'npm':
-                    return await this.fetchNpmLatestVersion(packageName);
-                case 'pypi':
-                    return await this.fetchPyPiLatestVersion(packageName);
-                case 'cargo':
-                    return await this.fetchCargoLatestVersion(packageName);
-                case 'rubygems':
-                case 'gem':
-                    return await this.fetchRubyGemsLatestVersion(packageName);
-                case 'maven':
-                    return await this.fetchMavenLatestVersion(packageName);
-                case 'composer':
-                case 'packagist':
-                    return await this.fetchComposerLatestVersion(packageName);
-                case 'nuget':
-                    return await this.fetchNuGetLatestVersion(packageName);
-                case 'go':
-                case 'golang':
-                    return await this.fetchGoLatestVersion(packageName);
-                case 'github actions':
-                case 'githubactions':
-                    // GitHub Actions don't have a traditional registry, skip for now
-                    // Version drift for actions is handled differently (checking for newer tags)
-                    return null;
-                default:
-                    console.log(`⚠️ Version drift: Unsupported ecosystem ${ecosystem}`);
-                    return null;
-            }
-        } catch (error) {
-            console.warn(`⚠️ Failed to fetch latest version for ${ecosystem}:${packageName}:`, error);
-            return null;
-        }
-    }
-
-    /**
-     * Fetch latest version from npm registry
-     */
-    async fetchNpmLatestVersion(packageName) {
-        const url = `${this.registryUrls.npm}/${encodeURIComponent(packageName)}`;
-        const response = await this.fetchWithTimeout(url, {}, this.requestTimeout);
-        
-        if (!response.ok) {
-            return null;
+        // Use shared implementation from RegistryManager
+        if (window.registryManager) {
+            return await window.registryManager.fetchLatestVersion(packageName, ecosystem);
         }
         
-        const data = await response.json();
-        return data['dist-tags']?.latest || data.version || null;
-    }
-
-    /**
-     * Fetch latest version from PyPI
-     */
-    async fetchPyPiLatestVersion(packageName) {
-        const url = `${this.registryUrls.pypi}/${encodeURIComponent(packageName)}/json`;
-        const response = await this.fetchWithTimeout(url, {}, this.requestTimeout);
-        
-        if (!response.ok) {
-            return null;
-        }
-        
-        const data = await response.json();
-        return data.info?.version || null;
-    }
-
-    /**
-     * Fetch latest version from crates.io
-     */
-    async fetchCargoLatestVersion(packageName) {
-        const url = `${this.registryUrls.cargo}/${encodeURIComponent(packageName)}`;
-        const response = await this.fetchWithTimeout(url, {}, this.requestTimeout);
-        
-        if (!response.ok) {
-            return null;
-        }
-        
-        const data = await response.json();
-        return data.crate?.max_version || null;
-    }
-
-    /**
-     * Fetch latest version from RubyGems
-     */
-    async fetchRubyGemsLatestVersion(packageName) {
-        const url = `${this.registryUrls.rubygems}/${encodeURIComponent(packageName)}.json`;
-        const response = await this.fetchWithTimeout(url, {}, this.requestTimeout);
-        
-        if (!response.ok) {
-            return null;
-        }
-        
-        const data = await response.json();
-        return data.version || null;
-    }
-
-    /**
-     * Fetch latest version from Maven via ecosyste.ms
-     * Maven packages use format: groupId:artifactId (e.g., org.apache.maven.plugins:maven-jar-plugin)
-     * Using ecosyste.ms API to avoid CORS issues with Maven Central Search API
-     */
-    async fetchMavenLatestVersion(packageName) {
-        try {
-        // Parse groupId:artifactId format
-        const parts = packageName.split(':');
-        if (parts.length < 2) {
-            console.warn(`⚠️ Invalid Maven package format: ${packageName} (expected groupId:artifactId)`);
-            return null;
-        }
-        
-        const groupId = parts[0];
-            const artifactId = parts[1]; // Take only the first artifactId part
-            
-            // Get registry name from RegistryManager
-            let registryName = 'repo1.maven.org'; // Default
-            if (window.registryManager) {
-                const name = await window.registryManager.getRegistryName('maven');
-                if (name) registryName = name;
-            }
-            
-            // Use ecosyste.ms API for Maven (CORS-friendly)
-            // Format: /registries/repo1.maven.org/packages/{groupId}/{artifactId}
-            const url = `https://packages.ecosyste.ms/api/v1/registries/${registryName}/packages/${encodeURIComponent(groupId)}/${encodeURIComponent(artifactId)}`;
-            
-        const response = await this.fetchWithTimeout(url, {}, this.requestTimeout);
-        if (!response.ok) {
-            return null;
-        }
-        
-        const data = await response.json();
-            return data.latest_release_number || null;
-        } catch (error) {
-            console.warn(`⚠️ Failed to fetch Maven version from ecosyste.ms: ${error.message}`);
-            return null;
-        }
-    }
-
-    /**
-     * Fetch latest version from Packagist (Composer)
-     */
-    async fetchComposerLatestVersion(packageName) {
-        // Packagist API: https://packagist.org/packages/{vendor}/{package}.json
-        const url = `https://packagist.org/packages/${encodeURIComponent(packageName)}.json`;
-        const response = await this.fetchWithTimeout(url, {}, this.requestTimeout);
-        
-        if (!response.ok) {
-            return null;
-        }
-        
-        const data = await response.json();
-        // Packagist returns package info with versions
-        if (data.package && data.package.versions) {
-            // Get the latest stable version (not dev-master, etc.)
-            const versions = Object.keys(data.package.versions)
-                .filter(v => !v.includes('dev') && !v.includes('alpha') && !v.includes('beta') && !v.includes('rc'))
-                .sort((a, b) => {
-                    // Simple version comparison (can be improved)
-                    return b.localeCompare(a, undefined, { numeric: true });
-                });
-            return versions[0] || null;
-        }
-        
+        // Fallback if registryManager not available
+        console.warn('⚠️ RegistryManager not available for fetchLatestVersion');
         return null;
-    }
-
-    /**
-     * Fetch latest version from NuGet
-     */
-    async fetchNuGetLatestVersion(packageName) {
-        // NuGet API v3: https://api.nuget.org/v3-flatcontainer/{package}/index.json
-        const url = `${this.registryUrls.nuget}/${encodeURIComponent(packageName.toLowerCase())}/index.json`;
-        const response = await this.fetchWithTimeout(url, {}, this.requestTimeout);
-        
-        if (!response.ok) {
-            return null;
-        }
-        
-        const data = await response.json();
-        if (data.versions && data.versions.length > 0) {
-            // Return the latest version (last in array, versions are sorted)
-            return data.versions[data.versions.length - 1] || null;
-        }
-        
-        return null;
-    }
-
-    /**
-     * Fetch latest version for Go packages
-     * Go packages use module paths (e.g., github.com/user/repo)
-     */
-    async fetchGoLatestVersion(packageName) {
-        // Go proxy API: https://proxy.golang.org/{module}/@latest
-        const url = `https://proxy.golang.org/${encodeURIComponent(packageName)}/@latest`;
-        const response = await this.fetchWithTimeout(url, {}, this.requestTimeout);
-        
-        if (!response.ok) {
-            return null;
-        }
-        
-        const data = await response.json();
-        return data.Version || null;
     }
 
     /**
@@ -765,6 +595,122 @@ class VersionDriftAnalyzer {
             // Small delay between batches
             await new Promise(resolve => setTimeout(resolve, 100));
         }
+    }
+
+    /**
+     * Check EOX (End-of-Life/End-of-Support) status for a package
+     * Uses the EOXService to check against endoflife.date API
+     * @param {string} packageName - Package name
+     * @param {string} version - Package version
+     * @param {string} ecosystem - Package ecosystem
+     * @returns {Promise<Object>} EOX status
+     */
+    async checkEOX(packageName, version, ecosystem) {
+        // Use global EOX service if available
+        if (window.eoxService) {
+            return await window.eoxService.checkEOX(packageName, version, ecosystem);
+        }
+        
+        // Return default non-EOX result if service not available
+        return {
+            isEOL: false,
+            isEOS: false,
+            eolDate: null,
+            eosDate: null,
+            latestVersion: null,
+            successor: null,
+            checkedAt: Date.now(),
+            source: null
+        };
+    }
+    
+    /**
+     * Get comprehensive package status including drift, staleness, and EOX
+     * @param {string} packageName - Package name
+     * @param {string} version - Package version
+     * @param {string} ecosystem - Package ecosystem
+     * @returns {Promise<Object>} Combined status
+     */
+    async getPackageStatus(packageName, version, ecosystem) {
+        const [drift, staleness, eox] = await Promise.all([
+            this.checkVersionDrift(packageName, version, ecosystem),
+            this.checkStaleness(packageName, version, ecosystem),
+            this.checkEOX(packageName, version, ecosystem)
+        ]);
+        
+        return {
+            packageName,
+            version,
+            ecosystem,
+            drift,
+            staleness,
+            eox,
+            checkedAt: Date.now()
+        };
+    }
+    
+    /**
+     * Get the highest severity status for a package
+     * Priority: EOL > EOS > Stale > Outdated > OK
+     * @param {Object} status - Package status from getPackageStatus
+     * @returns {Object} Highest severity status
+     */
+    getHighestSeverityStatus(status) {
+        if (!status) {
+            return { severity: 'unknown', label: 'Unknown', color: 'secondary' };
+        }
+        
+        // EOL is highest priority
+        if (status.eox?.isEOL) {
+            return { 
+                severity: 'high', 
+                label: 'End of Life', 
+                color: 'danger',
+                date: status.eox.eolDate
+            };
+        }
+        
+        // EOS is second priority
+        if (status.eox?.isEOS) {
+            return { 
+                severity: 'medium', 
+                label: 'End of Support', 
+                color: 'warning',
+                date: status.eox.eosDate
+            };
+        }
+        
+        // Stale is third priority
+        if (status.staleness?.isStale) {
+            return { 
+                severity: 'low', 
+                label: 'Stale', 
+                color: 'info',
+                months: status.staleness.monthsSinceRelease
+            };
+        }
+        
+        // Major update available
+        if (status.drift?.hasMajorUpdate) {
+            return { 
+                severity: 'low', 
+                label: 'Major Update Available', 
+                color: 'warning',
+                latestVersion: status.drift.latestVersion
+            };
+        }
+        
+        // Minor update available
+        if (status.drift?.hasMinorUpdate) {
+            return { 
+                severity: 'info', 
+                label: 'Minor Update Available', 
+                color: 'info',
+                latestVersion: status.drift.latestVersion
+            };
+        }
+        
+        return { severity: 'none', label: 'Up to Date', color: 'success' };
     }
 }
 

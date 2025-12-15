@@ -120,12 +120,16 @@ class OSVService {
 
     /**
      * Batch query vulnerabilities for multiple packages
+     * With improved error handling and retry logic for failed chunks
      */
     async queryVulnerabilitiesBatch(packages) {
         if (packages.length === 0) return [];
-        const MAX_BATCH = 100; // OSV API limit
+        const MAX_BATCH = 100; // OSV API limit - tested and confirmed
+        const MAX_RETRIES = 2; // Retry failed chunks up to 2 times
+        
         try {
             console.log(`🔍 OSV: Batch querying ${packages.length} packages`);
+            
             // Filter out invalid packages and create proper queries
             const validQueries = packages
                 .filter(pkg => pkg.name && pkg.version && pkg.name.trim() && pkg.version.trim())
@@ -152,41 +156,57 @@ class OSVService {
             }
 
             let allResults = [];
+            let failedChunks = [];
+            
             for (let idx = 0; idx < chunks.length; idx++) {
                 const chunk = chunks[idx];
                 console.log(`🔍 OSV: Sending chunk ${idx + 1}/${chunks.length} with ${chunk.length} queries`);
                 
-                const url = `${this.baseUrl}/v1/querybatch`;
-                debugLogUrl(`🌐 [DEBUG] Fetching URL: ${url}`);
-                debugLogUrl(`   Reason: Batch querying OSV API for ${chunk.length} packages (chunk ${idx + 1}/${chunks.length})`);
+                const result = await this._queryBatchChunk(chunk, idx + 1, chunks.length);
                 
-                const response = await fetchWithTimeout(url, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json'
-                    },
-                    body: JSON.stringify({ queries: chunk })
-                });
-
-                if (!response.ok) {
-                    const errorText = await response.text();
-                    console.error(`❌ OSV: API Response (chunk ${idx + 1}):`, errorText);
-                    console.log(`   ❌ Response: Status ${response.status} ${response.statusText}`);
-                    throw new Error(`OSV API error: ${response.status} ${response.statusText} - ${errorText}`);
-                }
-
-                const data = await response.json();
-                
-                // Debug: Log extracted information
-                const resultsCount = data.results?.length || 0;
-                const vulnCount = data.results?.reduce((sum, r) => sum + (r.vulns?.length || 0), 0) || 0;
-                console.log(`   ✅ Response: Status ${response.status}, Extracted: Batch results for ${resultsCount} packages with ${vulnCount} total vulnerabilities`);
-                if (data.results && Array.isArray(data.results)) {
-                    allResults = allResults.concat(data.results);
+                if (result.success) {
+                    allResults = allResults.concat(result.data);
+                } else {
+                    // Store failed chunk for retry
+                    failedChunks.push({ chunk, idx });
+                    // Fill with empty results to maintain order
+                    allResults = allResults.concat(chunk.map(() => ({ vulns: [] })));
                 }
             }
 
+            // Retry failed chunks
+            for (let retry = 0; retry < MAX_RETRIES && failedChunks.length > 0; retry++) {
+                console.log(`🔄 OSV: Retrying ${failedChunks.length} failed chunk(s) (attempt ${retry + 1}/${MAX_RETRIES})`);
+                const stillFailed = [];
+                
+                for (const { chunk, idx } of failedChunks) {
+                    // Wait before retry
+                    await new Promise(resolve => setTimeout(resolve, 1000 * (retry + 1)));
+                    
+                    const result = await this._queryBatchChunk(chunk, idx + 1, chunks.length, true);
+                    
+                    if (result.success) {
+                        // Replace empty results with actual data
+                        const startIdx = idx * MAX_BATCH;
+                        result.data.forEach((data, i) => {
+                            if (startIdx + i < allResults.length) {
+                                allResults[startIdx + i] = data;
+                            }
+                        });
+                    } else {
+                        stillFailed.push({ chunk, idx });
+                    }
+                }
+                
+                failedChunks = stillFailed;
+            }
+
+            if (failedChunks.length > 0) {
+                console.warn(`⚠️ OSV: ${failedChunks.length} chunk(s) failed after retries`);
+            }
+
             console.log(`✅ OSV: Batch query completed, found vulnerabilities for ${allResults.length} packages`);
+            
             // Debug: Log sample vulnerability structure from batch query
             if (allResults && allResults.length > 0) {
                 const sampleResult = allResults.find(r => r.vulns && r.vulns.length > 0);
@@ -204,6 +224,51 @@ class OSVService {
         } catch (error) {
             console.error(`❌ OSV: Batch query error:`, error);
             return packages.map(() => ({ vulns: [] }));
+        }
+    }
+
+    /**
+     * Query a single batch chunk
+     * @param {Array} chunk - Array of query objects
+     * @param {number} chunkNum - Current chunk number (for logging)
+     * @param {number} totalChunks - Total number of chunks (for logging)
+     * @param {boolean} isRetry - Whether this is a retry attempt
+     * @returns {Object} - { success: boolean, data: Array }
+     */
+    async _queryBatchChunk(chunk, chunkNum, totalChunks, isRetry = false) {
+        try {
+            const url = `${this.baseUrl}/v1/querybatch`;
+            const logPrefix = isRetry ? '🔄' : '🔍';
+            
+            debugLogUrl(`🌐 [DEBUG] Fetching URL: ${url}`);
+            debugLogUrl(`   Reason: Batch querying OSV API for ${chunk.length} packages (chunk ${chunkNum}/${totalChunks}${isRetry ? ' - retry' : ''})`);
+            
+            const response = await fetchWithTimeout(url, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ queries: chunk })
+            });
+
+            if (!response.ok) {
+                const errorText = await response.text();
+                console.error(`❌ OSV: API Response (chunk ${chunkNum}):`, errorText);
+                console.log(`   ❌ Response: Status ${response.status} ${response.statusText}`);
+                return { success: false, data: [] };
+            }
+
+            const data = await response.json();
+            
+            // Debug: Log extracted information
+            const resultsCount = data.results?.length || 0;
+            const vulnCount = data.results?.reduce((sum, r) => sum + (r.vulns?.length || 0), 0) || 0;
+            console.log(`   ${logPrefix} Response: Status ${response.status}, Extracted: Batch results for ${resultsCount} packages with ${vulnCount} total vulnerabilities`);
+            
+            return { success: true, data: data.results || [] };
+        } catch (error) {
+            console.error(`❌ OSV: Chunk ${chunkNum} error:`, error.message);
+            return { success: false, data: [] };
         }
     }
 
@@ -255,7 +320,7 @@ class OSVService {
     /**
      * Analyze dependencies for vulnerabilities
      */
-    async analyzeDependencies(dependencies) {
+    async analyzeDependencies(dependencies, onProgress = null) {
         console.log(`🔍 OSV: Analyzing ${dependencies.length} dependencies for vulnerabilities`);
         
         const packages = dependencies.map(dep => {

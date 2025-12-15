@@ -484,6 +484,119 @@ class CacheManager {
 
     /**
      * ============================================
+     * EOX (END-OF-LIFE) CACHE METHODS
+     * ============================================
+     */
+
+    /**
+     * Get EOX product list from cache
+     * @returns {Promise<Object|null>} - Cached product list or null
+     */
+    async getEOXProductList() {
+        const memoryKey = 'eox:productList';
+        const cached = this.memoryCache.get(memoryKey);
+        if (cached && this.isCacheValid(cached.fetchedAt, 'packages')) {
+            return cached;
+        }
+
+        // Check IndexedDB
+        const dbManager = window.indexedDBManager;
+        if (dbManager && dbManager.db) {
+            try {
+                const transaction = dbManager.db.transaction(['eoxData'], 'readonly');
+                const store = transaction.objectStore('eoxData');
+                const request = store.get('productList');
+                const result = await this._promisifyRequest(request);
+                if (result && result.fetchedAt && this.isCacheValid(result.fetchedAt, 'packages')) {
+                    this.memoryCache.set(memoryKey, result);
+                    return result;
+                }
+            } catch (error) {
+                console.debug('⚠️ Cache: Failed to get EOX product list:', error);
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Save EOX product list to cache
+     * @param {Object} productListData - { products: [], fetchedAt: timestamp }
+     */
+    async saveEOXProductList(productListData) {
+        const memoryKey = 'eox:productList';
+        this.memoryCache.set(memoryKey, productListData);
+
+        const dbManager = window.indexedDBManager;
+        if (dbManager && dbManager.db) {
+            try {
+                const transaction = dbManager.db.transaction(['eoxData'], 'readwrite');
+                const store = transaction.objectStore('eoxData');
+                await this._promisifyRequest(store.put({ 
+                    key: 'productList', 
+                    ...productListData 
+                }));
+            } catch (error) {
+                console.debug('⚠️ Cache: Failed to save EOX product list:', error);
+            }
+        }
+    }
+
+    /**
+     * Get EOX data for a specific product from cache
+     * @param {string} product - Product identifier (e.g., 'python', 'nodejs')
+     * @returns {Promise<Object|null>} - Cached EOX data or null
+     */
+    async getEOXProduct(product) {
+        const memoryKey = `eox:product:${product}`;
+        const cached = this.memoryCache.get(memoryKey);
+        if (cached && this.isCacheValid(cached.fetchedAt, 'packages')) {
+            return cached;
+        }
+
+        const dbManager = window.indexedDBManager;
+        if (dbManager && dbManager.db) {
+            try {
+                const transaction = dbManager.db.transaction(['eoxData'], 'readonly');
+                const store = transaction.objectStore('eoxData');
+                const request = store.get(`product:${product}`);
+                const result = await this._promisifyRequest(request);
+                if (result && result.fetchedAt && this.isCacheValid(result.fetchedAt, 'packages')) {
+                    this.memoryCache.set(memoryKey, result);
+                    return result;
+                }
+            } catch (error) {
+                console.debug(`⚠️ Cache: Failed to get EOX product ${product}:`, error);
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Save EOX data for a specific product to cache
+     * @param {string} product - Product identifier
+     * @param {Object} productData - { data: [], fetchedAt: timestamp }
+     */
+    async saveEOXProduct(product, productData) {
+        const memoryKey = `eox:product:${product}`;
+        this.memoryCache.set(memoryKey, productData);
+
+        const dbManager = window.indexedDBManager;
+        if (dbManager && dbManager.db) {
+            try {
+                const transaction = dbManager.db.transaction(['eoxData'], 'readwrite');
+                const store = transaction.objectStore('eoxData');
+                await this._promisifyRequest(store.put({ 
+                    key: `product:${product}`, 
+                    ...productData 
+                }));
+            } catch (error) {
+                console.debug(`⚠️ Cache: Failed to save EOX product ${product}:`, error);
+            }
+        }
+    }
+
+    /**
+     * ============================================
      * LEGACY SUPPORT (for backward compatibility)
      * ============================================
      */

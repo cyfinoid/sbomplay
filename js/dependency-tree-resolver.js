@@ -8,6 +8,9 @@ class DependencyTreeResolver {
         this.cache = new Map(); // Cache API responses to minimize calls
         this.ecosystemsApiCache = new Map();
         this.depsDevCache = new Map();
+        this.registryNotFoundPackages = new Set(); // Track packages not found in any registry (potential dependency confusion)
+        this.namespaceNotFoundPackages = new Set(); // Track packages with namespaces not found (higher confidence confusion risk)
+        this.confusionEvidence = new Map(); // Map packageKey -> evidence URL
         // Load maxDepth from localStorage or use default of 10
         const savedMaxDepth = localStorage.getItem('maxDepth');
         this.maxDepth = savedMaxDepth ? parseInt(savedMaxDepth, 10) : 10;
@@ -21,6 +24,13 @@ class DependencyTreeResolver {
         this.currentDepChain = []; // Current dependency chain being resolved
         this.currentEcosystem = null; // Current ecosystem being resolved
         this.currentDirectDep = null; // Current direct dependency being resolved
+        
+        // Parallel processing configuration
+        // At deeper levels, use parallel processing for better performance
+        const savedParallelThreshold = localStorage.getItem('parallelDepthThreshold');
+        this.parallelDepthThreshold = savedParallelThreshold ? parseInt(savedParallelThreshold, 10) : 4;
+        const savedParallelBatchSize = localStorage.getItem('parallelBatchSize');
+        this.parallelBatchSize = savedParallelBatchSize ? parseInt(savedParallelBatchSize, 10) : 10;
         
         // Registry URL templates
         this.registryAPIs = {
@@ -312,12 +322,18 @@ class DependencyTreeResolver {
         
         if (!dependencies || dependencies.length === 0) {
             console.log(`    ℹ️  No dependencies found for ${packageKey} at depth ${depth}`);
+            // Track packages not found in any registry (potential dependency confusion vulnerability)
+            // This could indicate a private/internal package that could be hijacked
+            if (dependencies === null) {
+                // Use DepConfuseService for enhanced detection if available
+                await this.checkPackageForConfusion(packageName, resolvedVersion, ecosystem, packageKey);
+            }
             return;
         }
         
         console.log(`    ✓ Found ${dependencies.length} dependencies for ${packageKey} at depth ${depth}`);
         
-        // Store the relationships
+        // Store the relationships first (synchronously)
         for (const dep of dependencies) {
             const depKey = `${dep.name}@${dep.version}`;
             
@@ -338,25 +354,68 @@ class DependencyTreeResolver {
             if (tree.has(parent)) {
                 tree.get(parent).children.add(depKey);
             }
+        }
+        
+        // Recursively resolve dependencies
+        // At deeper levels (>= parallelDepthThreshold), use parallel processing for better performance
+        // At top levels, use sequential to avoid overwhelming APIs with concurrent requests
+        const useParallel = depth >= this.parallelDepthThreshold;
+        
+        if (useParallel && dependencies.length > 1) {
+            // Parallel processing in batches at deeper levels
+            console.log(`    ⚡ Using parallel processing for ${dependencies.length} deps at depth ${depth}`);
             
-            // Recursively resolve this dependency's dependencies
-            try {
-                // Build new dependency chain for child
+            for (let i = 0; i < dependencies.length; i += this.parallelBatchSize) {
+                const batch = dependencies.slice(i, i + this.parallelBatchSize);
+                
+                const batchPromises = batch.map(async (dep) => {
+                    const depKey = `${dep.name}@${dep.version}`;
+                    const newDepChain = [...depChain, dep.name];
+                    
+                    try {
+                        await this.resolvePackageDependencies(
+                            dep.name,
+                            dep.version,
+                            ecosystem,
+                            depth + 1,
+                            depKey,
+                            tree,
+                            resolved,
+                            newDepChain
+                        );
+                    } catch (error) {
+                        console.log(`    ⚠️  Error resolving child ${depKey}: ${error.message}`);
+                    }
+                });
+                
+                // Wait for batch to complete
+                await Promise.allSettled(batchPromises);
+                
+                // Small delay between batches to avoid rate limit issues
+                if (i + this.parallelBatchSize < dependencies.length) {
+                    await new Promise(resolve => setTimeout(resolve, 50));
+                }
+            }
+        } else {
+            // Sequential processing at top levels
+            for (const dep of dependencies) {
+                const depKey = `${dep.name}@${dep.version}`;
                 const newDepChain = [...depChain, dep.name];
                 
-                await this.resolvePackageDependencies(
-                    dep.name,
-                    dep.version,
-                    ecosystem,
-                    depth + 1,
-                    depKey,
-                    tree,
-                    resolved,
-                    newDepChain
-                );
-            } catch (error) {
-                console.log(`    ⚠️  Error resolving child ${depKey}: ${error.message}`);
-                // Continue with next dependency
+                try {
+                    await this.resolvePackageDependencies(
+                        dep.name,
+                        dep.version,
+                        ecosystem,
+                        depth + 1,
+                        depKey,
+                        tree,
+                        resolved,
+                        newDepChain
+                    );
+                } catch (error) {
+                    console.log(`    ⚠️  Error resolving child ${depKey}: ${error.message}`);
+                }
             }
         }
     }
@@ -793,145 +852,154 @@ class DependencyTreeResolver {
     
     /**
      * Fetch latest version for a package in an ecosystem
+     * Delegates to shared RegistryManager implementation
      * @param {string} packageName - Package name
      * @param {string} ecosystem - Ecosystem
      * @returns {Promise<string|null>} - Latest version string or null
      */
     async fetchLatestVersion(packageName, ecosystem) {
-        const normalizedEcosystem = ecosystem.toLowerCase();
-        const cacheKey = `latest:${normalizedEcosystem}:${packageName}`;
-        
-        // Check cache first
-        if (this.cache.has(cacheKey)) {
-            return this.cache.get(cacheKey);
+        // Use shared implementation from RegistryManager
+        if (window.registryManager) {
+            return await window.registryManager.fetchLatestVersion(packageName, ecosystem);
         }
         
-        try {
-            await this.rateLimit();
-            let latestVersion = null;
-            
-            switch (normalizedEcosystem) {
-                case 'npm':
-                    latestVersion = await this.fetchNpmLatestVersion(packageName);
-                    break;
-                case 'pypi':
-                    latestVersion = await this.fetchPyPiLatestVersion(packageName);
-                    break;
-                case 'cargo':
-                    latestVersion = await this.fetchCargoLatestVersion(packageName);
-                    break;
-                case 'rubygems':
-                case 'gem':
-                    // Use ecosyste.ms for RubyGems (no CORS on RubyGems API)
-                    latestVersion = await this.fetchRubyGemsLatestVersion(packageName);
-                    break;
-                case 'maven':
-                    // Use ecosyste.ms for Maven (Maven Central search API has CORS issues)
-                    latestVersion = await this.fetchMavenLatestVersion(packageName);
-                    break;
-                default:
-                    console.log(`      ⚠️  Latest version fetch: Unsupported ecosystem ${ecosystem}`);
-                    return null;
+        // Fallback if registryManager not available
+        console.warn('⚠️ RegistryManager not available for fetchLatestVersion');
+        return null;
+    }
+    
+    /**
+     * Get packages not found in any registry (potential dependency confusion)
+     * @returns {Set<string>} - Set of package keys (name@version) not found in registries
+     */
+    getRegistryNotFoundPackages() {
+        return this.registryNotFoundPackages;
+    }
+
+    /**
+     * Clear the registry not found tracking
+     */
+    clearRegistryNotFoundTracking() {
+        this.registryNotFoundPackages.clear();
+    }
+
+    /**
+     * Check if a package was not found in any registry
+     * @param {string} packageKey - Package key (name@version)
+     * @returns {boolean} - True if package was not found in any registry
+     */
+    isPackageNotInRegistry(packageKey) {
+        return this.registryNotFoundPackages.has(packageKey);
+    }
+
+    /**
+     * Get packages with namespaces not found in any registry (high confidence confusion)
+     * @returns {Set<string>} - Set of package keys (name@version) with missing namespaces
+     */
+    getNamespaceNotFoundPackages() {
+        return this.namespaceNotFoundPackages;
+    }
+
+    /**
+     * Get confusion evidence URL for a package
+     * @param {string} packageKey - Package key (name@version)
+     * @returns {string|null} - Evidence URL or null
+     */
+    getConfusionEvidence(packageKey) {
+        return this.confusionEvidence.get(packageKey) || null;
+    }
+
+    /**
+     * Clear namespace not found tracking
+     */
+    clearNamespaceNotFoundTracking() {
+        this.namespaceNotFoundPackages.clear();
+        this.confusionEvidence.clear();
+    }
+
+    /**
+     * Check a package for dependency confusion using DepConfuseService
+     * @param {string} packageName - Package name
+     * @param {string} version - Package version
+     * @param {string} ecosystem - Ecosystem (npm, pypi, etc.)
+     * @param {string} packageKey - Package key (name@version)
+     * @param {string} originalPurl - Original PURL from SBOM (optional, preferred over constructed PURL)
+     */
+    async checkPackageForConfusion(packageName, version, ecosystem, packageKey, originalPurl = null) {
+        // Use DepConfuseService if available for enhanced namespace checking
+        // This includes GitHub Actions - we check if the repo exists on GitHub
+        if (window.depConfuseService) {
+            try {
+                let purl = originalPurl;
+                
+                // If no original PURL provided, construct one from package info
+                if (!purl) {
+                    const purlType = this.ecosystemToPurlType(ecosystem);
+                    if (purlType) {
+                        purl = `pkg:${purlType}/${encodeURIComponent(packageName)}@${version}`;
+                    }
+                }
+                
+                if (purl) {
+                    console.log(`    🔍 Checking PURL for dependency confusion: ${purl}`);
+                    const result = await window.depConfuseService.checkPackageForConfusion(purl);
+                    
+                    if (result.vulnerable) {
+                        if (result.type === 'namespace_not_found') {
+                            this.namespaceNotFoundPackages.add(packageKey);
+                            console.log(`    ⚠️  Namespace "${result.namespace}" not found for ${packageKey} - HIGH-CONFIDENCE dependency confusion risk`);
+                        } else {
+                            this.registryNotFoundPackages.add(packageKey);
+                            console.log(`    ⚠️  Package ${packageKey} not found in ${result.registry} registry - potential dependency confusion risk`);
+                        }
+                        
+                        // Store evidence URL
+                        if (result.evidenceUrl) {
+                            this.confusionEvidence.set(packageKey, result.evidenceUrl);
+                        }
+                    }
+                    return;
+                }
+            } catch (error) {
+                console.warn(`    ⚠️  DepConfuse check failed for ${packageKey}: ${error.message}`);
             }
-            
-            // Cache the result (even if null to avoid repeated failed requests)
-            this.cache.set(cacheKey, latestVersion);
-            return latestVersion;
-        } catch (error) {
-            console.log(`      ⚠️  Failed to fetch latest version for ${ecosystem}:${packageName}: ${error.message}`);
-            this.cache.set(cacheKey, null);
-            return null;
         }
+        
+        // Fallback: Just track as registry not found
+        this.registryNotFoundPackages.add(packageKey);
+        console.log(`    ⚠️  Package ${packageKey} not found in any registry - potential dependency confusion risk`);
     }
-    
+
     /**
-     * Fetch latest version from npm registry
+     * Convert ecosystem name to PURL type
+     * @param {string} ecosystem - Ecosystem name
+     * @returns {string|null} - PURL type or null
      */
-    async fetchNpmLatestVersion(packageName) {
-        const url = this.registryAPIs.npm.replace('{package}', encodeURIComponent(packageName));
-        const response = await this.fetchWithTimeout(url);
-        if (!response.ok) return null;
-        const data = await response.json();
-        return data['dist-tags']?.latest || data.version || null;
+    ecosystemToPurlType(ecosystem) {
+        const mapping = {
+            'npm': 'npm',
+            'pypi': 'pypi',
+            'maven': 'maven',
+            'nuget': 'nuget',
+            'cargo': 'cargo',
+            'rubygems': 'gem',
+            'gem': 'gem',
+            'go': 'golang',
+            'golang': 'golang',
+            'composer': 'composer',
+            'packagist': 'composer',
+            'docker': 'docker',
+            'cocoapods': 'cocoapods',
+            'hex': 'hex',
+            'pub': 'pub',
+            'conda': 'conda',
+            'github actions': 'githubactions',
+            'githubactions': 'githubactions'
+        };
+        
+        return mapping[ecosystem.toLowerCase()] || null;
     }
-    
-    /**
-     * Fetch latest version from PyPI
-     */
-    async fetchPyPiLatestVersion(packageName) {
-        const url = this.registryAPIs.pypi.replace('{package}', encodeURIComponent(packageName));
-        const response = await this.fetchWithTimeout(url);
-        if (!response.ok) return null;
-        const data = await response.json();
-        return data.info?.version || null;
-    }
-    
-    /**
-     * Fetch latest version from crates.io
-     */
-    async fetchCargoLatestVersion(packageName) {
-        const url = this.registryAPIs.cargo.replace('{package}', encodeURIComponent(packageName));
-        const response = await this.fetchWithTimeout(url);
-        if (!response.ok) return null;
-        const data = await response.json();
-        return data.crate?.max_version || null;
-    }
-    
-    /**
-     * Fetch latest version from RubyGems via ecosyste.ms
-     */
-    async fetchRubyGemsLatestVersion(packageName) {
-        try {
-            const registryName = await this.getRegistryName('rubygems');
-            if (!registryName) return null;
-            
-            const url = this.ecosystemsAPI
-                .replace('{registry}', registryName)
-                .replace('{package}', encodeURIComponent(packageName));
-            const response = await this.fetchWithTimeout(url);
-            if (!response.ok) return null;
-            const data = await response.json();
-            return data.latest_release_number || null;
-        } catch (error) {
-            return null;
-        }
-    }
-    
-    /**
-     * Fetch latest version from Maven via ecosyste.ms
-     * Maven packages are formatted as "groupId:artifactId" (e.g., "org.springframework.boot:spring-boot-starter")
-     * ecosyste.ms Maven API URL format: /registries/repo1.maven.org/packages/{groupId}/{artifactId}
-     */
-    async fetchMavenLatestVersion(packageName) {
-        try {
-            const registryName = await this.getRegistryName('maven');
-            if (!registryName) return null;
-            
-            // Parse Maven package name: "groupId:artifactId"
-            const parts = packageName.split(':');
-            if (parts.length < 2) {
-                console.log(`      ⚠️  Invalid Maven package format: ${packageName} (expected groupId:artifactId)`);
-                return null;
-            }
-            
-            const groupId = parts[0];
-            const artifactId = parts[1];
-            
-            // Build ecosyste.ms URL for Maven package
-            // Format: /registries/repo1.maven.org/packages/{groupId}/{artifactId}
-            const url = `https://packages.ecosyste.ms/api/v1/registries/${registryName}/packages/${encodeURIComponent(groupId)}/${encodeURIComponent(artifactId)}`;
-            
-            const response = await this.fetchWithTimeout(url);
-            if (!response.ok) return null;
-            
-            const data = await response.json();
-            return data.latest_release_number || null;
-        } catch (error) {
-            console.log(`      ⚠️  Failed to fetch Maven version from ecosyste.ms: ${error.message}`);
-            return null;
-        }
-    }
-    
+
     /**
      * Get statistics about the resolved tree
      */

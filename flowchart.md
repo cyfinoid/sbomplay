@@ -11,9 +11,11 @@ This document provides comprehensive flowcharts documenting how SBOM Play perfor
 5. [Vulnerability Analysis Flow](#vulnerability-analysis-flow)
 6. [Author Analysis Flow](#author-analysis-flow)
 7. [License Compliance Analysis Flow](#license-compliance-analysis-flow)
-8. [Storage Operations Flow](#storage-operations-flow)
-9. [View Rendering Flow](#view-rendering-flow)
-10. [Rate Limit Handling Flow](#rate-limit-handling-flow)
+8. [EOX (End-of-Life) Analysis Flow](#eox-end-of-life-analysis-flow)
+9. [SBOM Audit Flow](#sbom-audit-flow)
+10. [Storage Operations Flow](#storage-operations-flow)
+11. [View Rendering Flow](#view-rendering-flow)
+12. [Rate Limit Handling Flow](#rate-limit-handling-flow)
 
 ---
 
@@ -488,6 +490,176 @@ flowchart TD
 - **Compatibility Checking**: Validates license compatibility matrix
 - **Risk Assessment**: Categorizes licenses by compliance risk
 - **Conflict Detection**: Identifies incompatible license combinations
+
+---
+
+## EOX (End-of-Life) Analysis Flow
+
+The EOX service checks dependencies against the endoflife.date API to identify packages that have reached End-of-Life (EOL) or End-of-Support (EOS) status.
+
+```mermaid
+flowchart TD
+    A[Start EOX Analysis] --> B[Get dependencies]
+    B --> C[Filter notable dependencies]
+    C --> D{Notable deps found?}
+    D -->|No| E[Skip EOX check]
+    D -->|Yes| F[Loop: For each dependency]
+    F --> G[Find matching product]
+    G --> H{Product found?}
+    H -->|No| I[Skip dependency]
+    H -->|Yes| J[Check IndexedDB cache]
+    J --> K{Cached?}
+    K -->|Yes| L[Use cached data]
+    K -->|No| M[Query endoflife.date API]
+    M --> N[Parse EOL/EOS dates]
+    N --> O[Save to IndexedDB]
+    O --> P[Find version cycle]
+    L --> P
+    P --> Q{Version match?}
+    Q -->|No| R[Use latest cycle info]
+    Q -->|Yes| S[Check EOL status]
+    R --> S
+    S --> T{Is EOL?}
+    T -->|Yes| U[Mark as EOL - High severity]
+    T -->|No| V{Is EOS?}
+    V -->|Yes| W[Mark as EOS - Medium severity]
+    V -->|No| X[Check EOL/EOS dates]
+    X --> Y{Coming soon?}
+    Y -->|Yes| Z[Mark as Warning - Low severity]
+    Y -->|No| AA[No EOX issues]
+    U --> AB[Store EOX status on dependency]
+    W --> AB
+    Z --> AB
+    AA --> AB
+    AB --> AC{More deps?}
+    AC -->|Yes| F
+    AC -->|No| AD[EOX Analysis complete]
+    
+    I --> AC
+    E --> AD
+    
+    style A fill:#e1f5ff
+    style AD fill:#c8e6c9
+    style U fill:#ffcdd2
+    style W fill:#fff9c4
+```
+
+**Key Features:**
+- **Product Mapping**: Maps package names to endoflife.date product identifiers
+- **Version Matching**: Finds the version cycle that matches the package version
+- **Caching**: 7-day cache in IndexedDB to minimize API calls
+- **Severity Levels**: EOL = High, EOS = Medium, Upcoming = Low
+- **Notable Dependencies**: Focuses on runtimes, frameworks, databases (not every npm package)
+
+**Data Sources:**
+- **Primary**: endoflife.date API (https://endoflife.date/api/)
+- **Future**: OpenEOX standard support (OASIS initiative)
+
+---
+
+## SBOM Audit Flow
+
+The SBOM Audit assesses SBOM quality across multiple dimensions including NTIA compliance, freshness, and completeness.
+
+```mermaid
+flowchart TD
+    A[Start SBOM Audit] --> B[Get SBOM data]
+    B --> C{Valid SBOM?}
+    C -->|No| D[Return empty assessment]
+    C -->|Yes| E[Assess Quality Categories]
+    E --> F[Identification - 25%]
+    E --> G[Provenance - 20%]
+    E --> H[Dependencies - 10%]
+    E --> I[Metadata - 10%]
+    E --> J[Licensing - 10%]
+    E --> K[Vulnerability - 15%]
+    
+    F --> L[Check component names]
+    F --> M[Check versions]
+    F --> N[Check PURLs]
+    
+    G --> O[Check creation timestamp]
+    G --> P[Check creators]
+    G --> Q[Check tool info]
+    
+    L --> R[Calculate weighted score]
+    M --> R
+    N --> R
+    O --> R
+    P --> R
+    Q --> R
+    H --> R
+    I --> R
+    J --> R
+    K --> R
+    
+    R --> S[Generate grade A-F]
+    S --> T[Assess NTIA Compliance]
+    T --> U[Check 7 minimum elements]
+    U --> V{90%+ coverage?}
+    V -->|Yes| W[NTIA Compliant]
+    V -->|No| X[NTIA Non-compliant]
+    
+    W --> Y[Assess Freshness]
+    X --> Y
+    Y --> Z[Calculate age in days]
+    Z --> AA{Age category?}
+    AA -->|≤7d| AB[Very Fresh]
+    AA -->|≤30d| AC[Fresh]
+    AA -->|≤90d| AD[Recent]
+    AA -->|≤180d| AE[Aging]
+    AA -->|≤365d| AF[Old]
+    AA -->|>365d| AG[Stale]
+    
+    AB --> AH[Assess Completeness]
+    AC --> AH
+    AD --> AH
+    AE --> AH
+    AF --> AH
+    AG --> AH
+    
+    AH --> AI[Check field coverage]
+    AI --> AJ[Calculate completeness %]
+    AJ --> AK[Generate Audit Report]
+    AK --> AL[Calculate risk score]
+    AL --> AM[Determine risk level]
+    AM --> AN[Return comprehensive report]
+    
+    D --> AO[End]
+    AN --> AO
+    
+    style A fill:#e1f5ff
+    style AN fill:#c8e6c9
+    style W fill:#c8e6c9
+    style X fill:#ffcdd2
+    style AG fill:#ffcdd2
+```
+
+**NTIA Minimum Elements Checked:**
+1. **Supplier Name**: Organization that created the component
+2. **Component Name**: Designation assigned to the component
+3. **Version**: Identifier specifying a change in software
+4. **Unique Identifier**: PURL or other identifiers
+5. **Dependency Relationship**: Relationship characterization
+6. **SBOM Author**: Entity that creates the SBOM
+7. **Timestamp**: Date and time of SBOM assembly
+
+**Freshness Categories:**
+| Age | Status | Color |
+|-----|--------|-------|
+| ≤7 days | Very Fresh | Green |
+| ≤30 days | Fresh | Green |
+| ≤90 days | Recent | Blue |
+| ≤180 days | Aging | Yellow |
+| ≤365 days | Old | Yellow |
+| >365 days | Stale | Red |
+
+**Key Features:**
+- **Quality Grading**: A (90+), B (80-89), C (70-79), D (50-69), F (<50)
+- **NTIA Compliance**: Validates against NTIA minimum elements
+- **Freshness Tracking**: Monitors SBOM generation date and age
+- **Completeness Score**: Percentage of packages with full metadata
+- **Risk Assessment**: Combines all factors into overall risk score
 
 ---
 

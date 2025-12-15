@@ -3537,7 +3537,7 @@ class ViewManager {
         const licenseProcessor = new LicenseProcessor();
         const transitions = [];
 
-        // Group by package name
+        // Group by ecosystem:packageName to avoid false positives from same-name packages in different ecosystems
         const packageMap = new Map();
         
         allDependencies.forEach(dep => {
@@ -3548,25 +3548,32 @@ class ViewManager {
             const licenseInfo = licenseProcessor.parseLicense(dep.originalPackage || {});
             const license = licenseInfo.license || 'Unknown';
             
-            // Get ecosystem for display
-            const ecosystem = dep.ecosystem || dep.category?.ecosystem || null;
+            // Get ecosystem for display - normalize to lowercase for consistent grouping
+            const ecosystem = (dep.ecosystem || dep.category?.ecosystem || 'unknown').toLowerCase();
             
-            if (!packageMap.has(packageName)) {
-                packageMap.set(packageName, []);
+            // Use ecosystem:packageName as key to separate same-name packages from different ecosystems
+            const packageKey = `${ecosystem}:${packageName}`;
+            
+            if (!packageMap.has(packageKey)) {
+                packageMap.set(packageKey, []);
             }
-            packageMap.get(packageName).push({
+            packageMap.get(packageKey).push({
                 version: dep.version || 'Unknown',
                 license: license,
                 category: licenseInfo.category || 'unknown',
                 repositories: dep.repositories || [],
-                ecosystem: ecosystem
+                ecosystem: ecosystem,
+                packageName: packageName
             });
         });
 
         // Process each package to detect license changes
-        packageMap.forEach((versions, packageName) => {
+        packageMap.forEach((versions, packageKey) => {
             // Skip if only one version
             if (versions.length < 2) return;
+            
+            // Get package name from first version (all versions have same name within a key)
+            const packageName = versions[0].packageName;
             
             // Sort versions chronologically
             versions.sort((a, b) => {
@@ -3588,7 +3595,7 @@ class ViewManager {
                     // Combine repositories from both versions
                     const allRepos = new Set([...(current.repositories || []), ...(next.repositories || [])]);
                     
-                    // Use ecosystem from either version (they should be the same)
+                    // Use ecosystem from either version (they should be the same within a packageKey)
                     const ecosystem = current.ecosystem || next.ecosystem || null;
                     
                     transitions.push({
@@ -4975,6 +4982,62 @@ class ViewManager {
     }
 
     /**
+     * Build path from parents chain in allDependencies
+     * Traces back through the parent chain to build the full dependency path
+     * @param {Object} dep - The dependency object with parents array
+     * @param {Array} allDeps - All dependencies array
+     * @returns {Array} - Path array from root to target, e.g., ['express@4.18.2', 'body-parser@1.20.0', 'raw-body@2.4.3']
+     */
+    buildPathFromParents(dep, allDeps) {
+        const path = [];
+        const visited = new Set();
+        let current = dep;
+        
+        // Build path by traversing up through parents
+        while (current) {
+            const key = `${current.name}@${current.version}`;
+            
+            // Prevent infinite loops
+            if (visited.has(key)) break;
+            visited.add(key);
+            
+            // Add current to path (at the beginning since we're traversing up)
+            path.unshift(key);
+            
+            // Get parent
+            if (current.parents && current.parents.length > 0) {
+                const parentKey = current.parents[0]; // Use first parent
+                // Parse parent key (format: "package@version")
+                const lastAtIdx = parentKey.lastIndexOf('@');
+                if (lastAtIdx > 0) {
+                    const parentName = parentKey.substring(0, lastAtIdx);
+                    const parentVersion = parentKey.substring(lastAtIdx + 1);
+                    
+                    // Find parent in allDeps
+                    current = allDeps.find(d => d.name === parentName && d.version === parentVersion);
+                    
+                    // If not found by exact version, try by name only
+                    if (!current) {
+                        current = allDeps.find(d => d.name === parentName);
+                    }
+                } else {
+                    break; // Invalid parent format
+                }
+            } else {
+                break; // No more parents
+            }
+            
+            // Safety limit to prevent infinite loops
+            if (path.length > 20) {
+                console.warn('⚠️ buildPathFromParents: path depth exceeded 20, breaking');
+                break;
+            }
+        }
+        
+        return path;
+    }
+
+    /**
      * Build dependency path for a transitive dependency
      */
     buildDependencyPath(repo, targetDep, allDependencies) {
@@ -5159,13 +5222,39 @@ class ViewManager {
                 usage.push(pathInfo);
             } else {
                 // Fallback: dependency found in repo but no SPDX path info (transitive dep added during resolution)
-                usage.push({
-                    isDirect: false,
-                    path: [vulnDep.name + '@' + vulnDep.version],
-                    repoKey: repoKey,
-                    pathStr: vulnDep.name + '@' + vulnDep.version + ' (transitive)',
-                    isArchived: repo.archived || false
-                });
+                // Use parents field from allDependencies to build the path
+                const isDirect = fullDep.directIn && fullDep.directIn.includes(repoKey);
+                const isTransitive = fullDep.transitiveIn && fullDep.transitiveIn.includes(repoKey);
+                
+                if (isDirect) {
+                    // It's a direct dependency
+                    usage.push({
+                        isDirect: true,
+                        path: [vulnDep.name + '@' + vulnDep.version],
+                        repoKey: repoKey,
+                        pathStr: vulnDep.name + '@' + vulnDep.version,
+                        isArchived: repo.archived || false
+                    });
+                } else if (isTransitive && fullDep.parents && fullDep.parents.length > 0) {
+                    // It's a transitive dependency - build path from parents
+                    const path = this.buildPathFromParents(fullDep, allDeps);
+                    usage.push({
+                        isDirect: false,
+                        path: path,
+                        repoKey: repoKey,
+                        pathStr: path.join(' → '),
+                        isArchived: repo.archived || false
+                    });
+                } else {
+                    // Unknown - just show as transitive
+                    usage.push({
+                        isDirect: false,
+                        path: [vulnDep.name + '@' + vulnDep.version],
+                        repoKey: repoKey,
+                        pathStr: vulnDep.name + '@' + vulnDep.version + ' (transitive)',
+                        isArchived: repo.archived || false
+                    });
+                }
             }
         });
 

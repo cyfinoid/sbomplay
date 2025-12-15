@@ -1,32 +1,34 @@
 /**
  * SBOM Quality Processor
  * 
- * Assesses the quality of GitHub-generated SPDX SBOMs based on industry standards
- * Aligned with sbomqs methodology but adapted for GitHub's SBOM characteristics
+ * Assesses the quality of SPDX/CycloneDX SBOMs based on industry standards
+ * Fully aligned with sbomqs v2.0 methodology
+ * Reference: https://github.com/interlynk-io/sbomqs
  * 
- * Categories (6 total):
- * - Identification (25%): Component names, versions, IDs, PURLs
- * - Provenance (20%): Creation info, authors, tool, timestamps
- * - Dependencies (10%): Relationship mapping and dependency graph quality
- * - Metadata (10%): Copyright, download location, external references
- * - Licensing (10%): License presence and validity (GitHub often uses NOASSERTION)
- * - Vulnerability (15%): PURL/CPE identifiers for security scanning
- * Note: Structural/SPDX compliance and Integrity/checksums are not assessed as GitHub SBOMs don't provide this data
+ * Categories (7 total, matching sbomqs v2.0):
+ * - Identification (12%): Component names, versions, unique IDs
+ * - Provenance (15%): Creation info, authors, tool, timestamps, namespace
+ * - Integrity (18%): Checksums, SHA-256+, signatures
+ * - Completeness (15%): Dependencies, supplier, source code, purpose
+ * - Licensing (18%): License presence, validity, deprecated/restrictive
+ * - Vulnerability (12%): PURL/CPE identifiers for security scanning
+ * - Structural (10%): Spec compliance, version, format, schema validity
  * 
  * Scoring: 0-10 scale (internally 0-100, displayed as 0-10)
  * Grades: A (9.0-10.0), B (8.0-8.9), C (7.0-7.9), D (5.0-6.9), F (<5.0)
  */
 class SBOMQualityProcessor {
     constructor() {
-        // Weights optimized for GitHub SPDX SBOMs (total: 100%)
-        // Structural and Integrity categories removed as GitHub SBOMs don't provide this data
+        // Weights aligned with sbomqs v2.0 (total: 100%)
+        // See: SBOMQS-2.0-SPEC.md
         this.weights = {
-            identification: 0.25,   // 25% - Core strength of GitHub SBOMs
-            provenance: 0.20,        // 20% - GitHub provides good metadata
-            dependencies: 0.10,      // 10% - Relationship mapping quality
-            metadata: 0.10,         // 10% - Supplemental package metadata
-            licensing: 0.10,        // 10% - Often NOASSERTION, lower weight
-            vulnerability: 0.15      // 15% - PURL always present, CPE rare
+            identification: 0.12,    // 12% - Component identification
+            provenance: 0.15,        // 15% - Trust and audit trails
+            integrity: 0.18,         // 18% - Artifact verification (checksums)
+            completeness: 0.15,      // 15% - Dependency and metadata coverage
+            licensing: 0.18,         // 18% - Legal compliance
+            vulnerability: 0.12,     // 12% - Security scanning readiness
+            structural: 0.10         // 10% - Spec compliance and parseability
         };
         
         // Deprecated SPDX license identifiers (for informational warnings)
@@ -50,7 +52,7 @@ class SBOMQualityProcessor {
 
     /**
      * Assess the quality of an SBOM
-     * @param {Object} sbomData - The raw SBOM data from GitHub
+     * @param {Object} sbomData - The raw SBOM data (GitHub API or uploaded)
      * @param {string} owner - Repository owner
      * @param {string} repo - Repository name
      * @returns {Object} Quality assessment with scores and details
@@ -62,27 +64,33 @@ class SBOMQualityProcessor {
 
         const sbom = sbomData.sbom;
         
-        // Calculate individual category scores (6 categories)
+        // Detect SBOM format and version
+        const sbomFormat = this.detectSBOMFormat(sbom, sbomData);
+        
+        // Calculate individual category scores (7 categories aligned with sbomqs v2.0)
         const identification = this.assessIdentification(sbom);
         const provenance = this.assessProvenance(sbom);
-        const dependencies = this.assessDependencies(sbom);
-        const metadata = this.assessMetadata(sbom);
+        const integrity = this.assessIntegrity(sbom);
+        const completeness = this.assessCompletenessCategory(sbom);
         const licensing = this.assessLicensing(sbom);
         const vulnerability = this.assessVulnerability(sbom);
+        const structural = this.assessStructural(sbom);
 
         // Calculate overall score (weighted average, 0-100 internal scale)
         const overallScore = Math.round(
             (identification.score * this.weights.identification) +
             (provenance.score * this.weights.provenance) +
-            (dependencies.score * this.weights.dependencies) +
-            (metadata.score * this.weights.metadata) +
+            (integrity.score * this.weights.integrity) +
+            (completeness.score * this.weights.completeness) +
             (licensing.score * this.weights.licensing) +
-            (vulnerability.score * this.weights.vulnerability)
+            (vulnerability.score * this.weights.vulnerability) +
+            (structural.score * this.weights.structural)
         );
 
         return {
             repository: `${owner}/${repo}`,
             timestamp: Date.now(),
+            sbomFormat: sbomFormat,  // SBOM format info (type and version)
             overallScore: overallScore,  // 0-100 scale
             displayScore: this.toDisplayScore(overallScore),  // 0-10 scale for display
             grade: this.getGrade(overallScore),
@@ -90,13 +98,86 @@ class SBOMQualityProcessor {
             categories: {
                 identification,
                 provenance,
-                dependencies,
-                metadata,
+                integrity,
+                completeness,
                 licensing,
-                vulnerability
+                vulnerability,
+                structural
             },
-            summary: this.generateSummary(overallScore, identification, provenance, dependencies, metadata, licensing, vulnerability),
-            issues: this.collectIssues(identification, provenance, dependencies, metadata, licensing, vulnerability)
+            summary: this.generateSummary7Categories(overallScore, identification, provenance, integrity, completeness, licensing, vulnerability, structural),
+            issues: this.collectIssues7Categories(identification, provenance, integrity, completeness, licensing, vulnerability, structural)
+        };
+    }
+    
+    /**
+     * Detect SBOM format and version
+     * @param {Object} sbom - The SBOM data (sbomData.sbom)
+     * @param {Object} sbomData - The full SBOM wrapper (may contain original format info)
+     * @returns {Object} - { type: 'SPDX'|'CycloneDX'|'Unknown', version: string|null, displayName: string }
+     */
+    detectSBOMFormat(sbom, sbomData) {
+        // Check for CycloneDX markers in the wrapper or sbom
+        // CycloneDX converted to internal format may have Tool: CycloneDX-X.X in creators
+        const creators = sbom.creationInfo?.creators || [];
+        const cycloneDXCreator = creators.find(c => c.includes('CycloneDX-'));
+        
+        if (cycloneDXCreator) {
+            // Extract version from "Tool: CycloneDX-1.5" format
+            const versionMatch = cycloneDXCreator.match(/CycloneDX-([0-9.]+)/);
+            const version = versionMatch ? versionMatch[1] : null;
+            return {
+                type: 'CycloneDX',
+                version: version,
+                displayName: version ? `CycloneDX ${version}` : 'CycloneDX'
+            };
+        }
+        
+        // Check for bomFormat field (direct CycloneDX)
+        if (sbomData.bomFormat === 'CycloneDX' || sbom.bomFormat === 'CycloneDX') {
+            const version = sbomData.specVersion || sbom.specVersion || null;
+            return {
+                type: 'CycloneDX',
+                version: version,
+                displayName: version ? `CycloneDX ${version}` : 'CycloneDX'
+            };
+        }
+        
+        // Check for SPDX version
+        if (sbom.spdxVersion) {
+            // Parse version from "SPDX-2.3" format
+            const versionMatch = sbom.spdxVersion.match(/SPDX-([0-9.]+)/);
+            const version = versionMatch ? versionMatch[1] : sbom.spdxVersion;
+            return {
+                type: 'SPDX',
+                version: version,
+                displayName: `SPDX ${version}`
+            };
+        }
+        
+        // Check for SPDXVersion (alternative casing)
+        if (sbom.SPDXVersion) {
+            const versionMatch = sbom.SPDXVersion.match(/SPDX-([0-9.]+)/);
+            const version = versionMatch ? versionMatch[1] : sbom.SPDXVersion;
+            return {
+                type: 'SPDX',
+                version: version,
+                displayName: `SPDX ${version}`
+            };
+        }
+        
+        // Check if it looks like SPDX (has SPDXID, packages, relationships)
+        if (sbom.SPDXID && sbom.packages && sbom.relationships) {
+            return {
+                type: 'SPDX',
+                version: null,
+                displayName: 'SPDX (version unknown)'
+            };
+        }
+        
+        return {
+            type: 'Unknown',
+            version: null,
+            displayName: 'Unknown Format'
         };
     }
 
@@ -273,76 +354,248 @@ class SBOMQualityProcessor {
     }
 
     /**
-     * Assess SBOM Provenance quality (20% weight)
-     * Checks: creation info, authors, tool, timestamps, namespace
-     * GitHub SBOMs: Excellent coverage, always includes creator and timestamp
+     * Assess SBOM Provenance quality (15% weight) - sbomqs aligned
+     * Checks: creation timestamp, authors, tool, supplier, namespace, lifecycle
+     * Based on sbomqs v2.0 Provenance category
      */
     assessProvenance(sbom) {
         const checks = {
             hasCreationTimestamp: false,
             hasCreators: false,
             hasToolInfo: false,
+            hasToolVersion: false,
+            hasSupplier: false,
             hasNamespace: false,
-            hasDocumentName: false
+            hasLifecycle: false
         };
 
         const issues = [];
 
-        // Check creation timestamp (always present in GitHub SBOMs)
+        // Check creation timestamp (sbomqs: sbom_creation_timestamp, weight 20%)
         if (sbom.creationInfo?.created) {
             checks.hasCreationTimestamp = true;
+            // Validate ISO 8601 format
+            const timestamp = new Date(sbom.creationInfo.created);
+            if (isNaN(timestamp.getTime())) {
+                issues.push('Invalid timestamp format (should be ISO 8601)');
+            }
         } else {
             issues.push('Missing creation timestamp');
         }
 
-        // Check creators/authors (always present in GitHub SBOMs)
+        // Check creators/authors (sbomqs: sbom_authors, weight 20%)
         if (sbom.creationInfo?.creators && Array.isArray(sbom.creationInfo.creators) && 
             sbom.creationInfo.creators.length > 0) {
             checks.hasCreators = true;
+            // Check for Person or Organization (not just Tool)
+            const hasPersonOrOrg = sbom.creationInfo.creators.some(c => 
+                c.startsWith('Person:') || c.startsWith('Organization:')
+            );
+            if (!hasPersonOrOrg) {
+                issues.push('No person or organization creator found (only tools)');
+            }
         } else {
             issues.push('Missing creator/author information');
         }
 
-        // Check tool info (always present in GitHub SBOMs)
-        const hasToolCreator = sbom.creationInfo?.creators?.some(c => 
-            c.startsWith('Tool:') && c.includes('github')
-        );
-        if (hasToolCreator) {
+        // Check tool info (sbomqs: sbom_tool_version, weight 20%)
+        const toolCreator = sbom.creationInfo?.creators?.find(c => c.startsWith('Tool:'));
+        if (toolCreator) {
             checks.hasToolInfo = true;
+            // Check for version in tool info
+            if (toolCreator.includes('-') || /v?\d+\.\d+/.test(toolCreator)) {
+                checks.hasToolVersion = true;
+            } else {
+                issues.push('Tool creator missing version information');
+            }
         } else {
-            issues.push('Missing or invalid tool information');
+            issues.push('Missing tool information');
         }
 
-        // Check namespace/document URI (should be present)
+        // Check supplier (sbomqs: sbom_supplier, weight 15%)
+        // For SPDX, check creationInfo.creators for Organization
+        // For CDX, check metadata.supplier or metadata.manufacturer
+        const hasOrgCreator = sbom.creationInfo?.creators?.some(c => c.startsWith('Organization:'));
+        if (hasOrgCreator || sbom.metadata?.supplier || sbom.metadata?.manufacturer) {
+            checks.hasSupplier = true;
+        } else {
+            issues.push('Missing document supplier/organization');
+        }
+
+        // Check namespace/document URI (sbomqs: sbom_namespace, weight 15%)
         if (sbom.documentNamespace && sbom.documentNamespace.trim()) {
             checks.hasNamespace = true;
+            // Validate it's a valid URI
+            try {
+                new URL(sbom.documentNamespace);
+            } catch {
+                issues.push('Document namespace is not a valid URI');
+            }
+        } else if (sbom.serialNumber) {
+            // CycloneDX uses serialNumber
+            checks.hasNamespace = true;
         } else {
-            issues.push('Missing document namespace');
+            issues.push('Missing document namespace/serial number');
         }
 
-        // Check document name
-        if (sbom.name && sbom.name.trim()) {
-            checks.hasDocumentName = true;
-        } else {
-            issues.push('Missing document name');
+        // Check lifecycle (sbomqs: sbom_lifecycle, weight 10%)
+        // For CycloneDX 1.5+, check metadata.lifecycles
+        if (sbom.metadata?.lifecycles && sbom.metadata.lifecycles.length > 0) {
+            checks.hasLifecycle = true;
         }
+        // Note: SPDX doesn't have a deterministic lifecycle field, so we don't penalize
 
-        // Calculate score
-        const totalChecks = Object.keys(checks).length;
-        const passedChecks = Object.values(checks).filter(v => v === true).length;
-        const score = Math.round((passedChecks / totalChecks) * 100);
+        // Calculate score (weighted based on sbomqs v2.0)
+        let score = 0;
+        if (checks.hasCreationTimestamp) score += 20;  // 20%
+        if (checks.hasCreators) score += 20;  // 20%
+        if (checks.hasToolInfo && checks.hasToolVersion) score += 20;  // 20%
+        else if (checks.hasToolInfo) score += 10;  // Partial credit
+        if (checks.hasSupplier) score += 15;  // 15%
+        if (checks.hasNamespace) score += 15;  // 15%
+        if (checks.hasLifecycle) score += 10;  // 10%
 
         return {
             score,
             checks,
             issues,
-            details: `${passedChecks}/${totalChecks} provenance checks passed`
+            details: `Timestamp: ${checks.hasCreationTimestamp ? '✓' : '✗'}, Authors: ${checks.hasCreators ? '✓' : '✗'}, Tool: ${checks.hasToolInfo ? '✓' : '✗'}, Namespace: ${checks.hasNamespace ? '✓' : '✗'}`
         };
     }
 
     /**
-     * Assess SBOM Dependencies quality (10% weight)
-     * Checks: relationship mapping, dependency graph quality
+     * Assess SBOM Completeness quality (15% weight) - sbomqs aligned
+     * Checks: dependencies, supplier, source code, purpose, primary component
+     * Based on sbomqs v2.0 Completeness category
+     */
+    assessCompletenessCategory(sbom) {
+        const checks = {
+            packagesWithDependencies: 0,
+            packagesWithSupplier: 0,
+            packagesWithSourceCode: 0,
+            packagesWithPurpose: 0,
+            hasPrimaryComponent: false,
+            hasCompletenessDeclaration: false
+        };
+
+        const issues = [];
+        const packages = sbom.packages || [];
+        const relationships = sbom.relationships || [];
+
+        if (packages.length === 0) {
+            return {
+                score: 0,
+                checks,
+                issues: ['No packages to assess completeness'],
+                details: 'Cannot assess completeness without packages'
+            };
+        }
+
+        // Build relationship map
+        const packageRelationshipMap = new Map();
+        relationships.forEach(rel => {
+            if (!packageRelationshipMap.has(rel.relatedSpdxElement)) {
+                packageRelationshipMap.set(rel.relatedSpdxElement, []);
+            }
+            packageRelationshipMap.get(rel.relatedSpdxElement).push(rel);
+            
+            // Check for DESCRIBES relationship (primary component)
+            if (rel.relationshipType === 'DESCRIBES') {
+                checks.hasPrimaryComponent = true;
+            }
+        });
+
+        const packagesWithoutSupplier = [];
+        const packagesWithoutSourceCode = [];
+
+        packages.forEach((pkg, idx) => {
+            const ecosystem = this.getPackageEcosystem(pkg);
+            const packageIdentifier = this.formatPackageIdentifier(pkg, ecosystem, idx);
+
+            // Check if package has dependencies (relationships)
+            if (packageRelationshipMap.has(pkg.SPDXID)) {
+                checks.packagesWithDependencies++;
+            }
+
+            // Check supplier/originator
+            if (pkg.supplier?.name || pkg.originator) {
+                checks.packagesWithSupplier++;
+            } else {
+                packagesWithoutSupplier.push(packageIdentifier);
+            }
+
+            // Check source code URI (externalRefs with VCS type)
+            if (pkg.externalRefs && Array.isArray(pkg.externalRefs)) {
+                const hasSourceRef = pkg.externalRefs.some(ref => 
+                    ref.referenceType === 'vcs' || 
+                    ref.referenceCategory === 'SOURCE' ||
+                    (ref.referenceLocator && (
+                        isUrlFromHostname(ref.referenceLocator, 'github.com') ||
+                        isUrlFromHostname(ref.referenceLocator, 'gitlab.com') ||
+                        isUrlFromHostname(ref.referenceLocator, 'bitbucket.org')
+                    ))
+                );
+                if (hasSourceRef) {
+                    checks.packagesWithSourceCode++;
+                } else {
+                    packagesWithoutSourceCode.push(packageIdentifier);
+                }
+            }
+
+            // Check primary purpose/type (SPDX: primaryPackagePurpose, CDX: type)
+            if (pkg.primaryPackagePurpose || pkg.type) {
+                checks.packagesWithPurpose++;
+            }
+        });
+
+        // Check for completeness declaration (SPDX: documentDescribes, CDX: compositions)
+        if (sbom.documentDescribes && sbom.documentDescribes.length > 0) {
+            checks.hasCompletenessDeclaration = true;
+        }
+
+        const totalPackages = packages.length;
+        
+        // Calculate sub-scores (weights from sbomqs v2.0 Completeness category)
+        const dependencyScore = (checks.packagesWithDependencies / totalPackages) * 25;  // 25%
+        const completenessDeclarationScore = checks.hasCompletenessDeclaration ? 15 : 0;  // 15%
+        const primaryComponentScore = checks.hasPrimaryComponent ? 20 : 0;  // 20%
+        const sourceCodeScore = (checks.packagesWithSourceCode / totalPackages) * 15;  // 15%
+        const supplierScore = (checks.packagesWithSupplier / totalPackages) * 15;  // 15%
+        const purposeScore = (checks.packagesWithPurpose / totalPackages) * 10;  // 10%
+        
+        const score = Math.round(
+            dependencyScore + completenessDeclarationScore + primaryComponentScore + 
+            sourceCodeScore + supplierScore + purposeScore
+        );
+
+        // Add issues
+        if (!checks.hasPrimaryComponent) {
+            issues.push('No primary component identified (DESCRIBES relationship missing)');
+        }
+        
+        if (packagesWithoutSupplier.length > 0) {
+            if (packagesWithoutSupplier.length <= 5) {
+                issues.push(`Missing supplier: ${packagesWithoutSupplier.join(', ')}`);
+            } else {
+                issues.push(`Missing supplier for ${packagesWithoutSupplier.length} packages`);
+            }
+        }
+
+        if (packagesWithoutSourceCode.length > 0 && packagesWithoutSourceCode.length <= totalPackages * 0.5) {
+            issues.push(`${packagesWithoutSourceCode.length} packages missing source code references`);
+        }
+
+        return {
+            score,
+            checks,
+            issues,
+            details: `${checks.packagesWithDependencies}/${totalPackages} dependencies, ${checks.packagesWithSupplier}/${totalPackages} suppliers, ${checks.packagesWithSourceCode}/${totalPackages} source refs`
+        };
+    }
+
+    /**
+     * Assess SBOM Dependencies quality (legacy method - now use assessCompletenessCategory)
+     * Kept for backward compatibility
      */
     assessDependencies(sbom) {
         const checks = {
@@ -1001,7 +1254,7 @@ class SBOMQualityProcessor {
     }
 
     /**
-     * Generate human-readable summary
+     * Generate human-readable summary (legacy 6-category version)
      */
     generateSummary(overallScore, identification, provenance, dependencies, metadata, licensing, vulnerability) {
         const grade = this.getGrade(overallScore);
@@ -1040,7 +1293,45 @@ class SBOMQualityProcessor {
     }
 
     /**
-     * Collect all issues from categories (6 categories)
+     * Generate human-readable summary (sbomqs-aligned 7-category version)
+     */
+    generateSummary7Categories(overallScore, identification, provenance, integrity, completeness, licensing, vulnerability, structural) {
+        const grade = this.getGrade(overallScore);
+        let summary = `SBOM quality grade: ${grade} (${this.toDisplayScore(overallScore)}/10.0). `;
+
+        const strengths = [];
+        const weaknesses = [];
+
+        // Identify strengths (score >= 80)
+        if (identification.score >= 80) strengths.push('strong identification');
+        if (provenance.score >= 80) strengths.push('excellent provenance');
+        if (integrity.score >= 80) strengths.push('strong integrity');
+        if (completeness.score >= 80) strengths.push('comprehensive completeness');
+        if (licensing.score >= 80) strengths.push('clear licensing');
+        if (vulnerability.score >= 80) strengths.push('vulnerability-ready');
+        if (structural.score >= 80) strengths.push('structurally compliant');
+
+        // Identify weaknesses (score < 60)
+        if (identification.score < 60) weaknesses.push('weak identification');
+        if (provenance.score < 60) weaknesses.push('incomplete provenance');
+        if (integrity.score < 60) weaknesses.push('missing integrity data');
+        if (completeness.score < 60) weaknesses.push('incomplete data');
+        if (licensing.score < 60) weaknesses.push('unclear licensing');
+        if (vulnerability.score < 60) weaknesses.push('vulnerability tracking gaps');
+        if (structural.score < 60) weaknesses.push('structural issues');
+
+        if (strengths.length > 0) {
+            summary += `Strengths: ${strengths.join(', ')}. `;
+        }
+        if (weaknesses.length > 0) {
+            summary += `Areas for improvement: ${weaknesses.join(', ')}.`;
+        }
+
+        return summary.trim();
+    }
+
+    /**
+     * Collect all issues from categories (6 categories - legacy)
      */
     collectIssues(identification, provenance, dependencies, metadata, licensing, vulnerability) {
         const allIssues = [];
@@ -1091,12 +1382,78 @@ class SBOMQualityProcessor {
     }
 
     /**
+     * Collect all issues from categories (sbomqs-aligned 7 categories)
+     */
+    collectIssues7Categories(identification, provenance, integrity, completeness, licensing, vulnerability, structural) {
+        const allIssues = [];
+        
+        if (identification.issues.length > 0) {
+            allIssues.push({
+                category: 'Identification',
+                weight: this.weights.identification * 100,
+                issues: identification.issues
+            });
+        }
+        
+        if (provenance.issues.length > 0) {
+            allIssues.push({
+                category: 'Provenance',
+                weight: this.weights.provenance * 100,
+                issues: provenance.issues
+            });
+        }
+        
+        if (integrity.issues.length > 0) {
+            allIssues.push({
+                category: 'Integrity',
+                weight: this.weights.integrity * 100,
+                issues: integrity.issues
+            });
+        }
+        
+        if (completeness.issues.length > 0) {
+            allIssues.push({
+                category: 'Completeness',
+                weight: this.weights.completeness * 100,
+                issues: completeness.issues
+            });
+        }
+        
+        if (licensing.issues.length > 0) {
+            allIssues.push({
+                category: 'Licensing',
+                weight: this.weights.licensing * 100,
+                issues: licensing.issues
+            });
+        }
+        
+        if (vulnerability.issues.length > 0) {
+            allIssues.push({
+                category: 'Vulnerability',
+                weight: this.weights.vulnerability * 100,
+                issues: vulnerability.issues
+            });
+        }
+        
+        if (structural.issues.length > 0) {
+            allIssues.push({
+                category: 'Structural',
+                weight: this.weights.structural * 100,
+                issues: structural.issues
+            });
+        }
+
+        return allIssues;
+    }
+
+    /**
      * Create empty assessment for repositories without SBOM
      */
     createEmptyAssessment(owner, repo, reason) {
         return {
             repository: `${owner}/${repo}`,
             timestamp: Date.now(),
+            sbomFormat: { type: 'Unknown', version: null, displayName: 'N/A' },
             overallScore: 0,
             displayScore: 0,
             grade: 'N/A',
@@ -1104,10 +1461,11 @@ class SBOMQualityProcessor {
             categories: {
                 identification: { score: 0, checks: {}, issues: [reason], details: reason },
                 provenance: { score: 0, checks: {}, issues: [reason], details: reason },
-                dependencies: { score: 0, checks: {}, issues: [reason], details: reason },
-                metadata: { score: 0, checks: {}, issues: [reason], details: reason },
+                integrity: { score: 0, checks: {}, issues: [reason], details: reason },
+                completeness: { score: 0, checks: {}, issues: [reason], details: reason },
                 licensing: { score: 0, checks: {}, issues: [reason], details: reason },
-                vulnerability: { score: 0, checks: {}, issues: [reason], details: reason }
+                vulnerability: { score: 0, checks: {}, issues: [reason], details: reason },
+                structural: { score: 0, checks: {}, issues: [reason], details: reason }
             },
             summary: reason,
             issues: [{ category: 'General', issues: [reason] }]
@@ -1116,6 +1474,7 @@ class SBOMQualityProcessor {
 
     /**
      * Calculate aggregate quality statistics for an organization
+     * Updated to support sbomqs-aligned 7 categories
      */
     calculateAggregateQuality(qualityAssessments) {
         if (!qualityAssessments || qualityAssessments.length === 0) {
@@ -1124,10 +1483,11 @@ class SBOMQualityProcessor {
                 averageDisplayScore: 0,
                 averageIdentification: 0,
                 averageProvenance: 0,
-                averageDependencies: 0,
-                averageMetadata: 0,
+                averageIntegrity: 0,
+                averageCompleteness: 0,
                 averageLicensing: 0,
                 averageVulnerability: 0,
+                averageStructural: 0,
                 totalRepositories: 0,
                 gradeDistribution: {},
                 repositoriesNeedingAttention: []
@@ -1138,10 +1498,11 @@ class SBOMQualityProcessor {
             overall: 0,
             identification: 0,
             provenance: 0,
-            dependencies: 0,
-            metadata: 0,
+            integrity: 0,
+            completeness: 0,
             licensing: 0,
-            vulnerability: 0
+            vulnerability: 0,
+            structural: 0
         };
 
         const gradeDistribution = { 'A': 0, 'B': 0, 'C': 0, 'D': 0, 'F': 0, 'N/A': 0 };
@@ -1156,18 +1517,18 @@ class SBOMQualityProcessor {
             totals.licensing += assessment.categories?.licensing?.score || 0;
             totals.vulnerability += assessment.categories?.vulnerability?.score || 0;
             
-            // Handle new categories (dependencies, metadata) or old completeness for backward compatibility
-            if (assessment.categories?.dependencies) {
-                totals.dependencies += assessment.categories.dependencies.score || 0;
-            }
-            if (assessment.categories?.metadata) {
-                totals.metadata += assessment.categories.metadata.score || 0;
-            }
-            // Backward compatibility: if old completeness exists and new categories don't, split it
-            if (assessment.categories?.completeness && !assessment.categories?.dependencies && !assessment.categories?.metadata) {
-                const completenessScore = assessment.categories.completeness.score || 0;
-                totals.dependencies += Math.round(completenessScore / 2); // Split evenly
-                totals.metadata += Math.round(completenessScore / 2);
+            // New sbomqs-aligned categories
+            totals.integrity += assessment.categories?.integrity?.score || 0;
+            totals.structural += assessment.categories?.structural?.score || 0;
+            
+            // Handle completeness (new) vs dependencies/metadata (old)
+            if (assessment.categories?.completeness) {
+                totals.completeness += assessment.categories.completeness.score || 0;
+            } else if (assessment.categories?.dependencies || assessment.categories?.metadata) {
+                // Backward compatibility: combine old categories
+                const depScore = assessment.categories?.dependencies?.score || 0;
+                const metaScore = assessment.categories?.metadata?.score || 0;
+                totals.completeness += Math.round((depScore + metaScore) / 2);
             }
 
             gradeDistribution[assessment.grade]++;
@@ -1192,14 +1553,762 @@ class SBOMQualityProcessor {
             averageDisplayScore: this.toDisplayScore(avgOverallScore),
             averageIdentification: Math.round(totals.identification / count),
             averageProvenance: Math.round(totals.provenance / count),
-            averageDependencies: Math.round(totals.dependencies / count),
-            averageMetadata: Math.round(totals.metadata / count),
+            averageIntegrity: Math.round(totals.integrity / count),
+            averageCompleteness: Math.round(totals.completeness / count),
             averageLicensing: Math.round(totals.licensing / count),
             averageVulnerability: Math.round(totals.vulnerability / count),
+            averageStructural: Math.round(totals.structural / count),
             totalRepositories: count,
             gradeDistribution,
             repositoriesNeedingAttention: repositoriesNeedingAttention.sort((a, b) => a.score - b.score)
         };
+    }
+
+    /**
+     * ============================================
+     * CISA 2025 MINIMUM ELEMENTS COMPLIANCE CHECK
+     * ============================================
+     * Based on CISA "2025 Minimum Elements for a Software Bill of Materials (SBOM)"
+     * https://www.cisa.gov/sites/default/files/2025-08/2025_CISA_SBOM_Minimum_Elements.pdf
+     * 
+     * Updates from NTIA 2021:
+     * - Renamed: "Supplier Name" → "Software Producer"
+     * - Renamed: "Author of SBOM Data" → "SBOM Author"  
+     * - NEW: Component Hash (required)
+     * - NEW: License Information (required)
+     * - NEW: Tool Name (required)
+     * - NEW: Generation Context (required)
+     */
+    
+    /**
+     * Assess CISA 2025 Minimum Elements compliance
+     * @param {Object} sbomData - The raw SBOM data
+     * @returns {Object} CISA 2025 compliance assessment
+     */
+    assessCISA2025Compliance(sbomData) {
+        if (!sbomData || !sbomData.sbom) {
+            return {
+                standard: 'CISA 2025',
+                compliant: false,
+                score: 0,
+                checks: {},
+                missingElements: ['No SBOM data available'],
+                details: 'Cannot assess CISA 2025 compliance without SBOM'
+            };
+        }
+
+        const sbom = sbomData.sbom;
+        const packages = sbom.packages || [];
+        
+        // CISA 2025 Minimum Elements (11 required data fields)
+        const cisaElements = {
+            // 1. Software Producer (was "Supplier Name")
+            softwareProducer: {
+                name: 'Software Producer',
+                description: 'Entity that creates, defines, and identifies components',
+                check: (pkg) => Boolean(pkg.supplier?.name || pkg.originator),
+                required: true
+            },
+            // 2. Component Name
+            componentName: {
+                name: 'Component Name',
+                description: 'Designation assigned to a unit of software',
+                check: (pkg) => Boolean(pkg.name && pkg.name.trim()),
+                required: true
+            },
+            // 3. Component Version
+            componentVersion: {
+                name: 'Component Version',
+                description: 'Identifier to specify a change from previously identified version',
+                check: (pkg) => Boolean(pkg.versionInfo && pkg.versionInfo !== 'NOASSERTION'),
+                required: true
+            },
+            // 4. Software Identifiers (PURL, CPE, OmniBOR, SWHID)
+            softwareIdentifier: {
+                name: 'Software Identifier',
+                description: 'Unique identifier (PURL, CPE, OmniBOR, SWHID)',
+                check: (pkg) => {
+                    if (!pkg.externalRefs) return false;
+                    return pkg.externalRefs.some(ref => 
+                        ref.referenceType === 'purl' || 
+                        ref.referenceType === 'cpe22Type' ||
+                        ref.referenceType === 'cpe23Type' ||
+                        ref.referenceLocator?.startsWith('gitoid:') ||
+                        ref.referenceLocator?.startsWith('swh:')
+                    );
+                },
+                required: true
+            },
+            // 5. Component Hash (NEW in CISA 2025)
+            componentHash: {
+                name: 'Component Hash',
+                description: 'Cryptographic fingerprint for integrity verification',
+                check: (pkg) => Boolean(pkg.checksums && pkg.checksums.length > 0),
+                required: true
+            },
+            // 6. License Information (NEW in CISA 2025)
+            licenseInfo: {
+                name: 'License Information',
+                description: 'Legal terms under which component is used',
+                check: (pkg) => Boolean(
+                    (pkg.licenseConcluded && pkg.licenseConcluded !== 'NOASSERTION') ||
+                    (pkg.licenseDeclared && pkg.licenseDeclared !== 'NOASSERTION')
+                ),
+                required: true
+            },
+            // 7. Dependency Relationship
+            dependencyRelationship: {
+                name: 'Dependency Relationship',
+                description: 'Relationship of upstream component to the software',
+                checkSbom: (sbom) => Boolean(sbom.relationships && sbom.relationships.length > 0),
+                required: true
+            },
+            // 8. SBOM Author (was "Author of SBOM Data")
+            sbomAuthor: {
+                name: 'SBOM Author',
+                description: 'Entity that creates the SBOM data',
+                checkSbom: (sbom) => Boolean(sbom.creationInfo?.creators && sbom.creationInfo.creators.length > 0),
+                required: true
+            },
+            // 9. Timestamp
+            timestamp: {
+                name: 'Timestamp',
+                description: 'Date and time the SBOM was assembled',
+                checkSbom: (sbom) => Boolean(sbom.creationInfo?.created),
+                required: true
+            },
+            // 10. Tool Name (NEW in CISA 2025)
+            toolName: {
+                name: 'Tool Name',
+                description: 'Tool used to generate the SBOM',
+                checkSbom: (sbom) => {
+                    const creators = sbom.creationInfo?.creators || [];
+                    return creators.some(c => c.startsWith('Tool:'));
+                },
+                required: true
+            },
+            // 11. Generation Context (NEW in CISA 2025)
+            generationContext: {
+                name: 'Generation Context',
+                description: 'Stage at which SBOM was created (pre-build, build, post-build)',
+                checkSbom: (sbom) => {
+                    // Check for lifecycle info in CycloneDX or SPDX
+                    if (sbom.metadata?.lifecycles) return true;
+                    // Check creator comment for context
+                    if (sbom.creationInfo?.comment) return true;
+                    // Check for build-related creator tools
+                    const creators = sbom.creationInfo?.creators || [];
+                    return creators.some(c => 
+                        c.toLowerCase().includes('build') ||
+                        c.toLowerCase().includes('runtime') ||
+                        c.toLowerCase().includes('source')
+                    );
+                },
+                required: true
+            }
+        };
+
+        const checks = {};
+        const missingElements = [];
+        let passedChecks = 0;
+        let totalChecks = 0;
+
+        // Check SBOM-level elements
+        for (const [key, element] of Object.entries(cisaElements)) {
+            if (element.checkSbom) {
+                totalChecks++;
+                const passed = element.checkSbom(sbom);
+                checks[key] = {
+                    name: element.name,
+                    description: element.description,
+                    passed: passed,
+                    required: element.required,
+                    isNew: ['toolName', 'generationContext'].includes(key)
+                };
+                if (passed) {
+                    passedChecks++;
+                } else {
+                    missingElements.push(element.name + (['toolName', 'generationContext'].includes(key) ? ' (NEW)' : ''));
+                }
+            }
+        }
+
+        // Check package-level elements (aggregate across all packages)
+        const packageLevelElements = ['softwareProducer', 'componentName', 'componentVersion', 'softwareIdentifier', 'componentHash', 'licenseInfo'];
+        
+        for (const key of packageLevelElements) {
+            const element = cisaElements[key];
+            if (!element.check) continue;
+            
+            totalChecks++;
+            let packagesWithElement = 0;
+            
+            packages.forEach(pkg => {
+                if (element.check(pkg)) {
+                    packagesWithElement++;
+                }
+            });
+            
+            const coverage = packages.length > 0 ? (packagesWithElement / packages.length) : 0;
+            const passed = coverage >= 0.9; // 90% coverage threshold for compliance
+            
+            checks[key] = {
+                name: element.name,
+                description: element.description,
+                passed: passed,
+                required: element.required,
+                coverage: Math.round(coverage * 100),
+                packagesWithElement: packagesWithElement,
+                totalPackages: packages.length,
+                isNew: ['componentHash', 'licenseInfo'].includes(key)
+            };
+            
+            if (passed) {
+                passedChecks++;
+            } else {
+                const newTag = ['componentHash', 'licenseInfo'].includes(key) ? ' (NEW)' : '';
+                missingElements.push(`${element.name}${newTag} (${Math.round(coverage * 100)}% coverage)`);
+            }
+        }
+
+        const score = totalChecks > 0 ? Math.round((passedChecks / totalChecks) * 100) : 0;
+        const compliant = passedChecks === totalChecks;
+
+        return {
+            standard: 'CISA 2025',
+            compliant: compliant,
+            score: score,
+            passedChecks: passedChecks,
+            totalChecks: totalChecks,
+            checks: checks,
+            missingElements: missingElements,
+            details: compliant 
+                ? 'SBOM meets CISA 2025 Minimum Elements requirements'
+                : `Missing ${missingElements.length} CISA 2025 Minimum Element(s)`
+        };
+    }
+
+    /**
+     * Legacy alias for backward compatibility
+     */
+    assessNTIACompliance(sbomData) {
+        // CISA 2025 supersedes NTIA - return CISA assessment
+        return this.assessCISA2025Compliance(sbomData);
+    }
+
+    /**
+     * ============================================
+     * BSI TR-03183-2 v2.0 COMPLIANCE CHECK
+     * ============================================
+     * German Federal Office for Information Security (BSI) Technical Guideline
+     * https://www.bsi.bund.de/SharedDocs/Downloads/EN/BSI/Publications/TechGuidelines/TR03183/BSI-TR-03183-2-2_0_0.pdf
+     */
+    
+    /**
+     * Assess BSI TR-03183-2 v2.0 compliance
+     * @param {Object} sbomData - The raw SBOM data
+     * @returns {Object} BSI compliance assessment
+     */
+    assessBSICompliance(sbomData) {
+        if (!sbomData || !sbomData.sbom) {
+            return {
+                standard: 'BSI TR-03183-2 v2.0',
+                compliant: false,
+                score: 0,
+                checks: {},
+                missingElements: ['No SBOM data available'],
+                details: 'Cannot assess BSI compliance without SBOM'
+            };
+        }
+
+        const sbom = sbomData.sbom;
+        const packages = sbom.packages || [];
+        
+        // BSI TR-03183-2 v2.0 Required Elements
+        const bsiElements = {
+            // SBOM-level required fields
+            specification: {
+                name: 'SBOM Specification',
+                description: 'Valid SPDX or CycloneDX format',
+                checkSbom: (sbom) => Boolean(sbom.spdxVersion || sbom.bomFormat),
+                required: true
+            },
+            specVersion: {
+                name: 'Specification Version',
+                description: 'CycloneDX 1.5+ or SPDX 2.2.1+',
+                checkSbom: (sbom) => {
+                    if (sbom.spdxVersion) {
+                        const match = sbom.spdxVersion.match(/SPDX-(\d+)\.(\d+)/);
+                        if (match) {
+                            const major = parseInt(match[1]);
+                            const minor = parseInt(match[2]);
+                            return major > 2 || (major === 2 && minor >= 2);
+                        }
+                    }
+                    if (sbom.specVersion) {
+                        const parts = sbom.specVersion.split('.');
+                        const major = parseInt(parts[0]);
+                        const minor = parseInt(parts[1] || 0);
+                        return major > 1 || (major === 1 && minor >= 5);
+                    }
+                    return false;
+                },
+                required: true
+            },
+            creator: {
+                name: 'SBOM Creator',
+                description: 'Creator with email or URL',
+                checkSbom: (sbom) => {
+                    const creators = sbom.creationInfo?.creators || [];
+                    return creators.some(c => c.includes('@') || c.includes('http'));
+                },
+                required: true
+            },
+            timestamp: {
+                name: 'Creation Timestamp',
+                description: 'ISO 8601 timestamp',
+                checkSbom: (sbom) => Boolean(sbom.creationInfo?.created),
+                required: true
+            },
+            sbomUri: {
+                name: 'SBOM URI',
+                description: 'Unique SBOM identifier (namespace or serialNumber)',
+                checkSbom: (sbom) => Boolean(sbom.documentNamespace || sbom.serialNumber),
+                required: true
+            },
+            dependencies: {
+                name: 'Dependency Relationships',
+                description: 'Component dependency graph',
+                checkSbom: (sbom) => Boolean(sbom.relationships && sbom.relationships.length > 0),
+                required: true
+            },
+            // Package-level required fields
+            componentName: {
+                name: 'Component Name',
+                description: 'Package name',
+                check: (pkg) => Boolean(pkg.name && pkg.name.trim()),
+                required: true
+            },
+            componentVersion: {
+                name: 'Component Version',
+                description: 'Package version',
+                check: (pkg) => Boolean(pkg.versionInfo && pkg.versionInfo !== 'NOASSERTION'),
+                required: true
+            },
+            componentCreator: {
+                name: 'Component Supplier',
+                description: 'Supplier with email or URL',
+                check: (pkg) => {
+                    const supplier = pkg.supplier?.name || pkg.originator || '';
+                    return supplier.includes('@') || supplier.includes('http') || Boolean(supplier);
+                },
+                required: true
+            },
+            componentLicense: {
+                name: 'Associated License',
+                description: 'Valid SPDX license expression',
+                check: (pkg) => Boolean(
+                    (pkg.licenseConcluded && pkg.licenseConcluded !== 'NOASSERTION') ||
+                    (pkg.licenseDeclared && pkg.licenseDeclared !== 'NOASSERTION')
+                ),
+                required: true
+            },
+            componentHash: {
+                name: 'Component Hash (SHA-256)',
+                description: 'SHA-256 or stronger checksum',
+                check: (pkg) => {
+                    if (!pkg.checksums) return false;
+                    return pkg.checksums.some(c => 
+                        /sha256|sha384|sha512|sha3/i.test(c.algorithm)
+                    );
+                },
+                required: true
+            },
+            uniqueIdentifiers: {
+                name: 'Unique Identifiers',
+                description: 'CPE or PURL identifier',
+                check: (pkg) => {
+                    if (!pkg.externalRefs) return false;
+                    return pkg.externalRefs.some(ref => 
+                        ref.referenceType === 'purl' || 
+                        ref.referenceType === 'cpe22Type' ||
+                        ref.referenceType === 'cpe23Type'
+                    );
+                },
+                required: true
+            }
+        };
+
+        const checks = {};
+        const missingElements = [];
+        let passedChecks = 0;
+        let totalChecks = 0;
+
+        // Check SBOM-level elements
+        for (const [key, element] of Object.entries(bsiElements)) {
+            if (element.checkSbom) {
+                totalChecks++;
+                const passed = element.checkSbom(sbom);
+                checks[key] = {
+                    name: element.name,
+                    description: element.description,
+                    passed: passed,
+                    required: element.required
+                };
+                if (passed) {
+                    passedChecks++;
+                } else {
+                    missingElements.push(element.name);
+                }
+            }
+        }
+
+        // Check package-level elements
+        const packageLevelElements = ['componentName', 'componentVersion', 'componentCreator', 'componentLicense', 'componentHash', 'uniqueIdentifiers'];
+        
+        for (const key of packageLevelElements) {
+            const element = bsiElements[key];
+            if (!element.check) continue;
+            
+            totalChecks++;
+            let packagesWithElement = 0;
+            
+            packages.forEach(pkg => {
+                if (element.check(pkg)) {
+                    packagesWithElement++;
+                }
+            });
+            
+            const coverage = packages.length > 0 ? (packagesWithElement / packages.length) : 0;
+            const passed = coverage >= 0.9; // 90% coverage threshold
+            
+            checks[key] = {
+                name: element.name,
+                description: element.description,
+                passed: passed,
+                required: element.required,
+                coverage: Math.round(coverage * 100),
+                packagesWithElement: packagesWithElement,
+                totalPackages: packages.length
+            };
+            
+            if (passed) {
+                passedChecks++;
+            } else {
+                missingElements.push(`${element.name} (${Math.round(coverage * 100)}% coverage)`);
+            }
+        }
+
+        const score = totalChecks > 0 ? Math.round((passedChecks / totalChecks) * 100) : 0;
+        const compliant = passedChecks === totalChecks;
+
+        return {
+            standard: 'BSI TR-03183-2 v2.0',
+            compliant: compliant,
+            score: score,
+            passedChecks: passedChecks,
+            totalChecks: totalChecks,
+            checks: checks,
+            missingElements: missingElements,
+            details: compliant 
+                ? 'SBOM meets BSI TR-03183-2 v2.0 requirements'
+                : `Missing ${missingElements.length} BSI requirement(s)`
+        };
+    }
+
+    /**
+     * Assess all compliance standards
+     * @param {Object} sbomData - The raw SBOM data
+     * @returns {Object} All compliance assessments
+     */
+    assessAllCompliance(sbomData) {
+        return {
+            cisa2025: this.assessCISA2025Compliance(sbomData),
+            bsi: this.assessBSICompliance(sbomData),
+            timestamp: Date.now()
+        };
+    }
+
+    /**
+     * ============================================
+     * SBOM FRESHNESS ASSESSMENT
+     * ============================================
+     */
+
+    /**
+     * Assess SBOM freshness (age and generation date)
+     * @param {Object} sbomData - The raw SBOM data
+     * @returns {Object} Freshness assessment
+     */
+    assessFreshness(sbomData) {
+        if (!sbomData || !sbomData.sbom) {
+            return {
+                isFresh: false,
+                ageInDays: null,
+                ageInMonths: null,
+                generatedAt: null,
+                status: 'unknown',
+                statusColor: 'secondary',
+                details: 'Cannot assess freshness without SBOM'
+            };
+        }
+
+        const sbom = sbomData.sbom;
+        const createdAt = sbom.creationInfo?.created;
+        
+        if (!createdAt) {
+            return {
+                isFresh: false,
+                ageInDays: null,
+                ageInMonths: null,
+                generatedAt: null,
+                status: 'unknown',
+                statusColor: 'secondary',
+                details: 'SBOM has no creation timestamp'
+            };
+        }
+
+        const creationDate = new Date(createdAt);
+        const now = new Date();
+        const ageInMs = now - creationDate;
+        const ageInDays = Math.floor(ageInMs / (1000 * 60 * 60 * 24));
+        const ageInMonths = Math.floor(ageInDays / 30);
+        
+        let status, statusColor, isFresh;
+        
+        if (ageInDays <= 7) {
+            status = 'Very Fresh';
+            statusColor = 'success';
+            isFresh = true;
+        } else if (ageInDays <= 30) {
+            status = 'Fresh';
+            statusColor = 'success';
+            isFresh = true;
+        } else if (ageInDays <= 90) {
+            status = 'Recent';
+            statusColor = 'info';
+            isFresh = true;
+        } else if (ageInDays <= 180) {
+            status = 'Aging';
+            statusColor = 'warning';
+            isFresh = false;
+        } else if (ageInDays <= 365) {
+            status = 'Old';
+            statusColor = 'warning';
+            isFresh = false;
+        } else {
+            status = 'Stale';
+            statusColor = 'danger';
+            isFresh = false;
+        }
+
+        return {
+            isFresh: isFresh,
+            ageInDays: ageInDays,
+            ageInMonths: ageInMonths,
+            generatedAt: createdAt,
+            generatedAtFormatted: creationDate.toLocaleDateString('en-US', {
+                year: 'numeric',
+                month: 'short',
+                day: 'numeric'
+            }),
+            status: status,
+            statusColor: statusColor,
+            details: `SBOM generated ${ageInDays} day(s) ago (${status})`
+        };
+    }
+
+    /**
+     * ============================================
+     * COMPLETENESS SCORE
+     * ============================================
+     */
+
+    /**
+     * Calculate completeness score for an SBOM
+     * Percentage of packages with complete metadata
+     * @param {Object} sbomData - The raw SBOM data
+     * @returns {Object} Completeness assessment
+     */
+    assessCompleteness(sbomData) {
+        if (!sbomData || !sbomData.sbom) {
+            return {
+                score: 0,
+                percentage: 0,
+                completePackages: 0,
+                totalPackages: 0,
+                breakdown: {},
+                details: 'Cannot assess completeness without SBOM'
+            };
+        }
+
+        const sbom = sbomData.sbom;
+        const packages = sbom.packages || [];
+        
+        if (packages.length === 0) {
+            return {
+                score: 0,
+                percentage: 0,
+                completePackages: 0,
+                totalPackages: 0,
+                breakdown: {},
+                details: 'No packages in SBOM'
+            };
+        }
+
+        // Define completeness criteria
+        const fields = {
+            name: { weight: 20, check: (pkg) => Boolean(pkg.name && pkg.name.trim()) },
+            version: { weight: 20, check: (pkg) => Boolean(pkg.versionInfo && pkg.versionInfo !== 'NOASSERTION') },
+            purl: { weight: 20, check: (pkg) => {
+                if (!pkg.externalRefs) return false;
+                return pkg.externalRefs.some(ref => ref.referenceType === 'purl');
+            }},
+            license: { weight: 15, check: (pkg) => Boolean(pkg.licenseConcluded && pkg.licenseConcluded !== 'NOASSERTION') },
+            supplier: { weight: 10, check: (pkg) => Boolean(pkg.supplier?.name || pkg.originator) },
+            downloadLocation: { weight: 10, check: (pkg) => Boolean(pkg.downloadLocation && pkg.downloadLocation !== 'NOASSERTION') },
+            checksum: { weight: 5, check: (pkg) => Boolean(pkg.checksums && pkg.checksums.length > 0) }
+        };
+
+        const breakdown = {};
+        let totalScore = 0;
+        let completePackages = 0;
+
+        // Initialize breakdown
+        for (const [key, field] of Object.entries(fields)) {
+            breakdown[key] = { 
+                count: 0, 
+                percentage: 0,
+                weight: field.weight
+            };
+        }
+
+        // Check each package
+        packages.forEach(pkg => {
+            let packageScore = 0;
+            
+            for (const [key, field] of Object.entries(fields)) {
+                if (field.check(pkg)) {
+                    breakdown[key].count++;
+                    packageScore += field.weight;
+                }
+            }
+            
+            totalScore += packageScore;
+            
+            // A package is "complete" if it has at least 80% of possible score
+            if (packageScore >= 80) {
+                completePackages++;
+            }
+        });
+
+        // Calculate percentages
+        for (const key of Object.keys(breakdown)) {
+            breakdown[key].percentage = Math.round((breakdown[key].count / packages.length) * 100);
+        }
+
+        const maxPossibleScore = packages.length * 100;
+        const overallPercentage = Math.round((totalScore / maxPossibleScore) * 100);
+
+        return {
+            score: overallPercentage,
+            percentage: overallPercentage,
+            completePackages: completePackages,
+            totalPackages: packages.length,
+            completePercentage: Math.round((completePackages / packages.length) * 100),
+            breakdown: breakdown,
+            details: `${overallPercentage}% complete (${completePackages}/${packages.length} packages fully documented)`
+        };
+    }
+
+    /**
+     * Generate comprehensive SBOM audit report
+     * Combines all assessments into a single report
+     * @param {Object} sbomData - The raw SBOM data
+     * @param {string} owner - Repository owner
+     * @param {string} repo - Repository name
+     * @returns {Object} Comprehensive audit report
+     */
+    generateAuditReport(sbomData, owner, repo) {
+        const quality = this.assessQuality(sbomData, owner, repo);
+        const cisa2025 = this.assessCISA2025Compliance(sbomData);
+        const bsi = this.assessBSICompliance(sbomData);
+        const freshness = this.assessFreshness(sbomData);
+        const completeness = this.assessCompleteness(sbomData);
+        
+        // Calculate audit risk score (0-100, lower is better)
+        let riskScore = 0;
+        
+        // Quality contributes 35% to risk (inverted from score)
+        riskScore += (100 - quality.overallScore) * 0.35;
+        
+        // CISA 2025 compliance contributes 25% to risk
+        riskScore += (100 - cisa2025.score) * 0.25;
+        
+        // BSI compliance contributes 10% to risk
+        riskScore += (100 - bsi.score) * 0.10;
+        
+        // Freshness contributes 15% to risk
+        const freshnessScore = freshness.isFresh ? 100 : 
+                              freshness.status === 'Aging' ? 60 :
+                              freshness.status === 'Old' ? 30 : 0;
+        riskScore += (100 - freshnessScore) * 0.15;
+        
+        // Completeness contributes 15% to risk
+        riskScore += (100 - completeness.score) * 0.15;
+        
+        riskScore = Math.round(riskScore);
+        
+        // Determine risk level
+        let riskLevel, riskColor;
+        if (riskScore <= 20) {
+            riskLevel = 'Low';
+            riskColor = 'success';
+        } else if (riskScore <= 40) {
+            riskLevel = 'Moderate';
+            riskColor = 'info';
+        } else if (riskScore <= 60) {
+            riskLevel = 'Medium';
+            riskColor = 'warning';
+        } else if (riskScore <= 80) {
+            riskLevel = 'High';
+            riskColor = 'danger';
+        } else {
+            riskLevel = 'Critical';
+            riskColor = 'dark';
+        }
+
+        return {
+            repository: `${owner}/${repo}`,
+            timestamp: Date.now(),
+            quality: quality,
+            cisa2025Compliance: cisa2025,
+            bsiCompliance: bsi,
+            // Legacy alias for backward compatibility
+            ntiaCompliance: cisa2025,
+            freshness: freshness,
+            completeness: completeness,
+            riskScore: riskScore,
+            riskLevel: riskLevel,
+            riskColor: riskColor,
+            summary: this.generateAuditSummary(quality, cisa2025, bsi, freshness, completeness, riskLevel)
+        };
+    }
+
+    /**
+     * Generate human-readable audit summary
+     */
+    generateAuditSummary(quality, cisa2025, bsi, freshness, completeness, riskLevel) {
+        const summaryParts = [];
+        
+        summaryParts.push(`SBOM Quality: Grade ${quality.grade} (${quality.displayScore}/10)`);
+        summaryParts.push(`CISA 2025: ${cisa2025.compliant ? '✓' : '✗'} (${cisa2025.score}%)`);
+        summaryParts.push(`BSI: ${bsi.compliant ? '✓' : '✗'} (${bsi.score}%)`);
+        summaryParts.push(`Freshness: ${freshness.status}`);
+        summaryParts.push(`Completeness: ${completeness.percentage}%`);
+        summaryParts.push(`Risk: ${riskLevel}`);
+        
+        return summaryParts.join(' | ');
     }
 }
 

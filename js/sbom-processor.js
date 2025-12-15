@@ -274,19 +274,29 @@ class SBOMProcessor {
         
         // Extract ALL dependency relationships (not just direct from main package)
         // This allows us to build the full dependency tree
-        const mainPackageSPDXID = sbomData.sbom.packages.find(p => 
-            p.name === `com.github.${owner}/${repo}` || p.name === `${owner}/${repo}`
-        )?.SPDXID;
+        // 
+        // For uploaded CycloneDX SBOMs: use _rootComponentSPDXID (root component's bom-ref converted to SPDXID)
+        // For GitHub SBOMs: use the main package SPDXID (com.github.owner/repo)
+        const mainPackageSPDXID = sbomData.sbom._rootComponentSPDXID || 
+            sbomData.sbom.packages.find(p => 
+                p.name === `com.github.${owner}/${repo}` || p.name === `${owner}/${repo}`
+            )?.SPDXID;
         
         if (sbomData.sbom.relationships && Array.isArray(sbomData.sbom.relationships)) {
             // Store all DEPENDS_ON relationships for graph visualization
             sbomData.sbom.relationships.forEach(rel => {
                 if (rel.relationshipType === 'DEPENDS_ON') {
+                    // Check if this is a direct dependency:
+                    // 1. From CycloneDX: _isDirectDependency flag (set by sbom-parser)
+                    // 2. From GitHub SBOM: spdxElementId matches mainPackageSPDXID
+                    const isDirectFromMain = rel._isDirectDependency || 
+                        (mainPackageSPDXID && rel.spdxElementId === mainPackageSPDXID);
+                    
                     repoData.relationships.push({
                         from: rel.spdxElementId,
                         to: rel.relatedSpdxElement,
                         type: rel.relationshipType,
-                        isDirectFromMain: rel.spdxElementId === mainPackageSPDXID
+                        isDirectFromMain: isDirectFromMain
                     });
                 }
             });
@@ -603,7 +613,8 @@ class SBOMProcessor {
         
         repos.forEach(repo => {
             Object.keys(categoryBreakdown).forEach(category => {
-                categoryBreakdown[category] += repo.dependencyCategories[category].size;
+                const depCat = repo.dependencyCategories?.[category];
+                categoryBreakdown[category] += depCat?.size || 0;
             });
         });
         
@@ -626,19 +637,22 @@ class SBOMProcessor {
         return Array.from(this.repositories.values())
             .sort((a, b) => b.totalDependencies - a.totalDependencies)
             .slice(0, limit)
-            .map(repo => ({
-                name: repo.name,
-                owner: repo.owner,
-                totalDependencies: repo.totalDependencies,
-                dependencies: Array.from(repo.dependencies),
-                categoryBreakdown: {
-                    code: repo.dependencyCategories.code.size,
-                    workflow: repo.dependencyCategories.workflow.size,
-                    infrastructure: repo.dependencyCategories.infrastructure.size,
-                    unknown: repo.dependencyCategories.unknown.size
-                },
-                languages: Array.from(repo.languages)
-            }));
+            .map(repo => {
+                const depCat = repo.dependencyCategories || {};
+                return {
+                    name: repo.name,
+                    owner: repo.owner,
+                    totalDependencies: repo.totalDependencies,
+                    dependencies: Array.from(repo.dependencies || []),
+                    categoryBreakdown: {
+                        code: depCat.code?.size || 0,
+                        workflow: depCat.workflow?.size || 0,
+                        infrastructure: depCat.infrastructure?.size || 0,
+                        unknown: depCat.unknown?.size || 0
+                    },
+                    languages: Array.from(repo.languages || [])
+                };
+            });
     }
 
     /**
@@ -732,6 +746,41 @@ class SBOMProcessor {
                         ecosystem,
                         ecosystemProgressCallback
                     );
+                    
+                    // Track packages not found in any registry (dependency confusion risk)
+                    const notFoundPackages = resolver.getRegistryNotFoundPackages();
+                    if (notFoundPackages && notFoundPackages.size > 0) {
+                        console.log(`    ⚠️ ${notFoundPackages.size} package(s) not found in ${ecosystem} registry (potential dependency confusion)`);
+                        notFoundPackages.forEach(pkgKey => {
+                            const dep = this.dependencies.get(pkgKey);
+                            if (dep) {
+                                dep.registryNotFound = true;
+                                // Get evidence URL if available
+                                const evidence = resolver.getConfusionEvidence(pkgKey);
+                                if (evidence) {
+                                    dep.confusionEvidence = evidence;
+                                }
+                            }
+                        });
+                    }
+                    
+                    // Track packages with namespaces not found (higher confidence dependency confusion)
+                    const namespaceNotFound = resolver.getNamespaceNotFoundPackages();
+                    if (namespaceNotFound && namespaceNotFound.size > 0) {
+                        console.log(`    ⚠️⚠️ ${namespaceNotFound.size} package(s) with NAMESPACE not found in ${ecosystem} registry (HIGH-CONFIDENCE dependency confusion)`);
+                        namespaceNotFound.forEach(pkgKey => {
+                            const dep = this.dependencies.get(pkgKey);
+                            if (dep) {
+                                dep.namespaceNotFound = true;
+                                dep.registryNotFound = true; // Also mark as registry not found for backward compatibility
+                                // Get evidence URL if available
+                                const evidence = resolver.getConfusionEvidence(pkgKey);
+                                if (evidence) {
+                                    dep.confusionEvidence = evidence;
+                                }
+                            }
+                        });
+                    }
                     
                     // Update dependencies with depth information
                     // Use depth to correctly classify dependencies as direct (depth=1) or transitive (depth>1)
@@ -935,11 +984,109 @@ class SBOMProcessor {
             this.dependencyTreesResolved = true;
             this.resolvedDependencyTrees = resolvedTrees;
             
+            // Proactively check all dependencies for confusion using their original PURLs
+            // This catches cases where SBOM name != PURL package name (e.g., mislabeled dependencies)
+            await this.checkDependencyConfusionFromPurls();
+            
             return resolvedTrees;
             
         } catch (error) {
             console.error('❌ Error during dependency tree resolution:', error);
             return null;
+        }
+    }
+
+    /**
+     * Proactively check all dependencies for dependency confusion using their original PURLs
+     * This catches cases where the SBOM package name differs from the PURL package name
+     * (e.g., name: "content-type" but purl: "pkg:npm/internal-package@1.0.4")
+     */
+    async checkDependencyConfusionFromPurls() {
+        if (!window.depConfuseService) {
+            console.log('⚠️ DepConfuseService not available, skipping proactive PURL confusion check');
+            return;
+        }
+
+        console.log('🔍 Proactively checking dependencies for confusion using original PURLs...');
+        let checked = 0;
+        let vulnerable = 0;
+
+        for (const [depKey, dep] of this.dependencies) {
+            // Skip if already marked as not found (already checked)
+            if (dep.registryNotFound || dep.namespaceNotFound) {
+                continue;
+            }
+
+            // Get original PURL from the dependency
+            let purl = null;
+            if (dep.originalPackage && dep.originalPackage.externalRefs) {
+                const purlRef = dep.originalPackage.externalRefs.find(ref => ref.referenceType === 'purl');
+                if (purlRef && purlRef.referenceLocator) {
+                    purl = purlRef.referenceLocator;
+                }
+            }
+
+            if (!purl) continue;
+
+            // Extract package name from PURL and compare with dependency name
+            // If they differ, this is a potential mislabeling that needs checking
+            const purlMatch = purl.match(/pkg:[^\/]+\/([^@]+)/);
+            if (!purlMatch) continue;
+
+            let purlPackageName = decodeURIComponent(purlMatch[1]);
+            // Handle scoped packages (remove @ prefix for comparison)
+            if (purlPackageName.startsWith('%40')) {
+                purlPackageName = '@' + purlPackageName.substring(3);
+            }
+
+            // If PURL package name matches dependency name, skip (already checked during tree resolution)
+            if (purlPackageName === dep.name || purlPackageName.endsWith('/' + dep.name)) {
+                continue;
+            }
+
+            // PURL has different package name - check it for confusion
+            console.log(`    🔍 Checking PURL with different name: ${dep.name} vs PURL: ${purl}`);
+            checked++;
+
+            try {
+                const result = await window.depConfuseService.checkPackageForConfusion(purl);
+                
+                if (result.vulnerable) {
+                    vulnerable++;
+                    // Store the PURL that was actually checked (may differ from dep.name)
+                    dep.confusionPurl = purl;
+                    dep.confusionPurlName = purlPackageName;
+                    
+                    if (result.type === 'namespace_not_found') {
+                        dep.namespaceNotFound = true;
+                        dep.registryNotFound = true;
+                        console.log(`    ⚠️⚠️ PURL namespace not found: ${purl} - HIGH-CONFIDENCE dependency confusion`);
+                    } else {
+                        dep.registryNotFound = true;
+                        console.log(`    ⚠️ PURL package not found: ${purl} - potential dependency confusion`);
+                    }
+                    
+                    if (result.evidenceUrl) {
+                        dep.confusionEvidence = result.evidenceUrl;
+                    }
+                    
+                    // Store severity and message from the check result
+                    if (result.severity) {
+                        dep.confusionSeverity = result.severity;
+                    }
+                    if (result.message) {
+                        dep.confusionMessage = result.message;
+                    }
+                }
+            } catch (error) {
+                console.warn(`    ⚠️ Failed to check PURL ${purl}: ${error.message}`);
+            }
+        }
+
+        if (checked > 0) {
+            console.log(`✅ Proactive PURL check complete: ${checked} checked, ${vulnerable} vulnerable`);
+        } else {
+            console.log('✅ No mismatched PURL names found to check');
         }
     }
 
@@ -981,6 +1128,22 @@ class SBOMProcessor {
                 }
             }
             
+            // Extract license from originalPackage.licenseConcluded if not already set
+            // This handles licenses parsed from CycloneDX/SPDX SBOMs
+            let license = dep.license || null;
+            let licenseFull = dep.licenseFull || null;
+            let licenseAugmented = dep._licenseAugmented || false;
+            let licenseSource = dep._licenseSource || null;
+            
+            if (!license && dep.originalPackage && dep.originalPackage.licenseConcluded) {
+                license = dep.originalPackage.licenseConcluded;
+                licenseFull = dep.originalPackage.licenseConcluded;
+                licenseSource = 'sbom'; // License came from original SBOM
+            } else if (license && !licenseSource) {
+                // License was fetched externally
+                licenseSource = licenseAugmented ? 'external' : 'sbom';
+            }
+            
             // Determine repository license for this dependency
             // For dependencies from repositories, use the first repository's license as fallback
             let repositoryLicense = null;
@@ -1003,34 +1166,46 @@ class SBOMProcessor {
                 category: dep.category,
                 languages: Array.from(dep.languages),
                 purl: purl,  // Include extracted PURL for author analysis
+                registryNotFound: dep.registryNotFound || false,  // Potential dependency confusion risk
+                namespaceNotFound: dep.namespaceNotFound || false,  // HIGH-CONFIDENCE dependency confusion (namespace missing)
+                confusionEvidence: dep.confusionEvidence || null,  // URL proving the package/namespace doesn't exist
+                confusionPurl: dep.confusionPurl || null,  // The PURL that was checked (may differ from name)
+                confusionPurlName: dep.confusionPurlName || null,  // Package name from PURL that was not found
+                confusionSeverity: dep.confusionSeverity || null,  // Severity level from confusion check (e.g., 'low' for PyPI system packages)
+                confusionMessage: dep.confusionMessage || null,  // Detailed message from confusion check
                 originalPackage: dep.originalPackage,  // Include original package data
                 depth: dep.depth || null,  // Depth in dependency tree (1 = direct, 2+ = transitive)
                 parents: dep.parents || [],  // Parent dependencies (what brings this in)
                 children: dep.children || [],  // Child dependencies (what this brings in)
-                license: dep.license || null,  // Include license (short form)
-                licenseFull: dep.licenseFull || null,  // Include license (full form)
+                license: license,  // Include license (short form, from SBOM or fetched)
+                licenseFull: licenseFull,  // Include license (full form, from SBOM or fetched)
+                licenseAugmented: licenseAugmented,  // True if license was fetched externally
+                licenseSource: licenseSource,  // 'sbom' or 'deps.dev' or 'external'
                 repositoryLicense: repositoryLicense  // Include repository license as fallback
             };
         });
-        const allRepos = Array.from(this.repositories.values()).map(repo => ({
-            name: repo.name,
-            owner: repo.owner,
-            license: repo.license || null,  // Include repository license
-            archived: repo.archived || false,  // Include archived status
-            totalDependencies: repo.totalDependencies,
-            dependencies: Array.from(repo.dependencies),
-            directDependencies: Array.from(repo.directDependencies || []),  // Direct dependencies
-            categoryBreakdown: {
-                code: repo.dependencyCategories.code.size,
-                workflow: repo.dependencyCategories.workflow.size,
-                infrastructure: repo.dependencyCategories.infrastructure.size,
-                unknown: repo.dependencyCategories.unknown.size
-            },
-            languages: Array.from(repo.languages),
-            relationships: repo.relationships || [],  // Include ALL relationships for graph visualization
-            spdxPackages: repo.spdxPackages || [],  // Store SPDX package data for mapping
-            qualityAssessment: repo.qualityAssessment || null  // Include SBOM quality assessment
-        }));
+        const allRepos = Array.from(this.repositories.values()).map(repo => {
+            const depCat = repo.dependencyCategories || {};
+            return {
+                name: repo.name,
+                owner: repo.owner,
+                license: repo.license || null,  // Include repository license
+                archived: repo.archived || false,  // Include archived status
+                totalDependencies: repo.totalDependencies,
+                dependencies: Array.from(repo.dependencies || []),
+                directDependencies: Array.from(repo.directDependencies || []),  // Direct dependencies
+                categoryBreakdown: {
+                    code: depCat.code?.size || 0,
+                    workflow: depCat.workflow?.size || 0,
+                    infrastructure: depCat.infrastructure?.size || 0,
+                    unknown: depCat.unknown?.size || 0
+                },
+                languages: Array.from(repo.languages || []),
+                relationships: repo.relationships || [],  // Include ALL relationships for graph visualization
+                spdxPackages: repo.spdxPackages || [],  // Store SPDX package data for mapping
+                qualityAssessment: repo.qualityAssessment || null  // Include SBOM quality assessment
+            };
+        });
 
         // Calculate aggregate quality analysis if quality processor is available
         let qualityAnalysis = null;
@@ -1334,35 +1509,72 @@ class SBOMProcessor {
                     }
                 }
                 
+                // Extract license from originalPackage if not already set
+                let license = dep.license || dep.licenseFull;
+                let licenseAugmented = dep._licenseAugmented || false;
+                let licenseSource = dep._licenseSource || null;
+                
+                if (!license && dep.originalPackage && dep.originalPackage.licenseConcluded) {
+                    license = dep.originalPackage.licenseConcluded;
+                    licenseSource = 'sbom';
+                }
+                
                 return {
                     name: dep.name,
                     version: dep.displayVersion || dep.version,  // Use displayVersion (may be assumed)
                     assumedVersion: dep.assumedVersion || null,  // Latest version if assumed
                     count: dep.count,
                     repositories: Array.from(dep.repositories),
+                    directIn: Array.from(dep.directIn || []),  // Repos using as direct dependency
+                    transitiveIn: Array.from(dep.transitiveIn || []),  // Repos using as transitive dependency
+                    parents: dep.parents ? Array.from(dep.parents) : [],  // Parent packages (for transitive deps)
+                    depth: dep.depth || null,  // Depth in dependency tree (1 = direct, 2+ = transitive)
                     category: dep.category,
                     languages: Array.from(dep.languages),
-                    purl: purl  // Include extracted PURL for author analysis
+                    purl: purl,  // Include extracted PURL for author analysis
+                    registryNotFound: dep.registryNotFound || false,  // Potential dependency confusion risk
+                    namespaceNotFound: dep.namespaceNotFound || false,  // HIGH-CONFIDENCE dependency confusion (namespace missing)
+                    confusionEvidence: dep.confusionEvidence || null,  // URL proving the package/namespace doesn't exist
+                    confusionPurl: dep.confusionPurl || null,  // The PURL that was checked (may differ from name)
+                    confusionPurlName: dep.confusionPurlName || null,  // Package name from PURL that was not found
+                    confusionSeverity: dep.confusionSeverity || null,  // Severity level from confusion check (e.g., 'low' for PyPI system packages)
+                    confusionMessage: dep.confusionMessage || null,  // Detailed message from confusion check
+                    // License info
+                    license: license,
+                    licenseFull: dep.licenseFull || license,
+                    licenseAugmented: licenseAugmented,
+                    licenseSource: licenseSource,
+                    // Original package reference for detailed info
+                    originalPackage: dep.originalPackage
                 };
             });
         }
 
         if (this.repositories.size <= 500) {
             // For smaller datasets, export everything
-            allRepositories = Array.from(this.repositories.values()).map(repo => ({
-                name: repo.name,
-                owner: repo.owner,
-                license: repo.license || null,  // Include repository license
-                totalDependencies: repo.totalDependencies,
-                dependencies: Array.from(repo.dependencies),
-                dependencyCategories: {
-                    code: Array.from(repo.dependencyCategories.code),
-                    workflow: Array.from(repo.dependencyCategories.workflow),
-                    infrastructure: Array.from(repo.dependencyCategories.infrastructure),
-                    unknown: Array.from(repo.dependencyCategories.unknown)
-                },
-                languages: Array.from(repo.languages)
-            }));
+            allRepositories = Array.from(this.repositories.values()).map(repo => {
+                // Defensive: ensure dependencyCategories exists
+                const depCategories = repo.dependencyCategories || {
+                    code: new Set(),
+                    workflow: new Set(),
+                    infrastructure: new Set(),
+                    unknown: new Set()
+                };
+                return {
+                    name: repo.name,
+                    owner: repo.owner,
+                    license: repo.license || null,  // Include repository license
+                    totalDependencies: repo.totalDependencies,
+                    dependencies: Array.from(repo.dependencies || []),
+                    dependencyCategories: {
+                        code: Array.from(depCategories.code || []),
+                        workflow: Array.from(depCategories.workflow || []),
+                        infrastructure: Array.from(depCategories.infrastructure || []),
+                        unknown: Array.from(depCategories.unknown || [])
+                    },
+                    languages: Array.from(repo.languages || [])
+                };
+            });
         }
 
         return {

@@ -1,6 +1,7 @@
 /**
  * JavaScript for deps.html page
- * Handles CSV export and event delegation for dynamically generated elements
+ * Main page initialization and dependency display logic
+ * Extracted from inline script to comply with no-inline-script rule
  */
 
 // Handle event.stopPropagation() for links in accordion headers using event delegation
@@ -14,70 +15,3234 @@ document.addEventListener('DOMContentLoaded', function() {
     });
 });
 
-// Export CSV function - will be called from deps.html script block
-// This function needs access to variables from the main script, so it's kept global
-window.exportDepsCSV = function(allDependencies, searchFromURL, searchPackageName, searchPackageVersion) {
-    const search = document.getElementById('searchInput').value.toLowerCase();
-    const typeFilter = document.getElementById('typeFilter').value;
-    const ecosystemFilter = document.getElementById('ecosystemFilter').value;
-    const repoFilter = document.getElementById('repoFilter').value;
-    
-    let filtered = allDependencies.filter(dep => {
-        if (search) {
-            if (searchFromURL && searchPackageName && searchPackageVersion) {
-                // Exact match for both name and version from URL parameter
-                if (dep.name.toLowerCase() !== searchPackageName.toLowerCase()) return false;
-                if (dep.version.toLowerCase() !== searchPackageVersion.toLowerCase()) return false;
-            } else if (searchFromURL && searchPackageName) {
-                // Exact match for name only (no version in search)
-                if (dep.name.toLowerCase() !== searchPackageName.toLowerCase()) return false;
-            } else if (searchFromURL) {
-                // Exact match: package name must exactly equal the search term (case-insensitive)
-                if (dep.name.toLowerCase() !== search) return false;
+// Main initialization wrapped in async IIFE for top-level await support
+(async function initDepsPage() {
+        const storageManager = new StorageManager();
+        await storageManager.init();
+        
+        // Initialize GitHub client if not already initialized
+        if (!window.githubClient) {
+            window.githubClient = new GitHubClient();
+        }
+        
+        let allDependencies = [];
+        let filteredDependencies = [];
+        let displayLimit = 25; // Show top 25 by default, or 'all' for all dependencies
+        let currentData = null;
+        let sortColumn = 'name';
+        let sortDirection = 'asc';
+        let fundingFilterActive = false;
+        let isLoadingMore = false;
+        let searchFromURL = false; // Track if search came from URL parameter (exact match) vs user typing (fuzzy match)
+        let searchPackageName = null; // Parsed package name from search parameter
+        let searchPackageVersion = null; // Parsed package version from search parameter
+        
+        // Sanitize search input to prevent injection attacks
+        function sanitizeSearchInput(input) {
+            if (!input || typeof input !== 'string') return '';
+            // Remove any potentially dangerous characters, limit length
+            return input
+                .trim()
+                .substring(0, 200) // Limit length
+                .replace(/[<>\"'&]/g, ''); // Remove HTML/script injection chars
+        }
+        
+        // Helper function to parse package name@version from search term
+        // Handles @scope/package names by ignoring leading @ for splitting
+        function parsePackageSearch(searchTerm) {
+            if (!searchTerm) return { name: null, version: null };
+            
+            // Check if search term contains @ (but not at the start for scoped packages)
+            const atIndex = searchTerm.indexOf('@');
+            
+            // If @ is at position 0, it's a scoped package like @scope/package
+            // We need to find the next @ which would be the version separator
+            if (atIndex === 0) {
+                // Find the next @ after the scope
+                const nextAtIndex = searchTerm.indexOf('@', 1);
+                if (nextAtIndex > 0) {
+                    // Found version separator: @scope/package@version
+                    return {
+                        name: searchTerm.substring(0, nextAtIndex),
+                        version: searchTerm.substring(nextAtIndex + 1)
+                    };
+                } else {
+                    // No version separator, entire string is the package name
+                    return { name: searchTerm, version: null };
+                }
+            } else if (atIndex > 0) {
+                // Regular package name@version format
+                return {
+                    name: searchTerm.substring(0, atIndex),
+                    version: searchTerm.substring(atIndex + 1)
+                };
             } else {
-                // Fuzzy match: package name contains the search term
-                if (!dep.name.toLowerCase().includes(search)) return false;
+                // No @ found, just package name
+                return { name: searchTerm, version: null };
             }
         }
-        if (typeFilter !== 'all' && dep.type !== typeFilter) return false;
-        if (ecosystemFilter !== 'all' && dep.ecosystem !== ecosystemFilter) return false;
-        if (repoFilter !== 'all' && !dep.repositories.includes(repoFilter)) return false;
-        return true;
-    });
-    
-    // Helper function for CSV export
-    function getLicenseInfoForCSV(dep) {
-        if (dep._licenseCached) {
-            return dep.licenseFull;
+        
+        // Check for URL parameters
+        const urlParams = new URLSearchParams(window.location.search);
+        const orgParam = urlParams.get('org');
+        const fundingParam = urlParams.get('funding');
+        const directParam = urlParams.get('direct');
+        const searchParam = urlParams.get('search');
+        const ecosystemParam = urlParams.get('ecosystem');
+        const repoParam = urlParams.get('repo');
+        const licenseParam = urlParams.get('license');
+        
+        // Parse search parameter for name@version format
+        if (searchParam) {
+            searchFromURL = true;
+            const parsed = parsePackageSearch(decodeURIComponent(searchParam));
+            searchPackageName = parsed.name;
+            searchPackageVersion = parsed.version;
         }
-        if (dep.raw && dep.raw.originalPackage && dep._licenseProcessor) {
-            const licenseInfo = dep._licenseProcessor.parseLicense(dep.raw.originalPackage);
-            if (licenseInfo.license && licenseInfo.license !== 'NOASSERTION') {
-                return licenseInfo.license;
+        
+        // Function to set search input from URL parameter
+        function setSearchFromURL() {
+            if (searchParam) {
+                const searchInput = document.getElementById('searchInput');
+                if (searchInput) {
+                    searchInput.value = decodeURIComponent(searchParam);
+                }
             }
         }
-        return 'Unknown';
-    }
-    
-    const csv = [
-        ['Package', 'Type', 'Ecosystem', 'Repositories', 'Vulnerabilities (H/M/L)', 'License', 'Brought In By'].join(','),
-        ...filtered.map(dep => [
-            `"${dep.name}@${dep.version}"`,
-            dep.type,
-            dep.ecosystem,
-            `"${dep.repositories.join(', ')}"`,
-            `"H:${dep.vulnHigh} M:${dep.vulnMedium} L:${dep.vulnLow}"`,
-            `"${getLicenseInfoForCSV(dep)}"`,
-            dep.type === 'direct' ? 'N/A' : `"${dep.parents.join(', ')}"`
-        ].join(','))
-    ].join('\n');
-    
-    const blob = new Blob([csv], { type: 'text/csv' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `dependencies-${Date.now()}.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
-};
+        
+        // Function to show funding filter notice
+        function showFundingFilterNotice() {
+            if (fundingParam === 'true') {
+                // Find the header section (the row with the h1)
+                const headerRow = document.querySelector('.row.mb-4');
+                if (headerRow) {
+                    const notice = document.createElement('div');
+                    notice.className = 'alert alert-info alert-dismissible fade show mb-4';
+                    const isDirectOnly = directParam === 'true';
+                    notice.innerHTML = `
+                        <i class="fas fa-heart me-2"></i>
+                        <strong>Funding Filter Active:</strong> Showing only ${isDirectOnly ? 'direct ' : ''}dependencies that accept donations/sponsorships.
+                        <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+                    `;
+                    // Insert after the header row, before the experimental note
+                    headerRow.insertAdjacentElement('afterend', notice);
+                }
+            }
+        }
+        
+        // Check for funding filter in URL
+        if (fundingParam === 'true') {
+            fundingFilterActive = true;
+        }
+        
+        // Set type filter if direct parameter is present
+        if (directParam === 'true') {
+            // Wait for DOM to be ready
+            if (document.readyState === 'loading') {
+                document.addEventListener('DOMContentLoaded', () => {
+                    const typeFilter = document.getElementById('typeFilter');
+                    if (typeFilter) {
+                        typeFilter.value = 'direct';
+                    }
+                    setSearchFromURL();
+                    showFundingFilterNotice();
+                });
+            } else {
+                // DOM already loaded
+                const typeFilter = document.getElementById('typeFilter');
+                if (typeFilter) {
+                    typeFilter.value = 'direct';
+                }
+                setSearchFromURL();
+                showFundingFilterNotice();
+            }
+        } else if (fundingParam === 'true') {
+            // Show notice even if direct is not set
+            if (document.readyState === 'loading') {
+                document.addEventListener('DOMContentLoaded', () => {
+                    setSearchFromURL();
+                    showFundingFilterNotice();
+                });
+            } else {
+                setSearchFromURL();
+                showFundingFilterNotice();
+            }
+        } else if (searchParam) {
+            // Set search input if search parameter is present
+            if (document.readyState === 'loading') {
+                document.addEventListener('DOMContentLoaded', setSearchFromURL);
+            } else {
+                setSearchFromURL();
+            }
+        }
+        
+        await loadAnalysesList();
+        
+        async function loadAnalysesList() {
+            try {
+                console.log('📋 Loading analyses list for deps page...');
+                
+                // Ensure storage manager is initialized
+                if (!storageManager.initialized) {
+                    await storageManager.init();
+                }
+                
+                const storageInfo = await storageManager.getStorageInfo();
+                console.log(`📋 Storage info retrieved: ${storageInfo.organizations.length} orgs, ${storageInfo.repositories.length} repos`);
+                
+                const selector = document.getElementById('analysisSelector');
+                if (!selector) {
+                    console.error('❌ Analysis selector not found');
+                    return;
+                }
+                
+                const allEntries = [...storageInfo.organizations, ...storageInfo.repositories];
+                console.log(`📋 Total entries retrieved: ${allEntries.length}`);
+                
+                // Filter out:
+                // 1. __ALL__ entries (legacy from previous implementation)
+                // 2. Entries with 0 dependencies (repositories without SBOM/dependency graph)
+                const filteredEntries = allEntries.filter(entry => entry.name !== '__ALL__' && entry.dependencies > 0);
+                
+                const filteredOutCount = allEntries.length - filteredEntries.length;
+                if (filteredOutCount > 0) {
+                    console.log(`📋 Filtered out ${filteredOutCount} entries (no dependencies/SBOM)`);
+                }
+                console.log(`📋 Total entries to add: ${filteredEntries.length}`);
+                
+                selector.innerHTML = '';
+                
+                if (filteredEntries.length === 0) {
+                    console.warn('⚠️ No entries with dependencies found in storage');
+                    const noDataMessage = document.getElementById('noDataMessage');
+                    if (noDataMessage) {
+                        noDataMessage.classList.remove('d-none');
+                    }
+                    selector.disabled = true;
+                    return;
+                }
+                
+                // Add "All Analyses" option (only entries with dependencies)
+                const allOption = document.createElement('option');
+                allOption.value = '';
+                const totalDeps = filteredEntries.reduce((sum, entry) => sum + (entry.dependencies || 0), 0);
+                allOption.textContent = `All Analyses (${totalDeps} deps)`;
+                selector.appendChild(allOption);
+                console.log(`📋 Added "All Analyses" option with ${totalDeps} total dependencies`);
+                
+                // Add individual entries (excluding __ALL__)
+                filteredEntries.forEach(entry => {
+                    const option = document.createElement('option');
+                    option.value = entry.name;
+                    const depCount = entry.dependencies || 0;
+                    option.textContent = `${entry.name} (${depCount} deps)`;
+                    selector.appendChild(option);
+                    console.log(`📋 Added option: ${entry.name} (${depCount} deps)`);
+                });
+                
+                // Set default based on URL parameter or default to "All Analyses"
+                if (filteredEntries.length > 0) {
+                    if (orgParam) {
+                        // Check if the org from URL parameter exists in the filtered entries
+                        const orgExists = filteredEntries.some(entry => entry.name === orgParam);
+                        if (orgExists) {
+                            selector.value = orgParam;
+                            console.log(`📋 Set selector to URL parameter: ${orgParam}`);
+                        } else {
+                        selector.value = '';
+                        console.log(`📋 URL parameter ${orgParam} not found, using aggregated view`);
+                        }
+                    } else {
+                    selector.value = '';
+                    console.log(`📋 No URL parameter, using aggregated view`);
+                    }
+                    selector.disabled = false;
+                    console.log(`✅ Analysis selector populated with ${filteredEntries.length} entries`);
+                    await loadAnalysis();
+                }
+            } catch (error) {
+                console.error('❌ Error loading analyses list:', error);
+                console.error('   Error details:', error.stack);
+                const selector = document.getElementById('analysisSelector');
+                if (selector) {
+                    selector.disabled = true;
+                }
+                const noDataMessage = document.getElementById('noDataMessage');
+                if (noDataMessage) {
+                    noDataMessage.classList.remove('d-none');
+                }
+            }
+        }
+        
+        document.getElementById('analysisSelector').addEventListener('change', () => {
+            loadAnalysis().then(() => filterTable());
+        });
+        document.getElementById('searchInput').addEventListener('input', (e) => {
+            // Once user modifies the search (different from URL param), switch to fuzzy match mode
+            const currentValue = e.target.value;
+            const urlSearchValue = searchParam ? decodeURIComponent(searchParam) : '';
+            if (searchFromURL && currentValue !== urlSearchValue) {
+                searchFromURL = false;
+                searchPackageName = null;
+                searchPackageVersion = null;
+            }
+            filterTable();
+        });
+        
+        // Display limit selector (show top 25 or all)
+        const displayLimitSelect = document.getElementById('displayLimitSelect');
+        if (displayLimitSelect) {
+            displayLimitSelect.addEventListener('change', (e) => {
+                const value = e.target.value;
+                displayLimit = value === 'all' ? 'all' : parseInt(value, 10);
+                    renderTable(filteredDependencies, false);
+            });
+        }
+        
+        document.getElementById('typeFilter').addEventListener('change', () => filterTable());
+        document.getElementById('ecosystemFilter').addEventListener('change', () => filterTable());
+        document.getElementById('repoFilter').addEventListener('change', () => filterTable());
+        document.getElementById('vulnerableFilter').addEventListener('change', () => filterTable());
+        document.getElementById('sponsorshipFilter').addEventListener('change', () => filterTable());
+        document.getElementById('statusFilter').addEventListener('change', () => filterTable());
+        document.getElementById('eoxFilter').addEventListener('change', () => filterTable());
+        document.getElementById('majorDriftFilter').addEventListener('change', () => filterTable());
+        document.getElementById('minorDriftFilter').addEventListener('change', () => filterTable());
+        document.getElementById('exportBtn').addEventListener('click', () => {
+            if (typeof window.exportDepsCSV === 'function') {
+                window.exportDepsCSV(allDependencies, searchFromURL, searchPackageName, searchPackageVersion);
+            } else {
+                exportCSV(); // Fallback to local function
+            }
+        });
+        const loadMoreBtn = document.getElementById('loadMoreBtn');
+        if (loadMoreBtn) {
+            loadMoreBtn.addEventListener('click', loadMoreEntries);
+        }
+        
+        // Sort handlers
+        document.querySelectorAll('.sortable').forEach(header => {
+            header.addEventListener('click', () => {
+                const column = header.getAttribute('data-sort');
+                if (sortColumn === column) {
+                    sortDirection = sortDirection === 'asc' ? 'desc' : 'asc';
+                } else {
+                    sortColumn = column;
+                    sortDirection = 'asc';
+                }
+                updateSortIcons();
+                filterTable(); // filterTable is async but we don't need to await here
+            });
+        });
+        
+        function updateSortIcons() {
+            document.querySelectorAll('.sort-icon').forEach(icon => {
+                icon.className = 'fas fa-sort sort-icon';
+            });
+            const activeHeader = document.querySelector(`[data-sort="${sortColumn}"]`);
+            if (activeHeader) {
+                const icon = activeHeader.querySelector('.sort-icon');
+                icon.className = `fas fa-sort-${sortDirection === 'asc' ? 'up' : 'down'} sort-icon active`;
+            }
+        }
+        
+        async function loadAnalysis() {
+            const analysisName = document.getElementById('analysisSelector').value;
+            // Note: analysisName can be empty string '' for aggregated view - don't skip loading!
+            
+            // Show loading indicator
+            const loadingOverlay = document.getElementById('loadingOverlay');
+            const tableCard = document.getElementById('tableCard');
+            const statsRow = document.getElementById('statsRow');
+            const noDataMessage = document.getElementById('noDataMessage');
+            
+            loadingOverlay.classList.remove('d-none');
+            tableCard.classList.remove('d-none');
+            statsRow.classList.remove('d-none');
+            noDataMessage.classList.add('d-none');
+            
+            let data;
+            
+            // Handle aggregated view (empty/null analysisName)
+            if (!analysisName || analysisName === '') {
+                data = await storageManager.getCombinedData();
+            } else {
+                data = await storageManager.loadAnalysisDataForOrganization(analysisName);
+            }
+            
+            if (!data || !data.data) {
+                alert('No data found');
+                document.getElementById('loadingOverlay').classList.add('d-none');
+                return;
+            }
+            
+            currentData = data.data;
+            window.currentData = currentData; // Expose globally for license lookup
+            // Store GitHub Actions analysis for enriched license lookup
+            // For aggregated data, aggregate GitHub Actions analysis from all repositories
+            if ((!analysisName || analysisName === '') && data.data.githubActionsAnalysis) {
+                window.githubActionsAnalysis = data.data.githubActionsAnalysis;
+            } else {
+                window.githubActionsAnalysis = currentData?.githubActionsAnalysis || null;
+            }
+            
+            // Early filtering: Filter dependencies before processing if search parameter exists
+            // This reduces memory usage and processing time for large datasets (1000+ entries)
+            let dependenciesToProcess = currentData.allDependencies || [];
+            if (searchParam) {
+                const sanitizedSearch = sanitizeSearchInput(searchParam);
+                if (sanitizedSearch) {
+                    const parsed = parsePackageSearch(decodeURIComponent(sanitizedSearch));
+                    const searchName = parsed.name?.toLowerCase();
+                    const searchVersion = parsed.version?.toLowerCase();
+                    
+                    if (searchName && searchVersion) {
+                        // Exact match for both name and version
+                        dependenciesToProcess = dependenciesToProcess.filter(dep => 
+                            dep.name?.toLowerCase() === searchName && 
+                            dep.version?.toLowerCase() === searchVersion
+                        );
+                    } else if (searchName) {
+                        // Exact match for name only
+                        dependenciesToProcess = dependenciesToProcess.filter(dep => 
+                            dep.name?.toLowerCase() === searchName
+                        );
+                    } else {
+                        // Fuzzy match on name
+                        dependenciesToProcess = dependenciesToProcess.filter(dep => 
+                            dep.name?.toLowerCase().includes(sanitizedSearch.toLowerCase())
+                        );
+                    }
+                    console.log(`🔍 Early filtering: ${dependenciesToProcess.length} dependencies match search "${sanitizedSearch}" (from ${currentData.allDependencies?.length || 0} total)`);
+                }
+            }
+            
+            // Process only filtered dependencies
+            const tempData = { ...currentData, allDependencies: dependenciesToProcess };
+            allDependencies = processData(tempData);
+            // Store processed dependencies in window.currentData for license fetching
+            window.currentData.allDependencies = allDependencies;
+            
+            // Clear license cache for GitHub Actions dependencies so they can be re-looked up with enriched data
+            allDependencies.forEach(dep => {
+                if (dep.ecosystem === 'GitHub Actions') {
+                    dep._licenseCached = false;
+                }
+            });
+            
+            // Populate ecosystem filter
+            const ecosystems = [...new Set(allDependencies.map(d => d.ecosystem))].sort();
+            const ecosystemFilter = document.getElementById('ecosystemFilter');
+            ecosystemFilter.innerHTML = '<option value="all">All</option>';
+            ecosystems.forEach(eco => {
+                const option = document.createElement('option');
+                option.value = eco;
+                option.textContent = eco.charAt(0).toUpperCase() + eco.slice(1);
+                // Pre-select ecosystem from URL parameter
+                if (ecosystemParam && eco.toLowerCase() === ecosystemParam.toLowerCase()) {
+                    option.selected = true;
+                }
+                ecosystemFilter.appendChild(option);
+            });
+            
+            // Populate repo filter
+            const repos = [...new Set(allDependencies.flatMap(d => d.repositories))].sort();
+            const repoFilter = document.getElementById('repoFilter');
+            repoFilter.innerHTML = '<option value="all">All</option>';
+            repos.forEach(repo => {
+                const option = document.createElement('option');
+                option.value = repo;
+                option.textContent = repo;
+                // Pre-select repository from URL parameter
+                if (repoParam && repo === repoParam) {
+                    option.selected = true;
+                }
+                repoFilter.appendChild(option);
+            });
+            
+            // Hide loading indicator
+            document.getElementById('loadingOverlay').classList.add('d-none');
+            
+            // Set search input from URL parameter if present (in case it wasn't set earlier)
+            if (searchParam) {
+                const searchInput = document.getElementById('searchInput');
+                if (searchInput && !searchInput.value) {
+                    searchInput.value = decodeURIComponent(searchParam);
+                }
+            }
+            
+            // Apply ecosystem filter from URL parameter
+            if (ecosystemParam && ecosystemFilter.value === 'all') {
+                // Filter was already set above, trigger filterTable to apply it
+            }
+            
+            // Apply repository filter from URL parameter
+            if (repoParam && repoFilter.value === 'all') {
+                // Filter was already set above, trigger filterTable to apply it
+            }
+            
+            await filterTable();
+            
+            // Load funding data lazily in background (only for visible rows initially)
+            // This avoids blocking the initial render
+            if (window.cacheManager) {
+                // Load funding for first batch of visible dependencies
+                setTimeout(() => {
+                    loadFundingForVisibleDependencies();
+                }, 100);
+                
+                // NOTE: License fetching should NOT be needed here - licenses are pre-fetched during initial analysis
+                // Only fetch licenses if they're missing (should be rare if initial scan completed properly)
+                // This is a fallback for edge cases where licenses weren't fetched during analysis
+                setTimeout(() => {
+                    loadLicensesForVisibleDependencies();
+                }, 200);
+            }
+        }
+        
+        function processData(data) {
+            const deps = [];
+            const repos = data.allRepositories || [];
+            const allDeps = data.allDependencies || [];
+            const vulnAnalysis = data.vulnerabilityAnalysis || {};
+            const vulnerableDeps = vulnAnalysis.vulnerableDependencies || [];
+            
+            // Create a map for quick vulnerability lookup
+            const vulnMap = new Map();
+            vulnerableDeps.forEach(vulnDep => {
+                const key = `${vulnDep.name}@${vulnDep.version}`;
+                vulnMap.set(key, vulnDep);
+            });
+            
+            // Note: We don't show SBOM quality for individual dependencies
+            // SBOM quality is only meaningful at the repository level since we only
+            // download SBOMs from repositories, not from dependencies themselves
+            
+            // Store license processor for lazy evaluation
+            const licenseProcessor = window.LicenseProcessor ? new LicenseProcessor() : null;
+            
+            // Build map of direct vs nested GitHub Actions from GitHub Actions analysis
+            // Use owner/repo/path as key (without ref) to match across different ref formats
+            const githubActionsDirectMap = new Map(); // actionKeyBase -> true if direct
+            const githubActionsNestedMap = new Map(); // actionKeyBase -> parent action key
+            const githubActionsMetadataMap = new Map(); // actionKeyBase -> {license, authors, ...}
+            const nestedActionsToAdd = new Map(); // actionKeyBase -> nested action data (for adding to deps list)
+            
+            if (data.githubActionsAnalysis && data.githubActionsAnalysis.repositories) {
+                data.githubActionsAnalysis.repositories.forEach(repoData => {
+                    if (repoData.actions && Array.isArray(repoData.actions)) {
+                        repoData.actions.forEach(action => {
+                            // Direct actions from workflows - use owner/repo/path as key (no ref)
+                            const actionKeyBase = `${action.owner}/${action.repo}${action.path ? '/' + action.path : ''}`;
+                            githubActionsDirectMap.set(actionKeyBase, true);
+                            
+                            // Store metadata for license/author lookup (use base key, store ref separately)
+                            if (!githubActionsMetadataMap.has(actionKeyBase)) {
+                                githubActionsMetadataMap.set(actionKeyBase, {
+                                    license: action.license,
+                                    authors: action.authors,
+                                    owner: action.owner,
+                                    repo: action.repo,
+                                    path: action.path || '',
+                                    ref: action.ref
+                                });
+                            }
+                            
+                            // Check nested actions recursively
+                            if (action.nested && Array.isArray(action.nested)) {
+                                // Build full parent action name with ref for parentKey
+                                const parentActionName = `${action.owner}/${action.repo}${action.path ? '/' + action.path : ''}@${action.ref}`;
+                                
+                                const checkNested = (nestedAction, parentKeyBase, parentActionNameWithRef) => {
+                                    if (nestedAction.owner && nestedAction.repo) {
+                                        // Normalize ref - remove leading @ if present
+                                        const normalizedRef = nestedAction.ref ? nestedAction.ref.replace(/^@+/, '') : '';
+                                        const nestedKeyBase = `${nestedAction.owner}/${nestedAction.repo}${nestedAction.path ? '/' + nestedAction.path : ''}`;
+                                        
+                                        // Mark as nested (overrides direct if same action)
+                                        // Store parent's base key for matching, but we'll use full name when adding to parents
+                                        githubActionsNestedMap.set(nestedKeyBase, parentActionNameWithRef);
+                                        
+                                        // Store metadata for nested actions (use base key)
+                                        if (!githubActionsMetadataMap.has(nestedKeyBase)) {
+                                            githubActionsMetadataMap.set(nestedKeyBase, {
+                                                license: nestedAction.license,
+                                                authors: nestedAction.authors,
+                                                owner: nestedAction.owner,
+                                                repo: nestedAction.repo,
+                                                path: nestedAction.path || '',
+                                                ref: normalizedRef
+                                            });
+                                        }
+                                        
+                                        // Track nested actions that might not be in SBOM
+                                        // Store with base key, but include full name with ref for dependency entry
+                                        const nestedActionName = `${nestedAction.owner}/${nestedAction.repo}${nestedAction.path ? '/' + nestedAction.path : ''}@${normalizedRef}`;
+                                        nestedActionsToAdd.set(nestedKeyBase, {
+                                            name: nestedActionName,
+                                            version: normalizedRef,
+                                            owner: nestedAction.owner,
+                                            repo: nestedAction.repo,
+                                            path: nestedAction.path || '',
+                                            ref: normalizedRef,
+                                            license: nestedAction.license,
+                                            authors: nestedAction.authors,
+                                            repositories: [repoData.repository],
+                                            parentKey: parentActionNameWithRef
+                                        });
+                                        
+                                        // Build full nested action name for recursive calls
+                                        const nestedActionNameWithRef = nestedActionName;
+                                        
+                                        // Recursively check nested actions
+                                        if (nestedAction.nested && Array.isArray(nestedAction.nested)) {
+                                            nestedAction.nested.forEach(n => checkNested(n, nestedKeyBase, nestedActionNameWithRef));
+                                        }
+                                    }
+                                };
+                                action.nested.forEach(nested => checkNested(nested, actionKeyBase, parentActionName));
+                            }
+                        });
+                    }
+                });
+            }
+            
+            // Create a set of existing dependency keys to check if nested actions are already included
+            // Check by name@version format
+            const existingDepKeys = new Set();
+            allDeps.forEach(dep => {
+                existingDepKeys.add(`${dep.name}@${dep.version}`);
+            });
+            
+            // Add nested actions that aren't in the SBOM to the dependency list
+            nestedActionsToAdd.forEach((nestedAction, actionKeyBase) => {
+                // Check if this action already exists (by name@version)
+                const depKey = `${nestedAction.name}@${nestedAction.ref}`;
+                if (!existingDepKeys.has(depKey)) {
+                    // Add as a new dependency entry
+                    allDeps.push({
+                        name: nestedAction.name,
+                        version: nestedAction.ref,
+                        category: {
+                            ecosystem: 'GitHub Actions',
+                            language: 'YAML',
+                            type: 'workflow'
+                        },
+                        repositories: nestedAction.repositories,
+                        directIn: [],
+                        transitiveIn: nestedAction.repositories,
+                        originalPackage: {
+                            name: nestedAction.name,
+                            versionInfo: nestedAction.ref
+                        },
+                        _isNestedAction: true,
+                        _parentAction: nestedAction.parentKey,
+                        _gaMetadata: {
+                            license: nestedAction.license,
+                            authors: nestedAction.authors
+                        }
+                    });
+                }
+            });
+            
+            allDeps.forEach(dep => {
+                // Skip dependencies with empty or invalid names
+                // These are malformed entries that shouldn't be displayed
+                if (!dep.name || dep.name.trim() === '') {
+                    return; // Skip this dependency
+                }
+                
+                // Get parent dependencies with repository context
+                const parents = new Set();
+                const parentsByRepo = {}; // Track which repo has which parent
+                
+                let isDirect = dep.directIn && dep.directIn.length > 0;
+                let isTransitive = dep.transitiveIn && dep.transitiveIn.length > 0;
+                
+                // Override for GitHub Actions: check if it's direct or nested
+                // Check category.ecosystem since dep.ecosystem hasn't been set yet
+                if ((dep.category?.ecosystem === 'GitHub Actions' || dep.category?.isWorkflow) && dep.name) {
+                    // Parse action name: owner/repo@ref or owner/repo/path@ref
+                    const match = dep.name.match(/^([^/@]+)\/([^/@]+)(?:\/(.+))?@(.+)$/);
+                    if (match) {
+                        const [, owner, repo, path, ref] = match;
+                        const normalizedPath = path || '';
+                        // Normalize ref - remove leading @ if present to avoid @v4@v4 issues
+                        const normalizedRef = ref.replace(/^@+/, '');
+                        const actionKeyBase = `${owner}/${repo}${normalizedPath ? '/' + normalizedPath : ''}`;
+                        
+                        // Match on owner/repo/path only (ignore ref differences)
+                        // Check if it's a nested action FIRST (nested takes precedence)
+                        let foundDirect = false;
+                        let foundNested = false;
+                        let parentKey = null;
+                        
+                        // Match nested actions by owner/repo/path (exact match on base key)
+                        if (githubActionsNestedMap.has(actionKeyBase)) {
+                            foundNested = true;
+                            parentKey = githubActionsNestedMap.get(actionKeyBase);
+                        }
+                        
+                        // Only check direct if not found as nested
+                        if (!foundNested) {
+                            // Match direct actions by owner/repo/path (exact match on base key)
+                            if (githubActionsDirectMap.has(actionKeyBase)) {
+                                foundDirect = true;
+                            }
+                        }
+                        
+                        // Store metadata for license/author lookup (exact match on base key)
+                        // Always update if metadata exists, even if _gaMetadata already exists (to ensure license is set)
+                        if (githubActionsMetadataMap.has(actionKeyBase)) {
+                            const metadata = githubActionsMetadataMap.get(actionKeyBase);
+                            if (!dep._gaMetadata) {
+                                dep._gaMetadata = metadata;
+                            } else {
+                                // Merge metadata, ensuring license is set if available
+                                dep._gaMetadata = { ...dep._gaMetadata, ...metadata };
+                            }
+                        }
+                        
+                        // Apply classification: nested takes precedence over direct
+                        if (foundNested) {
+                            isDirect = false;
+                            isTransitive = true;
+                            
+                            // Add parent action to parents list
+                            if (parentKey) {
+                                parents.add(parentKey);
+                            }
+                        } else if (foundDirect) {
+                            isDirect = true;
+                            isTransitive = false;
+                        }
+                        // If not found in analysis, keep original classification from SBOM
+                    }
+                }
+                
+                repos.forEach(repo => {
+                    if (repo.relationships) {
+                        const spdxToPackage = new Map();
+                        if (repo.spdxPackages) {
+                            repo.spdxPackages.forEach(pkg => {
+                                if (pkg.SPDXID && pkg.name) {
+                                    spdxToPackage.set(pkg.SPDXID, `${pkg.name}@${normalizeVersion(pkg.version || '')}`);
+                                }
+                            });
+                        }
+                        
+                        const targetKey = `${dep.name}@${dep.version}`;
+                        const repoName = `${repo.owner}/${repo.name}`;
+                        const repoParents = [];
+                        
+                        repo.relationships.forEach(rel => {
+                            const targetPkg = spdxToPackage.get(rel.to);
+                            if (targetPkg === targetKey && !rel.isDirectFromMain) {
+                                const sourcePkg = spdxToPackage.get(rel.from);
+                                if (sourcePkg) {
+                                    parents.add(sourcePkg);
+                                    repoParents.push(sourcePkg);
+                                }
+                            }
+                        });
+                        
+                        if (repoParents.length > 0) {
+                            parentsByRepo[repoName] = repoParents;
+                        }
+                    }
+                });
+                
+                // Add parents from dependency tree resolution (for transitive dependencies discovered via API queries)
+                // These won't be in SBOM relationships since they were discovered during deep dependency resolution
+                if (dep.parents && Array.isArray(dep.parents) && dep.parents.length > 0) {
+                    dep.parents.forEach(parent => {
+                        parents.add(parent);
+                    });
+                }
+                
+                // Extract package key for funding lookup
+                // IMPORTANT: Normalize ecosystem name to match database format (lowercase, aliases handled)
+                // e.g., "RubyGems" -> "gem", "PyPI" -> "pypi", "Go" -> "golang"
+                let packageKey = null;
+                if (dep.category?.ecosystem && dep.name) {
+                    let ecosystem = dep.category.ecosystem.toLowerCase();
+                    // Normalize ecosystem aliases to match database format
+                    if (ecosystem === 'rubygems' || ecosystem === 'gem') {
+                        ecosystem = 'gem';  // Database uses "gem"
+                    } else if (ecosystem === 'go' || ecosystem === 'golang') {
+                        ecosystem = 'golang';  // Database uses "golang"
+                    } else if (ecosystem === 'pypi') {
+                        ecosystem = 'pypi';  // Keep as is
+                    } else if (ecosystem === 'packagist' || ecosystem === 'composer') {
+                        ecosystem = 'composer';  // Database uses "composer"
+                    }
+                    packageKey = `${ecosystem}:${dep.name}`;
+                } else if (dep.purl) {
+                    // PURL format: pkg:ecosystem/name@version
+                    const purlMatch = dep.purl.match(/pkg:([^\/]+)\/([^@\/]+)/);
+                    if (purlMatch) {
+                        let ecosystem = purlMatch[1].toLowerCase();
+                        // Normalize ecosystem aliases
+                        if (ecosystem === 'rubygems' || ecosystem === 'gem') {
+                            ecosystem = 'gem';
+                        } else if (ecosystem === 'go') {
+                            ecosystem = 'golang';
+                        } else if (ecosystem === 'packagist') {
+                            ecosystem = 'composer';
+                        }
+                        packageKey = `${ecosystem}:${purlMatch[2]}`;
+                    }
+                } else if (dep.originalPackage?.externalRefs) {
+                    // Try to extract from originalPackage externalRefs
+                    const purlRef = dep.originalPackage.externalRefs.find(ref => ref.referenceType === 'purl');
+                    if (purlRef && purlRef.referenceLocator) {
+                        const purlMatch = purlRef.referenceLocator.match(/pkg:([^\/]+)\/([^@\/]+)/);
+                        if (purlMatch) {
+                            let ecosystem = purlMatch[1].toLowerCase();
+                            // Normalize ecosystem aliases
+                            if (ecosystem === 'rubygems' || ecosystem === 'gem') {
+                                ecosystem = 'gem';
+                            } else if (ecosystem === 'go') {
+                                ecosystem = 'golang';
+                            } else if (ecosystem === 'packagist') {
+                                ecosystem = 'composer';
+                            }
+                            packageKey = `${ecosystem}:${purlMatch[2]}`;
+                        }
+                    }
+                }
+                
+                // Extract vulnerability counts (fast - just map lookup)
+                const depKey = `${dep.name}@${dep.version}`;
+                const vulnDep = vulnMap.get(depKey);
+                let vulnHigh = 0, vulnMedium = 0, vulnLow = 0;
+                if (vulnDep && vulnDep.vulnerabilities) {
+                    vulnDep.vulnerabilities.forEach(vuln => {
+                        const severity = vuln.severity || (window.osvService ? window.osvService.getHighestSeverity(vuln) : 'UNKNOWN');
+                        if (severity === 'CRITICAL' || severity === 'HIGH') {
+                            vulnHigh++;
+                        } else if (severity === 'MEDIUM' || severity === 'MODERATE') {
+                            vulnMedium++;
+                        } else if (severity === 'LOW') {
+                            vulnLow++;
+                        }
+                    });
+                }
+                
+                // Store GitHub Actions metadata if available
+                // Match on owner/repo/path only (metadata doesn't change between refs)
+                let gaMetadata = null;
+                if ((dep.category?.ecosystem === 'GitHub Actions' || dep.category?.isWorkflow) && dep.name) {
+                    const match = dep.name.match(/^([^/@]+)\/([^/@]+)(?:\/(.+))?@(.+)$/);
+                    if (match) {
+                        const [, owner, repo, path] = match;
+                        const normalizedPath = path || '';
+                        const actionKeyBase = `${owner}/${repo}${normalizedPath ? '/' + normalizedPath : ''}`;
+                        
+                        // Match by owner/repo/path using exact key lookup (ignore ref differences)
+                        if (githubActionsMetadataMap.has(actionKeyBase)) {
+                            gaMetadata = githubActionsMetadataMap.get(actionKeyBase);
+                        }
+                    }
+                }
+                
+                // Use metadata from _gaMetadata if available (for nested actions added above)
+                if (!gaMetadata && dep._gaMetadata) {
+                    gaMetadata = dep._gaMetadata;
+                }
+                
+                // Store references for lazy evaluation (license and quality calculated on-demand)
+                deps.push({
+                    name: dep.name,
+                    version: dep.version,
+                    type: isDirect ? 'direct' : 'transitive',
+                    ecosystem: dep.category?.ecosystem || 'unknown',
+                    language: dep.category?.language || '',
+                    repositories: dep.repositories || [],
+                    repoCount: (dep.repositories || []).length,
+                    parents: Array.from(parents),
+                    parentsByRepo: parentsByRepo,  // Store parent-to-repo mapping
+                    packageKey: packageKey,  // Store for funding lookup
+                    funding: null,  // Will be populated later
+                    vulnHigh: vulnHigh,
+                    vulnMedium: vulnMedium,
+                    vulnLow: vulnLow,
+                    // Lazy-evaluated fields (calculated only when rendering)
+                    _licenseProcessor: licenseProcessor,
+                    _licenseCached: false,
+                    _gaMetadata: gaMetadata,  // Store GitHub Actions metadata for license/author lookup
+                    raw: dep
+                });
+            });
+            
+            return deps;
+        }
+        
+        function normalizeVersion(version) {
+            if (!version) return '';
+            return version.trim().replace(/^[><=^~]+\s*/, '').replace(/\s+-\s+[\d.]+.*$/, '').replace(/\s*\|\|.*$/, '').replace(/\s+/g, '');
+        }
+        
+        // Helper function to get license info (accessible to both filterTable and renderTable)
+        function getLicenseInfo(dep) {
+            if (dep._licenseCached) {
+                return { 
+                    license: dep.license, 
+                    licenseFull: dep.licenseFull, 
+                    isEnriched: dep._licenseEnriched || false,
+                    licenseSource: dep._licenseSource || null
+                };
+            }
+            
+            let licenseText = 'Unknown';
+            let licenseFull = 'Unknown';
+            let isEnriched = false;
+            let licenseSource = null;
+            
+            // 1. Check dep.licenseFull (could be from SBOM or external API)
+            if (dep.licenseFull && dep.licenseFull !== 'Unknown' && dep.licenseFull !== 'NOASSERTION' && String(dep.licenseFull).trim() !== '') {
+                licenseFull = dep.licenseFull;
+                // Check if license was augmented (fetched externally) vs from SBOM
+                isEnriched = dep.licenseAugmented || dep.raw?.licenseAugmented || false;
+                licenseSource = dep.licenseSource || dep.raw?.licenseSource || (isEnriched ? 'external' : 'sbom');
+            }
+            
+            // 2. Check dep.license (could be from SBOM or external API)
+            else if (dep.license && dep.license !== 'Unknown' && dep.license !== 'NOASSERTION' && String(dep.license).trim() !== '') {
+                licenseFull = dep.license;
+                isEnriched = dep.licenseAugmented || dep.raw?.licenseAugmented || false;
+                licenseSource = dep.licenseSource || dep.raw?.licenseSource || (isEnriched ? 'external' : 'sbom');
+            }
+            
+            // 3. Check for enriched GitHub Actions license data
+            else if (dep.ecosystem === 'GitHub Actions') {
+                // First check metadata stored in dep
+                if (dep._gaMetadata && dep._gaMetadata.license) {
+                    licenseFull = dep._gaMetadata.license;
+                    isEnriched = true;
+                }
+                
+                // Always try fallback lookup if we don't have a license yet
+                if (!isEnriched && window.currentData?.githubActionsAnalysis) {
+                    // Fallback to lookup from githubActionsAnalysis (this should always work if analysis data exists)
+                    const enrichedLicense = getEnrichedGitHubActionLicense(dep);
+                    if (enrichedLicense) {
+                        licenseFull = enrichedLicense;
+                        isEnriched = true;
+                        // Also store it in _gaMetadata for future lookups
+                        if (!dep._gaMetadata) {
+                            dep._gaMetadata = { license: enrichedLicense };
+                        } else {
+                            dep._gaMetadata.license = enrichedLicense;
+                        }
+                    } else {
+                        // For reusable workflows (paths containing .github/workflows/), try to get repository license
+                        const repoLicense = getRepositoryLicenseForReusableWorkflow(dep);
+                        if (repoLicense) {
+                            licenseFull = repoLicense;
+                            isEnriched = true;
+                            // Store it in _gaMetadata for future lookups
+                            if (!dep._gaMetadata) {
+                                dep._gaMetadata = { license: repoLicense };
+                            } else {
+                                dep._gaMetadata.license = repoLicense;
+                            }
+                        }
+                    }
+                }
+            }
+            
+            // 4. Check dep.raw.licenseFull (from raw data, e.g., PyPI direct fetch)
+            else if (dep.raw?.licenseFull && dep.raw.licenseFull !== 'Unknown' && dep.raw.licenseFull !== 'NOASSERTION' && String(dep.raw.licenseFull).trim() !== '') {
+                licenseFull = dep.raw.licenseFull;
+                isEnriched = dep.raw._licenseEnriched || false;
+            }
+            
+            // 5. Check dep.raw.license (from raw data, e.g., PyPI direct fetch)
+            else if (dep.raw?.license && dep.raw.license !== 'Unknown' && dep.raw.license !== 'NOASSERTION' && String(dep.raw.license).trim() !== '') {
+                licenseFull = dep.raw.license;
+                isEnriched = dep.raw._licenseEnriched || false;
+            }
+            
+            // 6. Parse from originalPackage (from SBOM) - always check this as fallback
+            if (licenseFull === 'Unknown' && dep.raw && dep.raw.originalPackage && dep._licenseProcessor) {
+                const licenseInfo = dep._licenseProcessor.parseLicense(dep.raw.originalPackage);
+                if (licenseInfo.license && licenseInfo.license !== 'NOASSERTION') {
+                    licenseFull = licenseInfo.license;
+                    // Store dual license info if present
+                    if (licenseInfo.isDualLicense) {
+                        dep._isDualLicense = true;
+                        dep._dualLicenseInfo = licenseInfo.dualLicenseInfo;
+                    }
+                }
+            }
+            
+            // 7. Final fallback: Use repository license if available
+            if (licenseFull === 'Unknown' && window.currentData && dep.repositories && dep.repositories.length > 0) {
+                // Get license from first repository (most dependencies come from one repo)
+                const repoName = dep.repositories[0];
+                const allRepos = window.currentData.allRepositories || [];
+                const repo = allRepos.find(r => `${r.owner}/${r.name}` === repoName);
+                
+                if (repo && (repo.repositoryLicense || repo.license)) {
+                    const repoLicense = repo.repositoryLicense || repo.license;
+                    if (repoLicense && repoLicense !== 'NOASSERTION' && String(repoLicense).trim() !== '') {
+                        licenseFull = repoLicense;
+                        isEnriched = true;
+                    }
+                }
+            }
+            
+            // Generate abbreviated license text for display
+            if (licenseFull !== 'Unknown') {
+                    if (licenseFull.includes(' AND ')) {
+                        // For compound licenses, show first license name
+                        const firstLicense = licenseFull.split(' AND ')[0];
+                        licenseText = firstLicense.startsWith('Apache') ? 'Apache' : (firstLicense.length > 8 ? firstLicense.substring(0, 8) + '...' : firstLicense);
+                    } else if (licenseFull.startsWith('Apache')) {
+                        licenseText = 'Apache';
+                    } else {
+                        licenseText = licenseFull.length > 8 ? licenseFull.substring(0, 8) + '...' : licenseFull;
+                    }
+            }
+            
+            // Mark for async fetch if still no license (should be rare)
+            if (licenseFull === 'Unknown' && dep.ecosystem === 'PyPI' && dep.name && dep.version && dep.version !== 'version unknown') {
+                    dep._needsLicenseFetch = true;
+            }
+            
+            // Cache the result
+            dep.license = licenseText;
+            dep.licenseFull = licenseFull;
+            dep._licenseEnriched = isEnriched;
+            dep._licenseSource = licenseSource;
+            dep._licenseCached = true;
+            return { 
+                license: licenseText, 
+                licenseFull: licenseFull, 
+                isEnriched: isEnriched,
+                licenseSource: licenseSource,
+                isDualLicense: dep._isDualLicense || false,
+                dualLicenseInfo: dep._dualLicenseInfo || null
+            };
+        }
+        
+        // Helper function to get enriched license from GitHub Actions analysis
+        // Match on owner/repo/path only (license doesn't change between refs)
+        function getEnrichedGitHubActionLicense(dep) {
+            if (!window.currentData?.githubActionsAnalysis || !dep.name) {
+                return null;
+            }
+            
+            try {
+                // Build full name with version if not already present
+                // dep.name might be just "owner/repo" or "owner/repo/path" without @ref
+                let fullName = dep.name;
+                if (dep.version && !fullName.includes('@')) {
+                    fullName = `${dep.name}@${dep.version}`;
+                }
+                
+                // Parse GitHub Action name: owner/repo@ref or owner/repo/path@ref
+                // Also handle cases where name doesn't have @ref (just owner/repo or owner/repo/path)
+                let match = fullName.match(/^([^/@]+)\/([^/@]+)(?:\/(.+))?@(.+)$/);
+                if (!match) {
+                    // Try without @ref - just owner/repo or owner/repo/path
+                    match = fullName.match(/^([^/@]+)\/([^/@]+)(?:\/(.+))?$/);
+                    if (!match) {
+                        return null;
+                    }
+                }
+                
+                const [, owner, repo, path] = match;
+                const normalizedPath = path || '';
+                
+                // Search through repositories - match on owner/repo/path only (ignore ref)
+                const repositories = window.currentData.githubActionsAnalysis.repositories || [];
+                
+                for (const repoData of repositories) {
+                    if (!repoData.actions || !Array.isArray(repoData.actions)) {
+                        continue;
+                    }
+                    
+                    // Check direct actions first
+                    for (const action of repoData.actions) {
+                        const actionPath = action.path || '';
+                        const matches = action.owner === owner && 
+                            action.repo === repo && 
+                            actionPath === normalizedPath;
+                        
+                        if (matches && action.license) {
+                            return action.license;
+                        }
+                        
+                        // Check nested actions recursively
+                        if (action.nested && Array.isArray(action.nested)) {
+                            const checkNested = (nestedAction) => {
+                                const nestedPath = nestedAction.path || '';
+                                const nestedMatches = nestedAction.owner === owner && 
+                                    nestedAction.repo === repo && 
+                                    nestedPath === normalizedPath;
+                                
+                                if (nestedMatches && nestedAction.license) {
+                                    return nestedAction.license;
+                                }
+                                
+                                // Recursively check deeper nested actions
+                                if (nestedAction.nested && Array.isArray(nestedAction.nested)) {
+                                    for (const deeperNested of nestedAction.nested) {
+                                        const result = checkNested(deeperNested);
+                                        if (result) return result;
+                                    }
+                                }
+                                
+                                return null;
+                            };
+                            
+                            for (const nestedAction of action.nested) {
+                                const result = checkNested(nestedAction);
+                                if (result) return result;
+                            }
+                        }
+                    }
+                }
+            } catch (error) {
+                console.warn('Failed to get enriched GitHub Action license:', error);
+            }
+            
+            return null;
+        }
+        
+        // Helper function to get repository license for reusable workflows
+        // Reusable workflows inherit the repository's license
+        function getRepositoryLicenseForReusableWorkflow(dep) {
+            if (!dep.name) {
+                return null;
+            }
+            
+            try {
+                // Build full name with version if not already present
+                let fullName = dep.name;
+                if (dep.version && !fullName.includes('@')) {
+                    fullName = `${dep.name}@${dep.version}`;
+                }
+                
+                // Parse to get owner/repo
+                // Handle both formats: owner/repo@ref or owner/repo/path@ref
+                let match = fullName.match(/^([^/@]+)\/([^/@]+)(?:\/(.+))?@(.+)$/);
+                if (!match) {
+                    match = fullName.match(/^([^/@]+)\/([^/@]+)(?:\/(.+))?$/);
+                    if (!match) {
+                        return null;
+                    }
+                }
+                
+                const [, owner, repo, path] = match;
+                
+                // Check if this is a reusable workflow (has .github/workflows/ in path)
+                if (path && path.includes('.github/workflows/')) {
+                    // For reusable workflows, check if we have repository license data
+                    // We can try to fetch it from GitHub API or use cached data
+                    // For now, return known licenses for common repositories
+                    const knownLicenses = {
+                        'google/osv-scanner-action': 'Apache-2.0'
+                    };
+                    
+                    const repoKey = `${owner}/${repo}`;
+                    if (knownLicenses[repoKey]) {
+                        return knownLicenses[repoKey];
+                    }
+                    
+                    // TODO: Could fetch from GitHub API if we have a GitHub client available
+                    // For now, return null and let it show as Unknown
+                }
+            } catch (error) {
+                console.warn('Failed to get repository license for reusable workflow:', error);
+            }
+            
+            return null;
+        }
 
+        async function filterTable() {
+            const vulnerableFilter = document.getElementById('vulnerableFilter').checked;
+            const analysisSelector = document.getElementById('analysisSelector');
+            
+            // If vulnerable filter is checked but no data is loaded, automatically load all projects
+            if (vulnerableFilter && (!allDependencies || allDependencies.length === 0)) {
+                // First, ensure the selector is populated
+                if (analysisSelector.options.length === 0) {
+                    await loadAnalysesList();
+                }
+                
+                // Check if we have options now
+                if (analysisSelector.options.length > 0) {
+                    // Set selector to aggregated view if not already set or if current value is empty
+                    const currentValue = analysisSelector.value;
+                    if (!currentValue || currentValue === '' || !Array.from(analysisSelector.options).some(opt => opt.value === currentValue)) {
+                        // Find or set aggregated (empty value) option
+                        const allOption = Array.from(analysisSelector.options).find(opt => opt.value === '');
+                        if (allOption) {
+                            analysisSelector.value = '';
+                        } else if (analysisSelector.options.length > 0) {
+                            // Use first option if aggregated option doesn't exist
+                            analysisSelector.value = analysisSelector.options[0].value;
+                        }
+                    }
+                    // Load the analysis data
+                    await loadAnalysis();
+                    // Continue with filtering after data is loaded
+                } else {
+                    // No data available at all
+                    document.getElementById('tableCard').classList.add('d-none');
+                    document.getElementById('statsRow').classList.add('d-none');
+                    document.getElementById('noDataMessage').classList.remove('d-none');
+                    return;
+                }
+            }
+            
+            // Early return if no data is loaded (and vulnerable filter is not checked)
+            if (!allDependencies || allDependencies.length === 0) {
+                document.getElementById('tableCard').classList.add('d-none');
+                document.getElementById('statsRow').classList.add('d-none');
+                document.getElementById('noDataMessage').classList.remove('d-none');
+                return;
+            }
+            
+            const searchInput = document.getElementById('searchInput').value;
+            const search = sanitizeSearchInput(searchInput).toLowerCase();
+            const typeFilter = document.getElementById('typeFilter').value;
+            const ecosystemFilter = document.getElementById('ecosystemFilter').value;
+            const repoFilter = document.getElementById('repoFilter').value;
+            const sponsorshipFilter = document.getElementById('sponsorshipFilter').checked;
+            const statusFilter = document.getElementById('statusFilter').checked;
+            const eoxFilter = document.getElementById('eoxFilter').checked;
+            const majorDriftFilter = document.getElementById('majorDriftFilter').checked;
+            const minorDriftFilter = document.getElementById('minorDriftFilter').checked;
+            
+            let filtered = allDependencies;
+            
+            // Apply vulnerable filter first (fast check)
+            if (vulnerableFilter) {
+                filtered = filtered.filter(dep => {
+                    return dep.vulnHigh > 0 || dep.vulnMedium > 0 || dep.vulnLow > 0;
+                });
+            }
+            
+            // Apply funding filter if active (from URL or checkbox)
+            if ((fundingFilterActive || sponsorshipFilter) && window.cacheManager) {
+                // Filter to only packages with funding
+                // Use batched approach to avoid too many concurrent requests
+                const batchSize = 50; // Process in batches of 50
+                const batches = [];
+                for (let i = 0; i < filtered.length; i += batchSize) {
+                    batches.push(filtered.slice(i, i + batchSize));
+                }
+                
+                const fundingResults = [];
+                for (const batch of batches) {
+                    const batchChecks = await Promise.all(batch.map(async (dep) => {
+                        if (!dep.packageKey) {
+                            return false; // No package key, can't check funding
+                        }
+                        // Use cached funding if available, otherwise fetch
+                        if (dep.funding === null) {
+                            try {
+                                const packageData = await window.cacheManager.getPackage(dep.packageKey);
+                                dep.funding = packageData?.funding || null;
+                            } catch (e) {
+                                dep.funding = null;
+                            }
+                        }
+                        return dep.funding !== null;
+                    }));
+                    fundingResults.push(...batchChecks);
+                }
+                
+                filtered = filtered.filter((dep, index) => fundingResults[index]);
+            }
+            
+            // Apply status filter (stale/deprecated/unmaintained) if active
+            if (statusFilter && (window.cacheManager || window.versionDriftAnalyzer)) {
+                // Filter to only packages with status issues
+                // Use batched approach to avoid too many concurrent requests
+                const batchSize = 50; // Process in batches of 50
+                const batches = [];
+                for (let i = 0; i < filtered.length; i += batchSize) {
+                    batches.push(filtered.slice(i, i + batchSize));
+                }
+                
+                const statusResults = [];
+                for (const batch of batches) {
+                    const batchChecks = await Promise.all(batch.map(async (dep) => {
+                        let hasStatusIssue = false;
+                        
+                        // Check package warnings (deprecated/unmaintained)
+                        if (dep.packageKey && window.cacheManager) {
+                            try {
+                                const packageData = await window.cacheManager.getPackage(dep.packageKey);
+                                if (packageData && packageData.warnings) {
+                                    const warnings = packageData.warnings;
+                                    if (warnings.isDeprecated || warnings.isUnmaintained) {
+                                        hasStatusIssue = true;
+                                    }
+                                }
+                            } catch (e) {
+                                // Ignore errors
+                            }
+                        }
+                        
+                        // Check staleness if not already found an issue
+                        // Skip if version is unknown (cannot check staleness without version)
+                        if (!hasStatusIssue && dep.ecosystem && dep.version && dep.version !== 'version unknown' && dep.name && window.versionDriftAnalyzer) {
+                            try {
+                                // Normalize ecosystem for packageKey (same as renderTable)
+                                let ecosystem = dep.ecosystem.toLowerCase();
+                                if (ecosystem === 'rubygems' || ecosystem === 'gem') {
+                                    ecosystem = 'gem';
+                                } else if (ecosystem === 'go' || ecosystem === 'golang') {
+                                    ecosystem = 'golang';
+                                } else if (ecosystem === 'packagist' || ecosystem === 'composer') {
+                                    ecosystem = 'composer';
+                                }
+                                
+                                // Check cache first for staleness
+                                const packageKey = `${ecosystem}:${dep.name}`;
+                                const drift = await window.versionDriftAnalyzer.getVersionDriftFromCache(packageKey, dep.version);
+                                
+                                let staleness = null;
+                                if (drift && drift.staleness) {
+                                    staleness = drift.staleness;
+                                } else {
+                                    // Try to get staleness (will check cache)
+                                    // Use original ecosystem for checkStaleness API
+                                    const originalEcosystem = dep.ecosystem.toLowerCase();
+                                    staleness = await window.versionDriftAnalyzer.checkStaleness(
+                                        dep.name,
+                                        dep.version,
+                                        originalEcosystem
+                                    );
+                                }
+                                
+                                if (staleness && staleness.isStale) {
+                                    hasStatusIssue = true;
+                                }
+                            } catch (e) {
+                                // Ignore errors
+                            }
+                        }
+                        
+                        return hasStatusIssue;
+                    }));
+                    statusResults.push(...batchChecks);
+                }
+                
+                filtered = filtered.filter((dep, index) => statusResults[index]);
+            }
+            
+            // Apply EOX (End-of-Life) filter if active
+            if (eoxFilter && window.eoxService) {
+                // Filter to only packages at end-of-life or end-of-support
+                const batchSize = 20; // Smaller batch for EOX since it may involve API calls
+                const batches = [];
+                for (let i = 0; i < filtered.length; i += batchSize) {
+                    batches.push(filtered.slice(i, i + batchSize));
+                }
+                
+                const eoxResults = [];
+                for (const batch of batches) {
+                    const batchChecks = await Promise.all(batch.map(async (dep) => {
+                        if (!dep.ecosystem || !dep.name) {
+                            return false;
+                        }
+                        
+                        try {
+                            const eoxStatus = await window.eoxService.checkEOX(
+                                dep.name,
+                                dep.version,
+                                dep.ecosystem
+                            );
+                            
+                            return eoxStatus && (eoxStatus.isEOL || eoxStatus.isEOS);
+                        } catch (e) {
+                            return false;
+                        }
+                    }));
+                    eoxResults.push(...batchChecks);
+                }
+                
+                filtered = filtered.filter((dep, index) => eoxResults[index]);
+            }
+            
+            // Apply version drift filters (major/minor) if active
+            if ((majorDriftFilter || minorDriftFilter) && window.versionDriftAnalyzer) {
+                // Filter to only packages with version drift
+                // Use batched approach to avoid too many concurrent requests
+                const batchSize = 50; // Process in batches of 50
+                const batches = [];
+                for (let i = 0; i < filtered.length; i += batchSize) {
+                    batches.push(filtered.slice(i, i + batchSize));
+                }
+                
+                const driftResults = [];
+                for (const batch of batches) {
+                    const batchChecks = await Promise.all(batch.map(async (dep) => {
+                        // Skip dependencies with unknown versions (cannot check drift)
+                        if (!dep.ecosystem || !dep.version || dep.version === 'version unknown' || !dep.name) {
+                            return false; // Can't check drift without required data
+                        }
+                        
+                        try {
+                            // Normalize ecosystem for packageKey (same as renderTable)
+                            let ecosystem = dep.ecosystem.toLowerCase();
+                            if (ecosystem === 'rubygems' || ecosystem === 'gem') {
+                                ecosystem = 'gem';
+                            } else if (ecosystem === 'go' || ecosystem === 'golang') {
+                                ecosystem = 'golang';
+                            } else if (ecosystem === 'packagist' || ecosystem === 'composer') {
+                                ecosystem = 'composer';
+                            }
+                            
+                            // Check cache first for version drift (should be populated during initial scan)
+                            // Version drift should be pre-fetched during initial analysis and saved to IndexedDB
+                            const packageKey = `${ecosystem}:${dep.name}`;
+                            let driftData = await window.versionDriftAnalyzer.getVersionDriftFromCache(packageKey, dep.version);
+                            
+                            // Only fetch if not in cache (should be rare - data should be pre-fetched during initial scan)
+                            // This is a fallback for edge cases where version drift wasn't fetched during analysis
+                            // If we do fetch, it will automatically save to IndexedDB via cacheManager
+                            if (!driftData) {
+                                console.debug(`⚠️ Version drift not cached for ${packageKey}@${dep.version}, fetching as fallback (should be rare)`);
+                                driftData = await window.versionDriftAnalyzer.checkVersionDrift(
+                                    dep.name,
+                                    dep.version,
+                                    dep.ecosystem
+                                );
+                            }
+                            
+                            if (!driftData) {
+                                return false; // No drift data available
+                            }
+                            
+                            // Check filters
+                            if (majorDriftFilter && driftData.hasMajorUpdate) {
+                                return true; // Has major update
+                            }
+                            if (minorDriftFilter && driftData.hasMinorUpdate) {
+                                return true; // Has minor update
+                            }
+                            
+                            return false; // Doesn't match filter criteria
+                        } catch (e) {
+                            // Ignore errors
+                            return false;
+                        }
+                    }));
+                    driftResults.push(...batchChecks);
+                }
+                
+                filtered = filtered.filter((dep, index) => driftResults[index]);
+            }
+            
+            // Apply other filters
+            filtered = filtered.filter(dep => {
+                if (search) {
+                    if (searchFromURL && searchPackageName && searchPackageVersion) {
+                        // Exact match for both name and version from URL parameter
+                        if (dep.name.toLowerCase() !== searchPackageName.toLowerCase()) return false;
+                        if (dep.version.toLowerCase() !== searchPackageVersion.toLowerCase()) return false;
+                    } else if (searchFromURL && searchPackageName) {
+                        // Exact match for name only (no version in search)
+                        if (dep.name.toLowerCase() !== searchPackageName.toLowerCase()) return false;
+                    } else if (searchFromURL) {
+                        // Exact match: package name must exactly equal the search term (case-insensitive)
+                        if (dep.name.toLowerCase() !== search) return false;
+                    } else {
+                        // Fuzzy match: package name contains the search term
+                        if (!dep.name.toLowerCase().includes(search)) return false;
+                    }
+                }
+                if (typeFilter !== 'all' && dep.type !== typeFilter) return false;
+                if (ecosystemFilter !== 'all' && dep.ecosystem !== ecosystemFilter) return false;
+                if (repoFilter !== 'all' && !dep.repositories.includes(repoFilter)) return false;
+                // Apply license filter if license parameter is present
+                if (licenseParam) {
+                    const licenseInfo = getLicenseInfo(dep);
+                    if (licenseInfo.licenseFull.toLowerCase() !== licenseParam.toLowerCase()) {
+                        return false;
+                    }
+                }
+                return true;
+            });
+            
+            // Sort
+            filtered.sort((a, b) => {
+                let aVal = a[sortColumn];
+                let bVal = b[sortColumn];
+                
+                if (typeof aVal === 'string') {
+                    aVal = aVal.toLowerCase();
+                    bVal = bVal.toLowerCase();
+                }
+                
+                if (sortDirection === 'asc') {
+                    return aVal < bVal ? -1 : aVal > bVal ? 1 : 0;
+                } else {
+                    return aVal > bVal ? -1 : aVal < bVal ? 1 : 0;
+                }
+            });
+            
+            filteredDependencies = filtered;
+            
+            updateStats(filtered);
+            await renderTable(filtered, true);
+        }
+        
+        function updateStats(filtered) {
+            const directCount = allDependencies.filter(d => d.type === 'direct').length;
+            const transitiveCount = allDependencies.filter(d => d.type === 'transitive').length;
+            
+            document.getElementById('statTotal').textContent = allDependencies.length;
+            document.getElementById('statDirect').textContent = directCount;
+            document.getElementById('statTransitive').textContent = transitiveCount;
+            document.getElementById('statShowing').textContent = filtered.length;
+        }
+        
+        // Load funding data for visible dependencies (lazy loading)
+        // Fetch licenses from deps.dev API for PyPI packages that don't have licenses
+        async function loadLicensesForVisibleDependencies() {
+            const tbody = document.getElementById('tableBody');
+            if (!tbody) return;
+            
+            const rows = Array.from(tbody.querySelectorAll('tr'));
+            // Get dependencies from window.currentData.allDependencies (processed dependencies)
+            // The data-dep-index refers to the index in the filtered dependencies array passed to renderTable
+            // We need to find the corresponding dependency in the processed array by matching name and version
+            const processedDeps = window.currentData?.allDependencies || [];
+            
+            const depsNeedingLicenses = rows
+                .map((row, index) => {
+                    // Get package name and version from the row to find the matching processed dependency
+                    const nameCell = row.querySelector('td a[data-package-name]');
+                    const versionCell = row.querySelector('td a[data-package-version]');
+                    if (!nameCell || !versionCell) return null;
+                    
+                    const packageName = nameCell.getAttribute('data-package-name');
+                    const packageVersion = versionCell.getAttribute('data-package-version');
+                    if (!packageName || !packageVersion) return null;
+                    
+                    // Find the matching dependency in processed dependencies
+                    const dep = processedDeps.find(d => d.name === packageName && d.version === packageVersion);
+                    // Only fetch if marked for fetch AND license is still Unknown (should be rare - data should be fetched during initial scan)
+                    if (!dep || !dep._needsLicenseFetch || (dep.licenseFull && dep.licenseFull !== 'Unknown')) return null;
+                    return { row, dep };
+                })
+                .filter(item => item !== null);
+            
+            if (depsNeedingLicenses.length === 0) {
+                console.log('ℹ️ No licenses need fetching - all licenses are already available from initial scan');
+                return;
+            }
+            
+            console.log(`📄 Fetching ${depsNeedingLicenses.length} missing licenses (should be rare if initial scan completed)`);
+            
+            // Process in batches to avoid overwhelming the API
+            const batchSize = 20;
+            for (let i = 0; i < depsNeedingLicenses.length; i += batchSize) {
+                const batch = depsNeedingLicenses.slice(i, i + batchSize);
+                await Promise.all(batch.map(async ({ row, dep }) => {
+                    try {
+                        // Fetch license from deps.dev API
+                        const url = `https://api.deps.dev/v3alpha/systems/pypi/packages/${encodeURIComponent(dep.name)}/versions/${encodeURIComponent(dep.version)}`;
+                        const response = await fetch(url);
+                        if (!response.ok) {
+                            dep._needsLicenseFetch = false; // Mark as attempted
+                            return;
+                        }
+                        
+                        const data = await response.json();
+                        if (data.licenses && data.licenses.length > 0) {
+                            const licenseFull = data.licenses.join(' AND ');
+                            let licenseText = licenseFull;
+                            
+                            // Format license text (same logic as getLicenseInfo)
+                            if (licenseFull.includes(' AND ')) {
+                                const firstLicense = licenseFull.split(' AND ')[0];
+                                licenseText = firstLicense.startsWith('Apache') ? 'Apache' : (firstLicense.length > 8 ? firstLicense.substring(0, 8) + '...' : firstLicense);
+                            } else if (licenseFull.startsWith('Apache')) {
+                                licenseText = 'Apache';
+                            } else {
+                                licenseText = licenseFull.length > 8 ? licenseFull.substring(0, 8) + '...' : licenseFull;
+                            }
+                            
+                            // Update dep object
+                            dep.license = licenseText;
+                            dep.licenseFull = licenseFull;
+                            dep._licenseEnriched = true;
+                            dep._licenseCached = true;
+                            dep._needsLicenseFetch = false;
+                            
+                            // Also update the original dependency in processedDeps array
+                            // This ensures the license persists in the processed data
+                            const originalDep = processedDeps.find(d => d.name === dep.name && d.version === dep.version);
+                            if (originalDep) {
+                                originalDep.license = licenseText;
+                                originalDep.licenseFull = licenseFull;
+                                originalDep._licenseEnriched = true;
+                                originalDep._licenseCached = true;
+                                originalDep._needsLicenseFetch = false;
+                                
+                                // Also update the raw dependency data so it persists in IndexedDB
+                                if (originalDep.raw) {
+                                    originalDep.raw.license = licenseText;
+                                    originalDep.raw.licenseFull = licenseFull;
+                                    originalDep.raw._licenseEnriched = true;
+                                }
+                            }
+                            
+                            // Update the license cell in the table
+                            updateLicenseCell(row, dep);
+                        } else {
+                            dep._needsLicenseFetch = false; // Mark as attempted, no license found
+                        }
+                    } catch (e) {
+                        console.warn(`Failed to fetch license for ${dep.name}@${dep.version}:`, e);
+                        dep._needsLicenseFetch = false; // Mark as attempted
+                    }
+                }));
+                // Small delay between batches to avoid overwhelming the API
+                await new Promise(resolve => setTimeout(resolve, 50));
+            }
+            
+            // After fetching all licenses, update the stored data in IndexedDB
+            await saveUpdatedLicensesToIndexedDB();
+        }
+        
+        // Save updated licenses back to IndexedDB
+        async function saveUpdatedLicensesToIndexedDB() {
+            if (!window.storageManager || !window.currentData) return;
+            
+            try {
+                // Ensure storage manager is initialized
+                if (!window.storageManager.initialized) {
+                    await window.storageManager.init();
+                }
+                
+                const analysisName = document.getElementById('analysisSelector')?.value;
+                if (!analysisName) return;
+                
+                // Get the current stored data
+                let storedData;
+                if (!analysisName || analysisName === '') {
+                    storedData = await window.storageManager.getCombinedData();
+                } else {
+                    storedData = await window.storageManager.loadAnalysisDataForOrganization(analysisName);
+                }
+                
+                if (!storedData || !storedData.data) return;
+                
+                // Update allDependencies in the stored data with fetched licenses
+                const processedDeps = window.currentData.allDependencies || [];
+                const storedDeps = storedData.data.allDependencies || [];
+                
+                // Create a map of processed dependencies by name@version for quick lookup
+                const processedMap = new Map();
+                processedDeps.forEach(dep => {
+                    const key = `${dep.name}@${dep.version}`;
+                    if (dep.licenseFull && dep.licenseFull !== 'Unknown' && dep._licenseEnriched) {
+                        processedMap.set(key, {
+                            license: dep.license,
+                            licenseFull: dep.licenseFull,
+                            _licenseEnriched: dep._licenseEnriched
+                        });
+                    }
+                });
+                
+                // Update stored dependencies with fetched licenses
+                let updated = false;
+                storedDeps.forEach(dep => {
+                    const key = `${dep.name}@${dep.version}`;
+                    const fetchedLicense = processedMap.get(key);
+                    if (fetchedLicense && (!dep.licenseFull || dep.licenseFull === 'Unknown')) {
+                        dep.license = fetchedLicense.license;
+                        dep.licenseFull = fetchedLicense.licenseFull;
+                        dep._licenseEnriched = fetchedLicense._licenseEnriched;
+                        
+                        // Also update raw dependency data if it exists
+                        if (dep.raw) {
+                            dep.raw.license = fetchedLicense.license;
+                            dep.raw.licenseFull = fetchedLicense.licenseFull;
+                            dep.raw._licenseEnriched = fetchedLicense._licenseEnriched;
+                        }
+                        
+                        updated = true;
+                    }
+                });
+                
+                // Also update in the raw dependency data (from SBOM processing)
+                // This ensures licenses persist in the original data structure
+                if (storedData.data.allRepositories) {
+                    storedData.data.allRepositories.forEach(repo => {
+                        if (repo.dependencies) {
+                            repo.dependencies.forEach(dep => {
+                                const key = `${dep.name}@${dep.version}`;
+                                const fetchedLicense = processedMap.get(key);
+                                if (fetchedLicense && (!dep.licenseFull || dep.licenseFull === 'Unknown')) {
+                                    dep.license = fetchedLicense.license;
+                                    dep.licenseFull = fetchedLicense.licenseFull;
+                                    dep._licenseEnriched = fetchedLicense._licenseEnriched;
+                                    updated = true;
+                                }
+                            });
+                        }
+                    });
+                }
+                
+                // Save updated data back to IndexedDB if any licenses were updated
+                if (updated) {
+                    console.log('💾 Saving updated license data to IndexedDB...');
+                    const saveSuccess = await window.storageManager.saveAnalysisData(analysisName, storedData.data);
+                    if (saveSuccess) {
+                        console.log('✅ Successfully saved updated license data to IndexedDB');
+                    } else {
+                        console.warn('⚠️ Failed to save updated license data to IndexedDB');
+                    }
+                } else {
+                    console.log('ℹ️ No license updates to save');
+                }
+            } catch (error) {
+                console.error('❌ Error saving updated licenses to IndexedDB:', error);
+            }
+        }
+        
+        // Update license cell for a specific row
+        function updateLicenseCell(row, dep) {
+            const cells = row.querySelectorAll('td');
+            if (cells.length < 7) return; // Not enough cells (license is typically around column 6)
+            
+            // Find the license cell (it contains the license text)
+            // License cell is typically the 6th column (index 5) after: name, type, ecosystem, repos, vulnerabilities
+            const licenseCell = cells[5];
+            if (!licenseCell) return;
+            
+            const enrichedBadge = dep._licenseEnriched ? '<span class="badge bg-success bg-opacity-25 ms-1" title="Enriched license data from deps.dev API">✓</span>' : '';
+            licenseCell.innerHTML = `<span title="${escapeHtml(dep.licenseFull)}${dep._licenseEnriched ? ' (Enriched)' : ''}">${escapeHtml(dep.license)}</span>${enrichedBadge}`;
+        }
+        
+        async function loadFundingForVisibleDependencies() {
+            if (!window.cacheManager) return;
+            
+            const tbody = document.getElementById('tableBody');
+            const rows = tbody.querySelectorAll('tr');
+            const batchSize = 25; // Load in smaller batches
+            
+            for (let i = 0; i < rows.length; i += batchSize) {
+                const batch = Array.from(rows).slice(i, i + batchSize);
+                await Promise.all(batch.map(async (row, idx) => {
+                    const rowIndex = i + idx;
+                    if (rowIndex < filteredDependencies.length) {
+                        const dep = filteredDependencies[rowIndex];
+                        if (dep.funding === null && dep.packageKey) {
+                            try {
+                                const packageData = await window.cacheManager.getPackage(dep.packageKey);
+                                dep.funding = packageData?.funding || null;
+                                // Update the sponsorship cell if funding was found
+                                if (dep.funding) {
+                                    updateSponsorshipCell(row, dep);
+                                }
+                            } catch (e) {
+                                dep.funding = null;
+                            }
+                        }
+                    }
+                }));
+                // Small delay between batches to avoid overwhelming the cache
+                await new Promise(resolve => setTimeout(resolve, 10));
+            }
+        }
+        
+        // Update sponsorship cell for a specific row
+        function updateSponsorshipCell(row, dep) {
+            const cells = row.querySelectorAll('td');
+            if (cells.length < 9) return; // Not enough cells (we now have 9 columns: name, version, type, ecosystem, used in, vulnerabilities, license, quality, sponsorship, brought in by)
+            
+            // Sponsorship is now the 8th column (index 7) after adding vulnerabilities, license, and quality
+            const sponsorshipCell = cells[7];
+            if (!sponsorshipCell) return;
+            
+            const platforms = [];
+            if (dep.funding.github) {
+                const githubUrl = dep.funding.githubUrl || dep.funding.url || `https://github.com/sponsors/${encodeURIComponent(dep.name)}`;
+                platforms.push(`<a href="${githubUrl}" target="_blank" title="GitHub Sponsors"><i class="fab fa-github text-dark"></i></a>`);
+            }
+            if (dep.funding.opencollective) {
+                const ocUrl = dep.funding.opencollectiveUrl || dep.funding.url;
+                if (ocUrl) {
+                    platforms.push(`<a href="${ocUrl}" target="_blank" title="Open Collective"><i class="fas fa-hand-holding-usd text-primary"></i></a>`);
+                }
+            }
+            if (dep.funding.patreon) {
+                const patreonUrl = dep.funding.patreonUrl || dep.funding.url || `https://patreon.com/${encodeURIComponent(dep.name)}`;
+                platforms.push(`<a href="${patreonUrl}" target="_blank" title="Patreon"><i class="fab fa-patreon text-danger"></i></a>`);
+            }
+            if (dep.funding.tidelift) {
+                const tideliftUrl = dep.funding.tideliftUrl || dep.funding.url;
+                if (tideliftUrl) {
+                    platforms.push(`<a href="${tideliftUrl}" target="_blank" title="Tidelift"><i class="fas fa-gift text-warning"></i></a>`);
+                }
+            }
+            
+            if (platforms.length > 0) {
+                sponsorshipCell.innerHTML = `<span class="d-flex justify-content-center gap-2">${platforms.join(' ')}</span>`;
+            } else if (dep.funding.url) {
+                sponsorshipCell.innerHTML = `<a href="${dep.funding.url}" target="_blank" title="Funding available"><i class="fas fa-donate text-success"></i></a>`;
+            }
+        }
+        
+        /**
+         * Check if a version string is a hash (long alphanumeric string)
+         * Typically hashes are 32+ characters and contain only hex characters or alphanumeric
+         */
+        function isHashVersion(version) {
+            if (!version || typeof version !== 'string') return false;
+            // Check if it's a long alphanumeric string (32+ chars) that looks like a hash
+            // Common hash lengths: 32 (MD5), 40 (SHA1), 64 (SHA256), etc.
+            if (version.length >= 32) {
+                // Check if it's mostly alphanumeric (allowing for some special chars like -)
+                const alphanumericRatio = (version.match(/[a-zA-Z0-9]/g) || []).length / version.length;
+                // If 90%+ alphanumeric and long, it's likely a hash
+                return alphanumericRatio >= 0.9;
+            }
+            return false;
+        }
+        
+        /**
+         * Format version for display - truncate hash to 5 chars with tooltip
+         * Shows "version unknown" badge when version is missing
+         */
+        function formatVersionForDisplay(version) {
+            if (!version || version === 'version unknown') {
+                return '<span class="badge bg-warning text-dark" title="Version information not available in SBOM">version unknown</span>';
+            }
+            const escaped = escapeHtml(version);
+            if (isHashVersion(version)) {
+                const truncated = escaped.substring(0, 5);
+                return `<span title="${escaped}">${truncated}...</span>`;
+            }
+            return escaped;
+        }
+        
+        async function renderTable(deps, reset = false) {
+            const tbody = document.getElementById('tableBody');
+            
+            if (reset) {
+                tbody.innerHTML = '';
+            }
+            
+            // Determine how many to display based on displayLimit
+            const toDisplay = displayLimit === 'all' ? deps : deps.slice(0, displayLimit);
+            
+            // getLicenseInfo is now defined globally above, so we can use it here
+            
+            
+            // Render the batch
+            toDisplay.forEach((dep, idx) => {
+                // Build sponsorship cell (load funding data lazily if not already loaded)
+                let sponsorshipCell = '<td class="text-center">—</td>';
+                if (dep.funding) {
+                    const platforms = [];
+                    
+                    // Use platform-specific URLs if available, otherwise fall back to generic URL
+                    if (dep.funding.github) {
+                        const githubUrl = dep.funding.githubUrl || dep.funding.url || `https://github.com/sponsors/${encodeURIComponent(dep.name)}`;
+                        platforms.push(`<a href="${githubUrl}" target="_blank" title="GitHub Sponsors"><i class="fab fa-github text-dark"></i></a>`);
+                    }
+                    if (dep.funding.opencollective) {
+                        const ocUrl = dep.funding.opencollectiveUrl || dep.funding.url;
+                        if (ocUrl) {
+                            platforms.push(`<a href="${ocUrl}" target="_blank" title="Open Collective"><i class="fas fa-hand-holding-usd text-primary"></i></a>`);
+                        } else {
+                            // Fallback: try to construct URL from package name
+                            platforms.push(`<a href="https://opencollective.com/${encodeURIComponent(dep.name)}" target="_blank" title="Open Collective"><i class="fas fa-hand-holding-usd text-primary"></i></a>`);
+                        }
+                    }
+                    if (dep.funding.patreon) {
+                        const patreonUrl = dep.funding.patreonUrl || dep.funding.url || `https://patreon.com/${encodeURIComponent(dep.name)}`;
+                        platforms.push(`<a href="${patreonUrl}" target="_blank" title="Patreon"><i class="fab fa-patreon text-danger"></i></a>`);
+                    }
+                    if (dep.funding.tidelift) {
+                        const tideliftUrl = dep.funding.tideliftUrl || dep.funding.url;
+                        if (tideliftUrl) {
+                            platforms.push(`<a href="${tideliftUrl}" target="_blank" title="Tidelift"><i class="fas fa-gift text-warning"></i></a>`);
+                        }
+                    }
+                    
+                    if (platforms.length > 0) {
+                        sponsorshipCell = `<td class="text-center"><span class="d-flex justify-content-center gap-2">${platforms.join(' ')}</span></td>`;
+                    } else if (dep.funding.url) {
+                        sponsorshipCell = `<td class="text-center"><a href="${dep.funding.url}" target="_blank" title="Funding available"><i class="fas fa-donate text-success"></i></a></td>`;
+                    }
+                } else if (dep.packageKey && window.cacheManager) {
+                    // Try to load funding from cache synchronously (if already cached)
+                    // Otherwise will be loaded lazily in background
+                    // This is a quick check without async to avoid blocking
+                }
+                
+                // Build vulnerability cell
+                let vulnCell = '<td class="text-center">—</td>';
+                if (dep.vulnHigh > 0 || dep.vulnMedium > 0 || dep.vulnLow > 0) {
+                    const vulnParts = [];
+                    if (dep.vulnHigh > 0) {
+                        vulnParts.push(`<span class="badge bg-danger" title="High: ${dep.vulnHigh}">H:${dep.vulnHigh}</span>`);
+                    }
+                    if (dep.vulnMedium > 0) {
+                        vulnParts.push(`<span class="badge bg-warning text-dark" title="Medium: ${dep.vulnMedium}">M:${dep.vulnMedium}</span>`);
+                    }
+                    if (dep.vulnLow > 0) {
+                        vulnParts.push(`<span class="badge bg-info" title="Low: ${dep.vulnLow}">L:${dep.vulnLow}</span>`);
+                    }
+                    vulnCell = `<td class="text-center"><span class="d-flex justify-content-center gap-1 flex-wrap">${vulnParts.join(' ')}</span></td>`;
+                }
+                
+                // Build license cell (lazy evaluation)
+                const licenseInfo = getLicenseInfo(dep);
+                // Show badge indicating license source: 
+                // - "API" badge (green) if fetched from external API (deps.dev, GitHub, etc.)
+                // - "SBOM" badge (blue) if from original SBOM
+                // - No badge if unknown
+                let sourceBadge = '';
+                if (licenseInfo.license !== 'Unknown') {
+                    if (licenseInfo.isEnriched || licenseInfo.licenseSource === 'deps.dev' || licenseInfo.licenseSource === 'external') {
+                        sourceBadge = '<span class="badge bg-success bg-opacity-25 ms-1" title="License fetched from external API (augmented data)">API</span>';
+                    } else if (licenseInfo.licenseSource === 'sbom') {
+                        sourceBadge = '<span class="badge bg-primary bg-opacity-25 ms-1" title="License from original SBOM">SBOM</span>';
+                    }
+                }
+                const enrichedBadge = sourceBadge;
+                
+                // Check if this is a dual license
+                let licenseDisplay = escapeHtml(licenseInfo.license);
+                let licenseTitle = escapeHtml(licenseInfo.licenseFull);
+                if (licenseInfo.isDualLicense && licenseInfo.dualLicenseInfo) {
+                    // Show both licenses with dual badge
+                    const dualBadge = '<span class="badge bg-info ms-1" title="Dual license">Dual</span>';
+                    licenseDisplay = escapeHtml(licenseInfo.license) + dualBadge;
+                    licenseTitle = `Dual license: ${licenseInfo.dualLicenseInfo.licenses.join(` ${licenseInfo.dualLicenseInfo.operators[0] || 'AND'} `)}`;
+                }
+                
+                const sourceText = licenseInfo.licenseSource === 'sbom' ? ' (from SBOM)' : (licenseInfo.isEnriched ? ' (from API)' : '');
+                const licenseCell = `<td><span title="${licenseTitle}${sourceText}">${licenseDisplay}</span>${enrichedBadge}</td>`;
+                
+                // Note: SBOM Quality is not shown for individual dependencies
+                // SBOM quality scores are only meaningful at the repository level,
+                // not for individual dependencies, since we only download SBOMs from repositories
+                
+                const tr = document.createElement('tr');
+                tr.setAttribute('data-dep-index', idx); // Store dependency index for easy lookup
+                
+                // Check if this is an independent entity (no dependencies) for initial styling
+                const isIndependent = !dep.children || dep.children.length === 0;
+                if (isIndependent) {
+                    tr.classList.add('independent-entity');
+                }
+                
+                // Handle empty or invalid names gracefully
+                let displayName = dep.name;
+                let displayVersion = dep.version;
+                
+                // If name is empty but version contains package info, try to extract it
+                if (!displayName || displayName.trim() === '') {
+                    // Try to extract package name from version field if it contains a path
+                    // Format: "package@version" or "path>package@version"
+                    if (displayVersion && displayVersion.includes('@')) {
+                        // Extract the last part after @ (the actual version)
+                        const parts = displayVersion.split('@');
+                        if (parts.length >= 2) {
+                            displayVersion = parts[parts.length - 1];
+                            // Try to extract package name from the path
+                            const beforeVersion = parts.slice(0, -1).join('@');
+                            if (beforeVersion.includes('>')) {
+                                // Path format: "parent>package" - extract last part
+                                displayName = beforeVersion.split('>').pop() || 'Unknown';
+                            } else {
+                                displayName = beforeVersion || 'Unknown';
+                            }
+                        } else {
+                            displayName = 'Unknown';
+                        }
+                    } else {
+                        displayName = 'Unknown';
+                    }
+                }
+                
+                const versionDisplay = formatVersionForDisplay(displayVersion);
+                const packageNameEscaped = escapeHtml(displayName);
+                // For GitHub Actions and some other packages, the name already includes @version
+                // Check if name already ends with the version (with or without @) to avoid duplication
+                const versionInName = displayName.endsWith(`@${displayVersion}`) || displayName.endsWith(displayVersion);
+                const packageLink = versionInName ? packageNameEscaped : `${packageNameEscaped}@${versionDisplay}`;
+                // Version drift badge placeholder (will be populated asynchronously)
+                const driftBadgeId = `drift-${idx}`;
+                // Ecosystem-Type badge: blue (bg-primary) for direct, grey (bg-secondary) for transitive
+                const ecosystemBadgeClass = dep.type === 'direct' ? 'bg-primary' : 'bg-secondary';
+                tr.innerHTML = `
+                    <td>
+                        <a href="#" class="package-link text-primary text-decoration-none" 
+                           data-package-key="${escapeHtml(dep.packageKey || '')}" 
+                           data-package-name="${escapeHtml(displayName)}" 
+                           data-package-version="${escapeHtml(displayVersion)}"
+                           data-package-ecosystem="${escapeHtml(dep.ecosystem)}"
+                           data-package-repos='${JSON.stringify(dep.repositories)}'
+                           data-package-raw='${JSON.stringify({...dep.raw, _gaMetadata: dep._gaMetadata}).replace(/'/g, '&apos;')}'>
+                            <strong>${packageLink}</strong>
+                        </a>
+                        <span id="${driftBadgeId}" class="ms-2"></span>
+                    </td>
+                    <td><span class="badge ${ecosystemBadgeClass} text-white">${escapeHtml(dep.ecosystem)}</span></td>
+                    <td>
+                        <span class="clickable-cell" data-repos='${JSON.stringify(dep.repositories)}' data-package='${escapeHtml(dep.name)}'>
+                            ${dep.repoCount} ${dep.repoCount === 1 ? 'repo' : 'repos'}
+                        </span>
+                    </td>
+                    ${vulnCell}
+                    ${licenseCell}
+                    ${sponsorshipCell}
+                    <td>
+                        ${dep.type === 'direct' 
+                            ? 'Direct' 
+                            : dep.parents.length > 0 
+                                ? `<span class="clickable-cell" data-parents='${JSON.stringify(dep.parents)}' data-parents-by-repo='${JSON.stringify(dep.parentsByRepo).replace(/'/g, '&apos;')}' data-package='${escapeHtml(dep.name)}' data-package-version='${escapeHtml(dep.version)}'>${dep.parents.length} ${dep.parents.length === 1 ? 'parent' : 'parents'}</span>`
+                                : '<span class="text-muted">Unknown</span>'
+                        }
+                    </td>
+                `;
+                tbody.appendChild(tr);
+            });
+            
+            // Load funding data for newly rendered rows in background (lazy loading)
+            if (window.cacheManager && toDisplay.length > 0) {
+                // Use setTimeout to avoid blocking the render
+                setTimeout(async () => {
+                    const batchSize = 10; // Smaller batches for lazy loading
+                    
+                    for (let i = 0; i < toDisplay.length; i += batchSize) {
+                        const subBatch = toDisplay.slice(i, i + batchSize);
+                        await Promise.all(subBatch.map(async (dep, batchIdx) => {
+                            if (dep.funding === null && dep.packageKey) {
+                                try {
+                                    const packageData = await window.cacheManager.getPackage(dep.packageKey);
+                                    dep.funding = packageData?.funding || null;
+                                    // Update the row if funding was found
+                                    if (dep.funding) {
+                                        // Find the row by data attribute
+                                        const depIndex = i + batchIdx;
+                                        const row = tbody.querySelector(`tr[data-dep-index="${depIndex}"]`);
+                                        if (row) {
+                                            updateSponsorshipCell(row, dep);
+                                        }
+                                    }
+                                } catch (e) {
+                                    dep.funding = null;
+                                }
+                            }
+                        }));
+                        // Small delay between sub-batches
+                        await new Promise(resolve => setTimeout(resolve, 10));
+                    }
+                }, 50);
+            }
+            
+            // Load version drift from cache (no API calls - data should be pre-fetched during analysis)
+            if (window.versionDriftAnalyzer && window.cacheManager && toDisplay.length > 0) {
+                setTimeout(async () => {
+                    // Process all displayed dependencies (no batching needed since we're reading from cache)
+                    await Promise.all(toDisplay.map(async (dep, idx) => {
+                        // Skip dependencies with unknown versions (cannot check drift)
+                        if (dep.ecosystem && dep.version && dep.version !== 'version unknown' && dep.name) {
+                            try {
+                                // Normalize ecosystem for packageKey
+                                let ecosystem = dep.ecosystem.toLowerCase();
+                                if (ecosystem === 'rubygems' || ecosystem === 'gem') {
+                                    ecosystem = 'gem';
+                                } else if (ecosystem === 'go' || ecosystem === 'golang') {
+                                    ecosystem = 'golang';
+                                } else if (ecosystem === 'packagist' || ecosystem === 'composer') {
+                                    ecosystem = 'composer';
+                                }
+                                const packageKey = `${ecosystem}:${dep.name}`;
+                                
+                                // Get version drift from cache (fast - no API call)
+                                // Version drift should be pre-fetched during initial analysis and saved to IndexedDB
+                                const drift = await window.versionDriftAnalyzer.getVersionDriftFromCache(packageKey, dep.version);
+                                
+                                // Only fetch if not in cache (should be rare - data should be pre-fetched during initial scan)
+                                // This is a fallback for edge cases where version drift wasn't fetched during analysis
+                                let driftData = drift;
+                                if (!driftData) {
+                                    console.debug(`⚠️ Version drift not cached for ${packageKey}@${dep.version}, fetching as fallback (should be rare)`);
+                                    driftData = await window.versionDriftAnalyzer.checkVersionDrift(
+                                        dep.name,
+                                        dep.version,
+                                        dep.ecosystem
+                                    );
+                                }
+                                
+                                if (driftData && driftData.latestVersion) {
+                                    const depIndex = idx;
+                                    const badgeElement = document.getElementById(`drift-${depIndex}`);
+                                    if (badgeElement) {
+                                        let badgeHtml = '';
+                                        if (driftData.hasMajorUpdate) {
+                                            badgeHtml = `<span class="badge bg-danger" title="Major update available: v${escapeHtml(driftData.latestVersion)}"><i class="fas fa-arrow-up"></i> Major: v${escapeHtml(driftData.latestVersion)}</span>`;
+                                        } else if (driftData.hasMinorUpdate) {
+                                            badgeHtml = `<span class="badge bg-warning text-dark" title="Minor update available: v${escapeHtml(driftData.latestVersion)}"><i class="fas fa-arrow-up"></i> Minor: v${escapeHtml(driftData.latestVersion)}</span>`;
+                                        } else {
+                                            // Check for staleness if no updates available
+                                            // Staleness is also stored in versionDrift cache
+                                            try {
+                                                // Try to get staleness from cached drift data first
+                                                let staleness = null;
+                                                if (driftData.staleness) {
+                                                    // Staleness already in drift data
+                                                    staleness = driftData.staleness;
+                                                } else {
+                                                    // Fetch staleness (will check cache first)
+                                                    staleness = await window.versionDriftAnalyzer.checkStaleness(
+                                                        dep.name,
+                                                        dep.version,
+                                                        dep.ecosystem
+                                                    );
+                                                }
+                                                
+                                                if (staleness && staleness.isProbableEOL && staleness.monthsSinceRelease >= 36) {
+                                                    // Highly likely EOL (3+ years without updates)
+                                                    badgeHtml = `<span class="badge bg-danger" title="${escapeHtml(staleness.probableEOLReason || 'No updates for 3+ years')}"><i class="fas fa-skull"></i> Highly Likely EOL</span>`;
+                                                } else if (staleness && staleness.isProbableEOL) {
+                                                    // Probable EOL (2+ years without updates)
+                                                    badgeHtml = `<span class="badge bg-warning text-dark" title="${escapeHtml(staleness.probableEOLReason || 'No updates for 2+ years')}"><i class="fas fa-hourglass-end"></i> Probable EOL</span>`;
+                                                } else if (staleness && staleness.isStale) {
+                                                    badgeHtml = `<span class="badge bg-warning" title="Stale: Last release ${staleness.monthsSinceRelease} months ago"><i class="fas fa-clock"></i> Stale (${staleness.monthsSinceRelease}m)</span>`;
+                                                }
+                                                
+                                                // Check EOX (End-of-Life) status (from endoflife.date API - overrides staleness-based EOL)
+                                                if (!badgeHtml && window.eoxService) {
+                                                    try {
+                                                        const eoxStatus = await window.eoxService.checkEOX(
+                                                            dep.name,
+                                                            dep.version,
+                                                            dep.ecosystem
+                                                        );
+                                                        
+                                                        if (eoxStatus && eoxStatus.isEOL) {
+                                                            const dateInfo = eoxStatus.eolDate ? ` (${eoxStatus.eolDate})` : '';
+                                                            badgeHtml = `<span class="badge bg-danger" title="End of Life${dateInfo}"><i class="fas fa-skull-crossbones"></i> EOL</span>`;
+                                                        } else if (eoxStatus && eoxStatus.isEOS) {
+                                                            const dateInfo = eoxStatus.eosDate ? ` (${eoxStatus.eosDate})` : '';
+                                                            badgeHtml = `<span class="badge bg-warning text-dark" title="End of Support${dateInfo}"><i class="fas fa-exclamation-triangle"></i> EOS</span>`;
+                                                        }
+                                                    } catch (e) {
+                                                        // Ignore EOX check errors
+                                                    }
+                                                }
+                                                
+                                                // Check if this is an independent entity (no dependencies)
+                                                // Independent entities have no children/dependencies
+                                                const isIndependent = !dep.children || dep.children.length === 0;
+                                                if (isIndependent && !badgeHtml) {
+                                                    badgeHtml = `<span class="badge bg-info" title="Independent entity: No dependencies"><i class="fas fa-circle-notch"></i> Independent</span>`;
+                                                    // Mark row as independent for styling (if not already marked)
+                                                    const row = badgeElement.closest('tr');
+                                                    if (row && !row.classList.contains('independent-entity')) {
+                                                        row.classList.add('independent-entity');
+                                                    }
+                                                }
+                                            } catch (e) {
+                                                // Ignore staleness check errors
+                                            }
+                                        }
+                                        badgeElement.innerHTML = badgeHtml;
+                                    }
+                                }
+                            } catch (e) {
+                                console.warn('Failed to check version drift for', dep.name, e);
+                            }
+                        }
+                    }));
+                }, 100); // Small delay to allow table to render first
+            }
+            
+            // Update display info
+            updateDisplayInfo(toDisplay.length, deps.length);
+            
+            // Add click handlers for package links
+            document.querySelectorAll('.package-link').forEach(link => {
+                if (!link.hasAttribute('data-handler-attached')) {
+                    link.setAttribute('data-handler-attached', 'true');
+                    link.addEventListener('click', (e) => {
+                        e.preventDefault();
+                        const packageKey = link.getAttribute('data-package-key');
+                        const packageName = link.getAttribute('data-package-name');
+                        const packageVersion = link.getAttribute('data-package-version');
+                        const packageEcosystem = link.getAttribute('data-package-ecosystem');
+                        const packageRepos = JSON.parse(link.getAttribute('data-package-repos'));
+                        const packageRaw = JSON.parse(link.getAttribute('data-package-raw'));
+                        showPackageDetailsModal(packageKey, packageName, packageVersion, packageEcosystem, packageRepos, packageRaw);
+                    });
+                }
+            });
+            
+            // Add click handlers for both repositories and parents
+            document.querySelectorAll('.clickable-cell').forEach(cell => {
+                if (!cell.hasAttribute('data-handler-attached')) {
+                    cell.setAttribute('data-handler-attached', 'true');
+                    cell.addEventListener('click', () => {
+                        if (cell.hasAttribute('data-repos')) {
+                            const repos = JSON.parse(cell.getAttribute('data-repos'));
+                            const packageName = cell.getAttribute('data-package');
+                            showRepositoriesModal(repos, packageName);
+                        } else if (cell.hasAttribute('data-parents')) {
+                            const parents = JSON.parse(cell.getAttribute('data-parents'));
+                            const parentsByRepo = JSON.parse(cell.getAttribute('data-parents-by-repo'));
+                            const packageName = cell.getAttribute('data-package');
+                            const packageVersion = cell.getAttribute('data-package-version') || '';
+                            const fullPackageName = packageVersion ? `${packageName}@${packageVersion}` : packageName;
+                            showParentsModal(parents, parentsByRepo, fullPackageName);
+                        }
+                    });
+                }
+            });
+        }
+        
+        // Function to update pagination controls
+        function updateDisplayInfo(displayCount, totalItems) {
+            const displayInfo = document.getElementById('displayInfo');
+            if (!displayInfo) return;
+            
+            displayInfo.textContent = `Showing ${displayCount} of ${totalItems}`;
+        }
+        
+        async function showPackageDetailsModal(packageKey, packageName, packageVersion, packageEcosystem, packageRepos, packageRaw) {
+            const modalTitle = document.getElementById('packageDetailsModalTitle');
+            const modalBody = document.getElementById('packageDetailsModalBody');
+            
+            modalTitle.textContent = `${packageName}@${packageVersion}`;
+            modalBody.innerHTML = `
+                <div class="text-center">
+                    <div class="spinner-border text-primary" role="status">
+                        <span class="visually-hidden">Loading...</span>
+                    </div>
+                    <p class="mt-2">Loading package details...</p>
+                </div>
+            `;
+            
+            new bootstrap.Modal(document.getElementById('packageDetailsModal')).show();
+            
+            // Fetch package details
+            let packageData = null;
+            let authors = [];
+            let funding = null;
+            
+            if (packageKey && window.cacheManager) {
+                try {
+                    packageData = await window.cacheManager.getPackage(packageKey);
+                    if (packageData) {
+                        funding = packageData.funding || null;
+                    }
+                    
+                    // Fetch authors
+                    authors = await window.cacheManager.getPackageAuthors(packageKey);
+                } catch (e) {
+                    console.warn('Failed to fetch package details:', e);
+                }
+            }
+            
+            // Check if this is a GitHub Action and fetch owner info
+            let githubActionOwner = null;
+            let githubActionRepoInfo = null;
+            if (packageRaw.githubActionInfo) {
+                githubActionOwner = packageRaw.githubActionInfo.owner;
+                const repoKey = packageRaw.githubActionInfo.fullName;
+                
+                // Try to fetch repository info from GitHub API (with caching)
+                if (window.cacheManager && window.githubClient) {
+                    try {
+                        // Check cache first
+                        githubActionRepoInfo = await window.cacheManager.getGitHubRepo(repoKey);
+                        
+                        if (!githubActionRepoInfo) {
+                            // Fetch from GitHub API
+                            const repoData = await window.githubClient.getRepository(
+                                packageRaw.githubActionInfo.owner,
+                                packageRaw.githubActionInfo.repoName
+                            );
+                            if (repoData) {
+                                githubActionRepoInfo = {
+                                    owner: repoData.owner.login,
+                                    ownerUrl: repoData.owner.html_url,
+                                    repoUrl: repoData.html_url,
+                                    description: repoData.description,
+                                    license: repoData.license
+                                };
+                                // Cache it
+                                await window.cacheManager.saveGitHubRepo(repoKey, githubActionRepoInfo);
+                            }
+                        }
+                    } catch (e) {
+                        console.warn('Failed to fetch GitHub Action repository info:', e);
+                    }
+                }
+            }
+            
+            // Get license info
+            const licenseProcessor = window.LicenseProcessor ? new LicenseProcessor() : null;
+            let licenseInfo = { license: 'Unknown', category: 'unknown' };
+            
+            // For GitHub Actions, prefer license from repository
+            if (githubActionRepoInfo && githubActionRepoInfo.license) {
+                licenseInfo.license = githubActionRepoInfo.license.spdx_id || githubActionRepoInfo.license.name || 'Unknown';
+                if (licenseProcessor) {
+                    licenseInfo = licenseProcessor.parseLicense({ licenseConcluded: licenseInfo.license });
+                }
+            } else if (packageRaw.originalPackage && licenseProcessor) {
+                licenseInfo = licenseProcessor.parseLicense(packageRaw.originalPackage);
+            }
+            
+            // Extract GitHub repository URL and package registry URLs from package metadata
+            let githubRepoUrl = null;
+            let registryUrl = null;
+            if (packageRaw && packageRaw.originalPackage && packageRaw.originalPackage.externalRefs) {
+                // Check externalRefs for repository URLs
+                for (const ref of packageRaw.originalPackage.externalRefs) {
+                    if (ref.referenceType === 'vcs' || ref.referenceType === 'repository' || ref.referenceType === 'website') {
+                        const url = ref.referenceLocator || ref.referenceUrl || '';
+                        // Check if it's a GitHub URL
+                        if (url.match(/github\.com[\/:]([^\/]+)\/([^\/\s]+)/i)) {
+                            // Clean up git+https:// and .git suffixes
+                            githubRepoUrl = url.replace(/^git\+/, '').replace(/\.git$/, '').replace(/\/$/, '');
+                            // Ensure it starts with https://
+                            if (!githubRepoUrl.startsWith('http')) {
+                                githubRepoUrl = 'https://' + githubRepoUrl;
+                            }
+                            break;
+                        }
+                    } else if (ref.referenceType === 'purl' && ref.referenceLocator) {
+                        // Check PURL for repository info
+                        const purl = ref.referenceLocator;
+                        // PURL might contain repository info in qualifiers
+                        // Securely validate github.com hostname to prevent attacks
+                        // Extract URLs from PURL string (may contain URLs in qualifiers)
+                        const urlMatch = purl.match(/https?:\/\/[^\s\)]+/gi);
+                        if (urlMatch) {
+                            // Check if any extracted URL is from github.com
+                            for (const url of urlMatch) {
+                                if (isUrlFromHostname(url, 'github.com')) {
+                                    const match = url.match(/github\.com[\/:]([^\/]+)\/([^\/\s]+)/i);
+                                    if (match) {
+                                        githubRepoUrl = `https://github.com/${match[1]}/${match[2]}`;
+                                        break;
+                                    }
+                                }
+                            }
+                        } else {
+                            // Fallback: if PURL doesn't contain full URLs, check for github.com pattern
+                            // but only if it looks like a valid github.com reference
+                            const match = purl.match(/github\.com[\/:]([^\/]+)\/([^\/\s]+)/i);
+                            if (match) {
+                                // Validate by constructing URL and checking hostname
+                                const testUrl = `https://github.com/${match[1]}/${match[2]}`;
+                                if (isUrlFromHostname(testUrl, 'github.com')) {
+                                    githubRepoUrl = testUrl;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            
+            // Fallback: For Go packages, the package name itself often IS the GitHub path
+            // e.g., "github.com/chzyer/logex" should map to https://github.com/chzyer/logex
+            const ecosystemLower = packageEcosystem.toLowerCase();
+            if (!githubRepoUrl && (ecosystemLower === 'go' || ecosystemLower === 'golang')) {
+                // Check if package name starts with github.com/
+                if (packageName.startsWith('github.com/')) {
+                    // Extract owner/repo from the path (may have additional path segments like /v2, /v3)
+                    const parts = packageName.replace('github.com/', '').split('/');
+                    if (parts.length >= 2) {
+                        const owner = parts[0];
+                        // Repo name - handle versioned paths like "repo/v2" or "repo/v3"
+                        let repo = parts[1];
+                        // Don't include version suffixes like /v2, /v3 in repo name for URL
+                        githubRepoUrl = `https://github.com/${owner}/${repo}`;
+                    }
+                }
+            }
+            
+            // Build package registry URL based on ecosystem
+            if (ecosystemLower === 'npm' || ecosystemLower === 'nodejs') {
+                registryUrl = `https://www.npmjs.com/package/${encodeURIComponent(packageName)}`;
+            } else if (ecosystemLower === 'pypi' || ecosystemLower === 'python') {
+                registryUrl = `https://pypi.org/project/${encodeURIComponent(packageName)}/`;
+            } else if (ecosystemLower === 'rubygems' || ecosystemLower === 'gem') {
+                registryUrl = `https://rubygems.org/gems/${encodeURIComponent(packageName)}`;
+            } else if (ecosystemLower === 'cargo' || ecosystemLower === 'rust') {
+                registryUrl = `https://crates.io/crates/${encodeURIComponent(packageName)}`;
+            } else if (ecosystemLower === 'maven' || ecosystemLower === 'java') {
+                // Maven coordinates format: groupId:artifactId
+                const parts = packageName.split(':');
+                if (parts.length >= 2) {
+                    const groupId = parts[0].replace(/\./g, '/');
+                    const artifactId = parts[1];
+                    registryUrl = `https://mvnrepository.com/artifact/${groupId}/${artifactId}`;
+                }
+            } else if (ecosystemLower === 'composer' || ecosystemLower === 'packagist' || ecosystemLower === 'php') {
+                registryUrl = `https://packagist.org/packages/${encodeURIComponent(packageName)}`;
+            } else if (ecosystemLower === 'go' || ecosystemLower === 'golang') {
+                registryUrl = `https://pkg.go.dev/${encodeURIComponent(packageName)}`;
+            }
+            
+            // Determine dependency type (direct or transitive)
+            const targetPkgKey = `${packageName}@${packageVersion}`;
+            const depInfo = allDependencies.find(d => `${d.name}@${d.version}` === targetPkgKey);
+            const isDirect = depInfo ? depInfo.type === 'direct' : false;
+            
+            // Fetch version drift data
+            let driftData = null;
+            let staleness = null;
+            // Skip if version is unknown (cannot check drift without version)
+            if (packageEcosystem && packageVersion && packageVersion !== 'version unknown' && packageName && window.versionDriftAnalyzer) {
+                try {
+                    // Normalize ecosystem for packageKey
+                    let ecosystem = packageEcosystem.toLowerCase();
+                    if (ecosystem === 'rubygems' || ecosystem === 'gem') {
+                        ecosystem = 'gem';
+                    } else if (ecosystem === 'go' || ecosystem === 'golang') {
+                        ecosystem = 'golang';
+                    } else if (ecosystem === 'packagist' || ecosystem === 'composer') {
+                        ecosystem = 'composer';
+                    }
+                    const driftPackageKey = `${ecosystem}:${packageName}`;
+                    
+                    // Get version drift from cache
+                    driftData = await window.versionDriftAnalyzer.getVersionDriftFromCache(driftPackageKey, packageVersion);
+                    
+                    // If not in cache, try to fetch
+                    if (!driftData) {
+                        driftData = await window.versionDriftAnalyzer.checkVersionDrift(
+                            packageName,
+                            packageVersion,
+                            packageEcosystem
+                        );
+                    }
+                    
+                    // Get staleness if available
+                    if (driftData && driftData.staleness) {
+                        staleness = driftData.staleness;
+                    } else if (driftData && !driftData.hasMajorUpdate && !driftData.hasMinorUpdate) {
+                        // Only check staleness if no updates available
+                        staleness = await window.versionDriftAnalyzer.checkStaleness(
+                            packageName,
+                            packageVersion,
+                            packageEcosystem
+                        );
+                    }
+                } catch (e) {
+                    console.warn('Failed to fetch version drift data:', e);
+                }
+            }
+            
+            // Get current organization context for the link
+            const currentOrg = document.getElementById('analysisSelector')?.value || '';
+            const orgParamForLink = (!currentOrg || currentOrg === '') ? '' : currentOrg;
+            
+            // Helper function to create deps.html URL with repo filter
+            const createRepoLink = (repo) => {
+                const params = new URLSearchParams();
+                if (orgParamForLink && orgParamForLink !== '') {
+                    params.set('org', orgParamForLink);
+                }
+                params.set('repo', repo);
+                return `deps.html?${params.toString()}`;
+            };
+            
+            // Build HTML - Compact layout with two columns
+            let html = `
+                <div class="row g-3">
+                    <!-- Left Column: Basic Info & Version Status -->
+                    <div class="col-md-6">
+                        <div class="card h-100">
+                            <div class="card-body">
+                                <h6 class="card-title"><i class="fas fa-info-circle me-2"></i>Package Info</h6>
+                                <div class="mb-2">
+                                    <strong>${escapeHtml(packageName)}</strong>
+                                    <code class="ms-2 small">v${escapeHtml(packageVersion)}</code>
+                                </div>
+                                <div class="d-flex flex-wrap gap-2 mb-2">
+                                    <span class="badge ${isDirect ? 'bg-primary' : 'bg-secondary'} text-white">${escapeHtml(packageEcosystem)}</span>
+                                    <span class="badge ${isDirect ? 'bg-primary' : 'bg-secondary'} text-white">${isDirect ? 'Direct' : 'Transitive'}</span>
+                                    <span class="badge bg-info" title="${escapeHtml(licenseInfo.license || 'Unknown')}">${escapeHtml(licenseInfo.license || 'Unknown')}</span>
+                                </div>
+                                ${driftData && driftData.latestVersion ? `
+                                    <div class="mt-2">
+                                        ${driftData.hasMajorUpdate ? `
+                                            <div class="alert alert-danger py-2 mb-0">
+                                                <i class="fas fa-arrow-up me-1"></i><strong>Major update available:</strong> v${escapeHtml(driftData.latestVersion)}
+                                            </div>
+                                        ` : driftData.hasMinorUpdate ? `
+                                            <div class="alert alert-warning py-2 mb-0">
+                                                <i class="fas fa-arrow-up me-1"></i><strong>Minor update available:</strong> v${escapeHtml(driftData.latestVersion)}
+                                            </div>
+                                        ` : staleness && staleness.isProbableEOL && staleness.monthsSinceRelease >= 36 ? `
+                                            <div class="alert alert-danger py-2 mb-0">
+                                                <i class="fas fa-skull me-1"></i><strong>Highly Likely EOL:</strong> ${escapeHtml(staleness.probableEOLReason || 'No updates for 3+ years')}
+                                            </div>
+                                        ` : staleness && staleness.isProbableEOL ? `
+                                            <div class="alert alert-warning py-2 mb-0">
+                                                <i class="fas fa-hourglass-end me-1"></i><strong>Probable EOL:</strong> ${escapeHtml(staleness.probableEOLReason || 'No updates for 2+ years')}
+                                            </div>
+                                        ` : staleness && staleness.isStale ? `
+                                            <div class="alert alert-warning py-2 mb-0">
+                                                <i class="fas fa-clock me-1"></i><strong>Stale:</strong> Last release ${staleness.monthsSinceRelease} months ago
+                                            </div>
+                                        ` : `
+                                            <div class="alert alert-success py-2 mb-0">
+                                                <i class="fas fa-check me-1"></i>Up to date (v${escapeHtml(driftData.latestVersion)})
+                                            </div>
+                                        `}
+                                    </div>
+                                ` : ''}
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Right Column: Links & Quick Actions -->
+                    <div class="col-md-6">
+                        <div class="card h-100">
+                            <div class="card-body">
+                                <h6 class="card-title"><i class="fas fa-link me-2"></i>Links</h6>
+                                <div class="d-grid gap-2">
+                                    ${githubRepoUrl ? `
+                                        <a href="${escapeHtml(githubRepoUrl)}" target="_blank" rel="noreferrer noopener" class="btn btn-outline-dark btn-sm">
+                                            <i class="fab fa-github me-1"></i>GitHub Source
+                                        </a>
+                                    ` : ''}
+                                    ${registryUrl ? `
+                                        <a href="${escapeHtml(registryUrl)}" target="_blank" rel="noreferrer noopener" class="btn btn-outline-primary btn-sm">
+                                            <i class="fas fa-box me-1"></i>Package Registry
+                                        </a>
+                                    ` : ''}
+                                    ${githubActionOwner && githubActionRepoInfo && githubActionRepoInfo.repoUrl ? `
+                                        <a href="${escapeHtml(githubActionRepoInfo.repoUrl)}" target="_blank" rel="noreferrer noopener" class="btn btn-outline-secondary btn-sm">
+                                            <i class="fab fa-github me-1"></i>Action Repository
+                                        </a>
+                                    ` : ''}
+                                </div>
+                                ${packageRepos && packageRepos.length > 0 ? `
+                                    <div class="mt-3">
+                                        <small class="text-muted d-block mb-1">Used in ${packageRepos.length} ${packageRepos.length === 1 ? 'repository' : 'repositories'}</small>
+                                        <div class="d-flex flex-wrap gap-1">
+                                            ${packageRepos.slice(0, 3).map(repo => `
+                                                <a href="${createRepoLink(repo)}" class="badge bg-primary text-decoration-none">${escapeHtml(repo)}</a>
+                                            `).join('')}
+                                            ${packageRepos.length > 3 ? `<span class="badge bg-secondary">+${packageRepos.length - 3} more</span>` : ''}
+                                        </div>
+                                    </div>
+                                ` : ''}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `;
+            
+            // Additional sections in compact layout
+            html += `<div class="row g-3 mt-2">`;
+            
+            // Warnings section (if any)
+            if (packageData && packageData.warnings) {
+                const warnings = packageData.warnings;
+                html += `<div class="col-12">`;
+                if (warnings.isDeprecated) {
+                    html += `
+                        <div class="alert alert-danger py-2 mb-0">
+                            <i class="fas fa-exclamation-triangle me-1"></i><strong>Deprecated</strong>
+                            ${warnings.replacement ? ` - Consider migrating to: <code>${escapeHtml(warnings.replacement)}</code>` : ''}
+                        </div>
+                    `;
+                } else if (warnings.isUnmaintained) {
+                    const warningText = warnings.warningType === 'out-of-support' ? 'Out of support' : 'Unmaintained';
+                    html += `
+                        <div class="alert alert-warning py-2 mb-0">
+                            <i class="fas fa-exclamation-triangle me-1"></i><strong>${warningText}</strong> - May not receive security updates
+                        </div>
+                    `;
+                }
+                html += `</div>`;
+            }
+            
+            // Sponsorship section (compact)
+            if (funding) {
+                const platforms = [];
+                if (funding.github) {
+                    const githubUrl = funding.githubUrl || funding.url || `https://github.com/sponsors/${encodeURIComponent(packageName)}`;
+                    platforms.push(`<a href="${githubUrl}" target="_blank" rel="noreferrer noopener" class="btn btn-outline-dark btn-sm"><i class="fab fa-github me-1"></i>GitHub</a>`);
+                }
+                if (funding.opencollective) {
+                    const ocUrl = funding.opencollectiveUrl || funding.url;
+                    if (ocUrl) {
+                        platforms.push(`<a href="${ocUrl}" target="_blank" rel="noreferrer noopener" class="btn btn-outline-primary btn-sm"><i class="fas fa-hand-holding-usd me-1"></i>Open Collective</a>`);
+                    }
+                }
+                if (funding.patreon) {
+                    const patreonUrl = funding.patreonUrl || funding.url || `https://patreon.com/${encodeURIComponent(packageName)}`;
+                    platforms.push(`<a href="${patreonUrl}" target="_blank" rel="noreferrer noopener" class="btn btn-outline-danger btn-sm"><i class="fab fa-patreon me-1"></i>Patreon</a>`);
+                }
+                if (funding.tidelift) {
+                    const tideliftUrl = funding.tideliftUrl || funding.url;
+                    if (tideliftUrl) {
+                        platforms.push(`<a href="${tideliftUrl}" target="_blank" rel="noreferrer noopener" class="btn btn-outline-warning btn-sm"><i class="fas fa-gift me-1"></i>Tidelift</a>`);
+                    }
+                }
+                if (platforms.length > 0) {
+                    html += `
+                        <div class="col-12">
+                            <div class="card">
+                                <div class="card-body py-2">
+                                    <small class="text-muted d-block mb-1"><i class="fas fa-heart text-danger me-1"></i>Sponsorship</small>
+                                    <div class="d-flex flex-wrap gap-1">${platforms.join('')}</div>
+                                </div>
+                            </div>
+                        </div>
+                    `;
+                } else if (funding.url) {
+                    html += `
+                        <div class="col-12">
+                            <div class="card">
+                                <div class="card-body py-2">
+                                    <small class="text-muted d-block mb-1"><i class="fas fa-heart text-danger me-1"></i>Sponsorship</small>
+                                    <a href="${funding.url}" target="_blank" rel="noreferrer noopener" class="btn btn-outline-success btn-sm"><i class="fas fa-donate me-1"></i>Support</a>
+                                </div>
+                            </div>
+                        </div>
+                    `;
+                }
+            }
+            
+            html += `</div>`;
+            
+            // Authors section - Section 6
+            // SIMPLIFIED: For GitHub Actions, match on owner/repo/path only (ignore ref)
+            let enrichedAuthors = null;
+            if (packageEcosystem === 'GitHub Actions' && packageRaw._gaMetadata && packageRaw._gaMetadata.authors) {
+                enrichedAuthors = packageRaw._gaMetadata.authors;
+            } else if (packageEcosystem === 'GitHub Actions' && window.currentData?.githubActionsAnalysis) {
+                // Parse and match on owner/repo/path only
+                const match = packageName.match(/^([^/@]+)\/([^/@]+)(?:\/(.+))?@(.+)$/);
+                if (match) {
+                    const [, owner, repo, path] = match;
+                    const normalizedPath = path || '';
+                    const repositories = window.currentData.githubActionsAnalysis.repositories || [];
+                    
+                    // Search for matching action (match on owner/repo/path, ignore ref)
+                    for (const repoData of repositories) {
+                        if (!repoData.actions || !Array.isArray(repoData.actions)) continue;
+                        
+                        for (const action of repoData.actions) {
+                            // Check direct action
+                            if (action.owner === owner && 
+                                action.repo === repo && 
+                                (action.path || '') === normalizedPath &&
+                                action.authors && action.authors.length > 0) {
+                                enrichedAuthors = action.authors;
+                                break;
+                            }
+                            
+                            // Check nested actions
+                            if (action.nested && Array.isArray(action.nested)) {
+                                for (const nestedAction of action.nested) {
+                                    if (nestedAction.owner === owner && 
+                                        nestedAction.repo === repo && 
+                                        (nestedAction.path || '') === normalizedPath &&
+                                        nestedAction.authors && nestedAction.authors.length > 0) {
+                                        enrichedAuthors = nestedAction.authors;
+                                        break;
+                                    }
+                                }
+                                if (enrichedAuthors) break;
+                            }
+                        }
+                        if (enrichedAuthors) break;
+                    }
+                }
+            }
+            
+            // Use enriched authors if available, otherwise use cached authors
+            const displayAuthors = enrichedAuthors || authors;
+            
+            if (displayAuthors && displayAuthors.length > 0) {
+                html += `
+                    <div class="row mt-2">
+                        <div class="col-12">
+                            <div class="card">
+                                <div class="card-body py-2">
+                                    <small class="text-muted d-block mb-2">
+                                        <i class="fas fa-users me-1"></i>Authors & Maintainers
+                                        ${enrichedAuthors ? ' <span class="badge bg-success bg-opacity-25" title="Enriched data">✓</span>' : ''}
+                                    </small>
+                                    <div class="d-flex flex-wrap gap-2">
+                                        ${displayAuthors.map(author => {
+                                            const authorName = author.name || author.author || author.login || 'Unknown';
+                                            const authorUrl = author.html_url || author.url || '';
+                                            const isMaintainer = author.isMaintainer || false;
+                                            return `
+                                                <div class="d-flex align-items-center">
+                                                    ${authorUrl ? `<a href="${escapeHtml(authorUrl)}" target="_blank" rel="noreferrer noopener" class="text-decoration-none">${escapeHtml(authorName)}</a>` : `<span>${escapeHtml(authorName)}</span>`}
+                                                    ${isMaintainer ? '<span class="badge bg-primary ms-1 small">M</span>' : ''}
+                                                </div>
+                                            `;
+                                        }).join('')}
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            }
+            
+            // Dependency Chain section (for transitive dependencies) - Section 7
+            
+            if (depInfo && depInfo.type === 'transitive' && depInfo.parentsByRepo && Object.keys(depInfo.parentsByRepo).length > 0) {
+                // Helper function to parse package name and version
+                const parsePackage = (pkgStr) => {
+                    const match = pkgStr.match(/^(.+?)@(.+)$/);
+                    if (match) {
+                        return { name: match[1], version: match[2] };
+                    }
+                    return { name: pkgStr, version: null };
+                };
+                
+                // Helper function to create deps.html URL with search filter for a dependency
+                const createDepLink = (depName, depVersion = null) => {
+                    const params = new URLSearchParams();
+                    if (orgParamForLink && orgParamForLink !== '') {
+                        params.set('org', orgParamForLink);
+                    }
+                    const searchTerm = depVersion ? `${depName}@${depVersion}` : depName;
+                    params.set('search', searchTerm);
+                    return `deps.html?${params.toString()}`;
+                };
+                
+                // Helper function to build full dependency chain path
+                const buildDependencyChain = (repoName, parentPkg, targetPkg) => {
+                    if (!currentData || !currentData.allRepositories) {
+                        return [parentPkg, targetPkg];
+                    }
+                    
+                    const repo = currentData.allRepositories.find(r => `${r.owner}/${r.name}` === repoName);
+                    if (!repo || !repo.relationships || !repo.spdxPackages) {
+                        return [parentPkg, targetPkg];
+                    }
+                    
+                    // Build SPDX ID to package mapping
+                    const spdxToPackage = new Map();
+                    const packageToSpdx = new Map();
+                    repo.spdxPackages.forEach(pkg => {
+                        if (pkg.SPDXID && pkg.name) {
+                            const pkgKey = `${pkg.name}@${normalizeVersion(pkg.version || '')}`;
+                            spdxToPackage.set(pkg.SPDXID, pkgKey);
+                            packageToSpdx.set(pkgKey, pkg.SPDXID);
+                        }
+                    });
+                    
+                    // Find SPDX IDs for target and parent
+                    const targetSpdxId = packageToSpdx.get(targetPkg);
+                    const parentSpdxId = packageToSpdx.get(parentPkg);
+                    
+                    if (!targetSpdxId || !parentSpdxId) {
+                        return [parentPkg, targetPkg];
+                    }
+                    
+                    // Build reverse map: child -> parent(s)
+                    const childToParent = new Map();
+                    repo.relationships.forEach(rel => {
+                        if (!rel.isDirectFromMain) {
+                            if (!childToParent.has(rel.to)) {
+                                childToParent.set(rel.to, []);
+                            }
+                            childToParent.get(rel.to).push(rel.from);
+                        }
+                    });
+                    
+                    // Find path from root to target
+                    const chain = [];
+                    const visited = new Set();
+                    
+                    // Trace from parent up to root (direct dependency)
+                    const rootPath = [];
+                    let currentSpdxId = parentSpdxId;
+                    
+                    while (currentSpdxId && !visited.has(currentSpdxId)) {
+                        visited.add(currentSpdxId);
+                        const pkg = spdxToPackage.get(currentSpdxId);
+                        if (pkg) {
+                            rootPath.unshift(pkg);
+                        }
+                        
+                        // Check if this is a direct dependency (root)
+                        const isDirect = repo.relationships.some(rel => 
+                            rel.to === currentSpdxId && rel.isDirectFromMain
+                        );
+                        
+                        if (isDirect) {
+                            break;
+                        }
+                        
+                        // Find parent
+                        const parents = childToParent.get(currentSpdxId);
+                        if (parents && parents.length > 0) {
+                            currentSpdxId = parents[0];
+                        } else {
+                            break;
+                        }
+                    }
+                    
+                    // Add parent and target to complete the chain
+                    if (rootPath.length > 0) {
+                        chain.push(...rootPath);
+                    } else {
+                        chain.push(parentPkg);
+                    }
+                    
+                    // Add target at the end if not already included
+                    if (chain[chain.length - 1] !== targetPkg) {
+                        chain.push(targetPkg);
+                    }
+                    
+                    return chain.length > 0 ? chain : [parentPkg, targetPkg];
+                };
+                
+                // Build dependency chains HTML
+                let chainsHtml = '<div class="accordion" id="dependencyChainsAccordion">';
+                
+                Object.keys(depInfo.parentsByRepo).sort().forEach((repoName, index) => {
+                    const repoParents = depInfo.parentsByRepo[repoName];
+                    
+                    chainsHtml += `
+                        <div class="accordion-item">
+                            <h2 class="accordion-header" id="chainHeading${index}">
+                                <button class="accordion-button ${index !== 0 ? 'collapsed' : ''}" type="button" 
+                                        data-bs-toggle="collapse" data-bs-target="#chainCollapse${index}" 
+                                        aria-expanded="${index === 0 ? 'true' : 'false'}" aria-controls="chainCollapse${index}">
+                                    <i class="fas fa-code-branch me-2 text-primary"></i>
+                                    <a href="${createRepoLink(repoName)}" class="text-decoration-none text-dark" data-stop-propagation>
+                                        <strong>${escapeHtml(repoName)}</strong>
+                                    </a>
+                                    <span class="badge bg-primary text-white ms-2">${repoParents.length} ${repoParents.length === 1 ? 'path' : 'paths'}</span>
+                                </button>
+                            </h2>
+                            <div id="chainCollapse${index}" class="accordion-collapse collapse ${index === 0 ? 'show' : ''}" 
+                                 aria-labelledby="chainHeading${index}" data-bs-parent="#dependencyChainsAccordion">
+                                <div class="accordion-body">
+                                    <p class="text-muted small mb-2">Dependency paths:</p>
+                                    <ul class="list-group">
+                                        ${repoParents.map(parent => {
+                                            // Build full dependency chain
+                                            const chain = buildDependencyChain(repoName, parent, targetPkgKey);
+                                            
+                                            // The first element in the chain is the direct dependency (root)
+                                            const directDep = chain.length > 0 ? chain[0] : parent;
+                                            const directDepParsed = parsePackage(directDep);
+                                            const directDepLink = createDepLink(directDepParsed.name, directDepParsed.version);
+                                            
+                                            // Render chain with links
+                                            const chainHtml = chain.map((pkg, idx) => {
+                                                const pkgParsed = parsePackage(pkg);
+                                                const pkgLink = createDepLink(pkgParsed.name, pkgParsed.version);
+                                                const isLast = idx === chain.length - 1;
+                                                
+                                                return `
+                                                    ${idx > 0 ? '<span class="text-muted mx-1">→</span>' : ''}
+                                                    <a href="${pkgLink}" class="text-decoration-none ${isLast ? 'fw-bold text-primary' : ''}" target="_blank">
+                                                        <code>${escapeHtml(pkg)}</code>
+                                                    </a>
+                                                `;
+                                            }).join('');
+                                            
+                                            return `
+                                                <li class="list-group-item">
+                                                    <div class="d-flex align-items-center flex-wrap">
+                                                        <i class="fas fa-arrow-right me-2 text-success"></i>
+                                                        <div class="flex-grow-1">
+                                                            <div class="mb-1">
+                                                                <strong>Direct dependency:</strong> 
+                                                                <a href="${directDepLink}" class="text-decoration-none fw-bold ms-1" target="_blank">
+                                                                    <code>${escapeHtml(directDep)}</code>
+                                                                </a>
+                                                            </div>
+                                                            ${chain.length > 1 ? `
+                                                                <div class="small text-muted mt-1">
+                                                                    <strong>Full path:</strong> ${chainHtml}
+                                                                </div>
+                                                            ` : ''}
+                                                        </div>
+                                                    </div>
+                                                </li>
+                                            `;
+                                        }).join('')}
+                                    </ul>
+                                </div>
+                            </div>
+                        </div>
+                    `;
+                });
+                
+                chainsHtml += '</div>';
+                
+                html += `
+                    <div class="mt-3">
+                        <h6><i class="fas fa-sitemap me-2"></i>Dependency Chains</h6>
+                        <p class="text-muted small mb-2">This transitive dependency is brought in by the following dependency paths:</p>
+                        ${chainsHtml}
+                    </div>
+                `;
+            }
+            
+            // Note: We don't show average SBOM quality for dependencies
+            // SBOM quality scores are only meaningful at the repository level.
+            // Individual repository quality badges are shown in the "Usage" section above.
+            
+            modalBody.innerHTML = html;
+        }
+        
+        function showRepositoriesModal(repos, packageName) {
+            const modalTitle = document.getElementById('repositoriesModalTitle');
+            const modalBody = document.getElementById('repositoriesModalBody');
+            
+            modalTitle.textContent = `Repositories Using ${packageName}`;
+            
+            // Get current organization context for the link
+            const currentOrg = document.getElementById('analysisSelector')?.value || '';
+            const orgParam = (!currentOrg || currentOrg === '') ? '' : currentOrg;
+            
+            // Helper function to create deps.html URL with repo filter
+            const createRepoLink = (repo) => {
+                const params = new URLSearchParams();
+                if (orgParam && orgParam !== '') {
+                    params.set('org', orgParam);
+                }
+                params.set('repo', repo);
+                return `deps.html?${params.toString()}`;
+            };
+            
+            modalBody.innerHTML = `
+                <p class="mb-3">This dependency is used in <strong>${repos.length}</strong> ${repos.length === 1 ? 'repository' : 'repositories'}:</p>
+                <div class="list-group">
+                    ${repos.map(repo => `
+                        <div class="list-group-item">
+                            <i class="fas fa-code-branch me-2 text-primary"></i>
+                            <a href="${createRepoLink(repo)}" class="text-decoration-none">
+                                <strong>${escapeHtml(repo)}</strong>
+                            </a>
+                        </div>
+                    `).join('')}
+                </div>
+            `;
+            new bootstrap.Modal(document.getElementById('repositoriesModal')).show();
+        }
+        
+        function showParentsModal(parents, parentsByRepo, packageName) {
+            const modalTitle = document.getElementById('parentsModalTitle');
+            const modalBody = document.getElementById('parentsModalBody');
+            
+            modalTitle.textContent = `Dependency Chain for ${packageName}`;
+            
+            // Get current organization context for the link
+            const currentOrg = document.getElementById('analysisSelector')?.value || '';
+            const orgParam = (!currentOrg || currentOrg === '') ? '' : currentOrg;
+            
+            // Helper function to create deps.html URL with repo filter
+            const createRepoLink = (repo) => {
+                const params = new URLSearchParams();
+                if (orgParam && orgParam !== '') {
+                    params.set('org', orgParam);
+                }
+                params.set('repo', repo);
+                return `deps.html?${params.toString()}`;
+            };
+            
+            // Helper function to create deps.html URL with search filter for a dependency
+            const createDepLink = (depName, depVersion = null) => {
+                const params = new URLSearchParams();
+                if (orgParam && orgParam !== '') {
+                    params.set('org', orgParam);
+                }
+                const searchTerm = depVersion ? `${depName}@${depVersion}` : depName;
+                params.set('search', searchTerm);
+                return `deps.html?${params.toString()}`;
+            };
+            
+            // Helper function to parse package name and version from "name@version" format
+            const parsePackage = (pkgStr) => {
+                const match = pkgStr.match(/^(.+?)@(.+)$/);
+                if (match) {
+                    return { name: match[1], version: match[2] };
+                }
+                return { name: pkgStr, version: null };
+            };
+            
+            // Helper function to build full dependency chain path for a parent in a specific repo
+            // Returns chain from root (direct dependency) to target: [root, ..., parent, target]
+            const buildDependencyChain = (repoName, parentPkg, targetPkg) => {
+                if (!currentData || !currentData.allRepositories) {
+                    return [parentPkg, targetPkg]; // Fallback
+                }
+                
+                const repo = currentData.allRepositories.find(r => `${r.owner}/${r.name}` === repoName);
+                if (!repo || !repo.relationships || !repo.spdxPackages) {
+                    return [parentPkg, targetPkg]; // Fallback
+                }
+                
+                // Build SPDX ID to package mapping
+                const spdxToPackage = new Map();
+                const packageToSpdx = new Map();
+                repo.spdxPackages.forEach(pkg => {
+                    if (pkg.SPDXID && pkg.name) {
+                        const pkgKey = `${pkg.name}@${normalizeVersion(pkg.version || '')}`;
+                        spdxToPackage.set(pkg.SPDXID, pkgKey);
+                        packageToSpdx.set(pkgKey, pkg.SPDXID);
+                    }
+                });
+                
+                // Find SPDX IDs for target and parent
+                const targetSpdxId = packageToSpdx.get(targetPkg);
+                const parentSpdxId = packageToSpdx.get(parentPkg);
+                
+                if (!targetSpdxId || !parentSpdxId) {
+                    return [parentPkg, targetPkg]; // Fallback
+                }
+                
+                // Build reverse map: child -> parent(s) for easier traversal
+                const childToParent = new Map();
+                repo.relationships.forEach(rel => {
+                    if (!rel.isDirectFromMain) {
+                        if (!childToParent.has(rel.to)) {
+                            childToParent.set(rel.to, []);
+                        }
+                        childToParent.get(rel.to).push(rel.from);
+                    }
+                });
+                
+                // Find path from root to target by tracing from parent up to root, then down to target
+                const chain = [];
+                const visited = new Set();
+                
+                // First, trace from parent up to root (direct dependency)
+                const rootPath = [];
+                let currentSpdxId = parentSpdxId;
+                
+                while (currentSpdxId && !visited.has(currentSpdxId)) {
+                    visited.add(currentSpdxId);
+                    const pkg = spdxToPackage.get(currentSpdxId);
+                    if (pkg) {
+                        rootPath.unshift(pkg); // Add to front (root first)
+                    }
+                    
+                    // Check if this is a direct dependency (root)
+                    const isDirect = repo.relationships.some(rel => 
+                        rel.to === currentSpdxId && rel.isDirectFromMain
+                    );
+                    
+                    if (isDirect) {
+                        break; // Reached root
+                    }
+                    
+                    // Find parent
+                    const parents = childToParent.get(currentSpdxId);
+                    if (parents && parents.length > 0) {
+                        currentSpdxId = parents[0]; // Take first parent (assuming single path)
+                    } else {
+                        break;
+                    }
+                }
+                
+                // Add parent and target to complete the chain
+                if (rootPath.length > 0) {
+                    chain.push(...rootPath);
+                } else {
+                    chain.push(parentPkg);
+                }
+                
+                // Add target at the end if not already included
+                if (chain[chain.length - 1] !== targetPkg) {
+                    chain.push(targetPkg);
+                }
+                
+                return chain.length > 0 ? chain : [parentPkg, targetPkg];
+            };
+            
+            // Build HTML showing parents grouped by repository
+            let html = `
+                <p class="mb-3">This transitive dependency is brought in by <strong>${parents.length}</strong> parent ${parents.length === 1 ? 'dependency' : 'dependencies'} across your repositories:</p>
+            `;
+            
+            // Get target package key for building chains
+            // packageName should already be in "name@version" format, but handle edge cases
+            const targetPkg = packageName.includes('@') ? packageName : `${packageName}@unknown`;
+            
+            // Group by repository
+            if (Object.keys(parentsByRepo).length > 0) {
+                html += '<div class="accordion" id="parentsAccordion">';
+                
+                Object.keys(parentsByRepo).sort().forEach((repoName, index) => {
+                    const repoParents = parentsByRepo[repoName];
+                    html += `
+                        <div class="accordion-item">
+                            <h2 class="accordion-header" id="heading${index}">
+                                <button class="accordion-button ${index !== 0 ? 'collapsed' : ''}" type="button" 
+                                        data-bs-toggle="collapse" data-bs-target="#collapse${index}" 
+                                        aria-expanded="${index === 0 ? 'true' : 'false'}" aria-controls="collapse${index}">
+                                    <i class="fas fa-code-branch me-2 text-primary"></i>
+                                    <a href="${createRepoLink(repoName)}" class="text-decoration-none text-dark" data-stop-propagation>
+                                        <strong>${escapeHtml(repoName)}</strong>
+                                    </a>
+                                    <span class="badge bg-primary text-white ms-2">${repoParents.length} ${repoParents.length === 1 ? 'parent' : 'parents'}</span>
+                                </button>
+                            </h2>
+                            <div id="collapse${index}" class="accordion-collapse collapse ${index === 0 ? 'show' : ''}" 
+                                 aria-labelledby="heading${index}" data-bs-parent="#parentsAccordion">
+                                <div class="accordion-body">
+                                    <p class="text-muted small mb-2">Brought in by these direct dependencies:</p>
+                                    <ul class="list-group">
+                                        ${repoParents.map(parent => {
+                                            // Build full dependency chain
+                                            const chain = buildDependencyChain(repoName, parent, targetPkg);
+                                            
+                                            // The first element in the chain is the direct dependency (root)
+                                            const directDep = chain.length > 0 ? chain[0] : parent;
+                                            const directDepParsed = parsePackage(directDep);
+                                            const directDepLink = createDepLink(directDepParsed.name, directDepParsed.version);
+                                            
+                                            // Render chain with links (skip first element as it's shown separately)
+                                            const chainHtml = chain.map((pkg, idx) => {
+                                                const pkgParsed = parsePackage(pkg);
+                                                const pkgLink = createDepLink(pkgParsed.name, pkgParsed.version);
+                                                const isLast = idx === chain.length - 1;
+                                                
+                                                return `
+                                                    ${idx > 0 ? '<span class="text-muted mx-1">→</span>' : ''}
+                                                    <a href="${pkgLink}" class="text-decoration-none ${isLast ? 'fw-bold text-primary' : ''}" target="_blank">
+                                                        <code>${escapeHtml(pkg)}</code>
+                                                    </a>
+                                                `;
+                                            }).join('');
+                                            
+                                            return `
+                                                <li class="list-group-item">
+                                                    <div class="d-flex align-items-center flex-wrap">
+                                                        <i class="fas fa-arrow-right me-2 text-success"></i>
+                                                        <div class="flex-grow-1">
+                                                            <div class="mb-1">
+                                                                <a href="${directDepLink}" class="text-decoration-none fw-bold" target="_blank">
+                                                                    <code>${escapeHtml(directDep)}</code>
+                                                                </a>
+                                                            </div>
+                                                            ${chain.length > 1 ? `
+                                                                <div class="small text-muted mt-1">
+                                                                    <strong>Full path:</strong> ${chainHtml}
+                                                                </div>
+                                                            ` : ''}
+                                                        </div>
+                                                    </div>
+                                                </li>
+                                            `;
+                                        }).join('')}
+                                    </ul>
+                                </div>
+                            </div>
+                        </div>
+                    `;
+                });
+                
+                html += '</div>';
+            } else {
+                // Fallback if no repo mapping
+                html += `
+                    <ul class="list-group">
+                        ${parents.map(p => {
+                            const parsed = parsePackage(p);
+                            const depLink = createDepLink(parsed.name, parsed.version);
+                            return `<li class="list-group-item">
+                                <a href="${depLink}" class="text-decoration-none" target="_blank">
+                                    <code>${escapeHtml(p)}</code>
+                                </a>
+                            </li>`;
+                        }).join('')}
+                    </ul>
+                `;
+            }
+            
+            modalBody.innerHTML = html;
+            new bootstrap.Modal(document.getElementById('parentsModal')).show();
+        }
+        
+        function exportCSV() {
+            const searchInput = document.getElementById('searchInput').value;
+            const search = sanitizeSearchInput(searchInput).toLowerCase();
+            const typeFilter = document.getElementById('typeFilter').value;
+            const ecosystemFilter = document.getElementById('ecosystemFilter').value;
+            const repoFilter = document.getElementById('repoFilter').value;
+            
+            let filtered = allDependencies.filter(dep => {
+                if (search) {
+                    if (searchFromURL && searchPackageName && searchPackageVersion) {
+                        // Exact match for both name and version from URL parameter
+                        if (dep.name.toLowerCase() !== searchPackageName.toLowerCase()) return false;
+                        if (dep.version.toLowerCase() !== searchPackageVersion.toLowerCase()) return false;
+                    } else if (searchFromURL && searchPackageName) {
+                        // Exact match for name only (no version in search)
+                        if (dep.name.toLowerCase() !== searchPackageName.toLowerCase()) return false;
+                    } else if (searchFromURL) {
+                        // Exact match: package name must exactly equal the search term (case-insensitive)
+                        if (dep.name.toLowerCase() !== search) return false;
+                    } else {
+                        // Fuzzy match: package name contains the search term
+                        if (!dep.name.toLowerCase().includes(search)) return false;
+                    }
+                }
+                if (typeFilter !== 'all' && dep.type !== typeFilter) return false;
+                if (ecosystemFilter !== 'all' && dep.ecosystem !== ecosystemFilter) return false;
+                if (repoFilter !== 'all' && !dep.repositories.includes(repoFilter)) return false;
+                return true;
+            });
+            
+            // Helper functions for CSV export (same as in renderTable)
+            function getLicenseInfoForCSV(dep) {
+                // Use the same logic as getLicenseInfo but return full license text
+                const licenseInfo = getLicenseInfo(dep);
+                if (licenseInfo.isEnriched) {
+                    return `${licenseInfo.licenseFull} (Enriched)`;
+                }
+                return licenseInfo.licenseFull;
+            }
+            
+            const csv = [
+                ['Dependency', 'Ecosystem - Type', 'Repos', 'Vulns (H/M/L)', 'License', 'Sponsor', 'Parent'].join(','),
+                ...filtered.map(dep => [
+                    `"${dep.name}@${dep.version}"`,
+                    `"${dep.ecosystem} - ${dep.type}"`,
+                    `"${dep.repositories.join(', ')}"`,
+                    `"H:${dep.vulnHigh} M:${dep.vulnMedium} L:${dep.vulnLow}"`,
+                    `"${getLicenseInfoForCSV(dep)}"`,
+                    dep.funding ? 'Yes' : 'No',
+                    dep.type === 'direct' ? 'Direct' : (dep.parents.length > 0 ? `"${dep.parents.join(', ')}"` : 'Unknown')
+                ].join(','))
+            ].join('\n');
+            
+            const blob = new Blob([csv], { type: 'text/csv' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `dependencies-${Date.now()}.csv`;
+            a.click();
+            URL.revokeObjectURL(url);
+        }
+        
+        // escapeHtml is now provided by utils.js
+
+})();

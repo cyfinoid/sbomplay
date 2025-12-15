@@ -6,10 +6,10 @@
     <title>SBOM Play - Settings</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
-    <link href="css/style.css?v=0.0.4" rel="stylesheet">
-    <link href="css/themes.css?v=0.0.4" rel="stylesheet">
-    <script src="js/theme-manager.js?v=0.0.4&cb=1765328527000"></script>
-    <script src="js/analytics.js?v=0.0.4&cb=1765328527000"></script>
+    <link href="css/style.css?v=0.0.5" rel="stylesheet">
+    <link href="css/themes.css?v=0.0.5" rel="stylesheet">
+    <script src="js/theme-manager.js?v=0.0.5&cb=1765793449000"></script>
+    <script src="js/analytics.js?v=0.0.5&cb=1765793449000"></script>
     <script defer data-domain="cyfinoid.github.io" src="https://plausible.io/js/script.outbound-links.js"></script>
 
 </head>
@@ -34,11 +34,13 @@
                     <a class="nav-link" href="licenses.html">License</a>
                     <a class="nav-link" href="vuln.html">Vulns</a>
                     <a class="nav-link" href="audit.html">Audit</a>
+                    <a class="nav-link" href="findings.html">Findings</a>
                     <a class="nav-link" href="deps.html">Deps</a>
                     <a class="nav-link" href="repos.html">Repos</a>
                     <a class="nav-link" href="authors.html">Authors</a>
-                    <a class="nav-link" href="about.html">About</a>
+                    
                     <a class="nav-link active" href="settings.html">Settings</a>
+                    <a class="nav-link" href="about.html">About</a>
                 </div>
             </div>
         </div>
@@ -78,12 +80,6 @@
                     <div class="col-md-6">
                         <button class="btn btn-outline-primary btn-sm" data-action="showStorageStatus">
                             <i class="fas fa-info-circle me-2"></i>Check Storage Status
-                        </button>
-                        <button class="btn btn-outline-info btn-sm" data-action="testStorageQuota">
-                            <i class="fas fa-vial me-2"></i>Test Storage
-                        </button>
-                        <button class="btn btn-outline-secondary btn-sm" data-action="migrateOldData">
-                            <i class="fas fa-sync me-2"></i>Migrate Data
                         </button>
                     </div>
                     <div class="col-md-6 text-end">
@@ -136,35 +132,9 @@
                     </div>
                 </div>
                 
-                <div class="row">
-                    <div class="col-md-6">
-                        <h6 class="small text-muted mb-2">Individual Cache Exports</h6>
-                        <div class="d-flex flex-wrap gap-2">
-                            <button class="btn btn-outline-secondary btn-sm" data-action="exportAuthorsCache">
-                                <i class="fas fa-users me-2"></i>Export Authors
-                            </button>
-                            <button class="btn btn-outline-secondary btn-sm" data-action="exportPackagesCache">
-                                <i class="fas fa-box me-2"></i>Export Packages
-                            </button>
-                            <button class="btn btn-outline-secondary btn-sm" data-action="exportVulnerabilitiesCache">
-                                <i class="fas fa-shield-alt me-2"></i>Export Vulnerabilities
-                            </button>
-                        </div>
-                    </div>
-                    <div class="col-md-6">
-                        <h6 class="small text-muted mb-2">Individual Cache Imports</h6>
-                        <div class="d-flex flex-wrap gap-2">
-                            <button class="btn btn-outline-secondary btn-sm" data-action="importAuthorsCache">
-                                <i class="fas fa-users me-2"></i>Import Authors
-                            </button>
-                            <button class="btn btn-outline-secondary btn-sm" data-action="importPackagesCache">
-                                <i class="fas fa-box me-2"></i>Import Packages
-                            </button>
-                            <button class="btn btn-outline-secondary btn-sm" data-action="importVulnerabilitiesCache">
-                                <i class="fas fa-shield-alt me-2"></i>Import Vulnerabilities
-                            </button>
-                        </div>
-                    </div>
+                <div class="text-muted small">
+                    <i class="fas fa-info-circle me-1"></i>
+                    For individual cache exports/imports and advanced storage tools, see <a href="debug.html">Debug Tools</a>.
                 </div>
                 
                 <input type="file" id="importFileInput" accept=".json" class="d-none">
@@ -235,6 +205,32 @@
                         <label class="form-label">Current Value</label>
                         <div class="p-3 border rounded bg-light">
                             <p class="mb-0"><strong id="currentMaxDepth">10</strong> levels</p>
+                        </div>
+                    </div>
+                </div>
+                <div class="row mb-3">
+                    <div class="col-md-6">
+                        <label for="parallelDepthThreshold" class="form-label">Parallel Processing Depth Threshold</label>
+                        <input type="number" class="form-control" id="parallelDepthThreshold" min="1" max="20" value="4">
+                        <small class="text-muted">At this depth and below, use parallel processing for faster npm resolution (default: 4). Lower = more parallel, faster but more API load.</small>
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label">Current Value</label>
+                        <div class="p-3 border rounded bg-light">
+                            <p class="mb-0">Parallel at depth <strong id="currentParallelThreshold">4</strong>+</p>
+                        </div>
+                    </div>
+                </div>
+                <div class="row mb-3">
+                    <div class="col-md-6">
+                        <label for="parallelBatchSize" class="form-label">Parallel Batch Size</label>
+                        <input type="number" class="form-control" id="parallelBatchSize" min="1" max="50" value="10">
+                        <small class="text-muted">Number of dependencies to resolve in parallel at deeper levels (default: 10)</small>
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label">Current Value</label>
+                        <div class="p-3 border rounded bg-light">
+                            <p class="mb-0"><strong id="currentParallelBatchSize">10</strong> concurrent</p>
                         </div>
                     </div>
                 </div>
@@ -346,40 +342,6 @@
             </div>
         </div>
 
-        <!-- GitHub Token Input -->
-        <div class="card mb-4">
-            <div class="card-header cursor-pointer" id="tokenSectionHeader">
-                <h5 class="mb-0 d-flex justify-content-between align-items-center">
-                    <span>
-                        <i class="fab fa-github me-2"></i>GitHub Authentication (Optional)
-                    </span>
-                    <i class="fas fa-chevron-down" id="tokenToggleIcon"></i>
-                </h5>
-            </div>
-            <div class="card-body d-none" id="tokenSectionBody">
-                <div class="alert alert-warning alert-sm mb-3">
-                    <i class="fas fa-exclamation-triangle me-2"></i>
-                    <strong>Note:</strong> GitHub tokens are not saved or persisted. You will need to provide your token each time you use the application.
-                </div>
-                <div class="row">
-                    <div class="col-md-8">
-                        <label for="githubToken" class="form-label">GitHub Personal Access Token (Optional: Provides higher rate limits)<sup>*</sup>&nbsp; <a href="https://github.com/settings/tokens" target="_blank">Create token here</a></label>
-                        <input type="password" class="form-control" id="githubToken" 
-                               placeholder="ghp_xxxxxxxxxxxxxxxxxxxx (optional)">
-                        
-                    </div>
-                    <div class="col-md-4">
-                        <div class="d-flex align-items-end h-100">
-                            <button class="btn btn-outline-primary" id="saveTokenBtn">
-                                <i class="fas fa-check me-2"></i>Set Token
-                            </button>
-                        </div>
-                    </div>
-                </div>
-                <div id="tokenStatus" class="mt-2"></div>
-            </div>
-        </div>
-
         <!-- Stored Analyses Section -->
         <div id="organizationsSection" class="card mb-4">
             <div class="card-header">
@@ -416,75 +378,6 @@
             </div>
         </div>
 
-        <!-- Rate Limit Information -->
-        <div class="card mb-4">
-            <div class="card-header">
-                <h5 class="mb-0">
-                    <i class="fas fa-clock me-2"></i>Rate Limit Information
-                </h5>
-            </div>
-            <div class="card-body">
-                <div class="row">
-                    <div class="col-md-6">
-                        <h6>Current Status</h6>
-                        <div id="rateLimitStatus">
-                            <p class="text-muted">Loading rate limit information...</p>
-                        </div>
-                    </div>
-                    <div class="col-md-6">
-                        <h6>Rate Limits</h6>
-                        <ul class="list-unstyled">
-                            <li><strong>Without token:</strong> 60 requests/hour</li>
-                            <li><strong>With token:</strong> 5,000 requests/hour</li>
-                            <li>The tool automatically handles rate limiting</li>
-                        </ul>
-                    </div>
-                </div>
-            </div>
-        </div>
-
-        <!-- Application Information -->
-        <div class="card mb-4">
-            <div class="card-header">
-                <h5 class="mb-0">
-                    <i class="fas fa-info-circle me-2"></i>Application Information
-                </h5>
-            </div>
-            <div class="card-body">
-                <div class="row">
-                    <div class="col-md-6">
-                        <h6>About SBOM Play</h6>
-                        <p class="text-muted small">
-                            SBOM Play is a client-side tool for analyzing Software Bill of Materials (SBOM) 
-                            from GitHub organizations and users. It processes dependency data locally in your browser 
-                            and stores results in your browser's local storage.
-                        </p>
-                        <h6>Key Features:</h6>
-                        <ul class="small">
-                            <li><strong>Privacy-First:</strong> All processing happens in your browser</li>
-                            <li><strong>No Server Required:</strong> Works entirely client-side</li>
-                            <li><strong>Persistent Storage:</strong> Results saved in browser storage</li>
-                            <li><strong>Rate Limit Aware:</strong> Handles GitHub API limits intelligently</li>
-                        </ul>
-                    </div>
-                    <div class="col-md-6">
-                        <h6>Browser Compatibility</h6>
-                        <ul class="small">
-                            <li>Modern browsers with ES6+ support</li>
-                            <li>Requires localStorage support</li>
-                            <li>No external dependencies</li>
-                        </ul>
-                        <h6>Data Storage</h6>
-                        <ul class="small">
-                            <li>All data stored in browser IndexedDB</li>
-                            <li>Data persists between browser sessions</li>
-                            <li>Generous storage limits (typically 50% of available disk space)</li>
-                            <li>Efficient storage for large datasets</li>
-                        </ul>
-                    </div>
-                </div>
-            </div>
-        </div>
     </div>
 
     <!-- Footer -->
@@ -549,23 +442,23 @@
 
     <!-- Scripts -->
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
-    <script src="js/indexeddb-manager.js?v=0.0.4&cb=1765328527000"></script>
-    <script src="js/utils.js?v=0.0.4&cb=1765328527000"></script>
-    <script src="js/registry-utils.js?v=0.0.4&cb=1765328527000"></script>
-    <script src="js/version-utils.js?v=0.0.4&cb=1765328527000"></script>
-    <script src="js/ecosystem-utils.js?v=0.0.4&cb=1765328527000"></script>
-    <script src="js/cache-manager.js?v=0.0.4&cb=1765328527000"></script>
-    <script src="js/dependency-tree-resolver.js?v=0.0.4&cb=1765328527000"></script>
-    <script src="js/github-client.js?v=0.0.4&cb=1765328527000"></script>
-    <script src="js/sbom-processor.js?v=0.0.4&cb=1765328527000"></script>
-    <script src="js/license-processor.js?v=0.0.4&cb=1765328527000"></script>
-    <script src="js/osv-service.js?v=0.0.4&cb=1765328527000"></script>
-    <script src="js/author-service.js?v=0.0.4&cb=1765328527000"></script>
-    <script src="js/sanctions-service.js?v=0.0.4&cb=1765328527000"></script>
-    <script src="js/storage-manager.js?v=0.0.4&cb=1765328527000"></script>
-    <script src="js/view-manager.js?v=0.0.4&cb=1765328527000"></script>
-    <script src="js/app.js?v=0.0.4&cb=1765328527000"></script>
-    <script src="js/settings.js?v=0.0.4&cb=1765328527000"></script>
-    <script src="js/license-refetch.js?v=0.0.4&cb=1765328527000"></script>
+    <script src="js/indexeddb-manager.js?v=0.0.5&cb=1765793449000"></script>
+    <script src="js/common.js?v=0.0.5&cb=1765793449000"></script>
+    <script src="js/registry-utils.js?v=0.0.5&cb=1765793449000"></script>
+    <script src="js/version-utils.js?v=0.0.5&cb=1765793449000"></script>
+    <script src="js/ecosystem-utils.js?v=0.0.5&cb=1765793449000"></script>
+    <script src="js/cache-manager.js?v=0.0.5&cb=1765793449000"></script>
+    <script src="js/depconfuse-service.js?v=0.0.5&cb=1765793449000"></script>
+    <script src="js/dependency-tree-resolver.js?v=0.0.5&cb=1765793449000"></script>
+    <script src="js/github-client.js?v=0.0.5&cb=1765793449000"></script>
+    <script src="js/sbom-processor.js?v=0.0.5&cb=1765793449000"></script>
+    <script src="js/license-processor.js?v=0.0.5&cb=1765793449000"></script>
+    <script src="js/osv-service.js?v=0.0.5&cb=1765793449000"></script>
+    <script src="js/author-service.js?v=0.0.5&cb=1765793449000"></script>
+    <script src="js/sanctions-service.js?v=0.0.5&cb=1765793449000"></script>
+    <script src="js/storage-manager.js?v=0.0.5&cb=1765793449000"></script>
+    <script src="js/view-manager.js?v=0.0.5&cb=1765793449000"></script>
+    <script src="js/app.js?v=0.0.5&cb=1765793449000"></script>
+    <script src="js/settings.js?v=0.0.5&cb=1765793449000"></script>
 </body>
 </html> 

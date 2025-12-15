@@ -34,22 +34,57 @@ class EcosystemMapper {
         };
 
         // Mapping for PURL type to internal ecosystem names (for categorization)
+        // Extended with all 38 ecosystems from DepConfuse
         this.purlTypeMap = {
+            // Primary code ecosystems
             'pypi': { type: 'code', language: 'Python', ecosystem: 'PyPI' },
             'npm': { type: 'code', language: 'JavaScript', ecosystem: 'npm' },
             'maven': { type: 'code', language: 'Java', ecosystem: 'Maven' },
             'nuget': { type: 'code', language: 'C#', ecosystem: 'NuGet' },
             'cargo': { type: 'code', language: 'Rust', ecosystem: 'Cargo' },
             'composer': { type: 'code', language: 'PHP', ecosystem: 'Composer' },
+            'packagist': { type: 'code', language: 'PHP', ecosystem: 'Composer' },
             'go': { type: 'code', language: 'Go', ecosystem: 'Go' },
             'golang': { type: 'code', language: 'Go', ecosystem: 'Go' },
+            'rubygems': { type: 'code', language: 'Ruby', ecosystem: 'RubyGems' },
+            'gem': { type: 'code', language: 'Ruby', ecosystem: 'RubyGems' },
+            
+            // Additional code ecosystems (from DepConfuse)
+            'cocoapods': { type: 'code', language: 'Swift/Objective-C', ecosystem: 'CocoaPods' },
+            'bower': { type: 'code', language: 'JavaScript', ecosystem: 'Bower' },
+            'pub': { type: 'code', language: 'Dart', ecosystem: 'Pub' },
+            'cpan': { type: 'code', language: 'Perl', ecosystem: 'CPAN' },
+            'cran': { type: 'code', language: 'R', ecosystem: 'CRAN' },
+            'clojars': { type: 'code', language: 'Clojure', ecosystem: 'Clojars' },
+            'hackage': { type: 'code', language: 'Haskell', ecosystem: 'Hackage' },
+            'hex': { type: 'code', language: 'Elixir/Erlang', ecosystem: 'Hex' },
+            'julia': { type: 'code', language: 'Julia', ecosystem: 'Julia' },
+            'swift': { type: 'code', language: 'Swift', ecosystem: 'Swift Package Index' },
+            'deno': { type: 'code', language: 'TypeScript/JavaScript', ecosystem: 'Deno' },
+            'elm': { type: 'code', language: 'Elm', ecosystem: 'Elm' },
+            'racket': { type: 'code', language: 'Racket', ecosystem: 'Racket' },
+            'bioconductor': { type: 'code', language: 'R', ecosystem: 'Bioconductor' },
+            'carthage': { type: 'code', language: 'Swift/Objective-C', ecosystem: 'Carthage' },
+            'elpa': { type: 'code', language: 'Emacs Lisp', ecosystem: 'ELPA' },
+            'nongnu': { type: 'code', language: 'Emacs Lisp', ecosystem: 'NonGNU ELPA' },
+            
+            // Infrastructure/DevOps ecosystems
             'githubactions': { type: 'workflow', language: 'YAML', ecosystem: 'GitHub Actions' },
             'github': { type: 'infrastructure', language: 'Various', ecosystem: 'GitHub' },
             'docker': { type: 'infrastructure', language: 'Various', ecosystem: 'Docker' },
             'helm': { type: 'infrastructure', language: 'YAML', ecosystem: 'Helm' },
             'terraform': { type: 'infrastructure', language: 'HCL', ecosystem: 'Terraform' },
-            'rubygems': { type: 'code', language: 'Ruby', ecosystem: 'RubyGems' },
-            'gem': { type: 'code', language: 'Ruby', ecosystem: 'RubyGems' }
+            'conda': { type: 'infrastructure', language: 'Python', ecosystem: 'Conda' },
+            'anaconda': { type: 'infrastructure', language: 'Python', ecosystem: 'Anaconda' },
+            'spack': { type: 'infrastructure', language: 'Various', ecosystem: 'Spack' },
+            'homebrew': { type: 'infrastructure', language: 'Various', ecosystem: 'Homebrew' },
+            'puppet': { type: 'infrastructure', language: 'Puppet', ecosystem: 'Puppet Forge' },
+            'vcpkg': { type: 'infrastructure', language: 'C/C++', ecosystem: 'vcpkg' },
+            
+            // OS package managers
+            'alpine': { type: 'infrastructure', language: 'Various', ecosystem: 'Alpine' },
+            'adelie': { type: 'infrastructure', language: 'Various', ecosystem: 'Adelie' },
+            'postmarketos': { type: 'infrastructure', language: 'Various', ecosystem: 'postmarketOS' }
         };
     }
 

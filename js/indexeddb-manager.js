@@ -4,7 +4,7 @@
 class IndexedDBManager {
     constructor() {
         this.dbName = 'sbomplay_db';
-        this.version = 5; // Current database version
+        this.version = 6; // Current database version - v6 adds eoxData store
         this.db = null;
     }
 
@@ -126,6 +126,13 @@ class IndexedDBManager {
                     const locationStore = db.createObjectStore('locations', { keyPath: 'locationString' });
                     locationStore.createIndex('timestamp', 'timestamp', { unique: false });
                     console.log('✅ Created locations object store');
+                }
+
+                // NEW: EOX (End-of-Life) data cache
+                if (!db.objectStoreNames.contains('eoxData')) {
+                    const eoxStore = db.createObjectStore('eoxData', { keyPath: 'key' });
+                    eoxStore.createIndex('fetchedAt', 'fetchedAt', { unique: false });
+                    console.log('✅ Created eoxData object store');
                 }
             };
         });
@@ -351,8 +358,9 @@ class IndexedDBManager {
                 console.warn('⚠️ IndexedDB not initialized yet');
                 return false;
             }
-            // Try to delete from organizations first
-            const isRepo = name.includes('/');
+            // Use same logic as saveAnalysisData: repo has exactly 2 parts (owner/repo)
+            // Names with 3+ parts (e.g., github.com/owner/repo) are treated as organizations
+            const isRepo = name.includes('/') && name.split('/').length === 2;
             const storeName = isRepo ? 'repositories' : 'organizations';
             const keyName = isRepo ? name : name; // fullName for repos, name for orgs
             

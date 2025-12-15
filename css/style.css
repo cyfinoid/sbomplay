@@ -127,6 +127,16 @@ body {
     }
 }
 
+/* Active nav-link styling - works in both light and dark modes */
+/* Using font-weight and underline instead of color to avoid being overridden */
+.navbar-nav .nav-link.active,
+.navbar .nav-link.active {
+    font-weight: 700 !important;
+    text-decoration: underline !important;
+    text-decoration-thickness: 2px !important;
+    text-underline-offset: 4px !important;
+}
+
 /* Ensure theme toggle is always visible */
 .theme-toggle {
     flex-shrink: 0;
@@ -3627,4 +3637,78 @@ body {
 
 .map-popup-hr {
     margin: 5px 0;
+}
+
+/* Upload Drop Zone Styles */
+.upload-drop-zone {
+    border: 2px dashed var(--border-color, #dee2e6);
+    border-radius: 0.5rem;
+    background-color: var(--bg-secondary, #f8f9fa);
+    cursor: pointer;
+    transition: all 0.2s ease-in-out;
+}
+
+.upload-drop-zone:hover {
+    border-color: var(--primary-color, #50c878);
+    background-color: var(--bg-tertiary, #e9ecef);
+}
+
+.upload-drop-zone.drag-over {
+    border-color: var(--primary-color, #50c878);
+    background-color: rgba(80, 200, 120, 0.1);
+    border-style: solid;
+}
+
+.upload-drop-zone i {
+    transition: transform 0.2s ease-in-out;
+}
+
+.upload-drop-zone:hover i {
+    transform: scale(1.1);
+}
+
+.upload-drop-zone.drag-over i {
+    transform: scale(1.2);
+    color: var(--primary-color, #50c878);
+}
+
+/* Upload Queue Styles */
+.queue-item {
+    transition: background-color 0.2s ease;
+}
+
+.queue-item:hover {
+    background-color: var(--bg-tertiary, #f8f9fa);
+}
+
+.queue-item:last-child {
+    border-bottom: none !important;
+}
+
+.queue-item .remove-queue-item {
+    opacity: 0.6;
+    transition: opacity 0.2s ease;
+}
+
+.queue-item:hover .remove-queue-item {
+    opacity: 1;
+}
+
+/* =============================================================================
+   Utility Classes (replacing inline styles)
+   ============================================================================= */
+
+/* Form select with auto width - used in pagination selectors */
+.form-select-auto-width {
+    width: auto;
+}
+
+/* Progress bar with fixed height - used in debug page */
+.progress-h-25 {
+    height: 25px;
+}
+
+/* Progress bar initial state - width 0% */
+.progress-bar-initial {
+    width: 0%;
 } 

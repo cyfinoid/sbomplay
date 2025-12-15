@@ -68,5 +68,20 @@ document.addEventListener('DOMContentLoaded', function() {
             }
         });
     }
+    
+    // Handle URL hash to activate upload tab if coming from upload.html redirect
+    if (window.location.hash === '#upload-tab') {
+        const uploadTab = document.getElementById('upload-tab');
+        if (uploadTab) {
+            // Use Bootstrap's Tab API to show the upload tab
+            const tab = new bootstrap.Tab(uploadTab);
+            tab.show();
+            // Scroll to the input section
+            const inputCard = uploadTab.closest('.card');
+            if (inputCard) {
+                inputCard.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            }
+        }
+    }
 });
 

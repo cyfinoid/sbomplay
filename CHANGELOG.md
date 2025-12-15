@@ -5,6 +5,220 @@ All notable changes to SBOM Play will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.0.5] - 2025-12-15
+
+### Added
+- **Dead Source Repository Detection**: New finding type to detect when packages reference non-existent GitHub repositories
+  - New `REPO_NOT_FOUND` finding type (medium severity) for packages with 404 source repos
+  - Added `validateSourceRepos()` method to enrichment pipeline to check GitHub repos in SBOM externalRefs
+  - Parses various Git URL formats: `git+ssh://`, `git+https://`, `ssh://`, plain GitHub URLs
+  - New "Dead Source Repos" filter option in Findings page dropdown
+  - Helps identify abandoned packages or potential supply chain risks from re-registrable repos
+  
+- **EOX Status Enrichment**: EOX data now persisted in analysis exports for reliable findings display
+  - New Phase 5 in enrichment pipeline fetches EOX status from endoflife.date API
+  - EOX status stored on dependency objects as `dep.eoxStatus`
+  - Staleness data now also attached to dependencies during version drift phase
+  
+- **Backward Compatible EOX Findings**: EOX findings now work with existing exports
+  - Findings page now looks up staleness from IndexedDB packages cache when not on dependency object
+  - Falls back to dynamic computation via `eoxService` and `versionDriftAnalyzer` if cache miss
+  - Works for both new exports (with attached data) and existing exports (with cache lookup)
+
+### Fixed
+- **License Change Detection False Positives**: Fixed bug where same-name packages from different ecosystems were incorrectly flagged as license changes
+  - Now groups packages by `ecosystem:packageName` instead of just `packageName`
+  - Example: `mime` (npm) and `mime` (PyPI) are now correctly treated as separate packages
+
+- **GitHub Actions Line Number Tracking**: Workflow findings now include exact line numbers
+  - New `extractUsesLineNumbers()` helper scans raw YAML for `uses:` statements
+  - `parseYAMLWithLineNumbers()` combines parsed YAML with line number map
+  - Line numbers now included in `workflowLocations` for accurate finding location display
+  - Enhanced Findings page GitHub Actions display with clickable links to workflow files with line numbers
+
+### Changed
+- **Findings Page Enhancements**: Improved GitHub Actions findings display
+  - New "Location" column replaces "Repository" for GitHub Actions findings
+  - Shows full path: Repository → Workflow File:Line with clickable GitHub links
+  - Action column now links directly to action repository
+  - Multiple workflow locations displayed if action used in multiple places
+  - Category breakdown now shows 4 categories: GitHub Actions, Dependency Confusion, EOX, Dead Source Repos
+  
+- **Enrichment Pipeline Optimization**: Adjusted phase percentages for new phases
+  - 6 phases now: Vulnerabilities (60-68%), Licenses (68-76%), Version Drift (76-84%), Authors (84-90%), EOX Status (90-95%), Source Repos (95-98%)
+  
+- **Dependency Confusion Detection**: Reduced false positives for PyPI packages
+  - PyPI packages not found in registry now marked as LOW severity with message: "Double-check if this dependency could be fulfilled via native OS installers (apt, dnf, brew)"
+  - Finding type name updated to "Potential Dependency Confusion (Low Risk - Likely System Package)" for low severity findings
+  - Added `confusionSeverity` and `confusionMessage` fields to dependency data for accurate severity tracking
+- **Dependency Tree Resolution**: Performance optimization with parallel processing at deeper levels
+  - At depth 4+ (configurable), dependencies are now resolved in parallel batches for faster npm resolution
+  - Sequential processing retained at top levels (1-3) to avoid overwhelming APIs with concurrent requests
+  - New settings in Settings page: "Parallel Processing Depth Threshold" (default: 4) and "Parallel Batch Size" (default: 10)
+  - Significantly reduces scan time for large npm dependency trees
+- **GitHub Author Location Fetching**: Bulk GraphQL queries for significant performance improvement
+  - New `getUsersBatchGraphQL()` method fetches up to 50 users in a single GraphQL query using field aliasing
+  - New `fetchAuthorLocationsBatch()` method in AuthorService processes authors in batch
+  - Reduces GitHub API calls from N individual requests to ceil(N/50) batch requests
+  - Especially beneficial when scanning organizations with many package authors
+- **Audit Page Disclaimer**: Added experimental feature warning
+  - Notes that SBOM compliance standards (CISA, BSI TR-03183, NTIA) are rapidly evolving
+  - Advises users to consult official documentation for authoritative requirements
+  - Clarifies the tool provides guidance only, not compliance certification
+
+### Removed
+- **Composer/Packagist Dependency Confusion**: Temporarily disabled to prevent false positives from platform packages (e.g., `php@8.2`)
+
+### Security
+- **URL Hostname Validation**: Fixed incomplete URL substring sanitization in `sbom-quality-processor.js`
+  - Replaced insecure `.includes('github.com')` checks with `isUrlFromHostname()` for VCS URL validation
+  - Prevents potential bypass where malicious URLs like `evil.com/github.com/fake` could be misidentified as valid source repos
+  - Affects source code URI detection in SBOM completeness checks
+
+### Fixed
+- **SBOM File Upload**: Fixed `[object Object]` display and package count when uploading files
+  - `parsed.format` is an object, not a string - now correctly accesses `parsed.format.format`
+  - Better error messages when uploading non-SBOM files (shows actual parser error)
+  - Fixed package count display: now correctly accesses `data.sbom.packages` (was showing 0)
+  - Now shows format with version (e.g., "cyclonedx 1.5" instead of just "cyclonedx")
+- **Dependency Resolution UI**: Ecosystem progress section now hides after resolution completes
+  - "Dependency Resolution by Ecosystem" section was persisting after analysis moved to next phase
+  - Now properly cleared when dependency tree resolution finishes (success or failure)
+- **Staleness Badges**: Now show more specific EOL status instead of generic "Stale"
+  - **Highly Likely EOL** (red badge): Packages with no updates for 3+ years
+  - **Probable EOL** (orange badge): Packages with no updates for 2+ years
+  - **Stale** (yellow badge): Packages with no updates for 6+ months (but less than 2 years)
+  - Both table badges and detail popup now show the correct EOL status
+
+### Added
+- **EOX Findings on Findings Page**: End-of-Life/Support issues now appear as security findings
+  - New "EOX (End-of-Life/Support)" filter option in Finding Type dropdown
+  - Four EOX finding types grouped under EOX category:
+    - **EOL** (high severity): Confirmed end-of-life from endoflife.date API
+    - **EOS** (medium severity): Confirmed end-of-support from endoflife.date API
+    - **Highly Likely EOL** (high severity): No updates for 3+ years (staleness-based detection)
+    - **Probable EOL** (medium severity): No updates for 2+ years (staleness-based detection)
+  - EOX findings show in summary stats with hourglass icon
+  - Detail view includes EOL/EOS dates, last release date, and age since last release
+- **Dependency Confusion Documentation**: Comprehensive methodology section added to About page
+  - Explains what dependency confusion attacks are and their real-world impact
+  - Details the detection approach: namespace not found vs package not found
+  - Lists all 36+ supported registries across different ecosystems
+  - Describes the detection process from PURL parsing to evidence collection
+  - Includes mitigation strategies and reference links to original research
+
+- **Enhanced Dependency Confusion Detection**: Ported detection capabilities from DepConfuse project
+  - Created new `js/depconfuse-service.js` service with namespace and package existence checking
+  - **Namespace Checking**: Detects when a package's namespace/organization doesn't exist in public registries (HIGH-CONFIDENCE risk)
+  - **36 Registries + GitHub Actions**: Extended from ~10 to 36 package registries via ecosyste.ms API, plus GitHub Actions verification via GitHub API
+    - New ecosystems: CocoaPods, Bower, Pub (Dart), CPAN, CRAN, Clojars, Hackage, Hex (Elixir), Julia, Swift Package Index, Conda, Homebrew, Puppet Forge, Deno, Elm, Racket, vcpkg, Bioconductor, and more
+  - **Evidence URLs**: Findings now include proof links to the ecosyste.ms API response showing the package/namespace doesn't exist
+  - **Separate Finding Types**: Distinguished between `NAMESPACE_NOT_IN_REGISTRY` (higher severity) and `PACKAGE_NOT_IN_REGISTRY`
+  - Updated `js/ecosystem-utils.js` and `js/registry-utils.js` with ecosystem mappings
+  - Integrated with `js/dependency-tree-resolver.js` for automatic checking during dependency resolution
+  - Enhanced Audit page to display dependency confusion findings with evidence links
+
+- **EOX (End-of-Life) Support**: New service to detect End-of-Life and End-of-Support packages
+  - Created `js/eox-service.js` for integration with endoflife.date API
+  - Automatically identifies packages that have reached EOL/EOS status
+  - Added EOX checking during analysis phase for notable dependencies (runtimes, frameworks, databases)
+  - New "EOX Dependencies" section in Audit page with high severity for EOL, medium for EOS
+  - EOX badges displayed in Dependencies page table
+  - EOX filter checkbox in Dependencies page filters
+  - Cache support in IndexedDB for EOX data (7-day cache expiry)
+
+- **Enhanced SBOM Audit**: Comprehensive SBOM quality assessment with new features
+  - **CISA 2025 Compliance Check**: Validates SBOMs against CISA 2025 Minimum Elements (replaces NTIA 2021)
+    - Checks 11 required elements (4 new from NTIA): Software Producer, Component Name, Version, Software Identifier, Component Hash (NEW), License Information (NEW), Dependency Relationship, SBOM Author, Timestamp, Tool Name (NEW), Generation Context (NEW)
+    - 90% coverage threshold for package-level elements
+    - Renamed fields: "Supplier Name" → "Software Producer", "Author of SBOM Data" → "SBOM Author"
+  - **BSI TR-03183-2 v2.0 Compliance Check**: German/EU technical guideline validation
+    - Checks SBOM and component-level requirements including SHA-256+ hashes, licenses, source URIs, unique identifiers
+    - Supports CycloneDX 1.5+ and SPDX 2.2.1+
+  - **SBOM Freshness Tracking**: Monitors SBOM generation date and age
+    - Status levels: Very Fresh (≤7 days), Fresh (≤30 days), Recent (≤90 days), Aging (≤180 days), Old (≤365 days), Stale (>365 days)
+  - **Completeness Score**: Percentage of packages with full metadata (name, version, PURL, license, supplier, download location, checksum)
+  - **Comprehensive Audit Report**: `generateAuditReport()` method combines all assessments with risk scoring
+    - Risk calculation: Quality (35%), CISA 2025 (25%), BSI (10%), Freshness (15%), Completeness (15%)
+  - New "SBOM Audit" section in Audit page showing per-repository quality breakdown with dual compliance indicators
+
+- **Version Drift Analyzer Enhancements**: Added EOX integration and package status methods
+  - `checkEOX()`: Delegates to EOXService for EOL/EOS checking
+  - `getPackageStatus()`: Returns combined drift, staleness, and EOX status
+  - `getHighestSeverityStatus()`: Determines the most critical status for a package
+
+- **Unified Enrichment Pipeline**: Created shared `EnrichmentPipeline` class (`js/enrichment-pipeline.js`) that orchestrates all data enrichment
+  - Vulnerability analysis (OSVService)
+  - License fetching (deps.dev API + GitHub fallback)
+  - Version drift analysis (VersionDriftAnalyzer)
+  - Author/maintainer information (AuthorService)
+  - Used by both GitHub flow (`app.js`) and upload flow (`upload-page.js`)
+  - Ensures identical enrichment results regardless of data source
+
+- **Direct/Transitive Dependency Classification for Uploaded SBOMs**: Fixed CycloneDX SBOM parsing to correctly identify direct vs transitive dependencies
+  - Added `_rootComponentSPDXID` tracking in sbom-parser.js
+  - Added `_isDirectDependency` flag on relationships from root component
+  - sbom-processor.js now uses these flags to correctly populate `directIn`/`transitiveIn` arrays
+  - Previously all uploaded dependencies were marked as transitive with "unknown parent"
+
+- **sbomqs v2.0 Alignment**: SBOM Quality Processor now fully aligned with sbomqs scoring methodology
+  - **7 Categories** (was 6): Identification, Provenance, Integrity, Completeness, Licensing, Vulnerability, Structural
+  - **New Integrity Category** (18% weight): Checksums presence, SHA-256+ strength, digital signatures
+  - **New Structural Category** (10% weight): SPDX/CycloneDX spec compliance, version validation, schema validity
+  - **Enhanced Completeness Category** (15% weight): Dependencies, supplier, source code URIs, component purpose, primary component identification
+  - **Enhanced Provenance Category** (15% weight): Added supplier check, tool version validation, namespace URI validation, lifecycle support (CycloneDX 1.5+)
+  - **Weight Rebalancing**: Aligned with sbomqs v2.0 weights (ID: 12%, Prov: 15%, Int: 18%, Comp: 15%, Lic: 18%, Vuln: 12%, Struct: 10%)
+  - Backward compatible with existing stored assessments
+  - Reference: [sbomqs v2.0 Specification](https://github.com/interlynk-io/sbomqs)
+
+- **SBOM Format Display**: Audit page now shows SBOM format type and version
+  - Detects SPDX (e.g., "SPDX 2.3") and CycloneDX (e.g., "CycloneDX 1.5") formats
+  - New "Format" column in SBOM Audit table with color-coded badges
+  - Format info stored in quality assessment for persistent display
+  - Handles converted formats (CycloneDX uploaded and converted to internal SPDX-like format)
+
+### Changed
+- **Architecture Refactoring**: Consolidated duplicate enrichment code between `app.js` and `upload-page.js`
+  - Created `runLicenseAndVersionDriftEnrichment()` helper in `app.js` to consolidate ~90 lines of duplicate code
+  - `upload-page.js` now uses `EnrichmentPipeline` instead of reimplementing enrichment logic
+  - Removed duplicate `fetchVersionDriftData()` and `fetchAuthorData()` from `upload-page.js`
+  - Both flows now produce identical output data structures
+
+- **Upload Page Dependencies**: Added missing shared services to `upload.html`
+  - Added `author-service.js` for author analysis (was missing entirely)
+  - Added `enrichment-pipeline.js` for unified enrichment
+  - Upload flow now performs the same enrichment as GitHub flow
+
+### Fixed
+- **GitHub Actions Dependency Confusion Detection**: Fixed false positives and added proper GitHub API verification
+  - **Issue**: Actions like `actions/setup-node@4.*.*` were incorrectly flagged because ecosyste.ms API doesn't properly check GitHub repos
+  - **Fix**: Implemented GitHub API-based verification for GitHub Actions:
+    - Checks if the repository exists using `api.github.com/repos/{owner}/{repo}`
+    - Checks if the organization/user exists using `api.github.com/users/{owner}`
+    - HIGH-CONFIDENCE risk: Organization/username doesn't exist (attacker can register it)
+    - Lower risk: Org exists but repo doesn't (risk if org allows public repo creation)
+  - Results are cached (24hr) to minimize API calls
+  - Graceful handling of rate limits (fails safe, doesn't flag on errors)
+  - Valid actions like `actions/setup-node` now correctly show as existing
+
+- **No Direct Dependencies in Uploaded SBOMs**: Fixed issue where all dependencies from uploaded CycloneDX SBOMs showed as transitive
+  - Root cause: sbom-parser.js wasn't passing root component's bom-ref to identify direct dependencies
+  - Root cause: sbom-processor.js was looking for main package with wrong name pattern for uploaded files
+  - Now correctly identifies 56 direct dependencies for proton-bridge SBOM (was 0 before)
+
+- **Unknown Parent for Transitive Dependencies**: Fixed issue where transitive dependencies showed "unknown parent"
+  - Root cause: Dependency relationships from root component weren't being marked as direct
+  - `parents` array now correctly populated from dependency graph
+
+### Updated
+- **AGENTS.md**: Added comprehensive architecture documentation
+  - Data flow diagram showing shared processing pipeline
+  - EnrichmentPipeline usage examples
+  - Anti-patterns to avoid (duplicate implementations)
+  - Updated shared services table with EnrichmentPipeline
+
+- **Workflow Validation**: Added `enrichment-pipeline.js` to required JS files in `validate-deployment.yml`
+
 ## [0.0.4] - 2025-12-10
 
 ### Added

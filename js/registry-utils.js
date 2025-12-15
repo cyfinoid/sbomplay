@@ -148,11 +148,12 @@ class RegistryManager {
     /**
      * Get default mappings as fallback
      * Based on https://packages.ecosyste.ms/api/v1/registries
-     * Includes comprehensive mapping for all supported ecosystems
+     * Includes comprehensive mapping for all 38 supported ecosystems
+     * Ported from DepConfuse: projects/DepConfuse/src/constants.go
      */
     getDefaultMappings() {
         return {
-            // Map purl types to ecosyste.ms registry names
+            // Primary package registries (most common)
             'npm': 'npmjs.org',
             'pypi': 'pypi.org',
             'cargo': 'crates.io',
@@ -164,7 +165,37 @@ class RegistryManager {
             'nuget': 'nuget.org',
             'composer': 'packagist.org',
             'packagist': 'packagist.org',
-            'docker': 'hub.docker.com'
+            'docker': 'hub.docker.com',
+            
+            // Additional ecosystems (ported from DepConfuse)
+            'cocoapods': 'cocoapods.org',
+            'bower': 'bower.io',
+            'pub': 'pub.dev',
+            'cpan': 'metacpan.org',
+            'alpine': 'alpine',
+            'github': 'github%20actions',
+            'githubactions': 'github%20actions',
+            'cran': 'cran.r-project.org',
+            'clojars': 'clojars.org',
+            'conda': 'conda-forge.org',
+            'anaconda': 'anaconda.org',
+            'hackage': 'hackage.haskell.org',
+            'hex': 'hex.pm',
+            'julia': 'juliahub.com',
+            'swift': 'swiftpackageindex.com',
+            'spack': 'spack.io',
+            'homebrew': 'formulae.brew.sh',
+            'adelie': 'pkg.adelielinux.org',
+            'puppet': 'forge.puppet.com',
+            'deno': 'deno.land',
+            'elm': 'package.elm-lang.org',
+            'racket': 'pkgs.racket-lang.org',
+            'vcpkg': 'vcpkg.io',
+            'bioconductor': 'bioconductor.org',
+            'carthage': 'carthage',
+            'postmarketos': 'postmarketos',
+            'elpa': 'elpa.gnu.org',
+            'nongnu': 'elpa.nongnu.org'
         };
     }
 
@@ -173,6 +204,223 @@ class RegistryManager {
      */
     getRegistryList() {
         return this.registryList || [];
+    }
+
+    // ========================================
+    // Latest Version Fetching (consolidated)
+    // ========================================
+
+    /**
+     * Fetch latest version for a package in an ecosystem
+     * Consolidated from duplicate implementations in dependency-tree-resolver.js and version-drift-analyzer.js
+     * @param {string} packageName - Package name
+     * @param {string} ecosystem - Ecosystem (npm, pypi, cargo, etc.)
+     * @returns {Promise<string|null>} - Latest version string or null
+     */
+    async fetchLatestVersion(packageName, ecosystem) {
+        const normalizedEcosystem = ecosystem.toLowerCase();
+        const cacheKey = `latest:${normalizedEcosystem}:${packageName}`;
+        
+        // Check in-memory cache first
+        if (!this._versionCache) {
+            this._versionCache = new Map();
+        }
+        if (this._versionCache.has(cacheKey)) {
+            return this._versionCache.get(cacheKey);
+        }
+        
+        try {
+            let latestVersion = null;
+            
+            switch (normalizedEcosystem) {
+                case 'npm':
+                    latestVersion = await this._fetchNpmLatestVersion(packageName);
+                    break;
+                case 'pypi':
+                    latestVersion = await this._fetchPyPiLatestVersion(packageName);
+                    break;
+                case 'cargo':
+                    latestVersion = await this._fetchCargoLatestVersion(packageName);
+                    break;
+                case 'rubygems':
+                case 'gem':
+                    latestVersion = await this._fetchRubyGemsLatestVersion(packageName);
+                    break;
+                case 'maven':
+                    latestVersion = await this._fetchMavenLatestVersion(packageName);
+                    break;
+                case 'go':
+                case 'golang':
+                    latestVersion = await this._fetchGoLatestVersion(packageName);
+                    break;
+                case 'composer':
+                case 'packagist':
+                    latestVersion = await this._fetchComposerLatestVersion(packageName);
+                    break;
+                case 'nuget':
+                    latestVersion = await this._fetchNuGetLatestVersion(packageName);
+                    break;
+                case 'github actions':
+                case 'githubactions':
+                    // GitHub Actions don't have a traditional registry
+                    return null;
+                default:
+                    console.log(`⚠️ Latest version fetch: Unsupported ecosystem ${ecosystem}`);
+                    return null;
+            }
+            
+            // Cache the result (even if null to avoid repeated failed requests)
+            this._versionCache.set(cacheKey, latestVersion);
+            return latestVersion;
+        } catch (error) {
+            console.log(`⚠️ Failed to fetch latest version for ${ecosystem}:${packageName}: ${error.message}`);
+            this._versionCache.set(cacheKey, null);
+            return null;
+        }
+    }
+
+    /**
+     * Fetch latest version from npm registry
+     */
+    async _fetchNpmLatestVersion(packageName) {
+        const url = `https://registry.npmjs.org/${encodeURIComponent(packageName)}`;
+        const response = await fetchWithTimeout(url);
+        if (!response.ok) return null;
+        const data = await response.json();
+        return data['dist-tags']?.latest || data.version || null;
+    }
+
+    /**
+     * Fetch latest version from PyPI
+     */
+    async _fetchPyPiLatestVersion(packageName) {
+        const url = `https://pypi.org/pypi/${encodeURIComponent(packageName)}/json`;
+        const response = await fetchWithTimeout(url);
+        if (!response.ok) return null;
+        const data = await response.json();
+        return data.info?.version || null;
+    }
+
+    /**
+     * Fetch latest version from crates.io
+     */
+    async _fetchCargoLatestVersion(packageName) {
+        const url = `https://crates.io/api/v1/crates/${encodeURIComponent(packageName)}`;
+        const response = await fetchWithTimeout(url);
+        if (!response.ok) return null;
+        const data = await response.json();
+        return data.crate?.max_version || null;
+    }
+
+    /**
+     * Fetch latest version from RubyGems via ecosyste.ms
+     */
+    async _fetchRubyGemsLatestVersion(packageName) {
+        try {
+            const registryName = await this.getRegistryName('rubygems');
+            if (!registryName) return null;
+            
+            const url = `${this.ecosystemsBaseUrl}/registries/${registryName}/packages/${encodeURIComponent(packageName)}`;
+            const response = await fetchWithTimeout(url);
+            if (!response.ok) return null;
+            const data = await response.json();
+            return data.latest_release_number || null;
+        } catch (error) {
+            return null;
+        }
+    }
+
+    /**
+     * Fetch latest version from Maven via ecosyste.ms
+     * Maven packages are formatted as "groupId:artifactId"
+     */
+    async _fetchMavenLatestVersion(packageName) {
+        try {
+            const registryName = await this.getRegistryName('maven');
+            if (!registryName) return null;
+            
+            // Parse Maven package name: "groupId:artifactId"
+            const parts = packageName.split(':');
+            if (parts.length < 2) {
+                console.log(`⚠️ Invalid Maven package format: ${packageName} (expected groupId:artifactId)`);
+                return null;
+            }
+            
+            const groupId = parts[0];
+            const artifactId = parts[1];
+            
+            const url = `${this.ecosystemsBaseUrl}/registries/${registryName}/packages/${encodeURIComponent(groupId)}/${encodeURIComponent(artifactId)}`;
+            const response = await fetchWithTimeout(url);
+            if (!response.ok) return null;
+            const data = await response.json();
+            return data.latest_release_number || null;
+        } catch (error) {
+            console.log(`⚠️ Failed to fetch Maven version: ${error.message}`);
+            return null;
+        }
+    }
+
+    /**
+     * Fetch latest version from Go proxy via ecosyste.ms
+     */
+    async _fetchGoLatestVersion(packageName) {
+        try {
+            const registryName = await this.getRegistryName('go');
+            if (!registryName) return null;
+            
+            const url = `${this.ecosystemsBaseUrl}/registries/${registryName}/packages/${encodeURIComponent(packageName)}`;
+            const response = await fetchWithTimeout(url);
+            if (!response.ok) return null;
+            const data = await response.json();
+            return data.latest_release_number || null;
+        } catch (error) {
+            return null;
+        }
+    }
+
+    /**
+     * Fetch latest version from Composer/Packagist via ecosyste.ms
+     */
+    async _fetchComposerLatestVersion(packageName) {
+        try {
+            const registryName = await this.getRegistryName('composer');
+            if (!registryName) return null;
+            
+            const url = `${this.ecosystemsBaseUrl}/registries/${registryName}/packages/${encodeURIComponent(packageName)}`;
+            const response = await fetchWithTimeout(url);
+            if (!response.ok) return null;
+            const data = await response.json();
+            return data.latest_release_number || null;
+        } catch (error) {
+            return null;
+        }
+    }
+
+    /**
+     * Fetch latest version from NuGet via ecosyste.ms
+     */
+    async _fetchNuGetLatestVersion(packageName) {
+        try {
+            const registryName = await this.getRegistryName('nuget');
+            if (!registryName) return null;
+            
+            const url = `${this.ecosystemsBaseUrl}/registries/${registryName}/packages/${encodeURIComponent(packageName)}`;
+            const response = await fetchWithTimeout(url);
+            if (!response.ok) return null;
+            const data = await response.json();
+            return data.latest_release_number || null;
+        } catch (error) {
+            return null;
+        }
+    }
+
+    /**
+     * Clear the version cache
+     */
+    clearVersionCache() {
+        if (this._versionCache) {
+            this._versionCache.clear();
+        }
     }
 }
 

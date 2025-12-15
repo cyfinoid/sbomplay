@@ -211,6 +211,134 @@ class GitHubClient {
     }
 
     /**
+     * Batch fetch multiple user profiles using a single GraphQL query
+     * Uses field aliasing to query up to 50 users at once (GitHub complexity limits)
+     * @param {Array<string>} usernames - Array of GitHub usernames to fetch
+     * @returns {Promise<Map<string, Object|null>>} - Map of username -> user profile data
+     */
+    async getUsersBatchGraphQL(usernames) {
+        if (!usernames || usernames.length === 0) {
+            return new Map();
+        }
+
+        // Filter out already cached users and dedupe
+        const uniqueUsernames = [...new Set(usernames.map(u => u.toLowerCase()))];
+        const results = new Map();
+        const toFetch = [];
+
+        for (const username of uniqueUsernames) {
+            if (this.userCache.has(username)) {
+                results.set(username, this.userCache.get(username));
+            } else {
+                toFetch.push(username);
+            }
+        }
+
+        if (toFetch.length === 0) {
+            console.log(`📦 Batch: All ${uniqueUsernames.length} users found in cache`);
+            return results;
+        }
+
+        // GitHub GraphQL has complexity limits - batch in chunks of 50
+        const BATCH_SIZE = 50;
+        console.log(`🔷 Batch: Fetching ${toFetch.length} users via GraphQL (${Math.ceil(toFetch.length / BATCH_SIZE)} request(s))`);
+
+        for (let i = 0; i < toFetch.length; i += BATCH_SIZE) {
+            const batch = toFetch.slice(i, i + BATCH_SIZE);
+            
+            try {
+                // Build dynamic query with aliases for each user
+                // Query both user and organization for each username
+                const queryParts = batch.map((username, idx) => {
+                    // Sanitize username for GraphQL alias (must be valid identifier)
+                    const alias = `u${idx}`;
+                    return `
+                        ${alias}_user: user(login: "${username}") {
+                            __typename
+                            login
+                            name
+                            location
+                            company
+                            bio
+                            avatarUrl
+                            url
+                        }
+                        ${alias}_org: organization(login: "${username}") {
+                            __typename
+                            login
+                            name
+                            location
+                            description
+                            avatarUrl
+                            url
+                        }
+                    `;
+                }).join('\n');
+
+                const query = `query { ${queryParts} }`;
+                const data = await this.makeGraphQLRequest(query);
+
+                if (data) {
+                    // Process results for each user in the batch
+                    batch.forEach((username, idx) => {
+                        const alias = `u${idx}`;
+                        const userData = data[`${alias}_user`];
+                        const orgData = data[`${alias}_org`];
+                        
+                        let result = null;
+                        
+                        if (userData) {
+                            result = {
+                                login: userData.login,
+                                name: userData.name || null,
+                                location: userData.location || null,
+                                company: userData.company || null,
+                                email: null,
+                                bio: userData.bio || null,
+                                avatar_url: userData.avatarUrl || null,
+                                html_url: userData.url || null,
+                                type: 'User'
+                            };
+                        } else if (orgData) {
+                            result = {
+                                login: orgData.login,
+                                name: orgData.name || null,
+                                location: orgData.location || null,
+                                company: null,
+                                email: null,
+                                bio: orgData.description || null,
+                                avatar_url: orgData.avatarUrl || null,
+                                html_url: orgData.url || null,
+                                type: 'Organization'
+                            };
+                        }
+                        
+                        // Cache and store result
+                        this.userCache.set(username.toLowerCase(), result);
+                        results.set(username.toLowerCase(), result);
+                    });
+                }
+            } catch (error) {
+                console.warn(`⚠️  Batch GraphQL query failed for chunk ${i / BATCH_SIZE + 1}: ${error.message}`);
+                // Mark all users in this batch as null (failed)
+                batch.forEach(username => {
+                    this.userCache.set(username.toLowerCase(), null);
+                    results.set(username.toLowerCase(), null);
+                });
+            }
+
+            // Small delay between batches to avoid rate limiting
+            if (i + BATCH_SIZE < toFetch.length) {
+                await new Promise(resolve => setTimeout(resolve, 100));
+            }
+        }
+
+        const found = [...results.values()].filter(v => v !== null).length;
+        console.log(`✅ Batch: Fetched ${found}/${uniqueUsernames.length} users`);
+        return results;
+    }
+
+    /**
      * Get user profile information
      * @param {string} username - GitHub username
      * @returns {Promise<Object|null>} - User profile data with location and company, or null if not found
