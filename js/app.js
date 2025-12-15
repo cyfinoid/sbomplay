@@ -380,8 +380,10 @@ class SBOMPlayApp {
                 const content = await this.readFileContent(file);
                 const parsed = this.sbomParser.parse(content, file.name);
                 
-                if (!parsed || !parsed.format) {
-                    this.showAlert(`Failed to parse ${file.name}. Not a valid SPDX or CycloneDX file.`, 'warning');
+                // parsed.format is an object { format: 'spdx'|'cyclonedx'|'unknown', version: string|null }
+                if (!parsed || !parsed.format || parsed.format.format === 'unknown') {
+                    const errorMsg = parsed?.error || 'Not a valid SPDX or CycloneDX file.';
+                    this.showAlert(`Failed to parse ${file.name}. ${errorMsg}`, 'warning');
                     continue;
                 }
                 
@@ -393,7 +395,8 @@ class SBOMPlayApp {
                     status: 'pending'
                 });
                 
-                console.log(`📄 Added to queue: ${file.name} (${parsed.format})`);
+                const pkgCount = parsed.data?.sbom?.packages?.length || 0;
+                console.log(`📄 Added to queue: ${file.name} (${parsed.format.format} ${parsed.format.version || ''}, ${pkgCount} packages)`);
             } catch (error) {
                 console.error(`Failed to process ${file.name}:`, error);
                 this.showAlert(`Failed to read ${file.name}: ${error.message}`, 'danger');
@@ -440,13 +443,19 @@ class SBOMPlayApp {
                               item.status === 'completed' ? 'fas fa-check-circle text-success' :
                               'fas fa-times-circle text-danger';
             
+            // Get format string with version (e.g., "cyclonedx 1.5" or "spdx 2.3")
+            const formatStr = item.parsedData.format?.format || 'unknown';
+            const versionStr = item.parsedData.format?.version ? ` ${item.parsedData.format.version}` : '';
+            // Packages are at data.sbom.packages (internal SPDX-like format)
+            const packageCount = item.parsedData.data?.sbom?.packages?.length || 0;
+            
             return `
                 <div class="list-group-item d-flex justify-content-between align-items-center py-2">
                     <div>
                         <i class="${statusIcon} me-2"></i>
                         <span class="fw-medium">${this.escapeHtml(item.file.name)}</span>
-                        <span class="badge bg-secondary ms-2">${item.parsedData.format}</span>
-                        <small class="text-muted ms-2">${item.parsedData.packages?.length || 0} packages</small>
+                        <span class="badge bg-secondary ms-2">${formatStr}${versionStr}</span>
+                        <small class="text-muted ms-2">${packageCount} packages</small>
                     </div>
                     ${item.status === 'pending' ? `
                         <button class="btn btn-sm btn-outline-danger" onclick="window.sbomPlayApp.removeFromUploadQueue(${index})">
@@ -1013,6 +1022,9 @@ class SBOMPlayApp {
                 console.log('⚠️ Continuing with partial dependency information...');
             }
             
+            // Hide ecosystem progress section now that resolution is complete
+            this.clearEcosystemProgress();
+            
             // Generate results (use let so we can reload after author analysis)
             this.updateProgress(80, 'Generating analysis results...', 'generating-results');
             let results = this.sbomProcessor.exportData();
@@ -1452,6 +1464,9 @@ class SBOMPlayApp {
                 console.error('❌ Dependency tree resolution failed:', error);
                 console.log('⚠️ Continuing with partial dependency information...');
             }
+            
+            // Hide ecosystem progress section now that resolution is complete
+            this.clearEcosystemProgress();
             
             // Generate results (use let so we can reload after author analysis)
             this.updateProgress(80, 'Generating analysis results...', 'generating-results');
@@ -4876,8 +4891,8 @@ class SBOMPlayApp {
                     const authorKeys = Array.from(authorResults.keys());
                     console.log(`📍 Processing ${authorKeys.length} author entities for location data...`);
                     
-                    // First pass: Collect locations and identify authors that need location fetching
-                    const locationFetchPromises = [];
+                    // First pass: Collect authors that need location fetching
+                    const authorsNeedingFetch = [];
                     for (const authorKey of authorKeys) {
                         try {
                             let authorEntity = await window.cacheManager.getAuthorEntity(authorKey);
@@ -4896,14 +4911,7 @@ class SBOMPlayApp {
                                 );
                                 
                                 if (needsLocationFetch) {
-                                    console.log(`📍 Queueing location fetch for ${authorKey} (GitHub: ${authorEntity.metadata.github}${hasLocation ? ', needs geocoding' : ''})`);
-                                    locationFetchPromises.push(
-                                        authorService.fetchAuthorLocation(authorKey, authorEntity)
-                                            .catch(err => {
-                                                console.debug(`Failed to fetch location for ${authorKey}:`, err.message);
-                                                return null;
-                                            })
-                                    );
+                                    authorsNeedingFetch.push({ authorKey, authorEntity });
                                 }
                             }
                         } catch (e) {
@@ -4911,11 +4919,11 @@ class SBOMPlayApp {
                         }
                     }
                     
-                    // Wait for all location fetches to complete
-                    if (locationFetchPromises.length > 0) {
-                        console.log(`📍 Fetching locations for ${locationFetchPromises.length} authors...`);
-                        await Promise.allSettled(locationFetchPromises);
-                        console.log(`✅ Completed fetching author locations`);
+                    // Batch fetch all author locations using single GraphQL query
+                    if (authorsNeedingFetch.length > 0) {
+                        console.log(`📍 Batch fetching locations for ${authorsNeedingFetch.length} authors via GraphQL...`);
+                        await authorService.fetchAuthorLocationsBatch(authorsNeedingFetch);
+                        console.log(`✅ Completed batch fetching author locations`);
                     }
                     
                     // Collect locations that still need geocoding (missing countryCode)

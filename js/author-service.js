@@ -1057,6 +1057,171 @@ class AuthorService {
     }
 
     /**
+     * Batch fetch author locations from GitHub API using a single GraphQL query
+     * Much more efficient than individual fetches when processing many authors
+     * @param {Array<{authorKey: string, authorEntity: Object}>} authors - Array of author key/entity pairs
+     * @returns {Promise<Map<string, Object|null>>} - Map of authorKey -> location data
+     */
+    async fetchAuthorLocationsBatch(authors) {
+        const results = new Map();
+        
+        if (!authors || authors.length === 0) {
+            return results;
+        }
+
+        // Separate authors into those needing GitHub fetch vs those that already have data
+        const needsGitHubFetch = [];
+        const needsGeocodeOnly = [];
+        
+        for (const { authorKey, authorEntity } of authors) {
+            if (!authorEntity) continue;
+            
+            const hasLocation = authorEntity.metadata?.location || authorEntity.metadata?.company;
+            const hasGeocoding = authorEntity.metadata?.countryCode;
+            const githubUsername = authorEntity.metadata?.github;
+            
+            if (hasLocation && hasGeocoding) {
+                // Already complete - return cached data
+                results.set(authorKey, {
+                    location: authorEntity.metadata.location || null,
+                    company: authorEntity.metadata.company || null
+                });
+            } else if (hasLocation && !hasGeocoding) {
+                // Has location but needs geocoding
+                needsGeocodeOnly.push({ authorKey, authorEntity });
+            } else if (githubUsername) {
+                // Needs GitHub fetch
+                needsGitHubFetch.push({ authorKey, authorEntity, githubUsername });
+            } else {
+                // No GitHub username - can't fetch
+                results.set(authorKey, null);
+            }
+        }
+
+        // Geocode locations that just need geocoding (no GitHub fetch)
+        if (needsGeocodeOnly.length > 0 && window.LocationService) {
+            console.log(`📍 Batch: Geocoding ${needsGeocodeOnly.length} existing locations...`);
+            const locationService = new window.LocationService();
+            
+            await Promise.all(needsGeocodeOnly.map(async ({ authorKey, authorEntity }) => {
+                try {
+                    const location = authorEntity.metadata.location;
+                    const geocoded = await locationService.geocode(location);
+                    if (geocoded && geocoded.countryCode) {
+                        authorEntity.metadata = {
+                            ...authorEntity.metadata,
+                            countryCode: geocoded.countryCode,
+                            ...(geocoded.country && { country: geocoded.country })
+                        };
+                        await window.cacheManager.saveAuthorEntity(authorKey, authorEntity);
+                    }
+                    results.set(authorKey, {
+                        location: authorEntity.metadata.location || null,
+                        company: authorEntity.metadata.company || null
+                    });
+                } catch (error) {
+                    results.set(authorKey, {
+                        location: authorEntity.metadata.location || null,
+                        company: authorEntity.metadata.company || null
+                    });
+                }
+            }));
+        }
+
+        // Batch fetch from GitHub using single GraphQL query
+        if (needsGitHubFetch.length > 0 && window.GitHubClient) {
+            console.log(`📍 Batch: Fetching ${needsGitHubFetch.length} authors from GitHub via GraphQL...`);
+            
+            const githubClient = new window.GitHubClient();
+            const token = sessionStorage.getItem('github_token') || null;
+            if (token) {
+                githubClient.setToken(token);
+            }
+
+            // Collect usernames and fetch in batch
+            const usernames = needsGitHubFetch.map(a => a.githubUsername);
+            const usernameToAuthor = new Map();
+            needsGitHubFetch.forEach(a => {
+                usernameToAuthor.set(a.githubUsername.toLowerCase(), a);
+            });
+
+            try {
+                const userDataMap = await githubClient.getUsersBatchGraphQL(usernames);
+
+                // Process results and update entities
+                const locationService = window.LocationService ? new window.LocationService() : null;
+                
+                for (const [username, userData] of userDataMap) {
+                    const authorInfo = usernameToAuthor.get(username);
+                    if (!authorInfo) continue;
+                    
+                    const { authorKey, authorEntity } = authorInfo;
+
+                    // Skip organizations
+                    if (userData && userData.type === 'Organization') {
+                        console.warn(`⚠️ Batch: Skipping org "${username}" for ${authorKey}`);
+                        if (authorEntity.metadata?.github === authorInfo.githubUsername) {
+                            const updatedMetadata = { ...authorEntity.metadata };
+                            delete updatedMetadata.github;
+                            authorEntity.metadata = Object.keys(updatedMetadata).length > 0 ? updatedMetadata : null;
+                            await window.cacheManager.saveAuthorEntity(authorKey, authorEntity);
+                        }
+                        results.set(authorKey, null);
+                        continue;
+                    }
+
+                    if (userData && (userData.location || userData.company)) {
+                        // Geocode location
+                        let countryCode = null;
+                        let country = null;
+                        if (userData.location && locationService) {
+                            try {
+                                const geocoded = await locationService.geocode(userData.location);
+                                if (geocoded && geocoded.countryCode) {
+                                    countryCode = geocoded.countryCode;
+                                    country = geocoded.country;
+                                }
+                            } catch (e) {
+                                // Geocoding failed - continue without it
+                            }
+                        }
+
+                        // Update author entity
+                        const existingMetadata = authorEntity.metadata || {};
+                        authorEntity.metadata = {
+                            ...existingMetadata,
+                            ...(userData.location && { location: userData.location }),
+                            ...(userData.company && { company: userData.company }),
+                            ...(countryCode && { countryCode }),
+                            ...(country && { country })
+                        };
+                        await window.cacheManager.saveAuthorEntity(authorKey, authorEntity);
+
+                        results.set(authorKey, {
+                            location: userData.location || null,
+                            company: userData.company || null,
+                            countryCode,
+                            country
+                        });
+                    } else {
+                        results.set(authorKey, null);
+                    }
+                }
+            } catch (error) {
+                console.warn(`⚠️ Batch GitHub fetch failed: ${error.message}`);
+                // Mark all as failed
+                needsGitHubFetch.forEach(({ authorKey }) => {
+                    results.set(authorKey, null);
+                });
+            }
+        }
+
+        const found = [...results.values()].filter(v => v !== null).length;
+        console.log(`✅ Batch: Processed ${results.size} authors, ${found} with location data`);
+        return results;
+    }
+
+    /**
      * Fetch authors from ecosyste.ms
      */
     async fetchFromEcosystems(ecosystem, packageName) {

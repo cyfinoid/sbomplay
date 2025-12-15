@@ -5,18 +5,102 @@ All notable changes to SBOM Play will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.0.5] - 2025-12-15
+
+### Added
+- **Dead Source Repository Detection**: New finding type to detect when packages reference non-existent GitHub repositories
+  - New `REPO_NOT_FOUND` finding type (medium severity) for packages with 404 source repos
+  - Added `validateSourceRepos()` method to enrichment pipeline to check GitHub repos in SBOM externalRefs
+  - Parses various Git URL formats: `git+ssh://`, `git+https://`, `ssh://`, plain GitHub URLs
+  - New "Dead Source Repos" filter option in Findings page dropdown
+  - Helps identify abandoned packages or potential supply chain risks from re-registrable repos
+  
+- **EOX Status Enrichment**: EOX data now persisted in analysis exports for reliable findings display
+  - New Phase 5 in enrichment pipeline fetches EOX status from endoflife.date API
+  - EOX status stored on dependency objects as `dep.eoxStatus`
+  - Staleness data now also attached to dependencies during version drift phase
+  
+- **Backward Compatible EOX Findings**: EOX findings now work with existing exports
+  - Findings page now looks up staleness from IndexedDB packages cache when not on dependency object
+  - Falls back to dynamic computation via `eoxService` and `versionDriftAnalyzer` if cache miss
+  - Works for both new exports (with attached data) and existing exports (with cache lookup)
+
+### Fixed
+- **License Change Detection False Positives**: Fixed bug where same-name packages from different ecosystems were incorrectly flagged as license changes
+  - Now groups packages by `ecosystem:packageName` instead of just `packageName`
+  - Example: `mime` (npm) and `mime` (PyPI) are now correctly treated as separate packages
+
+- **GitHub Actions Line Number Tracking**: Workflow findings now include exact line numbers
+  - New `extractUsesLineNumbers()` helper scans raw YAML for `uses:` statements
+  - `parseYAMLWithLineNumbers()` combines parsed YAML with line number map
+  - Line numbers now included in `workflowLocations` for accurate finding location display
+  - Enhanced Findings page GitHub Actions display with clickable links to workflow files with line numbers
 
 ### Changed
+- **Findings Page Enhancements**: Improved GitHub Actions findings display
+  - New "Location" column replaces "Repository" for GitHub Actions findings
+  - Shows full path: Repository → Workflow File:Line with clickable GitHub links
+  - Action column now links directly to action repository
+  - Multiple workflow locations displayed if action used in multiple places
+  - Category breakdown now shows 4 categories: GitHub Actions, Dependency Confusion, EOX, Dead Source Repos
+  
+- **Enrichment Pipeline Optimization**: Adjusted phase percentages for new phases
+  - 6 phases now: Vulnerabilities (60-68%), Licenses (68-76%), Version Drift (76-84%), Authors (84-90%), EOX Status (90-95%), Source Repos (95-98%)
+  
 - **Dependency Confusion Detection**: Reduced false positives for PyPI packages
   - PyPI packages not found in registry now marked as LOW severity with message: "Double-check if this dependency could be fulfilled via native OS installers (apt, dnf, brew)"
   - Finding type name updated to "Potential Dependency Confusion (Low Risk - Likely System Package)" for low severity findings
   - Added `confusionSeverity` and `confusionMessage` fields to dependency data for accurate severity tracking
+- **Dependency Tree Resolution**: Performance optimization with parallel processing at deeper levels
+  - At depth 4+ (configurable), dependencies are now resolved in parallel batches for faster npm resolution
+  - Sequential processing retained at top levels (1-3) to avoid overwhelming APIs with concurrent requests
+  - New settings in Settings page: "Parallel Processing Depth Threshold" (default: 4) and "Parallel Batch Size" (default: 10)
+  - Significantly reduces scan time for large npm dependency trees
+- **GitHub Author Location Fetching**: Bulk GraphQL queries for significant performance improvement
+  - New `getUsersBatchGraphQL()` method fetches up to 50 users in a single GraphQL query using field aliasing
+  - New `fetchAuthorLocationsBatch()` method in AuthorService processes authors in batch
+  - Reduces GitHub API calls from N individual requests to ceil(N/50) batch requests
+  - Especially beneficial when scanning organizations with many package authors
+- **Audit Page Disclaimer**: Added experimental feature warning
+  - Notes that SBOM compliance standards (CISA, BSI TR-03183, NTIA) are rapidly evolving
+  - Advises users to consult official documentation for authoritative requirements
+  - Clarifies the tool provides guidance only, not compliance certification
 
 ### Removed
 - **Composer/Packagist Dependency Confusion**: Temporarily disabled to prevent false positives from platform packages (e.g., `php@8.2`)
 
+### Fixed
+- **SBOM File Upload**: Fixed `[object Object]` display and package count when uploading files
+  - `parsed.format` is an object, not a string - now correctly accesses `parsed.format.format`
+  - Better error messages when uploading non-SBOM files (shows actual parser error)
+  - Fixed package count display: now correctly accesses `data.sbom.packages` (was showing 0)
+  - Now shows format with version (e.g., "cyclonedx 1.5" instead of just "cyclonedx")
+- **Dependency Resolution UI**: Ecosystem progress section now hides after resolution completes
+  - "Dependency Resolution by Ecosystem" section was persisting after analysis moved to next phase
+  - Now properly cleared when dependency tree resolution finishes (success or failure)
+- **Staleness Badges**: Now show more specific EOL status instead of generic "Stale"
+  - **Highly Likely EOL** (red badge): Packages with no updates for 3+ years
+  - **Probable EOL** (orange badge): Packages with no updates for 2+ years
+  - **Stale** (yellow badge): Packages with no updates for 6+ months (but less than 2 years)
+  - Both table badges and detail popup now show the correct EOL status
+
 ### Added
+- **EOX Findings on Findings Page**: End-of-Life/Support issues now appear as security findings
+  - New "EOX (End-of-Life/Support)" filter option in Finding Type dropdown
+  - Four EOX finding types grouped under EOX category:
+    - **EOL** (high severity): Confirmed end-of-life from endoflife.date API
+    - **EOS** (medium severity): Confirmed end-of-support from endoflife.date API
+    - **Highly Likely EOL** (high severity): No updates for 3+ years (staleness-based detection)
+    - **Probable EOL** (medium severity): No updates for 2+ years (staleness-based detection)
+  - EOX findings show in summary stats with hourglass icon
+  - Detail view includes EOL/EOS dates, last release date, and age since last release
+- **Dependency Confusion Documentation**: Comprehensive methodology section added to About page
+  - Explains what dependency confusion attacks are and their real-world impact
+  - Details the detection approach: namespace not found vs package not found
+  - Lists all 36+ supported registries across different ecosystems
+  - Describes the detection process from PURL parsing to evidence collection
+  - Includes mitigation strategies and reference links to original research
+
 - **Enhanced Dependency Confusion Detection**: Ported detection capabilities from DepConfuse project
   - Created new `js/depconfuse-service.js` service with namespace and package existence checking
   - **Namespace Checking**: Detects when a package's namespace/organization doesn't exist in public registries (HIGH-CONFIDENCE risk)

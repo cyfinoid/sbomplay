@@ -6,10 +6,10 @@
     <title>SBOM Play - Security Findings</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
-    <link href="css/style.css?v=0.0.4" rel="stylesheet">
-    <link href="css/themes.css?v=0.0.4" rel="stylesheet">
-    <script src="js/theme-manager.js?v=0.0.5&cb=1734200000000"></script>
-    <script src="js/analytics.js?v=0.0.5&cb=1734200000000"></script>
+    <link href="css/style.css?v=0.0.5" rel="stylesheet">
+    <link href="css/themes.css?v=0.0.5" rel="stylesheet">
+    <script src="js/theme-manager.js?v=0.0.5&cb=1765793449000"></script>
+    <script src="js/analytics.js?v=0.0.5&cb=1765793449000"></script>
     <script defer data-domain="cyfinoid.github.io" src="https://plausible.io/js/script.outbound-links.js"></script>
 </head>
 <body>
@@ -51,7 +51,7 @@
                 <div class="d-flex justify-content-between align-items-center">
                     <div>
                         <h1><i class="fas fa-shield-alt me-2"></i>Security Findings</h1>
-                        <p class="text-muted">Security findings including GitHub Actions pinnability, dependency hijacking risks, and workflow security issues</p>
+                        <p class="text-muted">Security findings including GitHub Actions pinnability, dependency hijacking risks, EOX issues, and dead source repository detection</p>
                     </div>
                     <div>
                         <a href="index.html" class="btn btn-outline-primary">
@@ -68,7 +68,7 @@
                 <div class="alert alert-info" role="alert">
                     <i class="fas fa-info-circle me-2"></i>
                     <strong>Security Findings:</strong> This page shows security-related findings including GitHub Actions security issues (unpinned actions, mutable tags, floating Docker images),
-                    dependency hijacking/confusion risks (packages not found in public registries), and other supply chain security findings. All processing happens in your browser for maximum privacy.
+                    dependency hijacking/confusion risks (packages not found in public registries), EOX (end-of-life/support) packages, and dead source repository detection. All processing happens in your browser for maximum privacy.
                 </div>
             </div>
         </div>
@@ -98,6 +98,8 @@
                             <option value="all">All Types</option>
                             <option value="github-actions">GitHub Actions Security</option>
                             <option value="dependency-confusion">Dependency Confusion</option>
+                            <option value="eox">EOX (End-of-Life/Support)</option>
+                            <option value="source-repo">Dead Source Repos</option>
                         </select>
                     </div>
                     <div class="col-md-4">
@@ -194,20 +196,20 @@
         </div>
     </footer>
     
-    <script src="js/indexeddb-manager.js?v=0.0.5&cb=1734200000000"></script>
-    <script src="js/common.js?v=0.0.5&cb=1734200000000"></script>
-    <script src="js/registry-utils.js?v=0.0.5&cb=1734200000000"></script>
-    <script src="js/version-utils.js?v=0.0.5&cb=1734200000000"></script>
-    <script src="js/ecosystem-utils.js?v=0.0.5&cb=1734200000000"></script>
-    <script src="js/depconfuse-service.js?v=0.0.5&cb=1734200000000"></script>
-    <script src="js/cache-manager.js?v=0.0.5&cb=1734200000000"></script>
-    <script src="js/view-manager.js?v=0.0.5&cb=1734200000000"></script>
-    <script src="js/license-processor.js?v=0.0.5&cb=1734200000000"></script>
-    <script src="js/sbom-processor.js?v=0.0.5&cb=1734200000000"></script>
-    <script src="js/storage-manager.js?v=0.0.5&cb=1734200000000"></script>
-    <script src="js/github-client.js?v=0.0.5&cb=1734200000000"></script>
-    <script src="js/app.js?v=0.0.5&cb=1734200000000"></script>
+    <script src="js/indexeddb-manager.js?v=0.0.5&cb=1765793449000"></script>
+    <script src="js/common.js?v=0.0.5&cb=1765793449000"></script>
+    <script src="js/registry-utils.js?v=0.0.5&cb=1765793449000"></script>
+    <script src="js/version-utils.js?v=0.0.5&cb=1765793449000"></script>
+    <script src="js/ecosystem-utils.js?v=0.0.5&cb=1765793449000"></script>
+    <script src="js/depconfuse-service.js?v=0.0.5&cb=1765793449000"></script>
+    <script src="js/cache-manager.js?v=0.0.5&cb=1765793449000"></script>
+    <script src="js/view-manager.js?v=0.0.5&cb=1765793449000"></script>
+    <script src="js/license-processor.js?v=0.0.5&cb=1765793449000"></script>
+    <script src="js/sbom-processor.js?v=0.0.5&cb=1765793449000"></script>
+    <script src="js/storage-manager.js?v=0.0.5&cb=1765793449000"></script>
+    <script src="js/github-client.js?v=0.0.5&cb=1765793449000"></script>
+    <script src="js/app.js?v=0.0.5&cb=1765793449000"></script>
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
-    <script src="js/findings-page.js?v=0.0.5&cb=1734200000000"></script>
+    <script src="js/findings-page.js?v=0.0.5&cb=1765793449000"></script>
 </body>
 </html>

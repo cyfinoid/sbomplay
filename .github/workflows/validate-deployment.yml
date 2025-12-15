@@ -117,6 +117,7 @@ jobs:
             "js/vuln-page.js"
             "js/sbom-parser.js"
             "js/findings-page.js"
+            "js/upload-page.js"
           )
           
           MISSING=0

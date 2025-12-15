@@ -271,11 +271,13 @@ class GitHubActionsAnalyzer {
     /**
      * Scan a single workflow file
      * Enhanced to capture reusable workflows and their dependencies
+     * Now includes line number tracking for 'uses:' statements
      */
     async scanWorkflow(repository, workflowPath, content) {
         try {
-            const parsed = this.parseYAML(content);
-            const uses = this.extractUsesReferences(parsed, workflowPath);
+            // Parse YAML and extract line numbers for uses statements
+            const { parsed, lineNumbers } = this.parseYAMLWithLineNumbers(content);
+            const uses = this.extractUsesReferences(parsed, workflowPath, lineNumbers);
             
             // Check for workflow-level security patterns (actsense-inspired)
             const securityFindings = this.checkWorkflowSecurityPatterns(parsed, workflowPath);
@@ -298,9 +300,12 @@ class GitHubActionsAnalyzer {
                 for (const [jobId, job] of Object.entries(parsed.jobs)) {
                     if (job.uses) {
                         const classified = this.classifyAction(job.uses);
+                        // Get line number for this reusable workflow
+                        const lineNum = lineNumbers.get(job.uses) || null;
                         reusableWorkflows.push({
                             jobId,
                             uses: job.uses,
+                            line: lineNum,
                             ...classified,
                             workflow: workflowPath,
                             repository
@@ -1014,10 +1019,55 @@ class GitHubActionsAnalyzer {
     }
 
     /**
+     * Extract line numbers for all 'uses:' statements in YAML content
+     * Returns a map of 'uses' value -> line number
+     */
+    extractUsesLineNumbers(content) {
+        const lineNumbers = new Map();
+        
+        if (!content || typeof content !== 'string') {
+            return lineNumbers;
+        }
+
+        // Normalize line endings
+        const normalizedContent = content.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+        const lines = normalizedContent.split('\n');
+        
+        // Pattern to match 'uses:' statements
+        // Handles: uses: owner/repo@ref, uses: "owner/repo@ref", uses: 'owner/repo@ref'
+        const usesPattern = /^\s*(?:-\s+)?uses:\s*['"]?([^'"#\s]+)['"]?/;
+        
+        for (let i = 0; i < lines.length; i++) {
+            const line = lines[i];
+            const match = line.match(usesPattern);
+            if (match) {
+                const usesValue = match[1].trim();
+                // Line numbers are 1-indexed
+                lineNumbers.set(usesValue, i + 1);
+            }
+        }
+        
+        return lineNumbers;
+    }
+
+    /**
+     * Parse YAML content with line number tracking
+     * Returns both parsed content and line number map
+     */
+    parseYAMLWithLineNumbers(content) {
+        const parsed = this.parseYAML(content);
+        const lineNumbers = this.extractUsesLineNumbers(content);
+        return { parsed, lineNumbers };
+    }
+
+    /**
      * Extract all uses references from a workflow or action
      * Enhanced to capture reusable workflows and complete dependency graph
+     * @param {Object} parsed - Parsed YAML content
+     * @param {string} path - Path prefix for location
+     * @param {Map} lineNumbers - Map of uses values to line numbers (optional)
      */
-    extractUsesReferences(parsed, path = '') {
+    extractUsesReferences(parsed, path = '', lineNumbers = new Map()) {
         const uses = [];
         
         if (!parsed || typeof parsed !== 'object') {
@@ -1029,10 +1079,12 @@ class GitHubActionsAnalyzer {
             for (const [jobId, job] of Object.entries(parsed.jobs)) {
                 // Check for reusable workflow calls
                 if (job.uses) {
+                    // Get line number from our extracted line numbers map
+                    const lineNum = lineNumbers.get(job.uses) || null;
                     uses.push({
                         uses: job.uses,
                         location: `${path}.jobs.${jobId}`,
-                        line: job._line || null,
+                        line: lineNum,
                         type: 'reusable-workflow'
                     });
                 }
@@ -1041,10 +1093,12 @@ class GitHubActionsAnalyzer {
                 if (job.steps && Array.isArray(job.steps)) {
                     for (const step of job.steps) {
                         if (step.uses) {
+                            // Get line number from our extracted line numbers map
+                            const lineNum = lineNumbers.get(step.uses) || null;
                             uses.push({
                                 uses: step.uses,
                                 location: `${path}.jobs.${jobId}.steps`,
-                                line: step._line || null,
+                                line: lineNum,
                                 type: 'action'
                             });
                         }
@@ -1057,10 +1111,12 @@ class GitHubActionsAnalyzer {
         if (parsed.runs && parsed.runs.steps && Array.isArray(parsed.runs.steps)) {
             for (const step of parsed.runs.steps) {
                 if (step.uses) {
+                    // Get line number from our extracted line numbers map
+                    const lineNum = lineNumbers.get(step.uses) || null;
                     uses.push({
                         uses: step.uses,
                         location: `${path}.runs.steps`,
-                        line: step._line || null,
+                        line: lineNum,
                         type: 'action'
                     });
                 }

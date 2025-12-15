@@ -172,6 +172,31 @@ class SettingsApp {
             });
         }
 
+        // Parallel processing settings
+        const parallelThresholdInput = document.getElementById('parallelDepthThreshold');
+        const currentParallelThresholdEl = document.getElementById('currentParallelThreshold');
+        if (parallelThresholdInput) {
+            const savedThreshold = localStorage.getItem('parallelDepthThreshold') || '4';
+            parallelThresholdInput.value = savedThreshold;
+            if (currentParallelThresholdEl) currentParallelThresholdEl.textContent = savedThreshold;
+            
+            parallelThresholdInput.addEventListener('input', (e) => {
+                if (currentParallelThresholdEl) currentParallelThresholdEl.textContent = e.target.value;
+            });
+        }
+
+        const parallelBatchSizeInput = document.getElementById('parallelBatchSize');
+        const currentParallelBatchSizeEl = document.getElementById('currentParallelBatchSize');
+        if (parallelBatchSizeInput) {
+            const savedBatchSize = localStorage.getItem('parallelBatchSize') || '10';
+            parallelBatchSizeInput.value = savedBatchSize;
+            if (currentParallelBatchSizeEl) currentParallelBatchSizeEl.textContent = savedBatchSize;
+            
+            parallelBatchSizeInput.addEventListener('input', (e) => {
+                if (currentParallelBatchSizeEl) currentParallelBatchSizeEl.textContent = e.target.value;
+            });
+        }
+
         const saveAnalysisSettingsBtn = document.getElementById('saveAnalysisSettingsBtn');
         if (saveAnalysisSettingsBtn) {
             saveAnalysisSettingsBtn.addEventListener('click', () => this.saveAnalysisSettings());
@@ -261,6 +286,9 @@ class SettingsApp {
      */
     saveAnalysisSettings() {
         const maxDepthInput = document.getElementById('maxDepth');
+        const parallelThresholdInput = document.getElementById('parallelDepthThreshold');
+        const parallelBatchSizeInput = document.getElementById('parallelBatchSize');
+        
         if (!maxDepthInput) return;
         
         const maxDepth = maxDepthInput.value;
@@ -273,12 +301,33 @@ class SettingsApp {
 
         localStorage.setItem('maxDepth', depth.toString());
         
+        // Save parallel processing settings
+        if (parallelThresholdInput) {
+            const threshold = parseInt(parallelThresholdInput.value, 10);
+            if (!isNaN(threshold) && threshold >= 1 && threshold <= 20) {
+                localStorage.setItem('parallelDepthThreshold', threshold.toString());
+            }
+        }
+        
+        if (parallelBatchSizeInput) {
+            const batchSize = parseInt(parallelBatchSizeInput.value, 10);
+            if (!isNaN(batchSize) && batchSize >= 1 && batchSize <= 50) {
+                localStorage.setItem('parallelBatchSize', batchSize.toString());
+            }
+        }
+        
         // Update dependency tree resolver if available
         if (window.dependencyTreeResolver) {
             window.dependencyTreeResolver.maxDepth = depth;
+            if (parallelThresholdInput) {
+                window.dependencyTreeResolver.parallelDepthThreshold = parseInt(parallelThresholdInput.value, 10);
+            }
+            if (parallelBatchSizeInput) {
+                window.dependencyTreeResolver.parallelBatchSize = parseInt(parallelBatchSizeInput.value, 10);
+            }
         }
         
-        this.showAlert(`Settings saved! Maximum depth set to ${depth}`, 'success');
+        this.showAlert(`Settings saved! Max depth: ${depth}, Parallel at depth ${parallelThresholdInput?.value || 4}+`, 'success');
         const currentMaxDepthEl = document.getElementById('currentMaxDepth');
         if (currentMaxDepthEl) currentMaxDepthEl.textContent = depth.toString();
     }
@@ -288,14 +337,30 @@ class SettingsApp {
      */
     resetAnalysisSettings() {
         if (confirm('Reset all analysis settings to defaults?')) {
+            // Reset max depth
             localStorage.removeItem('maxDepth');
             const maxDepthInput = document.getElementById('maxDepth');
             const currentMaxDepthEl = document.getElementById('currentMaxDepth');
             if (maxDepthInput) maxDepthInput.value = '10';
             if (currentMaxDepthEl) currentMaxDepthEl.textContent = '10';
             
+            // Reset parallel processing settings
+            localStorage.removeItem('parallelDepthThreshold');
+            localStorage.removeItem('parallelBatchSize');
+            const parallelThresholdInput = document.getElementById('parallelDepthThreshold');
+            const currentParallelThresholdEl = document.getElementById('currentParallelThreshold');
+            const parallelBatchSizeInput = document.getElementById('parallelBatchSize');
+            const currentParallelBatchSizeEl = document.getElementById('currentParallelBatchSize');
+            
+            if (parallelThresholdInput) parallelThresholdInput.value = '4';
+            if (currentParallelThresholdEl) currentParallelThresholdEl.textContent = '4';
+            if (parallelBatchSizeInput) parallelBatchSizeInput.value = '10';
+            if (currentParallelBatchSizeEl) currentParallelBatchSizeEl.textContent = '10';
+            
             if (window.dependencyTreeResolver) {
                 window.dependencyTreeResolver.maxDepth = 10;
+                window.dependencyTreeResolver.parallelDepthThreshold = 4;
+                window.dependencyTreeResolver.parallelBatchSize = 10;
             }
             
             this.showAlert('Settings reset to defaults', 'success');

@@ -25,6 +25,13 @@ class DependencyTreeResolver {
         this.currentEcosystem = null; // Current ecosystem being resolved
         this.currentDirectDep = null; // Current direct dependency being resolved
         
+        // Parallel processing configuration
+        // At deeper levels, use parallel processing for better performance
+        const savedParallelThreshold = localStorage.getItem('parallelDepthThreshold');
+        this.parallelDepthThreshold = savedParallelThreshold ? parseInt(savedParallelThreshold, 10) : 4;
+        const savedParallelBatchSize = localStorage.getItem('parallelBatchSize');
+        this.parallelBatchSize = savedParallelBatchSize ? parseInt(savedParallelBatchSize, 10) : 10;
+        
         // Registry URL templates
         this.registryAPIs = {
             npm: 'https://registry.npmjs.org/{package}',
@@ -326,7 +333,7 @@ class DependencyTreeResolver {
         
         console.log(`    ✓ Found ${dependencies.length} dependencies for ${packageKey} at depth ${depth}`);
         
-        // Store the relationships
+        // Store the relationships first (synchronously)
         for (const dep of dependencies) {
             const depKey = `${dep.name}@${dep.version}`;
             
@@ -347,25 +354,68 @@ class DependencyTreeResolver {
             if (tree.has(parent)) {
                 tree.get(parent).children.add(depKey);
             }
+        }
+        
+        // Recursively resolve dependencies
+        // At deeper levels (>= parallelDepthThreshold), use parallel processing for better performance
+        // At top levels, use sequential to avoid overwhelming APIs with concurrent requests
+        const useParallel = depth >= this.parallelDepthThreshold;
+        
+        if (useParallel && dependencies.length > 1) {
+            // Parallel processing in batches at deeper levels
+            console.log(`    ⚡ Using parallel processing for ${dependencies.length} deps at depth ${depth}`);
             
-            // Recursively resolve this dependency's dependencies
-            try {
-                // Build new dependency chain for child
+            for (let i = 0; i < dependencies.length; i += this.parallelBatchSize) {
+                const batch = dependencies.slice(i, i + this.parallelBatchSize);
+                
+                const batchPromises = batch.map(async (dep) => {
+                    const depKey = `${dep.name}@${dep.version}`;
+                    const newDepChain = [...depChain, dep.name];
+                    
+                    try {
+                        await this.resolvePackageDependencies(
+                            dep.name,
+                            dep.version,
+                            ecosystem,
+                            depth + 1,
+                            depKey,
+                            tree,
+                            resolved,
+                            newDepChain
+                        );
+                    } catch (error) {
+                        console.log(`    ⚠️  Error resolving child ${depKey}: ${error.message}`);
+                    }
+                });
+                
+                // Wait for batch to complete
+                await Promise.allSettled(batchPromises);
+                
+                // Small delay between batches to avoid rate limit issues
+                if (i + this.parallelBatchSize < dependencies.length) {
+                    await new Promise(resolve => setTimeout(resolve, 50));
+                }
+            }
+        } else {
+            // Sequential processing at top levels
+            for (const dep of dependencies) {
+                const depKey = `${dep.name}@${dep.version}`;
                 const newDepChain = [...depChain, dep.name];
                 
-                await this.resolvePackageDependencies(
-                    dep.name,
-                    dep.version,
-                    ecosystem,
-                    depth + 1,
-                    depKey,
-                    tree,
-                    resolved,
-                    newDepChain
-                );
-            } catch (error) {
-                console.log(`    ⚠️  Error resolving child ${depKey}: ${error.message}`);
-                // Continue with next dependency
+                try {
+                    await this.resolvePackageDependencies(
+                        dep.name,
+                        dep.version,
+                        ecosystem,
+                        depth + 1,
+                        depKey,
+                        tree,
+                        resolved,
+                        newDepChain
+                    );
+                } catch (error) {
+                    console.log(`    ⚠️  Error resolving child ${depKey}: ${error.message}`);
+                }
             }
         }
     }

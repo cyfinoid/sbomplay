@@ -2112,11 +2112,17 @@ document.addEventListener('DOMContentLoaded', function() {
                                                     );
                                                 }
                                                 
-                                                if (staleness && staleness.isStale) {
+                                                if (staleness && staleness.isProbableEOL && staleness.monthsSinceRelease >= 36) {
+                                                    // Highly likely EOL (3+ years without updates)
+                                                    badgeHtml = `<span class="badge bg-danger" title="${escapeHtml(staleness.probableEOLReason || 'No updates for 3+ years')}"><i class="fas fa-skull"></i> Highly Likely EOL</span>`;
+                                                } else if (staleness && staleness.isProbableEOL) {
+                                                    // Probable EOL (2+ years without updates)
+                                                    badgeHtml = `<span class="badge bg-warning text-dark" title="${escapeHtml(staleness.probableEOLReason || 'No updates for 2+ years')}"><i class="fas fa-hourglass-end"></i> Probable EOL</span>`;
+                                                } else if (staleness && staleness.isStale) {
                                                     badgeHtml = `<span class="badge bg-warning" title="Stale: Last release ${staleness.monthsSinceRelease} months ago"><i class="fas fa-clock"></i> Stale (${staleness.monthsSinceRelease}m)</span>`;
                                                 }
                                                 
-                                                // Check EOX (End-of-Life) status
+                                                // Check EOX (End-of-Life) status (from endoflife.date API - overrides staleness-based EOL)
                                                 if (!badgeHtml && window.eoxService) {
                                                     try {
                                                         const eoxStatus = await window.eoxService.checkEOX(
@@ -2482,6 +2488,14 @@ document.addEventListener('DOMContentLoaded', function() {
                                         ` : driftData.hasMinorUpdate ? `
                                             <div class="alert alert-warning py-2 mb-0">
                                                 <i class="fas fa-arrow-up me-1"></i><strong>Minor update available:</strong> v${escapeHtml(driftData.latestVersion)}
+                                            </div>
+                                        ` : staleness && staleness.isProbableEOL && staleness.monthsSinceRelease >= 36 ? `
+                                            <div class="alert alert-danger py-2 mb-0">
+                                                <i class="fas fa-skull me-1"></i><strong>Highly Likely EOL:</strong> ${escapeHtml(staleness.probableEOLReason || 'No updates for 3+ years')}
+                                            </div>
+                                        ` : staleness && staleness.isProbableEOL ? `
+                                            <div class="alert alert-warning py-2 mb-0">
+                                                <i class="fas fa-hourglass-end me-1"></i><strong>Probable EOL:</strong> ${escapeHtml(staleness.probableEOLReason || 'No updates for 2+ years')}
                                             </div>
                                         ` : staleness && staleness.isStale ? `
                                             <div class="alert alert-warning py-2 mb-0">

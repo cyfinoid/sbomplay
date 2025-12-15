@@ -1,7 +1,8 @@
 /**
  * JavaScript for findings.html page
  * Handles security findings page initialization and data loading
- * Focuses on: GitHub Actions security issues, Dependency confusion/hijacking risks
+ * Focuses on: GitHub Actions security issues, Dependency confusion/hijacking risks,
+ *             EOX (End-of-Life/Support) issues, and dead source repository detection
  */
 
 document.addEventListener('DOMContentLoaded', async function() {
@@ -86,8 +87,8 @@ document.addEventListener('DOMContentLoaded', async function() {
                 const container = document.getElementById('findings-page-content');
                 // Get findingTypeFilter from the dropdown since it's not passed through
                 const typeFilter = findingTypeFilterEl ? findingTypeFilterEl.value : 'all';
-                // Render security findings
-                const html = generateSecurityFindingsHTML(data, severityFilter || 'all', typeFilter, repoFilter || 'all');
+                // Render security findings (async to support cache lookups)
+                const html = await generateSecurityFindingsHTML(data, severityFilter || 'all', typeFilter, repoFilter || 'all', storageManager);
                 safeSetHTML(container, html);
             }
         });
@@ -157,10 +158,91 @@ document.addEventListener('DOMContentLoaded', async function() {
     // are defined in page-common.js to avoid code duplication across audit-page.js and findings-page.js
     
     /**
+     * Get staleness data for a dependency from IndexedDB packages cache
+     * @param {Object} storageManager - StorageManager instance
+     * @param {Object} dep - Dependency object
+     * @returns {Object|null} - Staleness data or null
+     */
+    async function getStalenessFromCache(storageManager, dep) {
+        try {
+            if (!storageManager?.indexedDB) return null;
+            
+            // Normalize ecosystem for package key (same as deps-page.js)
+            let ecosystem = (dep.category?.ecosystem || dep.ecosystem || '').toLowerCase();
+            if (ecosystem === 'rubygems' || ecosystem === 'gem') {
+                ecosystem = 'gem';
+            } else if (ecosystem === 'go' || ecosystem === 'golang') {
+                ecosystem = 'golang';
+            } else if (ecosystem === 'packagist' || ecosystem === 'composer') {
+                ecosystem = 'composer';
+            } else if (ecosystem === 'github actions') {
+                ecosystem = 'github actions';
+            }
+            
+            const packageKey = `${ecosystem}:${dep.name}`;
+            const pkg = await storageManager.indexedDB.getPackage(packageKey);
+            
+            if (pkg && pkg.versionDrift && pkg.versionDrift[dep.version]) {
+                return pkg.versionDrift[dep.version].staleness || null;
+            }
+            return null;
+        } catch (e) {
+            console.warn('Failed to get staleness from cache:', e);
+            return null;
+        }
+    }
+    
+    /**
+     * Get EOX status for a dependency dynamically using eoxService
+     * @param {Object} dep - Dependency object
+     * @returns {Object|null} - EOX status or null
+     */
+    async function getEOXStatusDynamic(dep) {
+        try {
+            if (!window.eoxService) return null;
+            
+            const ecosystem = dep.category?.ecosystem || dep.ecosystem || '';
+            const eoxStatus = await window.eoxService.checkEOX(
+                dep.name,
+                dep.version,
+                ecosystem
+            );
+            
+            return eoxStatus || null;
+        } catch (e) {
+            // EOX check is optional, don't log errors
+            return null;
+        }
+    }
+    
+    /**
+     * Get staleness data dynamically using versionDriftAnalyzer
+     * @param {Object} dep - Dependency object
+     * @returns {Object|null} - Staleness data or null
+     */
+    async function getStalenessDynamic(dep) {
+        try {
+            if (!window.versionDriftAnalyzer) return null;
+            
+            const ecosystem = dep.category?.ecosystem || dep.ecosystem || '';
+            const staleness = await window.versionDriftAnalyzer.checkStaleness(
+                dep.name,
+                dep.version,
+                ecosystem
+            );
+            
+            return staleness || null;
+        } catch (e) {
+            // Staleness check is optional, don't log errors
+            return null;
+        }
+    }
+    
+    /**
      * Generate security findings HTML
      * Combines GitHub Actions findings and Dependency Confusion findings
      */
-    function generateSecurityFindingsHTML(orgData, severityFilter = 'all', findingTypeFilter = 'all', repoFilter = 'all') {
+    async function generateSecurityFindingsHTML(orgData, severityFilter = 'all', findingTypeFilter = 'all', repoFilter = 'all', storageManager = null) {
         const allFindings = [];
         
         // === Collect GitHub Actions findings ===
@@ -314,10 +396,185 @@ document.addEventListener('DOMContentLoaded', async function() {
             });
         }
         
+        // === Collect EOX (End-of-Life/Support) findings ===
+        if (findingTypeFilter === 'all' || findingTypeFilter === 'eox') {
+            const allDependencies = orgData?.data?.allDependencies || [];
+            
+            for (const dep of allDependencies) {
+                const repos = dep.repositories || [];
+                
+                // Filter by repository
+                if (repoFilter && repoFilter !== 'all' && !repos.includes(repoFilter)) {
+                    continue;
+                }
+                
+                const ecosystem = dep.category?.ecosystem || dep.ecosystem || 'unknown';
+                
+                // Try to get EOX status:
+                // 1. First check if eoxStatus exists directly on the dependency (new exports)
+                // 2. If not, try to compute dynamically via eoxService
+                let eoxStatus = dep.eoxStatus || null;
+                if (!eoxStatus && window.eoxService) {
+                    eoxStatus = await getEOXStatusDynamic(dep);
+                }
+                
+                // Check for EOL/EOS from eoxStatus
+                if (eoxStatus) {
+                    if (eoxStatus.isEOL) {
+                        // Filter by severity (EOL is high)
+                        if (severityFilter && severityFilter !== 'all' && severityFilter !== 'high') {
+                            continue;
+                        }
+                        
+                        allFindings.push({
+                            category: 'eox',
+                            type: 'EOL',
+                            typeName: 'End-of-Life (EOL)',
+                            description: 'Package has reached end-of-life and no longer receives security updates.',
+                            severity: 'high',
+                            package: `${dep.name}@${dep.version || 'unknown'}`,
+                            ecosystem: ecosystem,
+                            repository: repos.length > 0 ? repos[0] : null,
+                            repositories: repos,
+                            eolDate: eoxStatus.eolDate || null,
+                            message: `${dep.name} has reached End-of-Life${eoxStatus.eolDate ? ` (${eoxStatus.eolDate})` : ''}. No security updates are provided.`
+                        });
+                        continue; // Don't add other EOX findings for this package
+                    }
+                    
+                    if (eoxStatus.isEOS) {
+                        // Filter by severity (EOS is medium)
+                        if (severityFilter && severityFilter !== 'all' && severityFilter !== 'medium') {
+                            continue;
+                        }
+                        
+                        allFindings.push({
+                            category: 'eox',
+                            type: 'EOS',
+                            typeName: 'End-of-Support (EOS)',
+                            description: 'Package has reached end-of-support and may not receive security updates.',
+                            severity: 'medium',
+                            package: `${dep.name}@${dep.version || 'unknown'}`,
+                            ecosystem: ecosystem,
+                            repository: repos.length > 0 ? repos[0] : null,
+                            repositories: repos,
+                            eosDate: eoxStatus.eosDate || null,
+                            message: `${dep.name} has reached End-of-Support${eoxStatus.eosDate ? ` (${eoxStatus.eosDate})` : ''}. Security updates may not be provided.`
+                        });
+                        continue;
+                    }
+                }
+                
+                // Try to get staleness data:
+                // 1. First check if staleness exists directly on the dependency (new exports)
+                // 2. If not, try to look up from IndexedDB packages cache
+                // 3. If still not found, try to compute dynamically via versionDriftAnalyzer
+                let staleness = dep.staleness || null;
+                if (!staleness && storageManager) {
+                    staleness = await getStalenessFromCache(storageManager, dep);
+                }
+                if (!staleness && window.versionDriftAnalyzer) {
+                    staleness = await getStalenessDynamic(dep);
+                }
+                
+                // Check for staleness-based probable EOL (from version drift analyzer)
+                if (staleness && staleness.isProbableEOL) {
+                    const monthsSince = staleness.monthsSinceRelease || 0;
+                    
+                    if (monthsSince >= 36) {
+                        // Highly Likely EOL (3+ years) - high severity
+                        if (severityFilter && severityFilter !== 'all' && severityFilter !== 'high') {
+                            continue;
+                        }
+                        
+                        allFindings.push({
+                            category: 'eox',
+                            type: 'HIGHLY_LIKELY_EOL',
+                            typeName: 'Highly Likely EOL (Abandoned)',
+                            description: 'Package has not been updated for 3+ years and is highly likely abandoned or end-of-life.',
+                            severity: 'high',
+                            package: `${dep.name}@${dep.version || 'unknown'}`,
+                            ecosystem: ecosystem,
+                            repository: repos.length > 0 ? repos[0] : null,
+                            repositories: repos,
+                            monthsSinceRelease: monthsSince,
+                            lastReleaseDate: staleness.lastReleaseDate || null,
+                            message: staleness.probableEOLReason || `No updates for ${Math.floor(monthsSince / 12)} years - highly likely abandoned/EOL`
+                        });
+                    } else {
+                        // Probable EOL (2-3 years) - medium severity
+                        if (severityFilter && severityFilter !== 'all' && severityFilter !== 'medium') {
+                            continue;
+                        }
+                        
+                        allFindings.push({
+                            category: 'eox',
+                            type: 'PROBABLE_EOL',
+                            typeName: 'Probable EOL',
+                            description: 'Package has not been updated for 2+ years and may be abandoned or end-of-life.',
+                            severity: 'medium',
+                            package: `${dep.name}@${dep.version || 'unknown'}`,
+                            ecosystem: ecosystem,
+                            repository: repos.length > 0 ? repos[0] : null,
+                            repositories: repos,
+                            monthsSinceRelease: monthsSince,
+                            lastReleaseDate: staleness.lastReleaseDate || null,
+                            message: staleness.probableEOLReason || `No updates for 2+ years - probable EOL`
+                        });
+                    }
+                }
+            }
+        }
+        
+        // === Collect Source Repository findings (dead repos) ===
+        if (findingTypeFilter === 'all' || findingTypeFilter === 'source-repo') {
+            const allDependencies = orgData?.data?.allDependencies || [];
+            
+            for (const dep of allDependencies) {
+                const repos = dep.repositories || [];
+                
+                // Filter by repository
+                if (repoFilter && repoFilter !== 'all' && !repos.includes(repoFilter)) {
+                    continue;
+                }
+                
+                // Check for dead source repos
+                if (dep.sourceRepoStatus && Array.isArray(dep.sourceRepoStatus)) {
+                    for (const repoStatus of dep.sourceRepoStatus) {
+                        if (repoStatus.valid === false) {
+                            // Filter by severity (dead repos are medium severity)
+                            if (severityFilter && severityFilter !== 'all' && severityFilter !== 'medium') {
+                                continue;
+                            }
+                            
+                            const ecosystem = dep.category?.ecosystem || dep.ecosystem || 'unknown';
+                            const repoUrl = repoStatus.url || `${repoStatus.owner}/${repoStatus.repo}`;
+                            
+                            allFindings.push({
+                                category: 'source-repo',
+                                type: 'REPO_NOT_FOUND',
+                                typeName: 'Source Repository Not Found',
+                                description: 'The source repository listed in the SBOM does not exist. This could indicate an abandoned package or potential supply chain risk if the repo can be re-registered.',
+                                severity: 'medium',
+                                package: `${dep.name}@${dep.version || 'unknown'}`,
+                                ecosystem: ecosystem,
+                                repository: repos.length > 0 ? repos[0] : null,
+                                repositories: repos,
+                                sourceRepoUrl: repoUrl,
+                                sourceRepoOwner: repoStatus.owner,
+                                sourceRepoName: repoStatus.repo,
+                                message: `Source repository "${repoStatus.owner}/${repoStatus.repo}" not found (404). The package may be abandoned or the repository was deleted.`
+                            });
+                        }
+                    }
+                }
+            }
+        }
+        
         if (allFindings.length === 0) {
             return `<div class="alert alert-success">
                 <i class="fas fa-check-circle me-2"></i>
-                <strong>No security findings!</strong> No GitHub Actions security issues or dependency confusion risks were detected for the selected filters.
+                <strong>No security findings!</strong> No GitHub Actions security issues, dependency confusion risks, EOX issues, or dead source repos were detected for the selected filters.
             </div>`;
         }
         
@@ -356,7 +613,9 @@ document.addEventListener('DOMContentLoaded', async function() {
             low: allFindings.filter(f => f.severity === 'low').length,
             uniqueTypes: sortedTypes.length,
             githubActions: allFindings.filter(f => f.category === 'github-actions').length,
-            dependencyConfusion: allFindings.filter(f => f.category === 'dependency-confusion').length
+            dependencyConfusion: allFindings.filter(f => f.category === 'dependency-confusion').length,
+            eox: allFindings.filter(f => f.category === 'eox').length,
+            sourceRepo: allFindings.filter(f => f.category === 'source-repo').length
         };
         
         let html = '<div class="card mb-4">';
@@ -397,19 +656,39 @@ document.addEventListener('DOMContentLoaded', async function() {
                 </div>
             </div>
         </div>`;
-        html += `<div class="col-md-2">
+        html += '</div>';
+        
+        // Second row: Category breakdown
+        html += '<div class="row">';
+        html += `<div class="col-md-3">
             <div class="card bg-light">
                 <div class="card-body text-center py-2">
                     <h3 class="mb-0"><i class="fab fa-github"></i> ${stats.githubActions}</h3>
-                    <small class="text-muted">GH Actions</small>
+                    <small class="text-muted">GitHub Actions</small>
                 </div>
             </div>
         </div>`;
-        html += `<div class="col-md-2">
+        html += `<div class="col-md-3">
             <div class="card bg-light">
                 <div class="card-body text-center py-2">
                     <h3 class="mb-0"><i class="fas fa-box"></i> ${stats.dependencyConfusion}</h3>
-                    <small class="text-muted">Dep Confusion</small>
+                    <small class="text-muted">Dependency Confusion</small>
+                </div>
+            </div>
+        </div>`;
+        html += `<div class="col-md-3">
+            <div class="card ${stats.eox > 0 ? 'bg-secondary text-white' : 'bg-light'}">
+                <div class="card-body text-center py-2">
+                    <h3 class="mb-0"><i class="fas fa-hourglass-end"></i> ${stats.eox}</h3>
+                    <small class="${stats.eox > 0 ? '' : 'text-muted'}">EOX (End-of-Life/Support)</small>
+                </div>
+            </div>
+        </div>`;
+        html += `<div class="col-md-3">
+            <div class="card ${stats.sourceRepo > 0 ? 'bg-warning' : 'bg-light'}">
+                <div class="card-body text-center py-2">
+                    <h3 class="mb-0"><i class="fas fa-unlink"></i> ${stats.sourceRepo}</h3>
+                    <small class="${stats.sourceRepo > 0 ? '' : 'text-muted'}">Dead Source Repos</small>
                 </div>
             </div>
         </div>`;
@@ -420,8 +699,20 @@ document.addEventListener('DOMContentLoaded', async function() {
         // Findings grouped by type
         sortedTypes.forEach(([key, typeData], index) => {
             const collapseId = `finding-type-${index}`;
-            const categoryIcon = typeData.category === 'github-actions' ? 'fab fa-github' : 'fas fa-box';
-            const categoryLabel = typeData.category === 'github-actions' ? 'GitHub Actions' : 'Dependency Confusion';
+            let categoryIcon, categoryLabel;
+            if (typeData.category === 'github-actions') {
+                categoryIcon = 'fab fa-github';
+                categoryLabel = 'GitHub Actions';
+            } else if (typeData.category === 'eox') {
+                categoryIcon = 'fas fa-hourglass-end';
+                categoryLabel = 'EOX (End-of-Life/Support)';
+            } else if (typeData.category === 'source-repo') {
+                categoryIcon = 'fas fa-unlink';
+                categoryLabel = 'Dead Source Repo';
+            } else {
+                categoryIcon = 'fas fa-box';
+                categoryLabel = 'Dependency Confusion';
+            }
             
             html += `<div class="card mb-3">
                 <div class="card-header cursor-pointer" data-bs-toggle="collapse" data-bs-target="#${collapseId}" aria-expanded="false">
@@ -445,7 +736,11 @@ document.addEventListener('DOMContentLoaded', async function() {
                                 <thead>
                                     <tr>
                                         ${typeData.category === 'github-actions' ? 
-                                            '<th>Action/File</th><th>Repository</th><th>Message</th>' :
+                                            '<th>Action</th><th>Location</th><th>Message</th>' :
+                                            typeData.category === 'eox' ?
+                                            '<th>Package</th><th>Ecosystem</th><th>Repositories</th><th>Details</th>' :
+                                            typeData.category === 'source-repo' ?
+                                            '<th>Package</th><th>Source Repo</th><th>Used In</th><th>Message</th>' :
                                             '<th>Package</th><th>Ecosystem</th><th>Repositories</th><th>Message</th>'
                                         }
                                     </tr>
@@ -453,12 +748,145 @@ document.addEventListener('DOMContentLoaded', async function() {
                                 <tbody>
                                     ${typeData.instances.map(instance => {
                                         if (typeData.category === 'github-actions') {
-                                            const actionDisplay = instance.action ? escapeHtml(instance.action) : (instance.file ? escapeHtml(instance.file) : '-');
-                                            const repoDisplay = instance.repository ? formatRepoHTML(instance.repository) : '-';
+                                            // Build action cell with link to action repository
+                                            let actionCell = '-';
+                                            if (instance.action) {
+                                                const actionParts = instance.action.split('@')[0].split('/');
+                                                if (actionParts.length >= 2) {
+                                                    const actionOwner = actionParts[0];
+                                                    const actionRepo = actionParts[1];
+                                                    const actionUrl = `https://github.com/${actionOwner}/${actionRepo}`;
+                                                    actionCell = `<a href="${actionUrl}" target="_blank" rel="noreferrer noopener" class="text-decoration-none">
+                                                        <i class="fab fa-github me-1"></i><code class="small">${escapeHtml(instance.action)}</code>
+                                                    </a>`;
+                                                } else {
+                                                    actionCell = `<code class="small">${escapeHtml(instance.action)}</code>`;
+                                                }
+                                            } else if (instance.file) {
+                                                actionCell = `<code class="small">${escapeHtml(instance.file)}</code>`;
+                                            }
+                                            
+                                            // Build location cell with workflow file links
+                                            let locationCell = '<small class="text-muted">—</small>';
+                                            const workflowLocations = instance.workflowLocations || [];
+                                            
+                                            if (workflowLocations.length > 0) {
+                                                const locationParts = [];
+                                                
+                                                workflowLocations.forEach((loc, idx) => {
+                                                    const workflowRepo = loc.repository || instance.repository;
+                                                    const workflowFile = loc.workflow;
+                                                    const workflowLine = loc.line;
+                                                    
+                                                    if (workflowRepo && workflowFile) {
+                                                        const repoParts = workflowRepo.split('/');
+                                                        if (repoParts.length === 2) {
+                                                            const [owner, repo] = repoParts;
+                                                            
+                                                            // Build workflow file link with line number
+                                                            const fileUrl = `https://github.com/${owner}/${repo}/blob/HEAD/${workflowFile}${workflowLine ? '#L' + workflowLine : ''}`;
+                                                            const fileDisplay = workflowFile.split('/').pop();
+                                                            const lineDisplay = workflowLine ? ':' + workflowLine : '';
+                                                            
+                                                            // Show: repo → file:line
+                                                            locationParts.push(`<div class="d-flex flex-wrap align-items-center gap-1" style="font-size: 0.85em;">
+                                                                <a href="https://github.com/${owner}/${repo}" target="_blank" rel="noreferrer noopener" class="text-decoration-none"><code>${escapeHtml(workflowRepo)}</code></a>
+                                                                <i class="fas fa-arrow-right text-muted" style="font-size: 0.7em;"></i>
+                                                                <a href="${fileUrl}" target="_blank" rel="noreferrer noopener" class="text-decoration-none"><code class="small">${escapeHtml(fileDisplay)}${lineDisplay}</code></a>
+                                                            </div>`);
+                                                        }
+                                                    }
+                                                });
+                                                
+                                                if (locationParts.length === 1) {
+                                                    locationCell = locationParts[0];
+                                                } else if (locationParts.length > 1 && locationParts.length <= 3) {
+                                                    // Show all locations
+                                                    locationCell = `<div class="d-flex flex-column gap-1">${locationParts.join('')}</div>`;
+                                                } else if (locationParts.length > 3) {
+                                                    // Show first + count
+                                                    locationCell = `<div class="d-flex flex-column gap-1">
+                                                        ${locationParts[0]}
+                                                        <small class="text-muted"><i class="fas fa-list me-1"></i>+ ${locationParts.length - 1} more location${locationParts.length - 1 > 1 ? 's' : ''}</small>
+                                                    </div>`;
+                                                }
+                                            } else if (instance.repository && instance.file) {
+                                                // Fallback: use repository and file directly
+                                                const repoParts = instance.repository.split('/');
+                                                if (repoParts.length === 2) {
+                                                    const [owner, repo] = repoParts;
+                                                    const fileUrl = `https://github.com/${owner}/${repo}/blob/HEAD/${instance.file}${instance.line ? '#L' + instance.line : ''}`;
+                                                    const fileDisplay = instance.file.split('/').pop();
+                                                    const lineDisplay = instance.line ? ':' + instance.line : '';
+                                                    
+                                                    locationCell = `<div class="d-flex flex-wrap align-items-center gap-1" style="font-size: 0.85em;">
+                                                        <a href="https://github.com/${owner}/${repo}" target="_blank" rel="noreferrer noopener" class="text-decoration-none"><code>${escapeHtml(instance.repository)}</code></a>
+                                                        <i class="fas fa-arrow-right text-muted" style="font-size: 0.7em;"></i>
+                                                        <a href="${fileUrl}" target="_blank" rel="noreferrer noopener" class="text-decoration-none"><code class="small">${escapeHtml(fileDisplay)}${lineDisplay}</code></a>
+                                                    </div>`;
+                                                }
+                                            } else if (instance.repository) {
+                                                // Just show repository
+                                                locationCell = formatRepoHTML(instance.repository);
+                                            }
+                                            
                                             return `<tr>
-                                                <td><code class="small">${actionDisplay}</code>${instance.line ? ` (line ${instance.line})` : ''}</td>
-                                                <td>${repoDisplay}</td>
+                                                <td>${actionCell}</td>
+                                                <td>${locationCell}</td>
                                                 <td class="small">${escapeHtml(instance.message || instance.details || '-')}</td>
+                                            </tr>`;
+                                        } else if (typeData.category === 'eox') {
+                                            // EOX (End-of-Life/Support) findings
+                                            const packageDisplay = escapeHtml(instance.package || '-');
+                                            let detailsHtml = escapeHtml(instance.message || '-');
+                                            
+                                            // Add date info if available
+                                            if (instance.eolDate) {
+                                                detailsHtml += `<br><small class="text-muted">EOL Date: ${escapeHtml(instance.eolDate)}</small>`;
+                                            }
+                                            if (instance.eosDate) {
+                                                detailsHtml += `<br><small class="text-muted">EOS Date: ${escapeHtml(instance.eosDate)}</small>`;
+                                            }
+                                            if (instance.lastReleaseDate) {
+                                                const lastRelease = new Date(instance.lastReleaseDate).toLocaleDateString();
+                                                detailsHtml += `<br><small class="text-muted">Last Release: ${escapeHtml(lastRelease)}</small>`;
+                                            }
+                                            if (instance.monthsSinceRelease) {
+                                                const years = Math.floor(instance.monthsSinceRelease / 12);
+                                                const months = instance.monthsSinceRelease % 12;
+                                                const ageStr = years > 0 ? `${years}y ${months}m` : `${months}m`;
+                                                detailsHtml += `<br><small class="text-muted">Age: ${ageStr} since last release</small>`;
+                                            }
+                                            
+                                            return `<tr>
+                                                <td><code class="small">${packageDisplay}</code></td>
+                                                <td><span class="badge bg-secondary">${escapeHtml(instance.ecosystem || '-')}</span></td>
+                                                <td>${instance.repositories && instance.repositories.length > 0 ? generateRepoListHTML(instance.repositories) : '-'}</td>
+                                                <td class="small">${detailsHtml}</td>
+                                            </tr>`;
+                                        } else if (typeData.category === 'source-repo') {
+                                            // Dead source repository findings
+                                            const packageDisplay = escapeHtml(instance.package || '-');
+                                            const repoOwner = instance.sourceRepoOwner || '';
+                                            const repoName = instance.sourceRepoName || '';
+                                            const repoUrl = repoOwner && repoName ? 
+                                                `https://github.com/${repoOwner}/${repoName}` : 
+                                                instance.sourceRepoUrl || '';
+                                            
+                                            // Create a link to the (missing) repo with strikethrough to indicate it's dead
+                                            let repoLink = '-';
+                                            if (repoOwner && repoName) {
+                                                repoLink = `<a href="${repoUrl}" target="_blank" rel="noreferrer noopener" class="text-decoration-line-through text-danger">
+                                                    <i class="fab fa-github me-1"></i>${escapeHtml(repoOwner)}/${escapeHtml(repoName)}
+                                                </a>
+                                                <br><small class="text-muted"><i class="fas fa-exclamation-triangle me-1"></i>404 Not Found</small>`;
+                                            }
+                                            
+                                            return `<tr>
+                                                <td><code class="small">${packageDisplay}</code><br><small class="text-muted">${escapeHtml(instance.ecosystem || '-')}</small></td>
+                                                <td>${repoLink}</td>
+                                                <td>${instance.repositories && instance.repositories.length > 0 ? generateRepoListHTML(instance.repositories) : '-'}</td>
+                                                <td class="small">${escapeHtml(instance.message || '-')}</td>
                                             </tr>`;
                                         } else {
                                             // Dependency confusion

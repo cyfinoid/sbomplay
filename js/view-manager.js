@@ -3537,7 +3537,7 @@ class ViewManager {
         const licenseProcessor = new LicenseProcessor();
         const transitions = [];
 
-        // Group by package name
+        // Group by ecosystem:packageName to avoid false positives from same-name packages in different ecosystems
         const packageMap = new Map();
         
         allDependencies.forEach(dep => {
@@ -3548,25 +3548,32 @@ class ViewManager {
             const licenseInfo = licenseProcessor.parseLicense(dep.originalPackage || {});
             const license = licenseInfo.license || 'Unknown';
             
-            // Get ecosystem for display
-            const ecosystem = dep.ecosystem || dep.category?.ecosystem || null;
+            // Get ecosystem for display - normalize to lowercase for consistent grouping
+            const ecosystem = (dep.ecosystem || dep.category?.ecosystem || 'unknown').toLowerCase();
             
-            if (!packageMap.has(packageName)) {
-                packageMap.set(packageName, []);
+            // Use ecosystem:packageName as key to separate same-name packages from different ecosystems
+            const packageKey = `${ecosystem}:${packageName}`;
+            
+            if (!packageMap.has(packageKey)) {
+                packageMap.set(packageKey, []);
             }
-            packageMap.get(packageName).push({
+            packageMap.get(packageKey).push({
                 version: dep.version || 'Unknown',
                 license: license,
                 category: licenseInfo.category || 'unknown',
                 repositories: dep.repositories || [],
-                ecosystem: ecosystem
+                ecosystem: ecosystem,
+                packageName: packageName
             });
         });
 
         // Process each package to detect license changes
-        packageMap.forEach((versions, packageName) => {
+        packageMap.forEach((versions, packageKey) => {
             // Skip if only one version
             if (versions.length < 2) return;
+            
+            // Get package name from first version (all versions have same name within a key)
+            const packageName = versions[0].packageName;
             
             // Sort versions chronologically
             versions.sort((a, b) => {
@@ -3588,7 +3595,7 @@ class ViewManager {
                     // Combine repositories from both versions
                     const allRepos = new Set([...(current.repositories || []), ...(next.repositories || [])]);
                     
-                    // Use ecosystem from either version (they should be the same)
+                    // Use ecosystem from either version (they should be the same within a packageKey)
                     const ecosystem = current.ecosystem || next.ecosystem || null;
                     
                     transitions.push({
