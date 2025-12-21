@@ -395,6 +395,147 @@
         </div>
     </div>
 
+    <!-- Rate Limit Warning Modal -->
+    <div class="modal fade" id="rateLimitWarningModal" tabindex="-1" aria-labelledby="rateLimitWarningModalLabel" aria-hidden="true">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <div class="modal-header bg-warning text-dark">
+                    <h5 class="modal-title" id="rateLimitWarningModalLabel">
+                        <i class="fas fa-exclamation-triangle me-2"></i>GitHub API Rate Limit Warning
+                    </h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <!-- Estimation Summary -->
+                    <div id="rateLimitEstimation" class="mb-4">
+                        <div class="row">
+                            <div class="col-md-6">
+                                <div class="card bg-light">
+                                    <div class="card-body text-center">
+                                        <h6 class="text-muted mb-1">Estimated API Calls</h6>
+                                        <h3 id="estimatedApiCalls" class="text-primary mb-0">~</h3>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <div class="card bg-light">
+                                    <div class="card-body text-center">
+                                        <h6 class="text-muted mb-1">Estimated Time</h6>
+                                        <h3 id="estimatedTime" class="text-primary mb-0">~</h3>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Current Rate Limit Status -->
+                    <div class="alert alert-info mb-3" id="rateLimitStatusAlert">
+                        <div class="d-flex align-items-center">
+                            <div class="me-3">
+                                <i class="fas fa-info-circle fa-2x"></i>
+                            </div>
+                            <div>
+                                <strong>Current Status:</strong>
+                                <span id="rateLimitCurrentStatus">Checking...</span>
+                                <br>
+                                <small id="rateLimitStatusDetails" class="text-muted"></small>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Warning Message -->
+                    <div id="rateLimitWarningMessage" class="alert alert-warning">
+                        <i class="fas fa-clock me-2"></i>
+                        <span id="rateLimitWarningText">Loading...</span>
+                    </div>
+
+                    <!-- Options -->
+                    <div class="mt-4">
+                        <h6><i class="fas fa-cog me-2"></i>Options</h6>
+                        
+                        <!-- Option 1: Add Token -->
+                        <div class="card mb-3" id="addTokenOption">
+                            <div class="card-body">
+                                <div class="d-flex align-items-center">
+                                    <div class="me-3">
+                                        <i class="fas fa-key fa-2x text-success"></i>
+                                    </div>
+                                    <div class="flex-grow-1">
+                                        <h6 class="mb-1">Add GitHub Token (Recommended)</h6>
+                                        <small class="text-muted">Get 5,000 requests/hour instead of 60</small>
+                                    </div>
+                                    <button class="btn btn-success" id="openTokenSectionBtn">
+                                        <i class="fas fa-plus me-1"></i>Add Token
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Option 2: Background Analysis -->
+                        <div class="card mb-3">
+                            <div class="card-body">
+                                <div class="d-flex align-items-center">
+                                    <div class="me-3">
+                                        <i class="fas fa-tasks fa-2x text-info"></i>
+                                    </div>
+                                    <div class="flex-grow-1">
+                                        <h6 class="mb-1">Run in Background</h6>
+                                        <small class="text-muted">Start analysis and explore existing data while it runs</small>
+                                    </div>
+                                    <button class="btn btn-info" id="runBackgroundBtn">
+                                        <i class="fas fa-play me-1"></i>Background
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Option 3: Proceed Anyway -->
+                        <div class="card">
+                            <div class="card-body">
+                                <div class="d-flex align-items-center">
+                                    <div class="me-3">
+                                        <i class="fas fa-hourglass-half fa-2x text-secondary"></i>
+                                    </div>
+                                    <div class="flex-grow-1">
+                                        <h6 class="mb-1">Proceed with Current Settings</h6>
+                                        <small class="text-muted">May be slow if rate limited</small>
+                                    </div>
+                                    <button class="btn btn-outline-secondary" id="proceedAnywayBtn">
+                                        <i class="fas fa-forward me-1"></i>Proceed
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">
+                        <i class="fas fa-times me-1"></i>Cancel
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Background Analysis Notification Banner -->
+    <div id="backgroundAnalysisBanner" class="alert alert-info alert-dismissible fade d-none position-fixed bottom-0 start-50 translate-middle-x mb-3 shadow-lg" style="z-index: 1050; max-width: 500px;">
+        <div class="d-flex align-items-center">
+            <div class="me-3">
+                <i class="fas fa-spinner fa-spin fa-lg"></i>
+            </div>
+            <div class="flex-grow-1">
+                <strong>Background Analysis Running</strong>
+                <div class="small" id="backgroundAnalysisStatus">Analyzing...</div>
+                <div class="progress mt-2" style="height: 6px;">
+                    <div class="progress-bar progress-bar-striped progress-bar-animated" id="backgroundAnalysisProgress" role="progressbar" style="width: 0%"></div>
+                </div>
+            </div>
+            <button type="button" class="btn btn-sm btn-outline-primary ms-2" id="viewBackgroundAnalysisBtn">
+                <i class="fas fa-eye me-1"></i>View
+            </button>
+        </div>
+    </div>
+
     <!-- Footer -->
     <footer class="bg-light mt-5 py-4">
         <div class="container">
@@ -465,7 +606,7 @@
         <script src="js/ecosystem-utils.js?v=0.0.5&cb=1765793449000"></script>
         <script src="js/depconfuse-service.js?v=0.0.5&cb=1765793449000"></script>
         <script src="js/dependency-tree-resolver.js?v=0.0.5&cb=1765793449000"></script>
-        <script src="js/sbom-quality-processor.js?v=0.0.5&cb=1765793449000"></script>
+        <script src="js/sbom-quality-processor.js?v=0.0.5&cb=1765839260000"></script>
         <script src="js/license-processor.js?v=0.0.5&cb=1765793449000"></script>
         <script src="js/sbom-processor.js?v=0.0.5&cb=1765793449000"></script>
         <script src="js/github-actions-analyzer.js?v=0.0.5&cb=1765793449000"></script>

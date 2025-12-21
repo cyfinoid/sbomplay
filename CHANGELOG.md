@@ -8,6 +8,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.0.5] - 2025-12-15
 
 ### Added
+- **Pre-Analysis Rate Limit Warning System**: Proactive warnings before starting GitHub analysis
+  - Estimates number of API calls needed based on input type (single repo vs org/user)
+  - Shows estimated time based on current rate limits (authenticated vs unauthenticated)
+  - Warning modal displays when analysis may hit rate limits:
+    - High call count without token (>50 calls)
+    - Low remaining rate limit
+    - Many repositories without authentication (>30 repos)
+  - Three options in warning modal:
+    1. **Add Token**: Opens token section for immediate authentication
+    2. **Run in Background**: Starts analysis with floating progress banner, allows navigation
+    3. **Proceed**: Continue with current settings
+  - Background analysis mode shows persistent notification banner with progress
+  - Completion notification when background analysis finishes
+
+- **Package Details Modal on Findings Page**: EOX-related findings now show clickable package names
+  - Clicking a package name in EOX findings opens a detailed modal with full package information
+  - Modal shows: package info, version drift status, registry links, repositories using the package
+  - For transitive dependencies, modal shows full dependency chain paths from direct dependencies to the target package
+  - Shared `package-details-modal.js` component eliminates code duplication between deps.html and findings.html
+  - Same rich package details experience across Dependencies page and Findings page
+
 - **Dead Source Repository Detection**: New finding type to detect when packages reference non-existent GitHub repositories
   - New `REPO_NOT_FOUND` finding type (medium severity) for packages with 404 source repos
   - Added `validateSourceRepos()` method to enrichment pipeline to check GitHub repos in SBOM externalRefs

@@ -25,6 +25,10 @@ class SBOMPlayApp {
         this.analysisEndTime = null;
         this.elapsedTimeInterval = null;
         
+        // Background analysis mode
+        this.isBackgroundAnalysis = false;
+        this.pendingAnalysis = null;
+        
         // Upload functionality
         this.uploadQueue = [];
         this.isProcessingUpload = false;
@@ -862,7 +866,322 @@ class SBOMPlayApp {
     }
 
     /**
+     * Estimate the number of GitHub API calls needed for an analysis
+     * @param {Object} parsed - Parsed input from parseGitHubInput
+     * @param {number|null} repoCount - Known repo count (for orgs/users), null to estimate
+     * @returns {Object} - Estimation details
+     */
+    async estimateApiCalls(parsed, repoCount = null) {
+        const estimation = {
+            isRepo: parsed.isRepo,
+            repoCount: 1,
+            estimatedCalls: 0,
+            estimatedTimeMinutes: 0,
+            hasToken: !!this.githubClient.token,
+            rateLimit: 60,
+            remaining: 60,
+            resetTime: null,
+            needsWarning: false,
+            warningReason: ''
+        };
+
+        // Check current rate limit
+        try {
+            const rateLimitInfo = await this.githubClient.getRateLimitInfo();
+            estimation.rateLimit = rateLimitInfo.limit;
+            estimation.remaining = rateLimitInfo.remaining;
+            estimation.resetTime = rateLimitInfo.reset ? new Date(rateLimitInfo.reset * 1000) : null;
+            estimation.hasToken = rateLimitInfo.limit > 60;
+        } catch (error) {
+            console.warn('Could not get rate limit info:', error);
+        }
+
+        if (parsed.isRepo) {
+            // Single repo: ~4 calls (rate limit, repo info, SBOM, LICENSE)
+            // Plus enrichment later which uses non-GitHub APIs mostly
+            estimation.repoCount = 1;
+            estimation.estimatedCalls = 4;
+        } else {
+            // Org/User: Need to fetch repo list first
+            // If repoCount is provided (from cache or preview), use it
+            // Otherwise estimate based on common patterns
+            if (repoCount !== null) {
+                estimation.repoCount = repoCount;
+            } else {
+                // Try to get a preview of repo count
+                try {
+                    const preview = await this.previewOrgRepoCount(parsed.owner);
+                    estimation.repoCount = preview.repoCount;
+                    estimation.isOrganization = preview.isOrganization;
+                } catch (error) {
+                    // Default estimate for unknown orgs
+                    estimation.repoCount = 20; // Conservative estimate
+                }
+            }
+            
+            // Formula: 2 (rate limit + repo list) + repos * 2 (SBOM + LICENSE per repo)
+            estimation.estimatedCalls = 2 + (estimation.repoCount * 2);
+        }
+
+        // Calculate estimated time based on rate limits and throttling
+        // With throttling: ~40 requests/minute max due to 1.5s between SBOM calls
+        const requestsPerMinute = estimation.hasToken ? 40 : Math.min(40, estimation.rateLimit / 60);
+        estimation.estimatedTimeMinutes = Math.ceil(estimation.estimatedCalls / requestsPerMinute);
+
+        // Determine if we need to show a warning
+        if (!estimation.hasToken) {
+            if (estimation.estimatedCalls > 50) {
+                estimation.needsWarning = true;
+                estimation.warningReason = 'high_calls_no_token';
+            } else if (estimation.remaining < estimation.estimatedCalls) {
+                estimation.needsWarning = true;
+                estimation.warningReason = 'low_remaining';
+            } else if (estimation.repoCount > 30) {
+                estimation.needsWarning = true;
+                estimation.warningReason = 'many_repos_no_token';
+            }
+        } else if (estimation.remaining < estimation.estimatedCalls * 1.5) {
+            // Even with token, warn if remaining is getting low
+            estimation.needsWarning = true;
+            estimation.warningReason = 'low_remaining_with_token';
+        }
+
+        return estimation;
+    }
+
+    /**
+     * Preview org/user repo count without fetching all data
+     * Uses a minimal API call to get public repo count
+     */
+    async previewOrgRepoCount(ownerName) {
+        try {
+            // First check if this is a user or org
+            const userProfile = await this.githubClient.getUser(ownerName);
+            if (!userProfile) {
+                return { repoCount: 20, isOrganization: false }; // Default estimate
+            }
+
+            // For users, we can estimate from their public_repos count
+            // For orgs, we need to check the org endpoint
+            if (userProfile.type === 'Organization') {
+                // Fetch org details for repo count
+                const orgUrl = `https://api.github.com/orgs/${ownerName}`;
+                const response = await fetch(orgUrl);
+                if (response.ok) {
+                    const orgData = await response.json();
+                    return { 
+                        repoCount: orgData.public_repos || 20,
+                        isOrganization: true
+                    };
+                }
+            }
+
+            // For users, use the profile's public repo count
+            const userUrl = `https://api.github.com/users/${ownerName}`;
+            const response = await fetch(userUrl);
+            if (response.ok) {
+                const userData = await response.json();
+                return { 
+                    repoCount: userData.public_repos || 20,
+                    isOrganization: false
+                };
+            }
+        } catch (error) {
+            console.warn('Could not preview repo count:', error);
+        }
+        
+        return { repoCount: 20, isOrganization: false }; // Default estimate
+    }
+
+    /**
+     * Show the rate limit warning modal with estimation details
+     */
+    showRateLimitWarning(estimation, parsed) {
+        const modal = document.getElementById('rateLimitWarningModal');
+        if (!modal) {
+            console.warn('Rate limit warning modal not found');
+            return Promise.resolve('proceed'); // Fallback: proceed anyway
+        }
+
+        // Update estimation display
+        document.getElementById('estimatedApiCalls').textContent = estimation.estimatedCalls.toLocaleString();
+        
+        // Format estimated time
+        let timeText = '';
+        if (estimation.estimatedTimeMinutes < 1) {
+            timeText = '< 1 minute';
+        } else if (estimation.estimatedTimeMinutes === 1) {
+            timeText = '~1 minute';
+        } else if (estimation.estimatedTimeMinutes < 60) {
+            timeText = `~${estimation.estimatedTimeMinutes} minutes`;
+        } else {
+            const hours = Math.floor(estimation.estimatedTimeMinutes / 60);
+            const mins = estimation.estimatedTimeMinutes % 60;
+            timeText = hours === 1 ? `~1 hour ${mins} min` : `~${hours} hours ${mins} min`;
+        }
+        document.getElementById('estimatedTime').textContent = timeText;
+
+        // Update rate limit status
+        const statusText = estimation.hasToken ? 'Authenticated' : 'Unauthenticated';
+        const statusDetails = `${estimation.remaining.toLocaleString()} / ${estimation.rateLimit.toLocaleString()} requests remaining`;
+        document.getElementById('rateLimitCurrentStatus').textContent = statusText;
+        document.getElementById('rateLimitStatusDetails').textContent = statusDetails;
+
+        // Update status alert color
+        const statusAlert = document.getElementById('rateLimitStatusAlert');
+        statusAlert.className = estimation.hasToken ? 
+            'alert alert-success mb-3' : 
+            'alert alert-warning mb-3';
+
+        // Update warning message based on reason
+        let warningText = '';
+        switch (estimation.warningReason) {
+            case 'high_calls_no_token':
+                warningText = `This analysis will make approximately ${estimation.estimatedCalls} API calls. Without a GitHub token, you're limited to 60 requests/hour. <strong>Consider adding a token to speed up analysis significantly.</strong>`;
+                break;
+            case 'low_remaining':
+                warningText = `You have ${estimation.remaining} requests remaining, but this analysis needs ~${estimation.estimatedCalls} calls. <strong>Analysis may be paused for rate limit resets.</strong>`;
+                break;
+            case 'many_repos_no_token':
+                warningText = `Analyzing ${estimation.repoCount} repositories without authentication may hit rate limits. <strong>Adding a token will make this 80x faster.</strong>`;
+                break;
+            case 'low_remaining_with_token':
+                warningText = `Rate limit is running low (${estimation.remaining} remaining). Analysis may need to pause for reset at ${estimation.resetTime?.toLocaleTimeString() || 'unknown'}.`;
+                break;
+            default:
+                warningText = `This analysis may take a while depending on rate limits.`;
+        }
+        document.getElementById('rateLimitWarningText').innerHTML = warningText;
+
+        // Show/hide token option based on current state
+        const addTokenOption = document.getElementById('addTokenOption');
+        if (estimation.hasToken) {
+            addTokenOption.style.display = 'none';
+        } else {
+            addTokenOption.style.display = 'block';
+        }
+
+        // Store parsed data for later use
+        this.pendingAnalysis = {
+            parsed: parsed,
+            estimation: estimation
+        };
+
+        // Return a promise that resolves with the user's choice
+        return new Promise((resolve) => {
+            const bsModal = new bootstrap.Modal(modal);
+            
+            // Button handlers
+            const openTokenBtn = document.getElementById('openTokenSectionBtn');
+            const runBackgroundBtn = document.getElementById('runBackgroundBtn');
+            const proceedBtn = document.getElementById('proceedAnywayBtn');
+
+            const cleanup = () => {
+                openTokenBtn.removeEventListener('click', onAddToken);
+                runBackgroundBtn.removeEventListener('click', onBackground);
+                proceedBtn.removeEventListener('click', onProceed);
+                modal.removeEventListener('hidden.bs.modal', onHidden);
+            };
+
+            const onAddToken = () => {
+                bsModal.hide();
+                cleanup();
+                // Open token section
+                const tokenBody = document.getElementById('tokenSectionBody');
+                const tokenIcon = document.getElementById('tokenToggleIcon');
+                if (tokenBody && tokenBody.classList.contains('d-none')) {
+                    tokenBody.classList.remove('d-none');
+                    if (tokenIcon) tokenIcon.className = 'fas fa-chevron-up';
+                }
+                // Scroll to token section
+                document.getElementById('tokenSectionHeader').scrollIntoView({ behavior: 'smooth', block: 'center' });
+                // Focus token input
+                setTimeout(() => {
+                    const tokenInput = document.getElementById('githubToken');
+                    if (tokenInput) tokenInput.focus();
+                }, 500);
+                resolve('add_token');
+            };
+
+            const onBackground = () => {
+                bsModal.hide();
+                cleanup();
+                resolve('background');
+            };
+
+            const onProceed = () => {
+                bsModal.hide();
+                cleanup();
+                resolve('proceed');
+            };
+
+            const onHidden = () => {
+                cleanup();
+                resolve('cancel');
+            };
+
+            openTokenBtn.addEventListener('click', onAddToken);
+            runBackgroundBtn.addEventListener('click', onBackground);
+            proceedBtn.addEventListener('click', onProceed);
+            modal.addEventListener('hidden.bs.modal', onHidden);
+
+            bsModal.show();
+        });
+    }
+
+    /**
+     * Start background analysis mode
+     * Shows a notification banner and allows user to navigate
+     */
+    startBackgroundAnalysis() {
+        this.isBackgroundAnalysis = true;
+        
+        // Show the background banner
+        const banner = document.getElementById('backgroundAnalysisBanner');
+        if (banner) {
+            banner.classList.remove('d-none');
+            banner.classList.add('show');
+        }
+
+        // Setup view button to scroll to progress
+        const viewBtn = document.getElementById('viewBackgroundAnalysisBtn');
+        if (viewBtn) {
+            viewBtn.addEventListener('click', () => {
+                const progressSection = document.getElementById('progressSection');
+                if (progressSection) {
+                    progressSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                }
+            });
+        }
+
+        // Override the update progress to also update banner
+        const originalUpdateProgress = this.updateProgress.bind(this);
+        this.updateProgress = (percent, message, phase, subProgress) => {
+            originalUpdateProgress(percent, message, phase, subProgress);
+            
+            // Also update background banner
+            const statusEl = document.getElementById('backgroundAnalysisStatus');
+            const progressBar = document.getElementById('backgroundAnalysisProgress');
+            if (statusEl) statusEl.textContent = message;
+            if (progressBar) progressBar.style.width = `${percent}%`;
+        };
+    }
+
+    /**
+     * Hide background analysis banner
+     */
+    hideBackgroundBanner() {
+        const banner = document.getElementById('backgroundAnalysisBanner');
+        if (banner) {
+            banner.classList.remove('show');
+            banner.classList.add('d-none');
+        }
+        this.isBackgroundAnalysis = false;
+    }
+
+    /**
      * Start analysis - detects org/user or single repo format
+     * Now with pre-analysis rate limit warning
      */
     async startAnalysis() {
         const input = document.getElementById('orgName').value.trim();
@@ -879,10 +1198,39 @@ class SBOMPlayApp {
         // Parse the input (handles URLs, owner/repo, or just username)
         const parsed = this.parseGitHubInput(input);
         
+        // Get estimation for rate limit warning
+        const estimation = await this.estimateApiCalls(parsed);
+        
+        // Show warning modal if needed
+        if (estimation.needsWarning) {
+            const choice = await this.showRateLimitWarning(estimation, parsed);
+            
+            switch (choice) {
+                case 'add_token':
+                    // User chose to add token - don't start analysis
+                    return;
+                case 'background':
+                    // Start in background mode
+                    this.startBackgroundAnalysis();
+                    break;
+                case 'cancel':
+                    // User cancelled
+                    return;
+                case 'proceed':
+                    // Continue with normal analysis
+                    break;
+            }
+        }
+        
         if (parsed.isRepo) {
             await this.analyzeSingleRepository(parsed.owner, parsed.repo);
         } else {
             await this.analyzeOrganization(parsed.owner);
+        }
+        
+        // Hide background banner when done
+        if (this.isBackgroundAnalysis) {
+            this.hideBackgroundBanner();
         }
     }
 
@@ -3885,6 +4233,13 @@ class SBOMPlayApp {
         if (this.elapsedTimeInterval) {
             clearInterval(this.elapsedTimeInterval);
             this.elapsedTimeInterval = null;
+        }
+        
+        // Hide background analysis banner if it was running
+        if (this.isBackgroundAnalysis) {
+            this.hideBackgroundBanner();
+            // Show completion notification
+            this.showAlert('Background analysis complete! Click on any page to view the results.', 'success');
         }
         
         const analyzeBtn = document.getElementById('analyzeBtn');

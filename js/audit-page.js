@@ -266,49 +266,60 @@ document.addEventListener('DOMContentLoaded', async function() {
         
         html += `</div></div></div>`;
         
-        // Summary Cards
+        // Summary Cards - 5 cards using smaller col sizes
         const gradeColors = { 'A': 'success', 'B': 'info', 'C': 'warning', 'D': 'danger', 'F': 'dark', 'N/A': 'secondary' };
         const gradeClass = gradeColors[auditData.grade] || 'secondary';
         
-        html += `<div class="row mb-4">
-            <div class="col-md-3 text-center">
+        html += `<div class="row mb-4 g-2">
+            <div class="col-6 col-lg text-center">
                 <div class="card h-100">
-                    <div class="card-body">
-                        <h1 class="display-4 text-${gradeClass}">${auditData.grade}</h1>
-                        <p class="mb-0">SBOM Grade</p>
-                        <small class="text-muted">${auditData.displayScore}/10 score</small>
+                    <div class="card-body py-2">
+                        <h2 class="display-6 text-${gradeClass} mb-0">${auditData.grade}</h2>
+                        <p class="mb-0 small">SBOM Grade</p>
+                        <small class="text-muted">${auditData.displayScore}/10</small>
                     </div>
                 </div>
             </div>
-            <div class="col-md-3 text-center">
+            <div class="col-6 col-lg text-center">
                 <div class="card h-100">
-                    <div class="card-body">
-                        <h3 class="${auditData.cisa2025Compliant ? 'text-success' : 'text-danger'}">
+                    <div class="card-body py-2">
+                        <h4 class="${auditData.cisa2025Compliant ? 'text-success' : 'text-danger'} mb-0">
                             <i class="fas ${auditData.cisa2025Compliant ? 'fa-check-circle' : 'fa-times-circle'}"></i>
-                        </h3>
-                        <p class="mb-0">CISA 2025</p>
-                        <small class="text-muted">${auditData.cisa2025Compliant ? 'Compliant' : 'Not Compliant'}</small>
+                        </h4>
+                        <p class="mb-0 small">CISA 2025</p>
+                        <small class="text-muted">${auditData.cisa2025Compliant ? 'Pass' : 'Fail'}</small>
                     </div>
                 </div>
             </div>
-            <div class="col-md-3 text-center">
+            <div class="col-6 col-lg text-center">
                 <div class="card h-100">
-                    <div class="card-body">
-                        <h3 class="${auditData.bsiCompliant ? 'text-success' : 'text-danger'}">
+                    <div class="card-body py-2">
+                        <h4 class="${auditData.bsiCompliant ? 'text-success' : 'text-danger'} mb-0">
                             <i class="fas ${auditData.bsiCompliant ? 'fa-check-circle' : 'fa-times-circle'}"></i>
-                        </h3>
-                        <p class="mb-0">BSI TR-03183-2</p>
-                        <small class="text-muted">${auditData.bsiCompliant ? 'Compliant' : 'Not Compliant'}</small>
+                        </h4>
+                        <p class="mb-0 small">BSI TR-03183</p>
+                        <small class="text-muted">${auditData.bsiCompliant ? 'Pass' : 'Fail'}</small>
                     </div>
                 </div>
             </div>
-            <div class="col-md-3 text-center">
+            <div class="col-6 col-lg text-center">
                 <div class="card h-100">
-                    <div class="card-body">
-                        <h3 class="${auditData.completeness >= 80 ? 'text-success' : auditData.completeness >= 50 ? 'text-warning' : 'text-danger'}">
+                    <div class="card-body py-2">
+                        <h4 class="${auditData.certInCompliant ? 'text-success' : 'text-danger'} mb-0">
+                            <i class="fas ${auditData.certInCompliant ? 'fa-check-circle' : 'fa-times-circle'}"></i>
+                        </h4>
+                        <p class="mb-0 small">CERT-In</p>
+                        <small class="text-muted">${auditData.certInCompliant ? 'Pass' : 'Fail'}</small>
+                    </div>
+                </div>
+            </div>
+            <div class="col-12 col-lg text-center">
+                <div class="card h-100">
+                    <div class="card-body py-2">
+                        <h4 class="${auditData.completeness >= 80 ? 'text-success' : auditData.completeness >= 50 ? 'text-warning' : 'text-danger'} mb-0">
                             ${auditData.completeness}%
-                        </h3>
-                        <p class="mb-0">Completeness</p>
+                        </h4>
+                        <p class="mb-0 small">Completeness</p>
                         <small class="text-muted">${auditData.freshness?.status || 'Unknown'}</small>
                     </div>
                 </div>
@@ -320,6 +331,9 @@ document.addEventListener('DOMContentLoaded', async function() {
         
         // BSI Requirements Section
         html += generateBSIRequirementsHTML(auditData);
+        
+        // CERT-In Requirements Section
+        html += generateCERTInRequirementsHTML(auditData);
         
         // Quality Categories Breakdown
         html += generateQualityCategoriesHTML(auditData);
@@ -479,6 +493,133 @@ document.addEventListener('DOMContentLoaded', async function() {
                 html += '<li>Ensure SBOM uses supported format version (CycloneDX 1.5+ or SPDX 2.2.1+)</li>';
             }
             
+            html += '</ul></div>';
+        }
+        
+        html += '</div></div>';
+        return html;
+    }
+    
+    /**
+     * Generate CERT-In Technical Guidelines v2.0 Requirements checklist HTML
+     */
+    function generateCERTInRequirementsHTML(auditData) {
+        // CERT-In Technical Guidelines v2.0 Elements (20 total)
+        // Categorized: Static (in SBOM), Enrichment (external data), Custom Properties
+        const certInRequirements = [
+            // Static elements (checkable in SBOM)
+            { id: 'componentName', name: 'Component Name', description: 'Name of software component', checkCategory: 'identification', category: 'static' },
+            { id: 'componentVersion', name: 'Component Version', description: 'Version identifier', checkCategory: 'identification', category: 'static' },
+            { id: 'componentDescription', name: 'Component Description', description: 'Purpose and functionality', checkCategory: 'completeness', category: 'static' },
+            { id: 'hashes', name: 'Hashes', description: 'Cryptographic checksums', checkCategory: 'integrity', category: 'static' },
+            { id: 'timestamp', name: 'Timestamp', description: 'SBOM creation date/time', checkCategory: 'provenance', category: 'static' },
+            { id: 'uniqueIdentifier', name: 'Unique Identifier', description: 'PURL or tracking ID', checkCategory: 'identification', category: 'static' },
+            { id: 'componentDependencies', name: 'Component Dependencies', description: 'Dependency relationships', checkCategory: 'completeness', category: 'static' },
+            { id: 'componentSupplier', name: 'Component Supplier', description: 'Vendor/supplier info', checkCategory: 'provenance', category: 'static' },
+            { id: 'externalReferences', name: 'External References', description: 'Documentation/repo links', checkCategory: 'completeness', category: 'static' },
+            
+            // Enrichment elements (require external data)
+            { id: 'vulnerabilities', name: 'Vulnerabilities', description: 'CVE/security issues', checkCategory: null, category: 'enrichment', enrichmentNote: 'Requires OSV/NVD scanning' },
+            { id: 'criticality', name: 'Criticality', description: 'Impact level (critical/high/medium/low)', checkCategory: null, category: 'enrichment', enrichmentNote: 'From vulnerability severity' },
+            { id: 'patchStatus', name: 'Patch Status', description: 'Update availability', checkCategory: null, category: 'enrichment', enrichmentNote: 'Requires version comparison' },
+            { id: 'releaseDate', name: 'Release Date', description: 'Component release date', checkCategory: null, category: 'enrichment', enrichmentNote: 'From package registry' },
+            { id: 'endOfLifeDate', name: 'End-of-Life Date', description: 'Support end date', checkCategory: null, category: 'enrichment', enrichmentNote: 'From endoflife.date' },
+            
+            // Custom properties (CERT-In specific)
+            { id: 'componentOrigin', name: 'Component Origin', description: 'Source type (proprietary/OSS)', checkCategory: null, category: 'custom', customNote: 'Manual annotation' },
+            { id: 'usageRestrictions', name: 'Usage Restrictions', description: 'License/IP restrictions', checkCategory: 'licensing', category: 'custom' },
+            { id: 'commentsOrNotes', name: 'Comments or Notes', description: 'Additional notes', checkCategory: null, category: 'custom', optional: true },
+            { id: 'executableProperty', name: 'Executable Property', description: 'Can be executed', checkCategory: null, category: 'custom', customNote: 'Manual annotation' },
+            { id: 'archiveProperty', name: 'Archive Property', description: 'Is archive/compressed', checkCategory: null, category: 'custom', customNote: 'Manual annotation' },
+            { id: 'structuredProperty', name: 'Structured Property', description: 'Data format type', checkCategory: null, category: 'custom', customNote: 'Manual annotation' }
+        ];
+        
+        let html = `<div class="card mb-3">
+            <div class="card-header bg-warning bg-opacity-10">
+                <h6 class="mb-0"><i class="fas fa-certificate me-2"></i>CERT-In Technical Guidelines v2.0</h6>
+                <small class="text-muted">Indian CERT SBOM requirements (20 elements)</small>
+            </div>
+            <div class="card-body">
+                <div class="table-responsive">
+                    <table class="table table-sm mb-0">
+                        <thead><tr><th>Status</th><th>Element</th><th>Description</th><th>Type</th></tr></thead>
+                        <tbody>`;
+        
+        certInRequirements.forEach(req => {
+            let isPassing = false;
+            let statusIcon = '';
+            let typeBadge = '';
+            
+            if (req.category === 'static') {
+                // Check against quality category scores
+                const categoryScore = auditData.categories?.[req.checkCategory]?.score || 0;
+                isPassing = categoryScore >= 70;
+                statusIcon = isPassing ? 
+                    '<i class="fas fa-check-circle text-success"></i>' : 
+                    '<i class="fas fa-times-circle text-danger"></i>';
+                typeBadge = `<span class="badge bg-secondary">${req.checkCategory}</span>`;
+            } else if (req.category === 'enrichment') {
+                // Enrichment elements require external data
+                statusIcon = '<i class="fas fa-sync-alt text-info" title="Requires enrichment"></i>';
+                typeBadge = `<span class="badge bg-info">enrichment</span>`;
+            } else if (req.category === 'custom') {
+                // Custom properties may or may not be supported
+                if (req.checkCategory) {
+                    const categoryScore = auditData.categories?.[req.checkCategory]?.score || 0;
+                    isPassing = categoryScore >= 50;
+                    statusIcon = isPassing ? 
+                        '<i class="fas fa-check-circle text-success"></i>' : 
+                        '<i class="fas fa-exclamation-triangle text-warning"></i>';
+                } else {
+                    statusIcon = '<i class="fas fa-edit text-warning" title="Manual annotation required"></i>';
+                }
+                typeBadge = `<span class="badge bg-warning text-dark">custom</span>`;
+            }
+            
+            const optionalBadge = req.optional ? '<span class="badge bg-secondary ms-1">optional</span>' : '';
+            const noteBadge = req.enrichmentNote || req.customNote ? 
+                `<br><small class="text-muted fst-italic">${escapeHtml(req.enrichmentNote || req.customNote)}</small>` : '';
+            
+            html += `<tr>
+                <td class="text-center">${statusIcon}</td>
+                <td><strong>${escapeHtml(req.name)}</strong>${optionalBadge}</td>
+                <td><small class="text-muted">${escapeHtml(req.description)}</small>${noteBadge}</td>
+                <td>${typeBadge}</td>
+            </tr>`;
+        });
+        
+        html += `</tbody></table></div>`;
+        
+        // Add legend
+        html += `<div class="mt-3 p-2 bg-light rounded">
+            <small class="d-block mb-1"><strong>Legend:</strong></small>
+            <small class="d-inline-block me-3"><i class="fas fa-check-circle text-success me-1"></i>Met</small>
+            <small class="d-inline-block me-3"><i class="fas fa-times-circle text-danger me-1"></i>Not met</small>
+            <small class="d-inline-block me-3"><i class="fas fa-sync-alt text-info me-1"></i>Requires enrichment</small>
+            <small class="d-inline-block"><i class="fas fa-edit text-warning me-1"></i>Manual annotation</small>
+        </div>`;
+        
+        // Add compliance guidance
+        if (!auditData.certInCompliant) {
+            html += `<div class="alert alert-warning mt-3 mb-0">
+                <strong><i class="fas fa-lightbulb me-1"></i>To achieve CERT-In compliance:</strong>
+                <ul class="mb-0 mt-2">`;
+            
+            if ((auditData.categories?.identification?.score || 0) < 70) {
+                html += '<li>Add component names, versions, and unique identifiers (PURLs) to all packages</li>';
+            }
+            if ((auditData.categories?.integrity?.score || 0) < 70) {
+                html += '<li>Include cryptographic hashes (SHA-256+) for all components</li>';
+            }
+            if ((auditData.categories?.provenance?.score || 0) < 70) {
+                html += '<li>Add supplier information and SBOM timestamp</li>';
+            }
+            if ((auditData.categories?.completeness?.score || 0) < 70) {
+                html += '<li>Include component descriptions, dependencies, and external references</li>';
+            }
+            
+            html += '<li><strong>For full compliance:</strong> Use enrichment tools to add vulnerability, patch status, and EOL data</li>';
+            html += '<li><strong>Custom properties:</strong> Manually annotate Origin, Executable, Archive, and Structured properties</li>';
             html += '</ul></div>';
         }
         
@@ -1553,6 +1694,7 @@ document.addEventListener('DOMContentLoaded', async function() {
         const gradeDistribution = { 'A': 0, 'B': 0, 'C': 0, 'D': 0, 'F': 0, 'N/A': 0 };
         let totalCISA2025Compliant = 0;
         let totalBSICompliant = 0;
+        let totalCERTInCompliant = 0;
         let totalFresh = 0;
         let totalCompleteness = 0;
         let reposWithSBOM = 0;
@@ -1583,6 +1725,16 @@ document.addEventListener('DOMContentLoaded', async function() {
                                 quality.categories?.integrity?.score >= 70 &&
                                 quality.categories?.licensing?.score >= 70;
             if (bsiCompliant) totalBSICompliant++;
+            
+            // Calculate CERT-In compliance (based on quality categories)
+            // CERT-In requires: identification, provenance, integrity, completeness, licensing
+            // Note: CERT-In has additional enrichment requirements not checked here
+            const certInCompliant = quality.overallScore >= 70 &&
+                                   quality.categories?.identification?.score >= 70 &&
+                                   quality.categories?.provenance?.score >= 60 &&
+                                   quality.categories?.integrity?.score >= 50 &&
+                                   quality.categories?.completeness?.score >= 60;
+            if (certInCompliant) totalCERTInCompliant++;
             
             // Estimate freshness from timestamp
             let freshness = { isFresh: false, status: 'Unknown', ageInDays: null };
@@ -1632,6 +1784,7 @@ document.addEventListener('DOMContentLoaded', async function() {
                     sbomFormat: quality.sbomFormat || { type: 'Unknown', version: null, displayName: 'Unknown' },
                     cisa2025Compliant: cisa2025Compliant,
                     bsiCompliant: bsiCompliant,
+                    certInCompliant: certInCompliant,
                     freshness: freshness,
                     completeness: completenessScore,
                     categories: quality.categories,
@@ -1703,19 +1856,27 @@ document.addEventListener('DOMContentLoaded', async function() {
         // Compliance Summary
         const cisa2025Percentage = reposWithSBOM > 0 ? Math.round((totalCISA2025Compliant / reposWithSBOM) * 100) : 0;
         const bsiPercentage = reposWithSBOM > 0 ? Math.round((totalBSICompliant / reposWithSBOM) * 100) : 0;
+        const certInPercentage = reposWithSBOM > 0 ? Math.round((totalCERTInCompliant / reposWithSBOM) * 100) : 0;
         const cisaAlertClass = cisa2025Percentage >= 80 ? 'success' : cisa2025Percentage >= 50 ? 'warning' : 'danger';
         const bsiAlertClass = bsiPercentage >= 80 ? 'success' : bsiPercentage >= 50 ? 'warning' : 'danger';
-        html += `<div class="row mb-3">
-            <div class="col-md-6">
-                <div class="alert alert-${cisaAlertClass} mb-0">
+        const certInAlertClass = certInPercentage >= 80 ? 'success' : certInPercentage >= 50 ? 'warning' : 'danger';
+        html += `<div class="row mb-3 g-2">
+            <div class="col-md-4">
+                <div class="alert alert-${cisaAlertClass} mb-0 py-2">
                     <strong><i class="fas fa-flag-usa me-1"></i>CISA 2025:</strong> ${totalCISA2025Compliant}/${reposWithSBOM} (${cisa2025Percentage}%)
                     <small class="d-block text-muted">US Federal SBOM requirements</small>
                 </div>
             </div>
-            <div class="col-md-6">
-                <div class="alert alert-${bsiAlertClass} mb-0">
-                    <strong><i class="fas fa-shield-alt me-1"></i>BSI TR-03183-2:</strong> ${totalBSICompliant}/${reposWithSBOM} (${bsiPercentage}%)
+            <div class="col-md-4">
+                <div class="alert alert-${bsiAlertClass} mb-0 py-2">
+                    <strong><i class="fas fa-shield-alt me-1"></i>BSI TR-03183:</strong> ${totalBSICompliant}/${reposWithSBOM} (${bsiPercentage}%)
                     <small class="d-block text-muted">German/EU technical guideline</small>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="alert alert-${certInAlertClass} mb-0 py-2">
+                    <strong><i class="fas fa-certificate me-1"></i>CERT-In:</strong> ${totalCERTInCompliant}/${reposWithSBOM} (${certInPercentage}%)
+                    <small class="d-block text-muted">Indian CERT guidelines</small>
                 </div>
             </div>
         </div>`;
@@ -1732,16 +1893,17 @@ document.addEventListener('DOMContentLoaded', async function() {
             html += '<div class="table-responsive" style="max-height: 600px; overflow-y: auto;">';
             html += '<table class="table table-sm table-hover align-middle">';
             html += '<thead class="table-light sticky-top"><tr>';
-            html += '<th style="width: 70px;">Source</th>';
-            html += '<th style="width: 200px;">Repository</th>';
-            html += '<th style="width: 100px;">Format</th>';
-            html += '<th style="width: 60px;">Grade</th>';
-            html += '<th style="width: 70px;">Score</th>';
-            html += '<th style="width: 70px;">CISA</th>';
-            html += '<th style="width: 60px;">BSI</th>';
-            html += '<th style="width: 90px;">Freshness</th>';
-            html += '<th style="width: 70px;">Complete</th>';
-            html += '<th>Issue Details</th>';
+            html += '<th style="width: 60px;">Source</th>';
+            html += '<th style="width: 180px;">Repository</th>';
+            html += '<th style="width: 90px;">Format</th>';
+            html += '<th style="width: 50px;">Grade</th>';
+            html += '<th style="width: 60px;">Score</th>';
+            html += '<th style="width: 50px;" title="CISA 2025">CISA</th>';
+            html += '<th style="width: 50px;" title="BSI TR-03183-2">BSI</th>';
+            html += '<th style="width: 50px;" title="CERT-In v2.0">CERT</th>';
+            html += '<th style="width: 80px;">Freshness</th>';
+            html += '<th style="width: 60px;">Complete</th>';
+            html += '<th>Details</th>';
             html += '</tr></thead><tbody>';
             
             // Show all repositories - sorted by score (lowest first for attention)
@@ -1753,6 +1915,9 @@ document.addEventListener('DOMContentLoaded', async function() {
                 const bsiIcon = audit.bsiCompliant ? 
                     '<i class="fas fa-check-circle text-success" title="BSI Compliant"></i>' : 
                     '<i class="fas fa-times-circle text-danger" title="Not BSI Compliant"></i>';
+                const certInIcon = audit.certInCompliant ? 
+                    '<i class="fas fa-check-circle text-success" title="CERT-In Compliant"></i>' : 
+                    '<i class="fas fa-times-circle text-danger" title="Not CERT-In Compliant"></i>';
                 const freshnessClass = audit.freshness.isFresh ? 'success' : 
                                       audit.freshness.status === 'Aging' ? 'warning' : 'danger';
                 
@@ -1763,13 +1928,13 @@ document.addEventListener('DOMContentLoaded', async function() {
                 // Source indicator
                 const isUploaded = audit.sbomSource === 'uploaded';
                 const sourceIcon = isUploaded 
-                    ? '<span class="badge bg-info" title="Manually uploaded SBOM"><i class="fas fa-upload me-1"></i>Upload</span>'
-                    : '<span class="badge bg-dark" title="GitHub Dependency Graph"><i class="fab fa-github me-1"></i>GitHub</span>';
+                    ? '<span class="badge bg-info" title="Manually uploaded SBOM"><i class="fas fa-upload"></i></span>'
+                    : '<span class="badge bg-dark" title="GitHub Dependency Graph"><i class="fab fa-github"></i></span>';
                 
                 // Repository link - only link to GitHub if it's from GitHub
                 const repoDisplay = isUploaded
-                    ? `<span class="text-muted"><i class="fas fa-file-code me-1"></i>${escapeHtml(audit.repository.replace('upload/', ''))}</span>`
-                    : `<a href="https://github.com/${audit.repository}" target="_blank" rel="noreferrer noopener" class="text-decoration-none">
+                    ? `<span class="text-muted small"><i class="fas fa-file-code me-1"></i>${escapeHtml(audit.repository.replace('upload/', ''))}</span>`
+                    : `<a href="https://github.com/${audit.repository}" target="_blank" rel="noreferrer noopener" class="text-decoration-none small">
                         <i class="fab fa-github me-1"></i>${escapeHtml(audit.repository)}
                        </a>`;
                 
@@ -1786,20 +1951,21 @@ document.addEventListener('DOMContentLoaded', async function() {
                 </span>`;
                 
                 html += `<tr>
-                    <td>${sourceIcon}</td>
+                    <td class="text-center">${sourceIcon}</td>
                     <td>${repoDisplay}</td>
                     <td>${formatHtml}</td>
                     <td><span class="badge bg-${gradeClass}">${audit.grade}</span></td>
                     <td>${audit.displayScore}/10</td>
-                    <td>${cisaIcon}</td>
-                    <td>${bsiIcon}</td>
+                    <td class="text-center">${cisaIcon}</td>
+                    <td class="text-center">${bsiIcon}</td>
+                    <td class="text-center">${certInIcon}</td>
                     <td><span class="badge bg-${freshnessClass}">${audit.freshness.status}</span></td>
                     <td>${audit.completeness}%</td>
                     <td>
                         <a href="#" class="sbom-compliance-details-link text-decoration-none" 
                            data-repository="${escapeHtml(audit.repository)}"
                            data-bs-toggle="modal" data-bs-target="#complianceDetailsModal">
-                            <span class="badge bg-${issueClass}">${issueCount} issues</span>
+                            <span class="badge bg-${issueClass}">${issueCount}</span>
                             <i class="fas fa-external-link-alt ms-1 small"></i>
                         </a>
                     </td>
