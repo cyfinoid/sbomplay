@@ -5,7 +5,7 @@ All notable changes to SBOM Play will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.0.5] - 2025-12-15
+## [0.0.6] - 2025-12-31
 
 ### Added
 - **Pre-Analysis Rate Limit Warning System**: Proactive warnings before starting GitHub analysis
@@ -22,6 +22,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Background analysis mode shows persistent notification banner with progress
   - Completion notification when background analysis finishes
 
+## [0.0.5] - 2025-12-15
+### Added
 - **Package Details Modal on Findings Page**: EOX-related findings now show clickable package names
   - Clicking a package name in EOX findings opens a detailed modal with full package information
   - Modal shows: package info, version drift status, registry links, repositories using the package
