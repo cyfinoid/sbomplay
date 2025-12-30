@@ -102,6 +102,7 @@ jobs:
             "js/licenses-page.js"
             "js/location-service.js"
             "js/osv-service.js"
+            "js/package-details-modal.js"
             "js/registry-utils.js"
             "js/request-queue-manager.js"
             "js/repos-page.js"

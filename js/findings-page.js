@@ -47,6 +47,56 @@ document.addEventListener('DOMContentLoaded', async function() {
     // Load analysis list into selector
     await loadAnalysesList('analysisSelector', storageManager, document.getElementById('noDataSection'));
     
+    /**
+     * Attach click handlers for package details links
+     * @param {Object} data - The analysis data
+     * @param {string} currentOrg - Current organization selector value
+     */
+    function attachPackageDetailsHandlers(data, currentOrg) {
+        const links = document.querySelectorAll('.package-details-link');
+        links.forEach(link => {
+            if (link.hasAttribute('data-handler-attached')) return;
+            link.setAttribute('data-handler-attached', 'true');
+            
+            link.addEventListener('click', async (e) => {
+                e.preventDefault();
+                
+                const packageName = link.getAttribute('data-package-name');
+                const packageVersion = link.getAttribute('data-package-version');
+                const packageEcosystem = link.getAttribute('data-package-ecosystem');
+                let repositories = [];
+                let depInfo = null;
+                
+                try {
+                    repositories = JSON.parse(link.getAttribute('data-package-repos') || '[]');
+                } catch (err) {
+                    console.warn('Failed to parse package repos:', err);
+                }
+                
+                try {
+                    depInfo = JSON.parse(link.getAttribute('data-dep-info') || '{}');
+                } catch (err) {
+                    console.warn('Failed to parse dep info:', err);
+                }
+                
+                // Check if the shared modal function is available
+                if (typeof window.showPackageDetailsModal === 'function') {
+                    await window.showPackageDetailsModal({
+                        packageName,
+                        packageVersion,
+                        ecosystem: packageEcosystem,
+                        repositories,
+                        depInfo,
+                        analysisData: data?.data || null,
+                        currentOrg: currentOrg || ''
+                    });
+                } else {
+                    console.error('Package details modal not available');
+                }
+            });
+        });
+    }
+    
     async function loadFindingsData() {
         const analysisSelector = document.getElementById('analysisSelector');
         const severityFilterEl = document.getElementById('severityFilter');
@@ -90,6 +140,9 @@ document.addEventListener('DOMContentLoaded', async function() {
                 // Render security findings (async to support cache lookups)
                 const html = await generateSecurityFindingsHTML(data, severityFilter || 'all', typeFilter, repoFilter || 'all', storageManager);
                 safeSetHTML(container, html);
+                
+                // Attach click handlers for package details links
+                attachPackageDetailsHandlers(data, analysisSelector.value);
             }
         });
     }
@@ -433,11 +486,21 @@ document.addEventListener('DOMContentLoaded', async function() {
                             description: 'Package has reached end-of-life and no longer receives security updates.',
                             severity: 'high',
                             package: `${dep.name}@${dep.version || 'unknown'}`,
+                            packageName: dep.name,
+                            packageVersion: dep.version || 'unknown',
                             ecosystem: ecosystem,
                             repository: repos.length > 0 ? repos[0] : null,
                             repositories: repos,
                             eolDate: eoxStatus.eolDate || null,
-                            message: `${dep.name} has reached End-of-Life${eoxStatus.eolDate ? ` (${eoxStatus.eolDate})` : ''}. No security updates are provided.`
+                            message: `${dep.name} has reached End-of-Life${eoxStatus.eolDate ? ` (${eoxStatus.eolDate})` : ''}. No security updates are provided.`,
+                            // Store minimal depInfo for the modal
+                            depInfo: {
+                                name: dep.name,
+                                version: dep.version,
+                                type: dep.type || 'direct',
+                                license: dep.license,
+                                parentsByRepo: dep.parentsByRepo
+                            }
                         });
                         continue; // Don't add other EOX findings for this package
                     }
@@ -455,11 +518,21 @@ document.addEventListener('DOMContentLoaded', async function() {
                             description: 'Package has reached end-of-support and may not receive security updates.',
                             severity: 'medium',
                             package: `${dep.name}@${dep.version || 'unknown'}`,
+                            packageName: dep.name,
+                            packageVersion: dep.version || 'unknown',
                             ecosystem: ecosystem,
                             repository: repos.length > 0 ? repos[0] : null,
                             repositories: repos,
                             eosDate: eoxStatus.eosDate || null,
-                            message: `${dep.name} has reached End-of-Support${eoxStatus.eosDate ? ` (${eoxStatus.eosDate})` : ''}. Security updates may not be provided.`
+                            message: `${dep.name} has reached End-of-Support${eoxStatus.eosDate ? ` (${eoxStatus.eosDate})` : ''}. Security updates may not be provided.`,
+                            // Store minimal depInfo for the modal
+                            depInfo: {
+                                name: dep.name,
+                                version: dep.version,
+                                type: dep.type || 'direct',
+                                license: dep.license,
+                                parentsByRepo: dep.parentsByRepo
+                            }
                         });
                         continue;
                     }
@@ -494,12 +567,22 @@ document.addEventListener('DOMContentLoaded', async function() {
                             description: 'Package has not been updated for 3+ years and is highly likely abandoned or end-of-life.',
                             severity: 'high',
                             package: `${dep.name}@${dep.version || 'unknown'}`,
+                            packageName: dep.name,
+                            packageVersion: dep.version || 'unknown',
                             ecosystem: ecosystem,
                             repository: repos.length > 0 ? repos[0] : null,
                             repositories: repos,
                             monthsSinceRelease: monthsSince,
                             lastReleaseDate: staleness.lastReleaseDate || null,
-                            message: staleness.probableEOLReason || `No updates for ${Math.floor(monthsSince / 12)} years - highly likely abandoned/EOL`
+                            message: staleness.probableEOLReason || `No updates for ${Math.floor(monthsSince / 12)} years - highly likely abandoned/EOL`,
+                            // Store minimal depInfo for the modal
+                            depInfo: {
+                                name: dep.name,
+                                version: dep.version,
+                                type: dep.type || 'direct',
+                                license: dep.license,
+                                parentsByRepo: dep.parentsByRepo
+                            }
                         });
                     } else {
                         // Probable EOL (2-3 years) - medium severity
@@ -514,12 +597,22 @@ document.addEventListener('DOMContentLoaded', async function() {
                             description: 'Package has not been updated for 2+ years and may be abandoned or end-of-life.',
                             severity: 'medium',
                             package: `${dep.name}@${dep.version || 'unknown'}`,
+                            packageName: dep.name,
+                            packageVersion: dep.version || 'unknown',
                             ecosystem: ecosystem,
                             repository: repos.length > 0 ? repos[0] : null,
                             repositories: repos,
                             monthsSinceRelease: monthsSince,
                             lastReleaseDate: staleness.lastReleaseDate || null,
-                            message: staleness.probableEOLReason || `No updates for 2+ years - probable EOL`
+                            message: staleness.probableEOLReason || `No updates for 2+ years - probable EOL`,
+                            // Store minimal depInfo for the modal
+                            depInfo: {
+                                name: dep.name,
+                                version: dep.version,
+                                type: dep.type || 'direct',
+                                license: dep.license,
+                                parentsByRepo: dep.parentsByRepo
+                            }
                         });
                     }
                 }
@@ -858,8 +951,21 @@ document.addEventListener('DOMContentLoaded', async function() {
                                                 detailsHtml += `<br><small class="text-muted">Age: ${ageStr} since last release</small>`;
                                             }
                                             
+                                            // Create clickable package link that opens the package details modal
+                                            const packageLink = instance.packageName ? `
+                                                <a href="#" class="package-details-link text-decoration-none" 
+                                                   data-package-name="${escapeHtml(instance.packageName)}"
+                                                   data-package-version="${escapeHtml(instance.packageVersion || 'unknown')}"
+                                                   data-package-ecosystem="${escapeHtml(instance.ecosystem || '')}"
+                                                   data-package-repos='${escapeJsString(JSON.stringify(instance.repositories || []))}'
+                                                   data-dep-info='${escapeJsString(JSON.stringify(instance.depInfo || {}))}'>
+                                                    <code class="small">${packageDisplay}</code>
+                                                    <i class="fas fa-info-circle ms-1 text-primary small"></i>
+                                                </a>
+                                            ` : `<code class="small">${packageDisplay}</code>`;
+                                            
                                             return `<tr>
-                                                <td><code class="small">${packageDisplay}</code></td>
+                                                <td>${packageLink}</td>
                                                 <td><span class="badge bg-secondary">${escapeHtml(instance.ecosystem || '-')}</span></td>
                                                 <td>${instance.repositories && instance.repositories.length > 0 ? generateRepoListHTML(instance.repositories) : '-'}</td>
                                                 <td class="small">${detailsHtml}</td>

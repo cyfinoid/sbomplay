@@ -2017,6 +2017,362 @@ class SBOMQualityProcessor {
     }
 
     /**
+     * ============================================
+     * CERT-In Technical Guidelines v2.0 COMPLIANCE CHECK
+     * ============================================
+     * Indian Computer Emergency Response Team (CERT-In) SBOM Guidelines
+     * https://www.cert-in.org.in/PDF/TechnicalGuidelines-on-SBOM,QBOM&CBOM,AIBOM_and_HBOM_ver2.0.pdf
+     * 
+     * CERT-In mandates 20 elements for SBOM compliance:
+     * - Static elements (checkable in SBOM): Name, Version, Description, Hashes, Timestamp,
+     *   Unique Identifier, Dependencies, Supplier, External References
+     * - Enrichment elements (require external data): Vulnerabilities, Criticality, Patch Status,
+     *   Release Date, End-of-Life Date
+     * - Custom properties: Component Origin, Usage Restrictions, Comments, Executable/Archive/Structured Property
+     */
+    
+    /**
+     * Assess CERT-In Technical Guidelines v2.0 compliance
+     * @param {Object} sbomData - The raw SBOM data
+     * @returns {Object} CERT-In compliance assessment
+     */
+    assessCERTInCompliance(sbomData) {
+        if (!sbomData || !sbomData.sbom) {
+            return {
+                standard: 'CERT-In v2.0',
+                compliant: false,
+                score: 0,
+                checks: {},
+                missingElements: ['No SBOM data available'],
+                enrichmentRequired: [],
+                details: 'Cannot assess CERT-In compliance without SBOM'
+            };
+        }
+
+        const sbom = sbomData.sbom;
+        const packages = sbom.packages || [];
+        
+        // CERT-In Technical Guidelines v2.0 Elements (20 total)
+        // Categorized by: Static (in SBOM), Enrichment (external data), Custom Properties
+        const certInElements = {
+            // === STATIC ELEMENTS (checkable in SBOM) ===
+            
+            // 1. Component Name
+            componentName: {
+                name: 'Component Name',
+                description: 'The name of the software component or library',
+                check: (pkg) => Boolean(pkg.name && pkg.name.trim()),
+                required: true,
+                category: 'static'
+            },
+            // 2. Component Version
+            componentVersion: {
+                name: 'Component Version',
+                description: 'The version number or identifier of the component',
+                check: (pkg) => Boolean(pkg.versionInfo && pkg.versionInfo !== 'NOASSERTION'),
+                required: true,
+                category: 'static'
+            },
+            // 3. Component Description
+            componentDescription: {
+                name: 'Component Description',
+                description: 'Brief description of the functionality and purpose',
+                check: (pkg) => Boolean(pkg.description && pkg.description.trim() && pkg.description !== 'NOASSERTION'),
+                required: true,
+                category: 'static'
+            },
+            // 4. Hashes
+            hashes: {
+                name: 'Hashes',
+                description: 'Cryptographic checksums for integrity verification',
+                check: (pkg) => Boolean(pkg.checksums && pkg.checksums.length > 0),
+                required: true,
+                category: 'static'
+            },
+            // 7. Timestamp
+            timestamp: {
+                name: 'Timestamp',
+                description: 'Date and time when the SBOM was assembled',
+                checkSbom: (sbom) => Boolean(sbom.creationInfo?.created),
+                required: true,
+                category: 'static'
+            },
+            // 8. Unique Identifier
+            uniqueIdentifier: {
+                name: 'Unique Identifier',
+                description: 'PURL or other unique identifier for tracking',
+                check: (pkg) => {
+                    if (!pkg.externalRefs) return false;
+                    return pkg.externalRefs.some(ref => 
+                        ref.referenceType === 'purl' && ref.referenceLocator
+                    );
+                },
+                required: true,
+                category: 'static'
+            },
+            // 10. Component Dependencies
+            componentDependencies: {
+                name: 'Component Dependencies',
+                description: 'Dependencies the component relies on',
+                checkSbom: (sbom) => Boolean(sbom.relationships && sbom.relationships.length > 0),
+                required: true,
+                category: 'static'
+            },
+            // 16. Component Supplier
+            componentSupplier: {
+                name: 'Component Supplier',
+                description: 'Entity that supplied the component (vendor, third-party, open-source)',
+                check: (pkg) => Boolean(pkg.supplier?.name || pkg.originator),
+                required: true,
+                category: 'static'
+            },
+            // 20. External References
+            externalReferences: {
+                name: 'External References',
+                description: 'References to documentation, repositories, or websites',
+                check: (pkg) => Boolean(pkg.externalRefs && pkg.externalRefs.length > 0),
+                required: true,
+                category: 'static'
+            },
+            
+            // === ENRICHMENT ELEMENTS (require external data/processing) ===
+            
+            // 5. Vulnerabilities
+            vulnerabilities: {
+                name: 'Vulnerabilities',
+                description: 'Known security vulnerabilities with CVE references',
+                checkEnrichment: true,
+                required: true,
+                category: 'enrichment',
+                enrichmentNote: 'Requires OSV/NVD vulnerability scanning'
+            },
+            // 6. Criticality
+            criticality: {
+                name: 'Criticality',
+                description: 'Importance level (critical, high, medium, low)',
+                checkEnrichment: true,
+                required: true,
+                category: 'enrichment',
+                enrichmentNote: 'Derived from vulnerability severity or business impact'
+            },
+            // 11. Patch Status
+            patchStatus: {
+                name: 'Patch Status',
+                description: 'Whether patches or updates are available',
+                checkEnrichment: true,
+                required: true,
+                category: 'enrichment',
+                enrichmentNote: 'Requires version comparison with latest releases'
+            },
+            // 12. Release Date
+            releaseDate: {
+                name: 'Release Date',
+                description: 'Date when the component was released',
+                checkEnrichment: true,
+                required: true,
+                category: 'enrichment',
+                enrichmentNote: 'Requires package registry lookup'
+            },
+            // 13. End-of-Life Date
+            endOfLifeDate: {
+                name: 'End-of-Life Date',
+                description: 'Date when support or maintenance ends',
+                checkEnrichment: true,
+                required: true,
+                category: 'enrichment',
+                enrichmentNote: 'Requires endoflife.date or vendor EOL data'
+            },
+            
+            // === CUSTOM PROPERTIES (CERT-In specific) ===
+            
+            // 9. Component Origin
+            componentOrigin: {
+                name: 'Component Origin',
+                description: 'Source of component (proprietary, open-source, third-party)',
+                checkCustomProperty: true,
+                required: true,
+                category: 'custom',
+                customNote: 'Not standard SBOM field - requires manual annotation'
+            },
+            // 14. Usage Restrictions
+            usageRestrictions: {
+                name: 'Usage Restrictions',
+                description: 'Restrictions on component usage (export control, IP rights)',
+                check: (pkg) => Boolean(
+                    (pkg.licenseConcluded && pkg.licenseConcluded !== 'NOASSERTION') ||
+                    (pkg.licenseDeclared && pkg.licenseDeclared !== 'NOASSERTION')
+                ),
+                required: true,
+                category: 'custom',
+                customNote: 'Derived from license - may need manual review'
+            },
+            // 15. Comments or Notes
+            commentsOrNotes: {
+                name: 'Comments or Notes',
+                description: 'Additional comments relevant to the component',
+                check: (pkg) => Boolean(pkg.comment && pkg.comment.trim()),
+                required: false,  // Optional field
+                category: 'custom'
+            },
+            // 17. Executable Property
+            executableProperty: {
+                name: 'Executable Property',
+                description: 'Whether component can be executed',
+                checkCustomProperty: true,
+                required: true,
+                category: 'custom',
+                customNote: 'Not standard SBOM field - requires manual annotation'
+            },
+            // 18. Archive Property
+            archiveProperty: {
+                name: 'Archive Property',
+                description: 'Whether component is stored as archive/compressed file',
+                checkCustomProperty: true,
+                required: true,
+                category: 'custom',
+                customNote: 'Not standard SBOM field - requires manual annotation'
+            },
+            // 19. Structured Property
+            structuredProperty: {
+                name: 'Structured Property',
+                description: 'Descriptors defining the organized format of data',
+                checkCustomProperty: true,
+                required: true,
+                category: 'custom',
+                customNote: 'Not standard SBOM field - requires manual annotation'
+            }
+        };
+
+        const checks = {};
+        const missingElements = [];
+        const enrichmentRequired = [];
+        let passedChecks = 0;
+        let totalStaticChecks = 0;
+
+        // Check SBOM-level elements
+        for (const [key, element] of Object.entries(certInElements)) {
+            if (element.checkSbom) {
+                totalStaticChecks++;
+                const passed = element.checkSbom(sbom);
+                checks[key] = {
+                    name: element.name,
+                    description: element.description,
+                    passed: passed,
+                    required: element.required,
+                    category: element.category
+                };
+                if (passed) {
+                    passedChecks++;
+                } else if (element.required) {
+                    missingElements.push(element.name);
+                }
+            }
+            
+            // Track enrichment-required elements
+            if (element.checkEnrichment) {
+                enrichmentRequired.push({
+                    name: element.name,
+                    description: element.description,
+                    note: element.enrichmentNote
+                });
+                checks[key] = {
+                    name: element.name,
+                    description: element.description,
+                    passed: false,
+                    required: element.required,
+                    category: element.category,
+                    enrichmentRequired: true,
+                    enrichmentNote: element.enrichmentNote
+                };
+            }
+            
+            // Track custom property elements
+            if (element.checkCustomProperty) {
+                checks[key] = {
+                    name: element.name,
+                    description: element.description,
+                    passed: false,
+                    required: element.required,
+                    category: element.category,
+                    customProperty: true,
+                    customNote: element.customNote
+                };
+            }
+        }
+
+        // Check package-level elements (aggregate across all packages)
+        const packageLevelElements = [
+            'componentName', 'componentVersion', 'componentDescription', 
+            'hashes', 'uniqueIdentifier', 'componentSupplier', 
+            'externalReferences', 'usageRestrictions', 'commentsOrNotes'
+        ];
+        
+        for (const key of packageLevelElements) {
+            const element = certInElements[key];
+            if (!element || !element.check) continue;
+            
+            totalStaticChecks++;
+            let packagesWithElement = 0;
+            
+            packages.forEach(pkg => {
+                if (element.check(pkg)) {
+                    packagesWithElement++;
+                }
+            });
+            
+            const coverage = packages.length > 0 ? (packagesWithElement / packages.length) : 0;
+            // Use 80% threshold for CERT-In (more lenient for optional fields)
+            const threshold = element.required ? 0.8 : 0.5;
+            const passed = coverage >= threshold;
+            
+            checks[key] = {
+                name: element.name,
+                description: element.description,
+                passed: passed,
+                required: element.required,
+                coverage: Math.round(coverage * 100),
+                packagesWithElement: packagesWithElement,
+                totalPackages: packages.length,
+                category: element.category,
+                customNote: element.customNote || null
+            };
+            
+            if (passed) {
+                passedChecks++;
+            } else if (element.required) {
+                missingElements.push(`${element.name} (${Math.round(coverage * 100)}% coverage)`);
+            }
+        }
+
+        // Calculate score based on static elements only (enrichment not counted against compliance)
+        const score = totalStaticChecks > 0 ? Math.round((passedChecks / totalStaticChecks) * 100) : 0;
+        
+        // Compliance is based on static elements passing
+        // Note: CERT-In full compliance requires enrichment data which is beyond static SBOM analysis
+        const staticCompliant = passedChecks === totalStaticChecks;
+
+        return {
+            standard: 'CERT-In v2.0',
+            compliant: staticCompliant,
+            score: score,
+            passedChecks: passedChecks,
+            totalChecks: totalStaticChecks,
+            totalElements: Object.keys(certInElements).length,
+            checks: checks,
+            missingElements: missingElements,
+            enrichmentRequired: enrichmentRequired,
+            details: staticCompliant 
+                ? 'SBOM meets CERT-In v2.0 static requirements (enrichment data needed for full compliance)'
+                : `Missing ${missingElements.length} CERT-In requirement(s)`,
+            notes: [
+                'CERT-In mandates 20 elements total',
+                `${enrichmentRequired.length} elements require external enrichment (vulnerability scanning, version tracking)`,
+                'Custom properties (Origin, Executable, Archive, Structured) require manual annotation'
+            ]
+        };
+    }
+
+    /**
      * Assess all compliance standards
      * @param {Object} sbomData - The raw SBOM data
      * @returns {Object} All compliance assessments
@@ -2025,6 +2381,7 @@ class SBOMQualityProcessor {
         return {
             cisa2025: this.assessCISA2025Compliance(sbomData),
             bsi: this.assessBSICompliance(sbomData),
+            certIn: this.assessCERTInCompliance(sbomData),
             timestamp: Date.now()
         };
     }
@@ -2233,20 +2590,24 @@ class SBOMQualityProcessor {
         const quality = this.assessQuality(sbomData, owner, repo);
         const cisa2025 = this.assessCISA2025Compliance(sbomData);
         const bsi = this.assessBSICompliance(sbomData);
+        const certIn = this.assessCERTInCompliance(sbomData);
         const freshness = this.assessFreshness(sbomData);
         const completeness = this.assessCompleteness(sbomData);
         
         // Calculate audit risk score (0-100, lower is better)
         let riskScore = 0;
         
-        // Quality contributes 35% to risk (inverted from score)
-        riskScore += (100 - quality.overallScore) * 0.35;
+        // Quality contributes 30% to risk (inverted from score)
+        riskScore += (100 - quality.overallScore) * 0.30;
         
-        // CISA 2025 compliance contributes 25% to risk
-        riskScore += (100 - cisa2025.score) * 0.25;
+        // CISA 2025 compliance contributes 20% to risk
+        riskScore += (100 - cisa2025.score) * 0.20;
         
         // BSI compliance contributes 10% to risk
         riskScore += (100 - bsi.score) * 0.10;
+        
+        // CERT-In compliance contributes 10% to risk
+        riskScore += (100 - certIn.score) * 0.10;
         
         // Freshness contributes 15% to risk
         const freshnessScore = freshness.isFresh ? 100 : 
@@ -2284,6 +2645,7 @@ class SBOMQualityProcessor {
             quality: quality,
             cisa2025Compliance: cisa2025,
             bsiCompliance: bsi,
+            certInCompliance: certIn,
             // Legacy alias for backward compatibility
             ntiaCompliance: cisa2025,
             freshness: freshness,
@@ -2291,19 +2653,20 @@ class SBOMQualityProcessor {
             riskScore: riskScore,
             riskLevel: riskLevel,
             riskColor: riskColor,
-            summary: this.generateAuditSummary(quality, cisa2025, bsi, freshness, completeness, riskLevel)
+            summary: this.generateAuditSummary(quality, cisa2025, bsi, certIn, freshness, completeness, riskLevel)
         };
     }
 
     /**
      * Generate human-readable audit summary
      */
-    generateAuditSummary(quality, cisa2025, bsi, freshness, completeness, riskLevel) {
+    generateAuditSummary(quality, cisa2025, bsi, certIn, freshness, completeness, riskLevel) {
         const summaryParts = [];
         
         summaryParts.push(`SBOM Quality: Grade ${quality.grade} (${quality.displayScore}/10)`);
         summaryParts.push(`CISA 2025: ${cisa2025.compliant ? '✓' : '✗'} (${cisa2025.score}%)`);
         summaryParts.push(`BSI: ${bsi.compliant ? '✓' : '✗'} (${bsi.score}%)`);
+        summaryParts.push(`CERT-In: ${certIn.compliant ? '✓' : '✗'} (${certIn.score}%)`);
         summaryParts.push(`Freshness: ${freshness.status}`);
         summaryParts.push(`Completeness: ${completeness.percentage}%`);
         summaryParts.push(`Risk: ${riskLevel}`);

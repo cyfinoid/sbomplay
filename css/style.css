@@ -3711,4 +3711,72 @@ body {
 /* Progress bar initial state - width 0% */
 .progress-bar-initial {
     width: 0%;
+}
+
+/* =============================================================================
+   Rate Limit Warning Modal Styles
+   ============================================================================= */
+
+/* Modal estimation cards */
+#rateLimitEstimation .card {
+    border: none;
+}
+
+#rateLimitEstimation .card-body h3 {
+    font-weight: 600;
+}
+
+/* Option cards in modal */
+#rateLimitWarningModal .card {
+    transition: all 0.2s ease;
+    border-color: var(--border-color, #dee2e6);
+}
+
+#rateLimitWarningModal .card:hover {
+    border-color: var(--primary-color, #50c878);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+/* Background Analysis Banner */
+#backgroundAnalysisBanner {
+    border-radius: 0.5rem;
+    backdrop-filter: blur(8px);
+    border-left: 4px solid var(--info-color, #466fe0);
+}
+
+#backgroundAnalysisBanner .progress {
+    background-color: rgba(255, 255, 255, 0.3);
+}
+
+[data-theme="dark"] #backgroundAnalysisBanner {
+    background-color: rgba(70, 111, 224, 0.95) !important;
+    color: white;
+}
+
+[data-theme="dark"] #backgroundAnalysisBanner .progress {
+    background-color: rgba(0, 0, 0, 0.3);
+}
+
+/* Pulse animation for background analysis spinner */
+#backgroundAnalysisBanner .fa-spinner {
+    animation: fa-spin 1s infinite linear, pulse 2s infinite ease-in-out;
+}
+
+@keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.5; }
+}
+
+/* Modal warning message styling */
+#rateLimitWarningMessage {
+    border-left: 4px solid var(--warning-color, #fdcb52);
+}
+
+#rateLimitWarningMessage strong {
+    color: var(--warning-color, #b88c00);
+}
+
+/* Rate limit status alert icon alignment */
+#rateLimitStatusAlert .fa-info-circle {
+    opacity: 0.8;
 } 
