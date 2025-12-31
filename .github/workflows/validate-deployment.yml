@@ -58,7 +58,7 @@ jobs:
       - name: Check required directories
         run: |
           echo "🔍 Checking required directories..."
-          REQUIRED_DIRS=("js" "css")
+          REQUIRED_DIRS=("js" "css" "images")
           
           MISSING=0
           for dir in "${REQUIRED_DIRS[@]}"; do
@@ -196,4 +196,5 @@ jobs:
           echo "- HTML files: $(ls -1 *.html 2>/dev/null | wc -l)" >> $GITHUB_STEP_SUMMARY
           echo "- JavaScript files: $(find js -name '*.js' 2>/dev/null | wc -l)" >> $GITHUB_STEP_SUMMARY
           echo "- CSS files: $(find css -name '*.css' 2>/dev/null | wc -l)" >> $GITHUB_STEP_SUMMARY
+          echo "- Image files: $(find images -type f 2>/dev/null | wc -l)" >> $GITHUB_STEP_SUMMARY
 

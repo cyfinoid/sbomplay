@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="138" height="20" role="img" aria-label="Launched @: Peerlist">
+  <title>Launched @: Peerlist</title>
+  <linearGradient id="s" x2="0" y2="100%">
+    <stop offset="0" stop-color="#bbb" stop-opacity=".1"/>
+    <stop offset="1" stop-opacity=".1"/>
+  </linearGradient>
+  <clipPath id="r">
+    <rect width="138" height="20" rx="3" fill="#fff"/>
+  </clipPath>
+  <g clip-path="url(#r)">
+    <rect width="74" height="20" fill="#555"/>
+    <rect x="74" width="64" height="20" fill="#3cb043"/>
+    <rect width="138" height="20" fill="url(#s)"/>
+  </g>
+  <g fill="#fff" text-anchor="middle" font-family="Verdana,Geneva,DejaVu Sans,sans-serif" text-rendering="geometricPrecision" font-size="110">
+    <text aria-hidden="true" x="380" y="150" fill="#010101" fill-opacity=".3" transform="scale(.1)" textLength="640">Launched @</text>
+    <text x="380" y="140" transform="scale(.1)" fill="#fff" textLength="640">Launched @</text>
+    <text aria-hidden="true" x="1050" y="150" fill="#010101" fill-opacity=".3" transform="scale(.1)" textLength="540">Peerlist</text>
+    <text x="1050" y="140" transform="scale(.1)" fill="#fff" textLength="540">Peerlist</text>
+  </g>
+</svg>
+

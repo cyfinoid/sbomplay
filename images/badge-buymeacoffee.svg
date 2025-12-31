@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="130" height="20" role="img" aria-label="Buy Me A Coffee">
+  <title>Buy Me A Coffee</title>
+  <linearGradient id="s" x2="0" y2="100%">
+    <stop offset="0" stop-color="#bbb" stop-opacity=".1"/>
+    <stop offset="1" stop-opacity=".1"/>
+  </linearGradient>
+  <clipPath id="r">
+    <rect width="130" height="20" rx="3" fill="#fff"/>
+  </clipPath>
+  <g clip-path="url(#r)">
+    <rect width="130" height="20" fill="#ffdd00"/>
+    <rect width="130" height="20" fill="url(#s)"/>
+  </g>
+  <g text-anchor="middle" font-family="Verdana,Geneva,DejaVu Sans,sans-serif" text-rendering="geometricPrecision" font-size="110">
+    <!-- Coffee Cup Icon -->
+    <g transform="translate(6, 3) scale(0.8)">
+      <path fill="#000" d="M3 2h10v2H3zm1 3h8v7c0 1.1-.9 2-2 2H6c-1.1 0-2-.9-2-2V5zm9 1h1c1.1 0 2 .9 2 2v2c0 1.1-.9 2-2 2h-1V6z"/>
+    </g>
+    <text aria-hidden="true" x="730" y="150" fill="#010101" fill-opacity=".3" transform="scale(.1)" textLength="1000">Buy Me A Coffee</text>
+    <text x="730" y="140" transform="scale(.1)" fill="#000" textLength="1000">Buy Me A Coffee</text>
+  </g>
+</svg>
+
