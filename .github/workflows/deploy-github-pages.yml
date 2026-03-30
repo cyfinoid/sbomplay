@@ -36,7 +36,7 @@ jobs:
           fetch-depth: 1
       
       - name: Setup Pages
-        uses: actions/configure-pages@v5
+        uses: actions/configure-pages@v6
         
       - name: Create deployment directory
         run: |
