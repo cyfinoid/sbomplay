@@ -82,7 +82,7 @@ jobs:
           ls -la _site/
           
       - name: Upload artifact
-        uses: actions/upload-pages-artifact@v4
+        uses: actions/upload-pages-artifact@v5
         with:
           # Upload only necessary files (excludes .git, node_modules, etc.)
           path: '_site'
