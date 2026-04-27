@@ -88,6 +88,39 @@
             </div>
         </div>
 
+        <!-- GitHub Token Input -->
+        <div class="card mb-4">
+            <div class="card-header cursor-pointer" id="tokenSectionHeader">
+                <h5 class="mb-0 d-flex justify-content-between align-items-center">
+                    <span>
+                        <i class="fab fa-github me-2"></i>Remove Rate Limit by GitHub Authentication (Optional)
+                    </span>
+                    <i class="fas fa-chevron-up" id="tokenToggleIcon"></i>
+                </h5>
+            </div>
+            <div class="card-body" id="tokenSectionBody">
+                <div class="alert alert-warning alert-sm mb-3">
+                    <i class="fas fa-exclamation-triangle me-2"></i>
+                    <strong>Note:</strong> GitHub tokens are not saved or persisted. You will need to provide your token each time you use the application.
+                </div>
+                <div class="row">
+                    <div class="col-md-8">
+                        <label for="githubToken" class="form-label">GitHub Personal Access Token (Optional: Provides higher rate limits)<sup>*</sup>&nbsp; <a href="https://github.com/settings/tokens" target="_blank" rel="noreferrer noopener">Create token here</a></label>
+                        <input type="password" class="form-control" id="githubToken"
+                               placeholder="ghp_… or github_pat_… (optional)">
+                    </div>
+                    <div class="col-md-4">
+                        <div class="d-flex align-items-end h-100">
+                            <button class="btn btn-outline-primary" id="saveTokenBtn">
+                                <i class="fas fa-check me-2"></i>Set Token
+                            </button>
+                        </div>
+                    </div>
+                </div>
+                <div id="tokenStatus" class="mt-2"></div>
+            </div>
+        </div>
+
         <!-- Storage Management -->
         <div class="card mb-4">
             <div class="card-header">

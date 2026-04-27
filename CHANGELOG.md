@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.0.8] - 2026-04-27
 
 ### Added
+- **GitHub token input on Settings and Debug pages** (`settings.html`, `debug.html`): The same "Remove Rate Limit by GitHub Authentication" card from `index.html` now appears at the top of the Settings page (right under the page header) and the Debug Tools page (right under the advanced-tools warning). Users can paste / clear a GitHub Personal Access Token without going back to the home page, and the existing token-handling code in `js/settings.js` (`loadSavedToken` / `saveToken` / `toggleTokenSection` / `updateTokenStatus`) wires the new fields into `sessionStorage` and the shared `GitHubClient` automatically — no JS changes were needed. Sections start expanded so the input is immediately visible on configuration pages.
 - **Per-entry "Rerun" action on the home page**: The "Stored Analyses" table on `index.html` now has an Actions column with a Rerun button on every row.
   - For GitHub-sourced analyses (organization, user, or `owner/repo`), Rerun re-fetches a fresh SBOM from GitHub and runs the full enrichment pipeline (vulnerabilities, licenses, version drift, authors, GitHub Actions). Stored data is overwritten on success; on failure the previous data is preserved.
   - In-memory GitHub client caches (`sbomCache`, `userCache`, `repoCache`) are cleared before rerun so the SBOM is genuinely re-fetched within the same session.
