@@ -16,6 +16,7 @@ This document provides comprehensive flowcharts documenting how SBOM Play perfor
 10. [Storage Operations Flow](#storage-operations-flow)
 11. [View Rendering Flow](#view-rendering-flow)
 12. [Rate Limit Handling Flow](#rate-limit-handling-flow)
+13. [Feed Export Flow (OPML)](#feed-export-flow-opml)
 
 ---
 
@@ -900,12 +901,60 @@ flowchart LR
     L --> M[IndexedDB]
     M --> N[View Manager]
     N --> O[UI Display]
-    
+    M --> FUB[Feed URL Builder]
+    H --> FUB
+    FUB --> OPM[OPML Builder]
+    OPM --> OPF[OPML Download]
+
     style A fill:#e1f5ff
     style O fill:#c8e6c9
     style L fill:#e1bee7
     style M fill:#fff9c4
+    style OPF fill:#c8e6c9
+    style FUB fill:#fff3e0
 ```
+
+---
+
+## Feed Export Flow (OPML)
+
+The Feeds page (`feeds.html`) and the Deps page export button reuse the
+stored analysis to generate an OPML 2.0 bundle of RSS/Atom subscriptions
+for every direct and transitive dependency.
+
+```mermaid
+flowchart TD
+    A[User opens feeds.html / clicks Export OPML] --> B[Load analysis from StorageManager]
+    B --> C[Iterate allDependencies]
+    C --> D[FeedUrlBuilder.resolveFeed per dep]
+    D --> E{Native registry feed?}
+    E -->|PyPI / RubyGems / Packagist| F[Use registry RSS/Atom URL]
+    E -->|No native feed| G{GitHub source repo known?}
+    G -->|Yes - via SBOM externalRefs / PURL / Go path / Action owner-repo| H[Use github.com/owner/repo/releases.atom]
+    G -->|No| I[Mark Uncovered]
+    F --> J[OPMLBuilder.build]
+    H --> J
+    I --> K[Excluded from OPML, surfaced in UI]
+    J --> L[OPML XML grouped by Direct/Transitive then by Ecosystem]
+    L --> M[Browser download as .opml]
+    K --> N[Coverage stats displayed on feeds.html]
+
+    style A fill:#e1f5ff
+    style M fill:#c8e6c9
+    style I fill:#ffcdd2
+    style D fill:#fff3e0
+    style J fill:#e1bee7
+```
+
+**Feed Source Precedence:**
+- `native` — Registry exposes a per-package RSS/Atom feed (PyPI, RubyGems, Packagist)
+- `github-releases` — Source repo is on GitHub; use `releases.atom`
+- `github-tags` — Reserved for GitHub repos that don't publish Releases
+- `uncovered` — No discoverable feed; package excluded from OPML body
+
+**Out of Scope (intentional):**
+- No background polling inside the app — the user's feed reader handles delivery
+- No per-version pinning — feed readers don't support "notify only if newer than X"
 
 ---
 

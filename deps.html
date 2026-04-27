@@ -35,7 +35,7 @@
                     <a class="nav-link active" href="deps.html">Deps</a>
                     <a class="nav-link" href="repos.html">Repos</a>
                     <a class="nav-link" href="authors.html">Authors</a>
-                    
+                    <a class="nav-link" href="feeds.html">Feeds</a>
                     <a class="nav-link" href="settings.html">Settings</a>
                     <a class="nav-link" href="about.html">About</a>
                 </div>
@@ -205,9 +205,14 @@
             </div>
             <div class="card-header d-flex justify-content-between align-items-center">
                 <h5 class="mb-0"><i class="fas fa-list me-2"></i>Dependencies</h5>
-                <button class="btn btn-sm btn-success" id="exportBtn">
-                    <i class="fas fa-download me-2"></i>Export CSV
-                </button>
+                <div class="d-flex gap-2">
+                    <button class="btn btn-sm btn-outline-success" id="exportOpmlBtn" title="Export the currently filtered dependencies as an OPML feed bundle">
+                        <i class="fas fa-rss me-2"></i>Export OPML
+                    </button>
+                    <button class="btn btn-sm btn-success" id="exportBtn">
+                        <i class="fas fa-download me-2"></i>Export CSV
+                    </button>
+                </div>
             </div>
             <div class="card-body table-responsive p-0">
                 <table class="table table-striped table-hover mb-0">
@@ -318,6 +323,8 @@
     <script src="js/license-processor.js?v=0.0.8&cb=1777716000000"></script>
     <script src="js/osv-service.js?v=0.0.8&cb=1777494400000"></script>
     <script src="js/package-details-modal.js?v=0.0.8&cb=1777494400000"></script>
+    <script src="js/feed-url-builder.js?v=0.0.8&cb=1777494400000"></script>
+    <script src="js/opml-builder.js?v=0.0.8&cb=1777494400000"></script>
     <script src="js/deps-page.js?v=0.0.8&cb=1777494400000"></script>
     <!-- Footer -->
     <footer class="bg-light mt-5 py-4">
