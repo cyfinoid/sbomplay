@@ -31,6 +31,51 @@ class GitHubClient {
         // GitHub allows ~30-60 requests/minute, so we'll use 1 request per 1.5 seconds (40/min)
         this.lastRequestTime = 0;
         this.minRequestInterval = 1500; // 1.5 seconds between requests (40 requests/minute)
+
+        // Latest rate limit values per bucket, refreshed from response headers
+        // on every API call so listeners can render a live counter.
+        this.lastRateLimit = {
+            core: null,
+            graphql: null
+        };
+    }
+
+    /**
+     * Read GitHub rate limit headers from a fetch Response and emit a
+     * `rateLimitUpdate` event so the UI can tick the counter down live.
+     * Bucket is `'core'` for REST (api.github.com/...) and `'graphql'` for
+     * the GraphQL endpoint — these are independent rate limit pools.
+     */
+    extractRateLimitFromResponse(response, bucket) {
+        if (!response || !response.headers) return;
+
+        const limitHeader = response.headers.get('X-RateLimit-Limit');
+        const remainingHeader = response.headers.get('X-RateLimit-Remaining');
+        const resetHeader = response.headers.get('X-RateLimit-Reset');
+
+        if (limitHeader === null && remainingHeader === null) {
+            return;
+        }
+
+        const limit = limitHeader !== null ? parseInt(limitHeader, 10) : null;
+        const remaining = remainingHeader !== null ? parseInt(remainingHeader, 10) : null;
+        const reset = resetHeader !== null ? parseInt(resetHeader, 10) : null;
+
+        const info = {
+            bucket,
+            limit,
+            remaining,
+            reset,
+            authenticated: this.token ? 'Yes' : 'No'
+        };
+
+        this.lastRateLimit[bucket] = info;
+
+        try {
+            this.dispatchEvent(new CustomEvent('rateLimitUpdate', { detail: info }));
+        } catch (err) {
+            console.debug('Failed to dispatch rateLimitUpdate event:', err);
+        }
     }
 
     /**
@@ -118,7 +163,9 @@ class GitHubClient {
                 headers: this.graphqlHeaders,
                 body: JSON.stringify({ query, variables })
             });
-            
+
+            this.extractRateLimitFromResponse(response, 'graphql');
+
             const result = await response.json();
             
             if (result.errors) {
@@ -953,7 +1000,9 @@ class GitHubClient {
                 method: 'GET',
                 headers: this.headers
             });
-            
+
+            this.extractRateLimitFromResponse(response, 'core');
+
             // Debug: Log response status and extract information
             if (response.ok) {
                 const contentType = response.headers.get('content-type') || '';

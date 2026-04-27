@@ -1966,6 +1966,7 @@ class ViewManager {
             'permissive': 'Permissive Licenses',
             'copyleft': 'Copyleft Licenses',
             'proprietary': 'Proprietary Licenses',
+            'custom': 'Custom Licenses',
             'unknown': 'Unknown Licenses',
             'total': 'All Licensed Dependencies',
             'unlicensed': 'Unlicensed Dependencies'
@@ -1975,6 +1976,7 @@ class ViewManager {
             'permissive': '✅',
             'copyleft': '⚠️',
             'proprietary': '🔒',
+            'custom': '📝',
             'unknown': '❓',
             'total': '📊',
             'unlicensed': '🚨'
@@ -3203,6 +3205,7 @@ class ViewManager {
                 total: 0,
                 copyleft: 0,
                 proprietary: 0,
+                custom: 0,
                 unknown: 0,
                 unlicensed: 0
             };
@@ -3215,6 +3218,7 @@ class ViewManager {
             total: 0,
             copyleft: 0,
             proprietary: 0,
+            custom: 0,
             unknown: 0,
             unlicensed: 0
         };
@@ -3257,6 +3261,13 @@ class ViewManager {
                         matches = licenseInfo.category === 'lgpl';
                         if (matches) {
                             counts.copyleft++; // LGPL is part of copyleft
+                            filteredCount++;
+                        }
+                        break;
+                    case 'custom':
+                        matches = licenseInfo.category === 'custom';
+                        if (matches) {
+                            counts.custom++;
                             filteredCount++;
                         }
                         break;
@@ -3330,6 +3341,8 @@ class ViewManager {
                     
                     if (licenseInfo.category === 'proprietary') {
                         counts.proprietary++;
+                    } else if (licenseInfo.category === 'custom') {
+                        counts.custom++;
                     } else if (licenseInfo.category === 'unknown') {
                         counts.unknown++;
                     }
@@ -4130,7 +4143,7 @@ class ViewManager {
         }
         
         // Prepare license cards
-        // Order: High risk first (unlicensed, copyleft, unknown), then medium risk (proprietary), then summary/info (total, transitions)
+        // Order: High risk first (unlicensed, copyleft, unknown), then medium risk (proprietary, custom), then summary/info (total, transitions)
         const licenseCards = [];
         const cardConfigs = [
             {
@@ -4160,6 +4173,13 @@ class ViewManager {
                 count: counts.proprietary,
                 detail: 'medium risk',
                 licenseType: 'proprietary'
+            },
+            {
+                type: 'custom',
+                title: '📝 Custom',
+                count: counts.custom,
+                detail: 'needs review',
+                licenseType: 'custom'
             },
             {
                 type: 'total',
@@ -4330,6 +4350,7 @@ class ViewManager {
                 switch(category) {
                     case 'copyleft': return 'bg-danger';
                     case 'proprietary': return 'bg-warning text-dark';
+                    case 'custom': return 'bg-warning text-dark';
                     case 'lgpl': return 'bg-info';
                     case 'permissive': return 'bg-success';
                     case 'unknown': return 'bg-warning text-dark';
@@ -4466,6 +4487,8 @@ class ViewManager {
                                toInfo.category === 'copyleft' || toInfo.category === 'lgpl';
                     case 'proprietary':
                         return fromInfo.category === 'proprietary' || toInfo.category === 'proprietary';
+                    case 'custom':
+                        return fromInfo.category === 'custom' || toInfo.category === 'custom';
                     case 'unknown':
                         return fromInfo.category === 'unknown' || toInfo.category === 'unknown' ||
                                !fromInfo.license || !toInfo.license;
@@ -4485,6 +4508,8 @@ class ViewManager {
                 case 'proprietary':
                     return issue.category === 'proprietary' ||
                            (issue.license && issue.license.toLowerCase().includes('proprietary'));
+                case 'custom':
+                    return issue.category === 'custom';
                 case 'unknown':
                     return issue.category === 'unknown' || issue.license === 'Unknown' || !issue.license;
                 case 'unlicensed':
@@ -4543,6 +4568,7 @@ class ViewManager {
             switch (filterType) {
                 case 'copyleft':
                 case 'proprietary':
+                case 'custom':
                 case 'unknown':
                     filterCategory = filterType;
                     break;
@@ -4580,6 +4606,7 @@ class ViewManager {
                 switch(category) {
                     case 'copyleft': return 'bg-danger';
                     case 'proprietary': return 'bg-warning text-dark';
+                    case 'custom': return 'bg-warning text-dark';
                     case 'lgpl': return 'bg-info';
                     case 'permissive': return 'bg-success';
                     case 'unknown': return 'bg-warning text-dark';

@@ -13,9 +13,12 @@ class LicenseProcessor {
                     'BSD-2-Clause', 'BSD-3-Clause', 'BSD-2-Clause-Views', 'BSD-3-Clause-Modification', '0BSD',
                     'ISC', 'Unlicense', 'CC0-1.0', 'WTFPL', 'Zlib', 'BSL-1.0', 'Ruby',
                     'Python-2.0', 'Python-2.0.1', 'PSF-2.0', 'CNRI-Python',
-                    'CC-BY-4.0', 'OFL-1.1', 'BlueOak-1.0.0', 'AFL-2.1',
+                    'CC-BY-3.0', 'CC-BY-4.0', 'CC-BY-SA-4.0', 'OFL-1.1', 'BlueOak-1.0.0', 'AFL-2.1',
                     'CDDL-1.0', 'CDDL-1.1',
                     'Unicode-DFS-2016', 'bzip2-1.0.6', 'ImageMagick', 'curl',
+                    // Additional SPDX-recognised permissive identifiers commonly seen in SBOMs
+                    'HPND', 'HPND-sell-variant', 'ZPL-2.0', 'ZPL-2.1',
+                    'Artistic-1.0', 'Artistic-1.0-Perl', 'Artistic-2.0',
                     // OSI-approved permissive licenses from PyPI classifiers
                     'AAL', 'Intel', 'OGTSL', 'RSCPL', 'NCSA', 'VSL-1.0', 'W3C-20150513', 'Xnet',
                     'LicenseRef-scancode-public-domain', 'LicenseRef-scancode-other-permissive', 'LicenseRef-scancode-jsr-107-jcache-spec-2013'
@@ -43,7 +46,7 @@ class LicenseProcessor {
                     'EPL-2.0', 'EPL-1.0',
                     'GPL-2.0-only WITH Classpath-exception-2.0',
                     // OSI-approved copyleft licenses from PyPI classifiers
-                    'Nokia', 'CECILL-2.1', 'CPL-1.0', 'EUPL-1.0', 'EUPL-1.1',
+                    'Nokia', 'CECILL-2.1', 'CPL-1.0', 'EUPL-1.0', 'EUPL-1.1', 'EUPL-1.2',
                     'IPL-1.0', 'Motosoto', 'NGPL', 'Sleepycat', 'SPL-1.0'
                 ],
                 risk: 'high',
@@ -54,6 +57,15 @@ class LicenseProcessor {
                 licenses: ['Commercial', 'Proprietary', 'Custom', 'Aladdin'],
                 risk: 'medium',
                 description: 'Commercial or proprietary licenses with usage restrictions'
+            },
+            // Custom / pasted license text (medium risk - needs manual legal review)
+            // SBOMs sometimes shove an entire copyright header or license body into
+            // the licenseDeclared field. We bucket those into 'custom' so they're
+            // visible and reviewable instead of being lost in 'unknown'.
+            custom: {
+                licenses: [],
+                risk: 'medium',
+                description: 'Custom or pasted license text requiring manual legal review'
             },
             // Unknown/Unspecified licenses (high risk)
             unknown: {
@@ -125,14 +137,318 @@ class LicenseProcessor {
             'CDDL Family': ['CDDL-1.0', 'CDDL-1.1', 'SPL-1.0'],
             'Boost Family': ['BSL-1.0'],
             'W3C Family': ['W3C', 'W3C-20150513'],
+            'CC Family': ['CC0-1.0', 'CC-BY-3.0', 'CC-BY-4.0', 'CC-BY-SA-4.0'],
+            'Artistic Family': ['Artistic-1.0', 'Artistic-1.0-Perl', 'Artistic-2.0'],
+            'Zope Family': ['ZPL-2.0', 'ZPL-2.1'],
+            'HPND Family': ['HPND', 'HPND-sell-variant'],
             'Commercial': ['Commercial', 'Proprietary', 'Custom', 'Aladdin'],
             'Unknown': ['NOASSERTION', 'UNKNOWN', 'NONE', '', 'LicenseRef-scancode-unknown-license-reference', 'LicenseRef-scancode-unknown-spdx', 'LicenseRef-scancode-alliance-open-media-patent-1.0']
         };
+
+        // Variant -> canonical SPDX ID (lowercase keys for case-insensitive O(1) lookup)
+        // Covers PyPI classifiers, npm/Cargo loose forms, Apache Software License, BSD License,
+        // Expat/MIT/X11, LGPLv*, GPLv*, GNU GPL prose, Public domain, ISC license, HPND, ZPL,
+        // Artistic, PSFL, etc.
+        this._licenseVariantMap = new Map([
+            // MIT family
+            ['mit', 'MIT'],
+            ['mit license', 'MIT'],
+            ['mit-license', 'MIT'],
+            ['mit/x11', 'MIT'],
+            ['x11', 'MIT'],
+            ['x11 license', 'MIT'],
+            ['expat', 'MIT'],
+            ['expat license', 'MIT'],
+            ['expat (mit/x11)', 'MIT'],
+            ['mit/x11 (expat)', 'MIT'],
+
+            // BSD family
+            ['bsd', 'BSD-3-Clause'],
+            ['bsd license', 'BSD-3-Clause'],
+            ['new bsd', 'BSD-3-Clause'],
+            ['new bsd license', 'BSD-3-Clause'],
+            ['modified bsd', 'BSD-3-Clause'],
+            ['modified bsd license', 'BSD-3-Clause'],
+            ['revised bsd', 'BSD-3-Clause'],
+            ['revised bsd license', 'BSD-3-Clause'],
+            ['bsd-3', 'BSD-3-Clause'],
+            ['bsd-3-clause', 'BSD-3-Clause'],
+            ['bsd 3-clause', 'BSD-3-Clause'],
+            ['bsd 3-clause license', 'BSD-3-Clause'],
+            ['3-clause bsd', 'BSD-3-Clause'],
+            ['3-clause bsd license', 'BSD-3-Clause'],
+            ['three-clause bsd', 'BSD-3-Clause'],
+            ['bsd-2', 'BSD-2-Clause'],
+            ['bsd-2-clause', 'BSD-2-Clause'],
+            ['bsd 2-clause', 'BSD-2-Clause'],
+            ['bsd 2-clause license', 'BSD-2-Clause'],
+            ['2-clause bsd', 'BSD-2-Clause'],
+            ['2-clause bsd license', 'BSD-2-Clause'],
+            ['simplified bsd', 'BSD-2-Clause'],
+            ['simplified bsd license', 'BSD-2-Clause'],
+            ['freebsd', 'BSD-2-Clause'],
+            ['freebsd license', 'BSD-2-Clause'],
+            ['bsd-derived', 'BSD-3-Clause'],
+            ['bsd derived', 'BSD-3-Clause'],
+            ['0bsd', '0BSD'],
+            ['zero clause bsd', '0BSD'],
+
+            // Apache family
+            ['apache', 'Apache-2.0'],
+            ['apache 2', 'Apache-2.0'],
+            ['apache 2.0', 'Apache-2.0'],
+            ['apache-2', 'Apache-2.0'],
+            ['apache-2.0', 'Apache-2.0'],
+            ['apache license', 'Apache-2.0'],
+            ['apache license 2', 'Apache-2.0'],
+            ['apache license 2.0', 'Apache-2.0'],
+            ['apache license, version 2', 'Apache-2.0'],
+            ['apache license, version 2.0', 'Apache-2.0'],
+            ['apache license version 2.0', 'Apache-2.0'],
+            ['apache software license', 'Apache-2.0'],
+            ['apache software license 2.0', 'Apache-2.0'],
+            ['apache modified', 'Apache-2.0'],
+            ['apache (modified)', 'Apache-2.0'],
+            ['apache 1', 'Apache-1.0'],
+            ['apache 1.0', 'Apache-1.0'],
+            ['apache-1.0', 'Apache-1.0'],
+            ['apache 1.1', 'Apache-1.1'],
+            ['apache-1.1', 'Apache-1.1'],
+
+            // ISC
+            ['isc', 'ISC'],
+            ['isc license', 'ISC'],
+            ['isc license (iscl)', 'ISC'],
+            ['iscl', 'ISC'],
+
+            // GPL
+            // Note: bare 'gpl' / 'gnu gpl' is ambiguous about version; we map to
+            // GPL-3.0-or-later (the most common modern interpretation in PyPI/setup.py).
+            ['gpl', 'GPL-3.0-or-later'],
+            ['gnu gpl', 'GPL-3.0-or-later'],
+            ['gnu general public license', 'GPL-3.0-or-later'],
+            ['gpl-2', 'GPL-2.0'],
+            ['gplv2', 'GPL-2.0'],
+            ['gpl 2', 'GPL-2.0'],
+            ['gpl-2.0', 'GPL-2.0'],
+            ['gpl 2.0', 'GPL-2.0'],
+            ['gnu gpl v2', 'GPL-2.0'],
+            ['gnu gpl version 2', 'GPL-2.0'],
+            ['gnu general public license v2', 'GPL-2.0'],
+            ['gnu general public license version 2', 'GPL-2.0'],
+            ['gpl-2-only', 'GPL-2.0-only'],
+            ['gpl-2.0-only', 'GPL-2.0-only'],
+            ['gplv2 only', 'GPL-2.0-only'],
+            ['gplv2+', 'GPL-2.0-or-later'],
+            ['gpl 2+', 'GPL-2.0-or-later'],
+            ['gpl-2+', 'GPL-2.0-or-later'],
+            ['gpl-2-or-later', 'GPL-2.0-or-later'],
+            ['gpl-2.0-or-later', 'GPL-2.0-or-later'],
+            ['gnu general public license v2 or later (gplv2+)', 'GPL-2.0-or-later'],
+            ['gnu general public license v2 or later', 'GPL-2.0-or-later'],
+            ['gnu gplv2 (with foss license exception)', 'GPL-2.0-or-later'],
+            ['gpl-3', 'GPL-3.0'],
+            ['gplv3', 'GPL-3.0'],
+            ['gpl 3', 'GPL-3.0'],
+            ['gpl-3.0', 'GPL-3.0'],
+            ['gpl 3.0', 'GPL-3.0'],
+            ['gpl v3', 'GPL-3.0'],
+            ['gnu gpl v3', 'GPL-3.0'],
+            ['gnu gpl version 3', 'GPL-3.0'],
+            ['gnu general public license v3', 'GPL-3.0'],
+            ['gnu general public license v3 (gplv3)', 'GPL-3.0'],
+            ['gnu-general public license v3 (gplv3)', 'GPL-3.0'],
+            ['gpl-3-only', 'GPL-3.0-only'],
+            ['gpl-3.0-only', 'GPL-3.0-only'],
+            ['gplv3 only', 'GPL-3.0-only'],
+            ['gplv3+', 'GPL-3.0-or-later'],
+            ['gpl 3+', 'GPL-3.0-or-later'],
+            ['gpl-3+', 'GPL-3.0-or-later'],
+            ['gpl-3-or-later', 'GPL-3.0-or-later'],
+            ['gpl-3.0-or-later', 'GPL-3.0-or-later'],
+            ['gnu general public license v3 or later', 'GPL-3.0-or-later'],
+
+            // LGPL
+            ['lgpl', 'LGPL-3.0-or-later'],
+            ['gnu lgpl', 'LGPL-3.0-or-later'],
+            ['gnu lesser general public license', 'LGPL-3.0-or-later'],
+            ['gnu lesser general public license (lgpl)', 'LGPL-3.0-or-later'],
+            ['lesser general public license', 'LGPL-3.0-or-later'],
+            ['lgpl with exceptions', 'LGPL-3.0-or-later'],
+            ['lgpl-2', 'LGPL-2.1'],
+            ['lgplv2', 'LGPL-2.1'],
+            ['lgpl 2', 'LGPL-2.1'],
+            ['lgpl 2.0', 'LGPL-2.0-only'],
+            ['lgpl-2.0', 'LGPL-2.0-only'],
+            ['lgpl-2.0-only', 'LGPL-2.0-only'],
+            ['lgpl-2.0-or-later', 'LGPL-2.0-or-later'],
+            ['lgpl 2.1', 'LGPL-2.1'],
+            ['lgpl-2.1', 'LGPL-2.1'],
+            ['lgplv2.1', 'LGPL-2.1'],
+            ['lgpl-2.1-only', 'LGPL-2.1-only'],
+            ['lgpl-2.1-or-later', 'LGPL-2.1-or-later'],
+            ['lgplv2+', 'LGPL-2.1-or-later'],
+            ['lgpl-2+', 'LGPL-2.1-or-later'],
+            ['lgpl-3', 'LGPL-3.0'],
+            ['lgpl 3', 'LGPL-3.0'],
+            ['lgplv3', 'LGPL-3.0'],
+            ['lgpl 3.0', 'LGPL-3.0'],
+            ['lgpl-3.0', 'LGPL-3.0'],
+            ['lgpl-3-only', 'LGPL-3.0-only'],
+            ['lgpl-3.0-only', 'LGPL-3.0-only'],
+            ['lgplv3+', 'LGPL-3.0-or-later'],
+            ['lgpl 3+', 'LGPL-3.0-or-later'],
+            ['lgpl-3+', 'LGPL-3.0-or-later'],
+            ['lgpl-3-or-later', 'LGPL-3.0-or-later'],
+            ['lgpl-3.0-or-later', 'LGPL-3.0-or-later'],
+
+            // AGPL
+            ['agpl', 'AGPL-3.0-or-later'],
+            ['agpl-3', 'AGPL-3.0'],
+            ['agpl 3', 'AGPL-3.0'],
+            ['agpl-3.0', 'AGPL-3.0'],
+            ['agplv3', 'AGPL-3.0'],
+            ['gnu agpl', 'AGPL-3.0-or-later'],
+            ['agpl-3-only', 'AGPL-3.0-only'],
+            ['agpl-3.0-only', 'AGPL-3.0-only'],
+            ['agpl-3-or-later', 'AGPL-3.0-or-later'],
+            ['agpl-3.0-or-later', 'AGPL-3.0-or-later'],
+            ['agplv3+', 'AGPL-3.0-or-later'],
+            ['agpl-3+', 'AGPL-3.0-or-later'],
+
+            // MPL
+            ['mpl', 'MPL-2.0'],
+            ['mozilla public license', 'MPL-2.0'],
+            ['mpl-1', 'MPL-1.0'],
+            ['mpl 1', 'MPL-1.0'],
+            ['mpl-1.0', 'MPL-1.0'],
+            ['mpl 1.1', 'MPL-1.1'],
+            ['mpl-1.1', 'MPL-1.1'],
+            ['mpl 2', 'MPL-2.0'],
+            ['mpl-2', 'MPL-2.0'],
+            ['mpl 2.0', 'MPL-2.0'],
+            ['mpl-2.0', 'MPL-2.0'],
+
+            // EPL
+            ['epl', 'EPL-2.0'],
+            ['eclipse public license', 'EPL-2.0'],
+            ['eclipse public license 1.0', 'EPL-1.0'],
+            ['eclipse public license 2.0', 'EPL-2.0'],
+            ['epl-1.0', 'EPL-1.0'],
+            ['epl-2', 'EPL-2.0'],
+            ['epl-2.0', 'EPL-2.0'],
+
+            // CDDL
+            ['cddl', 'CDDL-1.1'],
+            ['cddl-1.0', 'CDDL-1.0'],
+            ['cddl-1.1', 'CDDL-1.1'],
+            ['common development and distribution license', 'CDDL-1.1'],
+
+            // EUPL
+            ['eupl', 'EUPL-1.2'],
+            ['eupl-1.0', 'EUPL-1.0'],
+            ['eupl-1.1', 'EUPL-1.1'],
+            ['eupl-1.2', 'EUPL-1.2'],
+            ['eupl 1.0', 'EUPL-1.0'],
+            ['eupl 1.1', 'EUPL-1.1'],
+            ['eupl 1.2', 'EUPL-1.2'],
+
+            // Boost
+            ['boost', 'BSL-1.0'],
+            ['boost-1.0', 'BSL-1.0'],
+            ['bsl-1.0', 'BSL-1.0'],
+            ['boost software license', 'BSL-1.0'],
+            ['boost software license 1.0', 'BSL-1.0'],
+
+            // Zlib
+            ['zlib', 'Zlib'],
+            ['zlib license', 'Zlib'],
+            ['zlib/libpng', 'Zlib'],
+
+            // Public domain / Unlicense
+            ['unlicense', 'Unlicense'],
+            ['the unlicense', 'Unlicense'],
+            ['public domain', 'LicenseRef-scancode-public-domain'],
+            ['public-domain', 'LicenseRef-scancode-public-domain'],
+            ['publicdomain', 'LicenseRef-scancode-public-domain'],
+
+            // CC0 / CC-BY
+            ['cc0', 'CC0-1.0'],
+            ['cc0-1.0', 'CC0-1.0'],
+            ['creative commons zero', 'CC0-1.0'],
+            ['creative commons cc0 1.0', 'CC0-1.0'],
+            ['cc-by-3.0', 'CC-BY-3.0'],
+            ['cc-by-4.0', 'CC-BY-4.0'],
+            ['cc-by-sa-4.0', 'CC-BY-SA-4.0'],
+
+            // WTFPL
+            ['wtfpl', 'WTFPL'],
+
+            // Python / PSF
+            ['psf', 'Python-2.0'],
+            ['psfl', 'Python-2.0'],
+            ['psf-2.0', 'PSF-2.0'],
+            ['psf license', 'Python-2.0'],
+            ['python', 'Python-2.0'],
+            ['python license', 'Python-2.0'],
+            ['python software foundation license', 'Python-2.0'],
+            ['python-2.0', 'Python-2.0'],
+            ['python-2.0.1', 'Python-2.0.1'],
+
+            // Ruby
+            ['ruby', 'Ruby'],
+            ['ruby license', 'Ruby'],
+
+            // Artistic
+            ['artistic', 'Artistic-2.0'],
+            ['artistic license', 'Artistic-2.0'],
+            ['artistic license 1.0', 'Artistic-1.0'],
+            ['artistic license 2.0', 'Artistic-2.0'],
+            ['artistic-1.0', 'Artistic-1.0'],
+            ['artistic-2.0', 'Artistic-2.0'],
+
+            // Zope (ZPL)
+            ['zpl', 'ZPL-2.1'],
+            ['zpl-2.0', 'ZPL-2.0'],
+            ['zpl-2.1', 'ZPL-2.1'],
+            ['zope public license', 'ZPL-2.1'],
+
+            // HPND
+            ['hpnd', 'HPND'],
+            ['historical permission notice and disclaimer', 'HPND'],
+
+            // Aladdin
+            ['aladdin', 'Aladdin'],
+            ['aladdin free public license', 'Aladdin'],
+
+            // OFL
+            ['ofl', 'OFL-1.1'],
+            ['ofl-1.1', 'OFL-1.1'],
+            ['sil open font license', 'OFL-1.1'],
+
+            // Generic
+            ['proprietary', 'Proprietary'],
+            ['commercial', 'Commercial']
+        ]);
     }
 
     /**
-     * Normalize license name to canonical form
-     * Handles variants like GPL-3, GPL-3-only, GPL-3.0, etc.
+     * Normalize a license string to a canonical SPDX identifier (or expression)
+     * when possible.
+     *
+     * Pipeline:
+     *  1. Trim and short-circuit on empty / sentinels (NOASSERTION, UNKNOWN, NONE).
+     *  2. Resolve SPDX trailing '+' operator (e.g. GPL-2.0+ -> GPL-2.0-or-later).
+     *  3. Whole-string lookup against `_licenseVariantMap` (case-insensitive).
+     *  4. Whole-string lookup of a 'cleaned' form (parentheses stripped, double
+     *     spaces collapsed) for cases like "Apache License 2.0  (the "License")".
+     *  5. Try to convert non-SPDX separators ('/', ',', ' -or- ', ' -and- ') into
+     *     a standard SPDX 'A OR B' / 'A AND B' expression when each component is
+     *     itself a recognised license (so 'LGPL/MIT' -> 'LGPL-3.0-or-later OR MIT'
+     *     but 'Apache License, Version 2.0' is left for step 3 to handle).
+     *  6. Return the input as-is otherwise (likely already a valid SPDX id, or
+     *     genuinely unknown).
+     *
      * @param {string} license - License string to normalize
      * @returns {string} - Normalized license name
      */
@@ -140,101 +456,226 @@ class LicenseProcessor {
         if (!license || typeof license !== 'string') {
             return license || 'Unknown';
         }
-        
-        // Trim whitespace
-        let normalized = license.trim();
-        
-        // Map common variants to canonical forms
-        const variantMap = {
-            // GPL variants
-            'GPL-3': 'GPL-3.0',
-            'GPL-3.0': 'GPL-3.0',
-            'GPL-3-only': 'GPL-3.0-only',
-            'GPL-3.0-only': 'GPL-3.0-only',
-            'GPL-3-or-later': 'GPL-3.0-or-later',
-            'GPL-3.0-or-later': 'GPL-3.0-or-later',
-            'GPL-2': 'GPL-2.0',
-            'GPL-2.0': 'GPL-2.0',
-            'GPL-2-only': 'GPL-2.0-only',
-            'GPL-2.0-only': 'GPL-2.0-only',
-            'GPL-2-or-later': 'GPL-2.0-or-later',
-            'GPL-2.0-or-later': 'GPL-2.0-or-later',
-            
-            // LGPL variants
-            'LGPL-2.1': 'LGPL-2.1',
-            'LGPL-2.1-only': 'LGPL-2.1-only',
-            'LGPL-2.1-or-later': 'LGPL-2.1-or-later',
-            'LGPL-3': 'LGPL-3.0',
-            'LGPL-3.0': 'LGPL-3.0',
-            'LGPL-3-only': 'LGPL-3.0-only',
-            'LGPL-3.0-only': 'LGPL-3.0-only',
-            'LGPL-3-or-later': 'LGPL-3.0-or-later',
-            'LGPL-3.0-or-later': 'LGPL-3.0-or-later',
-            
-            // Apache variants
-            'Apache': 'Apache-2.0',
-            'Apache-2': 'Apache-2.0',
-            'Apache-2.0': 'Apache-2.0',
-            'Apache License 2.0': 'Apache-2.0',
-            
-            // BSD variants
-            'BSD': 'BSD-3-Clause',  // Default to 3-clause if unspecified
-            'BSD-2': 'BSD-2-Clause',
-            'BSD-2-Clause': 'BSD-2-Clause',
-            'BSD-3': 'BSD-3-Clause',
-            'BSD-3-Clause': 'BSD-3-Clause',
-            
-            // MIT variants
-            'MIT License': 'MIT',
-            'MIT': 'MIT',
-            
-            // MPL variants
-            'MPL-1': 'MPL-1.0',
-            'MPL-1.0': 'MPL-1.0',
-            'MPL-2': 'MPL-2.0',
-            'MPL-2.0': 'MPL-2.0',
-            'MPL-1.1': 'MPL-1.1',
-            
-            // EPL variants
-            'EPL-2': 'EPL-2.0',
-            'EPL-2.0': 'EPL-2.0',
-            'EPL-1.0': 'EPL-1.0',
-            
-            // AGPL variants
-            'AGPL-3': 'AGPL-3.0',
-            'AGPL-3.0': 'AGPL-3.0',
-            'AGPL-3-only': 'AGPL-3.0-only',
-            'AGPL-3.0-only': 'AGPL-3.0-only',
-            'AGPL-3-or-later': 'AGPL-3.0-or-later',
-            'AGPL-3.0-or-later': 'AGPL-3.0-or-later',
-            
-            // Boost variants (BSL-1.0 is the official SPDX ID)
-            'Boost-1.0': 'BSL-1.0',
-            'BSL-1.0': 'BSL-1.0',
-            'Boost Software License 1.0': 'BSL-1.0',
-            
-            // EUPL variants
-            'EUPL-1.0': 'EUPL-1.0',
-            'EUPL-1.1': 'EUPL-1.1',
-            'EUPL 1.0': 'EUPL-1.0',
-            'EUPL 1.1': 'EUPL-1.1'
-        };
-        
-        // Check exact match first
-        if (variantMap[normalized]) {
-            return variantMap[normalized];
+
+        const trimmed = license.trim();
+        if (!trimmed) return 'Unknown';
+
+        // Sentinel "no info" tokens: don't try to normalise these.
+        if (/^(noassertion|unknown|none|n\/a)$/i.test(trimmed)) {
+            return trimmed;
         }
-        
-        // Check case-insensitive match
-        const normalizedLower = normalized.toLowerCase();
-        for (const [variant, canonical] of Object.entries(variantMap)) {
-            if (variant.toLowerCase() === normalizedLower) {
-                return canonical;
+
+        // 1. Handle SPDX trailing '+' operator (GPL-2.0+ -> GPL-2.0-or-later, etc.)
+        const plusNormalized = this._normalizeSpdxPlus(trimmed);
+        const stage1 = plusNormalized || trimmed;
+
+        // 2. Whole-string variant lookup (case-insensitive O(1) Map lookup).
+        const directHit = this._lookupVariant(stage1);
+        if (directHit) return directHit;
+
+        // 3. Try a 'cleaned' form: strip surrounding/inline parentheticals and
+        //    collapse whitespace, then look up again.
+        const cleaned = stage1
+            .replace(/\s*\([^)]*\)\s*/g, ' ')
+            .replace(/\s+/g, ' ')
+            .trim();
+        if (cleaned && cleaned !== stage1) {
+            const cleanedHit = this._lookupVariant(cleaned);
+            if (cleanedHit) return cleanedHit;
+        }
+
+        // 4. Try to interpret non-SPDX separators as multi-license expressions.
+        const multi = this._normalizeMultiLicenseSeparators(stage1);
+        if (multi) return multi;
+
+        // 5. Fall through unchanged (likely already a valid SPDX id, or unknown).
+        return stage1;
+    }
+
+    /**
+     * Lookup a license string against `_licenseVariantMap` case-insensitively.
+     * Returns the canonical SPDX id, or null if not found.
+     * @param {string} license
+     * @returns {string|null}
+     */
+    _lookupVariant(license) {
+        if (!license || typeof license !== 'string') return null;
+        const key = license.trim().toLowerCase();
+        return this._licenseVariantMap.has(key)
+            ? this._licenseVariantMap.get(key)
+            : null;
+    }
+
+    /**
+     * Normalize SPDX trailing '+' operator (e.g. 'GPL-2.0+' -> 'GPL-2.0-or-later',
+     * 'LGPL-3.0+' -> 'LGPL-3.0-or-later', 'AGPL-3+' -> 'AGPL-3.0-or-later').
+     * Returns the normalized string, or null if no '+' suffix matched.
+     * @param {string} license
+     * @returns {string|null}
+     */
+    _normalizeSpdxPlus(license) {
+        // Only apply to known families that use the '+' convention.
+        const m = license.match(/^(LGPL|AGPL|GPL|EPL|MPL|GFDL|EUPL|CDDL|CECILL|Apache)-(\d+)(?:\.(\d+))?\+$/i);
+        if (!m) return null;
+        const family = m[1].toUpperCase() === 'APACHE' ? 'Apache' : m[1].toUpperCase();
+        const major = m[2];
+        const minor = m[3] != null ? m[3] : '0';
+        return `${family}-${major}.${minor}-or-later`;
+    }
+
+    /**
+     * Try to interpret non-SPDX separators as a multi-license expression.
+     * Only succeeds when every component is itself a recognised license; this
+     * prevents false splits on things like 'Apache License, Version 2.0' where
+     * 'Version 2.0' is not a license.
+     *
+     * '/' and ',' are interpreted as OR (PyPI/setup.py convention).
+     * ' -or- ' / ' -and- ' / ' or ' / ' and ' are interpreted as their plain
+     * meaning. Standard SPDX ' AND '/' OR ' is left untouched (handled by
+     * parseLicense directly).
+     *
+     * @param {string} license
+     * @returns {string|null} normalized expression or null
+     */
+    _normalizeMultiLicenseSeparators(license) {
+        if (!license || typeof license !== 'string') return null;
+
+        // Already a standard SPDX expression.
+        if (/\s+(AND|OR)\s+/.test(license)) return null;
+
+        const tryWith = (parts, joiner) => {
+            if (!parts || parts.length < 2) return null;
+            const normalized = [];
+            for (const raw of parts) {
+                const piece = raw.trim();
+                if (!piece || piece.length > 60) return null;
+                const hit = this._lookupVariant(piece);
+                if (!hit) return null;
+                normalized.push(hit);
             }
+            return normalized.join(` ${joiner} `);
+        };
+
+        // ' -or- ' / ' -and- ' (used by some PyPI metadata, e.g. 'MIT -or- Apache License 2.0')
+        if (/\s-or-\s/i.test(license)) {
+            const r = tryWith(license.split(/\s-or-\s/i), 'OR');
+            if (r) return r;
         }
-        
-        // If no mapping found, return as-is (might be a valid SPDX identifier)
-        return normalized;
+        if (/\s-and-\s/i.test(license)) {
+            const r = tryWith(license.split(/\s-and-\s/i), 'AND');
+            if (r) return r;
+        }
+
+        // ' or ' / ' and ' (lowercase prose, e.g. 'MIT or Apache 2.0')
+        if (/\s+or\s+/i.test(license)) {
+            const r = tryWith(license.split(/\s+or\s+/i), 'OR');
+            if (r) return r;
+        }
+        if (/\s+and\s+/i.test(license)) {
+            const r = tryWith(license.split(/\s+and\s+/i), 'AND');
+            if (r) return r;
+        }
+
+        // '/' as OR — but skip LicenseRef-* / URL-bearing strings.
+        if (license.includes('/') && !/^licenseref-/i.test(license) && !/https?:\/\//i.test(license)) {
+            const r = tryWith(license.split('/'), 'OR');
+            if (r) return r;
+        }
+
+        // ',' as OR (e.g. 'BSD, Public Domain') — skip strings that look like
+        // 'License, Version X.Y' constructs.
+        if (license.includes(',') && !/,\s*version\s+\d/i.test(license)) {
+            const r = tryWith(license.split(','), 'OR');
+            if (r) return r;
+        }
+
+        return null;
+    }
+
+    /**
+     * Detect strings that look like a pasted copyright/license body rather than
+     * a license name. SBOMs sometimes shove the entire LICENSE file content into
+     * the licenseDeclared field; we surface those into the 'custom' bucket so
+     * they're visible and reviewable instead of getting lost in 'unknown'.
+     * @param {string} license
+     * @returns {boolean}
+     */
+    _isLicenseTextBody(license) {
+        if (!license || typeof license !== 'string') return false;
+        const trimmed = license.trim();
+        if (!trimmed) return false;
+
+        // Very long → almost certainly text body.
+        if (trimmed.length > 120) return true;
+
+        // Separator banner line (e.g. '======== The Kiwi license ========')
+        if (/^={3,}/.test(trimmed)) return true;
+
+        // 'Copyright ...' followed by enough text to be a notice rather than
+        // just a license name reference.
+        if (/^copyright\b/i.test(trimmed) && trimmed.length > 30) return true;
+        if (/^\(c\)\s/i.test(trimmed) && trimmed.length > 30) return true;
+
+        // Numbered legal clause (typical of PSF / Python license).
+        if (/^\d+\.\s+(this\s+)?license\s+agreement/i.test(trimmed)) return true;
+
+        // 'License agreement for ...' (matplotlib-style)
+        if (/^license\s+agreement\s+for\b/i.test(trimmed)) return true;
+
+        // BSD-style 'Redistribution and use ...' intro.
+        if (/redistribution\s+and\s+use/i.test(trimmed) && trimmed.length > 30) return true;
+
+        return false;
+    }
+
+    /**
+     * Heuristic categorization fallback for license names that don't exactly
+     * match an SPDX id and didn't normalize to one. Uses lowercase contains-checks.
+     * Order matters: AGPL must come before LGPL, which must come before GPL.
+     * Returns { category, risk, description } or null when no signal is found.
+     * @param {string} license
+     * @returns {{category: string, risk: string, description: string}|null}
+     */
+    _heuristicCategorize(license) {
+        if (!license || typeof license !== 'string') return null;
+        const s = license.toLowerCase();
+
+        // Strong copyleft signals (order matters: AGPL > LGPL > GPL).
+        if (/\bagpl\b|affero/.test(s)) {
+            return { category: 'copyleft', risk: 'high', description: 'Pattern-matched as AGPL-family copyleft' };
+        }
+        if (/\blgpl\b|lesser\s+general\s+public/.test(s)) {
+            return { category: 'lgpl', risk: 'medium', description: 'Pattern-matched as LGPL-family' };
+        }
+        if (/\bgpl\b|general\s+public\s+license/.test(s)) {
+            return { category: 'copyleft', risk: 'high', description: 'Pattern-matched as GPL-family copyleft' };
+        }
+
+        // Other copyleft families.
+        if (/\bmpl\b|mozilla\s+public/.test(s)) {
+            return { category: 'copyleft', risk: 'high', description: 'Pattern-matched as MPL-family copyleft' };
+        }
+        if (/\bepl\b|eclipse\s+public/.test(s)) {
+            return { category: 'copyleft', risk: 'high', description: 'Pattern-matched as EPL-family copyleft' };
+        }
+        if (/\beupl\b/.test(s)) {
+            return { category: 'copyleft', risk: 'high', description: 'Pattern-matched as EUPL copyleft' };
+        }
+        if (/\bcecill\b/.test(s)) {
+            return { category: 'copyleft', risk: 'high', description: 'Pattern-matched as CeCILL copyleft' };
+        }
+
+        // Proprietary / commercial.
+        if (/\bproprietary\b|\bcommercial\b|\baladdin\b|non-commercial/.test(s)) {
+            return { category: 'proprietary', risk: 'medium', description: 'Pattern-matched as proprietary/commercial' };
+        }
+
+        // Permissive families.
+        if (/\bmit\b|\bbsd\b|\bisc\b|\bapache\b|\bzlib\b|unlicense|\bcc0\b|\bwtfpl\b|\bexpat\b|\bx11\b|public\s+domain|\bpsf\b|\bpsfl\b|python\s+license|python\s+software\s+foundation|\bartistic\b|\bzpl\b|zope\s+public|\bhpnd\b|\bofl\b|sil\s+open\s+font|\bbsl\b|boost\s+software/.test(s)) {
+            return { category: 'permissive', risk: 'low', description: 'Pattern-matched as permissive license' };
+        }
+
+        return null;
     }
 
     /**
@@ -264,7 +705,35 @@ class LicenseProcessor {
         } else if (pkg.licenseDeclared && pkg.licenseDeclared !== 'NOASSERTION') {
             licenseValue = pkg.licenseDeclared;
         }
-        
+
+        // Detect pasted copyright/license text bodies before we try to normalize.
+        // SBOMs sometimes shove the entire LICENSE file content into licenseDeclared;
+        // surface those into the 'custom' bucket for legal review instead of
+        // dropping them silently into 'unknown'.
+        if (licenseValue && this._isLicenseTextBody(licenseValue)) {
+            licenseInfo.license = licenseValue;
+            licenseInfo.category = 'custom';
+            licenseInfo.risk = 'medium';
+            licenseInfo.description = this.licenseCategories.custom.description;
+            licenseInfo.warnings.push('License field contains copyright/license text body — needs manual review');
+            if (pkg.copyrightText && pkg.copyrightText !== 'NOASSERTION') {
+                licenseInfo.copyright = pkg.copyrightText;
+            }
+            return licenseInfo;
+        }
+
+        // Normalize variants up front (BSD -> BSD-3-Clause, GPLv2+ -> GPL-2.0-or-later,
+        // 'Apache Software License' -> Apache-2.0, 'MIT/X11' -> MIT, 'LGPL/MIT' -> 'LGPL-3.0-or-later OR MIT', etc.)
+        // so the existing AND/OR + exact-match logic below can do its job.
+        const rawLicenseValue = licenseValue;
+        if (licenseValue) {
+            const normalized = this.normalizeLicenseName(licenseValue);
+            if (normalized && normalized !== licenseValue) {
+                licenseInfo.warnings.push(`Normalized license "${licenseValue}" → "${normalized}"`);
+                licenseValue = normalized;
+            }
+        }
+
         // Detect dual licenses (e.g., "MIT AND Apache-2.0", "GPL-2.0 OR GPL-3.0")
         const isDualLicense = licenseValue && (licenseValue.includes(' AND ') || licenseValue.includes(' OR '));
         let dualLicenseInfo = null;
@@ -426,12 +895,31 @@ class LicenseProcessor {
                 }
             } else {
                 // Simple license - categorize normally
+                let matched = false;
                 for (const [category, info] of Object.entries(this.licenseCategories)) {
                     if (info.licenses.includes(licenseInfo.license)) {
                         licenseInfo.category = category;
                         licenseInfo.risk = info.risk;
                         licenseInfo.description = info.description;
+                        matched = true;
                         break;
+                    }
+                }
+
+                // Heuristic fallback: catch the long tail of names that are
+                // recognisable but not exact SPDX ids (LGPLv3, GNU GPL, ZPL-2.1,
+                // PSFL, Artistic License, etc.). We only reach this when both
+                // normalization and exact-match failed.
+                if (!matched) {
+                    const heuristic = this._heuristicCategorize(licenseInfo.license);
+                    if (heuristic) {
+                        licenseInfo.category = heuristic.category;
+                        licenseInfo.risk = heuristic.risk;
+                        licenseInfo.description = heuristic.description;
+                        licenseInfo.warnings.push('Categorised by name pattern, not exact SPDX match');
+                    } else {
+                        // Truly unknown — leave the default category/risk and add a warning.
+                        licenseInfo.warnings.push(`Unrecognised license string: "${rawLicenseValue || licenseInfo.license}"`);
                     }
                 }
             }
@@ -785,8 +1273,10 @@ class LicenseProcessor {
         const stats = {
             byCategory: {
                 permissive: 0,
+                lgpl: 0,
                 copyleft: 0,
                 proprietary: 0,
+                custom: 0,
                 unknown: 0
             },
             byRisk: {
@@ -802,7 +1292,11 @@ class LicenseProcessor {
             const licenseInfo = this.parseLicense(dep.originalPackage);
             
             if (licenseInfo.license && licenseInfo.license !== 'NOASSERTION') {
-                stats.byCategory[licenseInfo.category]++;
+                if (stats.byCategory[licenseInfo.category] !== undefined) {
+                    stats.byCategory[licenseInfo.category]++;
+                } else {
+                    stats.byCategory.unknown++;
+                }
                 stats.byRisk[licenseInfo.risk]++;
                 
                 if (!stats.byLicense.has(licenseInfo.license)) {

@@ -7,7 +7,19 @@ console.log('📦 SBOM Play app.js loaded - BUILD: 1764041288372');
 class SBOMPlayApp {
     constructor() {
         this.githubClient = new GitHubClient();
-        
+
+        // Live rate limit updates: every GitHub REST response carries
+        // X-RateLimit-* headers. Re-render the counter on each response so
+        // the UI ticks down without polling. GraphQL uses a separate bucket
+        // and is intentionally not surfaced here (the existing display only
+        // shows the core REST limit).
+        this.githubClient.addEventListener('rateLimitUpdate', (event) => {
+            const info = event && event.detail;
+            if (!info || info.bucket !== 'core') return;
+            if (info.limit === null && info.remaining === null) return;
+            this.updateRateLimitInfo(info);
+        });
+
         // Load GitHub token from sessionStorage if available
         const savedToken = sessionStorage.getItem('github_token');
         if (savedToken) {
@@ -24,6 +36,10 @@ class SBOMPlayApp {
         this.analysisStartTime = null;
         this.analysisEndTime = null;
         this.elapsedTimeInterval = null;
+        // Track packages processed per ecosystem so the displayed total
+        // sums across all ecosystems (each DependencyTreeResolver instance
+        // in sbom-processor.js maintains its own counter that resets to 0).
+        this.packageCountByEcosystem = new Map();
         
         // Background analysis mode
         this.isBackgroundAnalysis = false;
@@ -2155,13 +2171,29 @@ class SBOMPlayApp {
             progressText.textContent = enhancedMessage;
         }
         
-        // Update total packages processed counter
+        // Update total packages processed counter.
+        // Each ecosystem's resolver in sbom-processor.js has its own
+        // monotonically increasing counter that resets per ecosystem, so we
+        // store the latest value per ecosystem and display the SUM to give
+        // a true cross-ecosystem total (works for parallel and sequential
+        // resolution alike).
         if (subProgress && subProgress.totalPackagesProcessed !== undefined) {
+            if (!this.packageCountByEcosystem) {
+                this.packageCountByEcosystem = new Map();
+            }
+            const ecosystemKey = subProgress.ecosystem || '__default__';
+            this.packageCountByEcosystem.set(ecosystemKey, subProgress.totalPackagesProcessed);
+
+            let totalAcrossEcosystems = 0;
+            for (const count of this.packageCountByEcosystem.values()) {
+                totalAcrossEcosystems += count;
+            }
+
             const packagesProcessedDiv = document.getElementById('packagesProcessed');
             const packagesProcessedValue = document.getElementById('packagesProcessedValue');
             if (packagesProcessedDiv && packagesProcessedValue) {
                 packagesProcessedDiv.classList.remove('d-none');
-                packagesProcessedValue.textContent = subProgress.totalPackagesProcessed.toLocaleString();
+                packagesProcessedValue.textContent = totalAcrossEcosystems.toLocaleString();
             }
         }
         
@@ -2253,17 +2285,25 @@ class SBOMPlayApp {
      */
     updateRateLimitInfo(info) {
         const rateLimitDiv = document.getElementById('rateLimitInfo');
-        if (rateLimitDiv) {
-            const resetTime = new Date(info.reset * 1000).toLocaleTimeString();
-            
-            rateLimitDiv.innerHTML = `
-                <div class="alert alert-info alert-sm">
-                    <strong>Rate Limit:</strong> ${info.remaining}/${info.limit} requests remaining
-                    <br><strong>Reset Time:</strong> ${resetTime}
-                    <br><strong>Authenticated:</strong> ${info.authenticated}
-                </div>
-            `;
-        }
+        if (!rateLimitDiv) return;
+
+        const remainingDisplay = info.remaining === null || info.remaining === undefined
+            ? 'Unknown'
+            : info.remaining;
+        const limitDisplay = info.limit === null || info.limit === undefined
+            ? 'Unknown'
+            : info.limit;
+        const resetTime = info.reset
+            ? new Date(info.reset * 1000).toLocaleTimeString()
+            : 'Unknown';
+
+        rateLimitDiv.innerHTML = `
+            <div class="alert alert-info alert-sm">
+                <strong>Rate Limit:</strong> ${remainingDisplay}/${limitDisplay} requests remaining
+                <br><strong>Reset Time:</strong> ${resetTime}
+                <br><strong>Authenticated:</strong> ${info.authenticated}
+            </div>
+        `;
     }
 
     /**
@@ -4108,7 +4148,13 @@ class SBOMPlayApp {
         
         this.analysisStartTime = Date.now();
         this.analysisEndTime = null;
-        
+
+        if (this.packageCountByEcosystem) {
+            this.packageCountByEcosystem.clear();
+        } else {
+            this.packageCountByEcosystem = new Map();
+        }
+
         const startDate = new Date(this.analysisStartTime);
         const startTimeString = startDate.toLocaleString();
         
