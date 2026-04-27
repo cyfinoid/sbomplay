@@ -308,7 +308,14 @@
                 }
             }
             
-            // Display author locations on map
+            // Display author locations on map.
+            //
+            // Country-only aggregation: rather than placing one marker per (city, region)
+            // string — which required a separate Nominatim geocode call per unique string
+            // and was rate-limited to 1 req/sec — we now group authors by country code and
+            // place a single marker at the country centroid (from CountryData). The bulk
+            // of resolution happens locally without any API calls (static lookup table +
+            // existing cached country codes).
             async function displayAuthorMap(authors) {
                 if (!locationService || typeof L === 'undefined') {
                     console.warn('⚠️ LocationService or Leaflet not available');
@@ -325,16 +332,14 @@
                 // Initialize map if not already done
                 if (!authorMap) {
                     initializeMap();
-                    // Wait a bit for map to initialize
                     await new Promise(resolve => setTimeout(resolve, 200));
                 }
                 
-                // Ensure map is properly sized
                 if (authorMap) {
                     authorMap.invalidateSize();
                 }
                 
-                // Clear existing markers
+                // Clear existing markers before re-rendering
                 if (authorMap) {
                     authorMap.eachLayer(function(layer) {
                         if (layer instanceof L.Marker) {
@@ -343,75 +348,89 @@
                     });
                 }
                 
-                // Get unique locations from authors
-                const locationMap = new Map(); // location -> array of authors
-                const originalToNormalized = new Map(); // original location -> normalized location
-                
+                // Aggregate authors per country code. Each entry tracks the authors it represents
+                // and a small set of distinct location strings (used in the popup so users can still
+                // see where in the country the authors said they were from).
+                // Map<countryCode, { country: string, authors: Author[], locations: Set<string> }>
+                const countryAggregation = new Map();
+                let unresolvedCount = 0;
+
+                // Resolve each author's location to a country, with a small cascade of strategies:
+                //   1) Synchronous in-memory lookup via LocationService.resolveCountryNoApi
+                //      (covers static-table hits + everything previously seen in this session).
+                //   2) Fallback to LocationService.getFromCache, which inspects the IndexedDB
+                //      cache for legacy entries that have a countryCode set (lat/lng data we
+                //      previously fetched from Nominatim).
+                // We deliberately do NOT call geocode() here — the map should never trigger
+                // Nominatim traffic on its own. Anything that doesn't resolve via the two
+                // paths above is a string we have no country signal for; we just skip it.
+                const cacheLookups = [];
+                const cacheLookupAuthors = [];
                 authors.forEach(author => {
-                    const location = author.metadata?.location || author.metadata?.company || null;
-                    if (location && location.trim()) {
-                        const originalLoc = location.trim();
-                        // Normalize the location to match what batchGeocode will use
-                        const normalizedLoc = locationService.normalizeLocationString(originalLoc);
-                        
-                        if (normalizedLoc) {
-                            // Map original to normalized for lookup
-                            originalToNormalized.set(originalLoc, normalizedLoc);
-                            
-                            // Use normalized location as key in locationMap
-                            if (!locationMap.has(normalizedLoc)) {
-                                locationMap.set(normalizedLoc, []);
-                            }
-                            locationMap.get(normalizedLoc).push(author);
-                        }
+                    const rawLocation = author.metadata?.location || author.metadata?.company || null;
+                    if (!rawLocation || !String(rawLocation).trim()) return;
+
+                    const original = String(rawLocation).trim();
+                    const normalized = locationService.normalizeLocationString(original);
+                    if (!normalized) return;
+
+                    const sync = locationService.resolveCountryNoApi(normalized);
+                    if (sync && sync.countryCode) {
+                        addAuthorToCountry(sync.countryCode, sync.country, original, author);
+                    } else {
+                        // Defer to async cache lookup; we'll resolve these in a single Promise.all batch below.
+                        cacheLookups.push(locationService.getFromCache(normalized));
+                        cacheLookupAuthors.push({ author, original, normalized });
                     }
                 });
-                
-                if (locationMap.size === 0) {
-                    console.log('ℹ️ No locations found for authors');
+
+                if (cacheLookups.length > 0) {
+                    const cacheResults = await Promise.all(cacheLookups);
+                    cacheResults.forEach((geocoded, idx) => {
+                        const { author, original } = cacheLookupAuthors[idx];
+                        if (geocoded && geocoded.countryCode) {
+                            const countryName = (window.CountryData && window.CountryData.getCountryName(geocoded.countryCode))
+                                || geocoded.country
+                                || geocoded.countryCode;
+                            addAuthorToCountry(geocoded.countryCode, countryName, original, author);
+                        } else {
+                            unresolvedCount++;
+                        }
+                    });
+                }
+
+                if (countryAggregation.size === 0) {
+                    console.log(`ℹ️ No country-resolvable locations found for authors${unresolvedCount ? ` (${unresolvedCount} unresolved)` : ''}`);
                     return;
                 }
-                
-                console.log(`🗺️ Processing ${locationMap.size} unique locations...`);
-                console.log(`   Locations: ${Array.from(locationMap.keys()).join(', ')}`);
-                
-                // Helper function to add a marker to the map
-                const addMarkerToMap = (location, geocoded) => {
-                    // Validate geocoded data
-                    if (!geocoded || typeof geocoded.lat !== 'number' || typeof geocoded.lng !== 'number') {
-                        console.warn(`⚠️ Invalid geocoding data for location: ${location}`, geocoded);
-                        return null;
+
+                console.log(`🗺️ Aggregated authors across ${countryAggregation.size} countries (unresolved: ${unresolvedCount})`);
+
+                const markers = [];
+                countryAggregation.forEach((entry, countryCode) => {
+                    const centroid = window.CountryData ? window.CountryData.getCentroid(countryCode) : null;
+                    if (!centroid) {
+                        console.warn(`⚠️ No centroid for country code: ${countryCode}`);
+                        return;
                     }
-                    
-                    // Validate coordinates are within valid ranges
-                    if (geocoded.lat < -90 || geocoded.lat > 90 || geocoded.lng < -180 || geocoded.lng > 180) {
-                        console.warn(`⚠️ Invalid coordinates for location: ${location}`, geocoded);
-                        return null;
-                    }
-                    
-                    const authorsAtLocation = locationMap.get(location);
-                    if (!authorsAtLocation || !Array.isArray(authorsAtLocation)) {
-                        console.warn(`⚠️ No authors found for normalized location: "${location}"`);
-                        return null;
-                    }
-                    
-                    const authorCount = authorsAtLocation.length;
-                    
-                    // Create popup content
-                    const authorNames = authorsAtLocation.slice(0, 5).map(a => escapeHtml(a.author)).join('<br>');
+
+                    const authorList = entry.authors;
+                    const authorCount = authorList.length;
+                    const sampleNames = authorList.slice(0, 5).map(a => escapeHtml(a.author)).join('<br>');
                     const moreText = authorCount > 5 ? `<br><strong>+ ${authorCount - 5} more</strong>` : '';
+                    const sampleLocations = Array.from(entry.locations).slice(0, 3).map(escapeHtml).join(', ');
                     const popupContent = `
                         <div class="map-popup-content">
-                            <strong>${escapeHtml(location)}</strong><br>
+                            <strong>${escapeHtml(entry.country)} (${escapeHtml(countryCode)})</strong><br>
                             <small>${authorCount} author${authorCount !== 1 ? 's' : ''}</small>
+                            ${sampleLocations ? `<br><small class="text-muted">${sampleLocations}${entry.locations.size > 3 ? ', ...' : ''}</small>` : ''}
                             <hr class="map-popup-hr">
-                            ${authorNames}${moreText}
+                            ${sampleNames}${moreText}
                         </div>
                     `;
-                    
+
                     try {
-                        // Create marker with default icon
-                        const marker = L.marker([geocoded.lat, geocoded.lng], {
+                        const marker = L.marker([centroid.lat, centroid.lng], {
                             icon: L.icon({
                                 iconUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-icon.png',
                                 iconRetinaUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-icon-2x.png',
@@ -423,81 +442,44 @@
                             })
                         }).addTo(authorMap);
                         marker.bindPopup(popupContent);
-                        return marker;
-                    } catch (error) {
-                        console.warn(`⚠️ Failed to create marker for location: ${location}`, error);
-                        return null;
-                    }
-                };
-                
-                // Geocode locations (loads from cache first, then fetches missing ones incrementally)
-                const locations = Array.from(locationMap.keys());
-                let markerCount = 0;
-                const markers = []; // Store all markers for bounds calculation
-                
-                // Helper to update map bounds
-                const updateMapBounds = () => {
-                    if (markers.length > 0 && authorMap) {
-                        const group = new L.featureGroup(markers);
-                        const bounds = group.getBounds();
-                        if (bounds.isValid()) {
-                            if (markers.length === 1) {
-                                authorMap.setView(bounds.getCenter(), 10);
-                            } else {
-                                authorMap.fitBounds(bounds.pad(0.1));
-                            }
-                        }
-                    }
-                };
-                
-                // Load locations from cache only (geocoding done during analysis phase)
-                // No API calls - just reads from IndexedDB cache
-                const cachedLocations = await locationService.batchGetFromCache(locations);
-                
-                // Add markers for all cached locations
-                cachedLocations.forEach((geocoded, location) => {
-                    const marker = addMarkerToMap(location, geocoded);
-                    if (marker) {
                         markers.push(marker);
-                        markerCount++;
-                        console.log(`📍 Added marker for ${location} at [${geocoded.lat}, ${geocoded.lng}]`);
+                    } catch (error) {
+                        console.warn(`⚠️ Failed to create marker for country ${countryCode}:`, error);
                     }
                 });
-                
-                console.log(`📍 Loaded ${cachedLocations.size}/${locations.length} locations from cache`);
-                
-                // Final fit map bounds to show all markers (if not already done incrementally)
-                if (markerCount > 0 && authorMap && markers.length > 0) {
-                    // Collect all markers from map (in case some were added outside our tracking)
-                    const allMarkers = [];
-                    authorMap.eachLayer(function(layer) {
-                        if (layer instanceof L.Marker) {
-                            allMarkers.push(layer);
-                        }
-                    });
-                    
-                    if (allMarkers.length > 0) {
-                        const group = new L.featureGroup(allMarkers);
-                        const bounds = group.getBounds();
-                        if (bounds.isValid()) {
-                            if (allMarkers.length === 1) {
-                                // Single marker - zoom to reasonable level
-                                authorMap.setView(bounds.getCenter(), 10);
-                            } else {
-                                // Multiple markers - fit bounds with padding
-                                authorMap.fitBounds(bounds.pad(0.1));
-                            }
+
+                if (markers.length > 0 && authorMap) {
+                    const group = new L.featureGroup(markers);
+                    const bounds = group.getBounds();
+                    if (bounds.isValid()) {
+                        if (markers.length === 1) {
+                            authorMap.setView(bounds.getCenter(), 4);
+                        } else {
+                            authorMap.fitBounds(bounds.pad(0.1));
                         }
                     }
-                }
-                
-                console.log(`✅ Added ${markerCount} markers to map`);
-                
-                // If markers were added, ensure map is visible and properly sized
-                if (markerCount > 0 && authorMap) {
                     authorMap.invalidateSize();
-                } else if (markerCount === 0) {
-                    console.warn('⚠️ No markers were added to the map. Check geocoding results.');
+                } else if (markers.length === 0) {
+                    console.warn('⚠️ No country markers were added to the map.');
+                }
+
+                console.log(`✅ Added ${markers.length} country marker(s) to map`);
+
+                // Helper: bucket an author into the per-country aggregation.
+                function addAuthorToCountry(countryCode, countryName, originalLocation, author) {
+                    const code = String(countryCode).toUpperCase();
+                    if (!countryAggregation.has(code)) {
+                        countryAggregation.set(code, {
+                            country: countryName || ((window.CountryData && window.CountryData.getCountryName(code)) || code),
+                            authors: [],
+                            locations: new Set()
+                        });
+                    }
+                    const entry = countryAggregation.get(code);
+                    entry.authors.push(author);
+                    if (originalLocation) {
+                        entry.locations.add(originalLocation);
+                    }
                 }
             }
             

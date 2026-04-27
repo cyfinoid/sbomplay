@@ -654,6 +654,86 @@ class IndexedDBManager {
     }
 
     /**
+     * Save one package + N author entities + N package-author relationships in a single
+     * IndexedDB transaction across all three stores (T3.3).
+     *
+     * Replaces the per-author 1+N+N transaction pattern in saveAuthorsToCache with a
+     * single multi-store transaction so that committing N authors for one package costs
+     * 1 transaction instead of 2N+1. Falls back gracefully when the db isn't ready.
+     *
+     * @param {Object} bundle
+     * @param {{packageKey: string, packageData: Object}|null} bundle.package - package row to upsert (optional)
+     * @param {Array<[string, Object]>} bundle.authorEntities - [authorKey, entityData] pairs
+     * @param {Array<{packageKey: string, authorKey: string, isMaintainer?: boolean}>} bundle.relationships
+     * @returns {Promise<boolean>}
+     */
+    async batchSavePackageAuthorBundle(bundle) {
+        try {
+            if (!this.db) {
+                console.warn('⚠️ IndexedDB not initialized yet');
+                return false;
+            }
+            const pkg = bundle?.package || null;
+            const authorEntities = bundle?.authorEntities || [];
+            const relationships = bundle?.relationships || [];
+            if (!pkg && authorEntities.length === 0 && relationships.length === 0) {
+                return true;
+            }
+
+            const stores = [];
+            if (pkg) stores.push('packages');
+            if (authorEntities.length > 0) stores.push('authorEntities');
+            if (relationships.length > 0) stores.push('packageAuthors');
+
+            const transaction = this.db.transaction(stores, 'readwrite');
+            const timestamp = new Date().toISOString();
+            const promises = [];
+
+            if (pkg) {
+                const pkgStore = transaction.objectStore('packages');
+                const pkgEntry = {
+                    packageKey: pkg.packageKey,
+                    ...pkg.packageData,
+                    timestamp
+                };
+                promises.push(this._promisifyRequest(pkgStore.put(pkgEntry)));
+            }
+
+            if (authorEntities.length > 0) {
+                const entityStore = transaction.objectStore('authorEntities');
+                authorEntities.forEach(([authorKey, authorData]) => {
+                    const entry = {
+                        authorKey,
+                        ...authorData,
+                        timestamp
+                    };
+                    promises.push(this._promisifyRequest(entityStore.put(entry)));
+                });
+            }
+
+            if (relationships.length > 0) {
+                const relStore = transaction.objectStore('packageAuthors');
+                relationships.forEach(({ packageKey, authorKey, isMaintainer = false }) => {
+                    const entry = {
+                        packageAuthorKey: `${packageKey}:${authorKey}`,
+                        packageKey,
+                        authorKey,
+                        isMaintainer,
+                        timestamp
+                    };
+                    promises.push(this._promisifyRequest(relStore.put(entry)));
+                });
+            }
+
+            await Promise.all(promises);
+            return true;
+        } catch (error) {
+            console.error('❌ Failed to batch save package-author bundle:', error);
+            return false;
+        }
+    }
+
+    /**
      * Get all authors for a package
      */
     async getPackageAuthors(packageKey) {

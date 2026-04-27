@@ -10,6 +10,33 @@ class LocationService {
         this.inFlightRequests = new Map(); // Track in-flight geocoding requests to prevent duplicates
         this.cacheExpiry = 7 * 24 * 60 * 60 * 1000; // 7 days cache expiry
         this.rateLimitDelay = 1000; // 1 second between Nominatim requests (their requirement)
+        // Country-keyed reuse cache: normalized location string → countryCode.
+        // Populated whenever a static resolver hit or a Nominatim resolution maps a string
+        // to a country, so subsequent strings that resolve to the same country don't need
+        // another round-trip. This is ephemeral; the long-term cache lives in the IndexedDB
+        // `locations` store, which already persists the full geocoded record (with countryCode).
+        this.countryByString = new Map();
+    }
+
+    /**
+     * Build a synthetic geocoded record for a country resolved via the static
+     * country/state lookup table. Uses the country centroid from CountryData so the
+     * authors-page map can render a country-level marker without ever touching
+     * Nominatim. Returns null if the country code is unknown.
+     */
+    buildCountryOnlyGeocoded(countryCode, displayName) {
+        const cd = (typeof window !== 'undefined') ? window.CountryData : null;
+        if (!countryCode || !cd) return null;
+        const centroid = cd.getCentroid(countryCode);
+        if (!centroid) return null;
+        return {
+            lat: centroid.lat,
+            lng: centroid.lng,
+            displayName: displayName || cd.getCountryName(countryCode) || countryCode,
+            countryCode: countryCode,
+            country: cd.getCountryName(countryCode) || countryCode,
+            source: 'static-country-table'
+        };
     }
 
     /**
@@ -220,6 +247,34 @@ class LocationService {
             return null;
         }
 
+        // Static country fast-path (T1.5a + T1.5d): if the trailing segment of the
+        // location string is a known country name, alpha-2/3 code, or US state, we can
+        // resolve it locally — no Nominatim round-trip, no 1 req/sec rate-limit wait.
+        // The synthesized record uses the country centroid from CountryData, which is
+        // accurate enough for country-level visualization on the authors map.
+        if (window.CountryData) {
+            const resolved = window.CountryData.resolveCountry(normalizedLocation);
+            if (resolved && resolved.countryCode) {
+                const synthesized = this.buildCountryOnlyGeocoded(resolved.countryCode, normalizedLocation);
+                if (synthesized) {
+                    // Track string → country in the in-memory reuse cache (T1.5b).
+                    this.countryByString.set(normalizedLocation, resolved.countryCode);
+                    // Populate both in-memory + persistent caches so subsequent reads
+                    // (including across sessions) skip even this static lookup.
+                    this.geocodeCache.set(normalizedLocation, {
+                        data: synthesized,
+                        timestamp: Date.now()
+                    });
+                    if (!skipIndexedDBCheck && window.indexedDBManager && window.indexedDBManager.isInitialized()) {
+                        // Best-effort: don't block the resolution on IndexedDB writes.
+                        window.indexedDBManager.saveLocation(normalizedLocation, synthesized).catch(() => {});
+                    }
+                    console.log(`📍 Static country resolver: "${normalizedLocation}" → ${resolved.countryCode} (no Nominatim call)`);
+                    return synthesized;
+                }
+            }
+        }
+
         // Check in-memory cache first
         if (!skipCache) {
             const cached = this.geocodeCache.get(normalizedLocation);
@@ -228,6 +283,9 @@ class LocationService {
                 if (cached.data && cached.data.failed === true) {
                     console.log(`📍 Memory cache: Found failed geocoding attempt for "${normalizedLocation}" - skipping retry`);
                     return null;
+                }
+                if (cached.data?.countryCode) {
+                    this.countryByString.set(normalizedLocation, cached.data.countryCode);
                 }
                 console.log(`📍 Memory cache: Found geocoded location for "${normalizedLocation}"`);
                 return cached.data;
@@ -248,6 +306,9 @@ class LocationService {
                         return null;
                     }
                     console.log(`📍 IndexedDB cache: Found geocoded location for "${normalizedLocation}"`);
+                    if (dbCached.countryCode) {
+                        this.countryByString.set(normalizedLocation, dbCached.countryCode);
+                    }
                     // Update in-memory cache
                     this.geocodeCache.set(normalizedLocation, {
                         data: dbCached,
@@ -325,6 +386,13 @@ class LocationService {
                 };
                 
                 console.log(`   ✅ Response: Status ${response.status}, Extracted: Coordinates (${geocoded.lat}, ${geocoded.lng}), Display name: "${geocoded.displayName}", Country: ${geocoded.countryCode || 'N/A'}`);
+
+                // Populate the country-keyed reuse cache (T1.5b) so future strings that
+                // resolve to the same country can short-circuit even before they're
+                // submitted to Nominatim again.
+                if (geocoded.countryCode) {
+                    this.countryByString.set(normalizedLocation, geocoded.countryCode);
+                }
 
                 // Cache the result in memory
                 this.geocodeCache.set(normalizedLocation, {
@@ -546,6 +614,7 @@ class LocationService {
      */
     clearCache() {
         this.geocodeCache.clear();
+        this.countryByString.clear();
     }
 
     /**
@@ -556,6 +625,48 @@ class LocationService {
             size: this.geocodeCache.size,
             entries: Array.from(this.geocodeCache.keys())
         };
+    }
+
+    /**
+     * Resolve just a country code from a free-form location string, with no API calls.
+     * Tries (1) the in-memory countryByString cache, (2) the static CountryData lookup,
+     * (3) any cached geocoded result already in memory. Returns null if none matched.
+     *
+     * Used by the authors-page country-only visualization (T1.5c) so it can render
+     * markers without ever pulling down Nominatim payloads.
+     *
+     * @param {string} locationString
+     * @returns {{countryCode: string, country: string} | null}
+     */
+    resolveCountryNoApi(locationString) {
+        const normalized = this.normalizeLocationString(locationString);
+        if (!normalized) return null;
+        // 1) ephemeral in-memory map
+        if (this.countryByString.has(normalized)) {
+            const code = this.countryByString.get(normalized);
+            return {
+                countryCode: code,
+                country: (window.CountryData && window.CountryData.getCountryName(code)) || code
+            };
+        }
+        // 2) static resolver — costs <50µs and avoids any cache lookups
+        if (window.CountryData) {
+            const resolved = window.CountryData.resolveCountry(normalized);
+            if (resolved) {
+                this.countryByString.set(normalized, resolved.countryCode);
+                return resolved;
+            }
+        }
+        // 3) in-memory geocode cache (covers strings already resolved by Nominatim earlier)
+        const cached = this.geocodeCache.get(normalized);
+        if (cached?.data?.countryCode) {
+            this.countryByString.set(normalized, cached.data.countryCode);
+            return {
+                countryCode: cached.data.countryCode,
+                country: cached.data.country || (window.CountryData && window.CountryData.getCountryName(cached.data.countryCode)) || cached.data.countryCode
+            };
+        }
+        return null;
     }
 }
 

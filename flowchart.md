@@ -385,18 +385,17 @@ flowchart TD
     U -->|Yes| S
     U -->|No| V[Empty authors array]
     S --> W[Extract funding information]
-    V --> X[Save to unified cache immediately]
+    V --> X[Stage entities + relationships in per-package bundle]
     W --> X
-    X --> Y[Save to IndexedDB]
+    X --> Y[Single multi-store IndexedDB transaction per package]
     Y --> Z[Update progress]
     Z --> AA{More packages?}
     AA -->|Yes| F
-    AA -->|No| AB[Group authors by author key]
+    AA -->|No| AB[Aggregate authors by author key]
     AB --> AC[Calculate repository counts]
-    AC --> AD[Fetch author funding from profiles]
-    AD --> AE[Save author entities]
-    AE --> AF[Save package-author relationships]
-    AF --> AG[Analysis complete]
+    AC --> AD[Batch GraphQL location/profile enrichment]
+    AD --> AE[Country-only authors map via static centroids]
+    AE --> AG[Analysis complete]
     
     J --> Z
     M --> Z
@@ -418,9 +417,13 @@ flowchart TD
 - **PURL-Based Extraction**: Extracts packages using PURL information from dependencies
 - **Package Deduplication**: Deduplicates by ecosystem:name before fetching
 - **Multi-source Fetching**: Tries multiple sources for maximum coverage
-- **Funding Detection**: Identifies GitHub Sponsors, Open Collective, Patreon, Tidelift (both package and author level)
+- **Funding Detection**: Identifies GitHub Sponsors, Open Collective, Patreon, Tidelift (both package and author level), with session and persistent negative caching to skip authors with no funding
 - **Author Grouping**: Groups authors by author key and calculates repository counts
-- **Incremental Caching**: Saves immediately after fetching each package to unified cache and IndexedDB
+- **Bundled Per-Package Writes**: Each package commits its package row, author entities, and relationships in a single IndexedDB transaction (`cacheManager.savePackageAuthorBundle`) instead of 1+N+N separate transactions
+- **Per-Run Memoization**: `findAuthorByEmail` / `findAuthorByGitHub` / `getAuthorEntity` results are memoized for the duration of a `fetchAuthorsForPackages` run so authors shared across packages cost one IDB lookup, not many
+- **Unified Rate-Limited HTTP**: All registry/funding fetches go through `requestQueueManager` lanes (`npm`, `pypi`, `cargo`, `gem`, `ecosystems`, `github`) with shared 429/403 backoff
+- **Country-Only Map**: The authors map renders one Leaflet marker per country using static ISO 3166-1 alpha-2 centroids from `js/country-data.js`; `LocationService.geocode()` resolves country / US-state suffixes locally before falling back to Nominatim, near-eliminating geocoding round-trips
+- **Optional Contributor Correlation**: Per-package GitHub contributor correlation (extra `/repos/<owner>/<repo>/contributors` calls) is gated behind a setting in `settings.html` and is **off by default**
 
 ---
 

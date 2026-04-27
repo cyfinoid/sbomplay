@@ -204,6 +204,14 @@ class SettingsApp {
             });
         }
 
+        // Per-package GitHub contributor correlation toggle (T3.2). Default off so a
+        // fresh install / cleared localStorage avoids the extra GitHub API traffic.
+        const contributorCorrelationCheckbox = document.getElementById('enableContributorCorrelation');
+        if (contributorCorrelationCheckbox) {
+            contributorCorrelationCheckbox.checked =
+                localStorage.getItem('enableContributorCorrelation') === 'true';
+        }
+
         const saveAnalysisSettingsBtn = document.getElementById('saveAnalysisSettingsBtn');
         if (saveAnalysisSettingsBtn) {
             saveAnalysisSettingsBtn.addEventListener('click', () => this.saveAnalysisSettings());
@@ -322,7 +330,17 @@ class SettingsApp {
                 localStorage.setItem('parallelBatchSize', batchSize.toString());
             }
         }
-        
+
+        // Persist contributor-correlation toggle (T3.2). AuthorService reads
+        // localStorage at fetch time, so no module-level wiring is needed here.
+        const contributorCorrelationCheckbox = document.getElementById('enableContributorCorrelation');
+        if (contributorCorrelationCheckbox) {
+            localStorage.setItem(
+                'enableContributorCorrelation',
+                contributorCorrelationCheckbox.checked ? 'true' : 'false'
+            );
+        }
+
         // Update dependency tree resolver if available
         if (window.dependencyTreeResolver) {
             window.dependencyTreeResolver.maxDepth = depth;
@@ -363,7 +381,12 @@ class SettingsApp {
             if (currentParallelThresholdEl) currentParallelThresholdEl.textContent = '4';
             if (parallelBatchSizeInput) parallelBatchSizeInput.value = '10';
             if (currentParallelBatchSizeEl) currentParallelBatchSizeEl.textContent = '10';
-            
+
+            // Reset contributor correlation toggle (default off, T3.2)
+            localStorage.removeItem('enableContributorCorrelation');
+            const contributorCorrelationCheckbox = document.getElementById('enableContributorCorrelation');
+            if (contributorCorrelationCheckbox) contributorCorrelationCheckbox.checked = false;
+
             if (window.dependencyTreeResolver) {
                 window.dependencyTreeResolver.maxDepth = 10;
                 window.dependencyTreeResolver.parallelDepthThreshold = 4;

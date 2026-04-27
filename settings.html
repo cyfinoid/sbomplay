@@ -54,8 +54,11 @@
 
         <!-- Badges Section -->
         <div class="text-center mb-3 d-flex flex-wrap justify-content-center gap-2">
-            <a href="https://blackhat.com/eu-25/arsenal/schedule/index.html#sbom-play-48565" target="_blank" rel="noreferrer noopener" title="Presented at BlackHat EU 2025 Arsenal">
-                <img src="images/badge-blackhat.svg" alt="BlackHat EU 2025 Arsenal">
+            <a href="about.html#showcased" title="Presented at BlackHat — view all events">
+                <img src="images/badge-blackhat.svg" alt="Presented @ BlackHat">
+            </a>
+            <a href="about.html#showcased" title="Presented at Defcon — view all events">
+                <img src="images/badge-defcon.svg" alt="Presented @ Defcon">
             </a>
             <a href="https://peerlist.io/anantshri/project/sbom-play" target="_blank" rel="noreferrer noopener" title="Launched on Peerlist">
                 <img src="images/badge-peerlist.svg" alt="Peerlist Launchpad">
@@ -251,6 +254,17 @@
                         <label class="form-label">Current Value</label>
                         <div class="p-3 border rounded bg-light">
                             <p class="mb-0"><strong id="currentParallelBatchSize">10</strong> concurrent</p>
+                        </div>
+                    </div>
+                </div>
+                <div class="row mb-3">
+                    <div class="col-md-12">
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" id="enableContributorCorrelation">
+                            <label class="form-check-label" for="enableContributorCorrelation">
+                                Enable per-package GitHub contributor correlation
+                            </label>
+                            <div><small class="text-muted">When on, the author pipeline issues an extra <code>/repos/&lt;owner&gt;/&lt;repo&gt;/contributors</code> request per unique repo to add tentative author entries from contributor logins. This adds GitHub API load (and tentative-quality entries) so it's <strong>off by default</strong>.</small></div>
                         </div>
                     </div>
                 </div>
