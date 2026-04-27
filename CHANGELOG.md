@@ -5,6 +5,23 @@ All notable changes to SBOM Play will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.0.8] - 2026-04-27
+
+### Added
+- **Per-entry "Rerun" action on the home page**: The "Stored Analyses" table on `index.html` now has an Actions column with a Rerun button on every row.
+  - For GitHub-sourced analyses (organization, user, or `owner/repo`), Rerun re-fetches a fresh SBOM from GitHub and runs the full enrichment pipeline (vulnerabilities, licenses, version drift, authors, GitHub Actions). Stored data is overwritten on success; on failure the previous data is preserved.
+  - In-memory GitHub client caches (`sbomCache`, `userCache`, `repoCache`) are cleared before rerun so the SBOM is genuinely re-fetched within the same session.
+  - For analyses created from uploaded SBOM files, the action becomes "Re-upload" and switches the user to the Upload tab (the original file is not retained, so the user must re-supply it).
+  - A confirmation prompt previews exactly what will happen before any work starts.
+
+### Fixed
+- Debug Tools page (`debug.html`) no longer throws `Cannot set properties of null (setting 'innerHTML')` on load. `SettingsApp.displayOrganizationsOverview()` now skips rendering when `#organizationsContent` / `#organizationsSection` are absent (e.g. on `debug.html`), matching the defensive pattern already used by the other init methods.
+- GitHub token validation now accepts all documented token formats (classic PAT `ghp_`, fine-grained PAT `github_pat_`, OAuth `gho_`, GitHub App `ghu_` / `ghs_` / `ghr_`) instead of only `ghp_`. Shared `isValidGitHubTokenFormat()` in `js/common.js`; index and settings token UI updated accordingly.
+
+## [0.0.7]
+
+_No changelog entries were recorded for this release._
+
 ## [0.0.6] - 2025-12-31
 
 ### Added

@@ -67,10 +67,26 @@ Update both workflow files:
 - **Never** use inline JS for cache busting - edit src attributes directly
 - HTML files: `index.html`, `licenses.html`, `vuln.html`, `deps.html`, `settings.html`, `authors.html`, `repos.html`, `about.html`, `debug.html`, `audit.html`, `findings.html`
 
-### CHANGELOG
+### CHANGELOG (MANDATORY)
+**EVERY change MUST be recorded in `CHANGELOG.md`. No exceptions.**
+
+This includes:
+- Features, bug fixes, refactors, performance improvements
+- Dependency updates, build/workflow/CI changes
+- Documentation changes that affect users or contributors
+- Security fixes and removals/deprecations
+- Even small or "trivial" updates — if it ships, it gets a changelog entry
+
+Rules:
 - Format: [Keep a Changelog](https://keepachangelog.com/)
 - Sections: `Added`, `Changed`, `Fixed`, `Removed`, `Security`
 - Header: `## [X.Y.Z] - YYYY-MM-DD`
+- Add the entry in the **same change/PR** as the code change — never defer to "later"
+- Place new entries at the top, under the current/next version header
+- If no version header exists yet for the upcoming release, create one (or use `## [Unreleased]` and promote it on release)
+- Write entries from the user's perspective: what changed and why it matters, not internal mechanics
+- Keep entries concise but specific — reference affected pages/services/files when useful
+- If a change spans multiple sections (e.g. `Added` + `Fixed`), list it under each relevant section
 
 ### Flowchart
 Update `flowchart.md` when:
@@ -112,13 +128,14 @@ Update `flowchart.md` when:
 | Version mismatch | Use flexible matching |
 | License not persisting | Update both sources, re-export |
 | Inline styles/scripts | Extract to CSS/JS files |
+| Forgot CHANGELOG entry | Add an entry for **every** change, in the same PR |
 
 ## Pre-Commit Checklist
 
+- [ ] **CHANGELOG.md updated for this change (REQUIRED — every update, no exceptions)**
 - [ ] No inline CSS/JS
 - [ ] User data escaped
 - [ ] Workflows updated (if files added/removed)
-- [ ] CHANGELOG.md updated
 - [ ] flowchart.md updated (if flows changed)
 - [ ] CSS uses variables
 - [ ] External links have security attrs
