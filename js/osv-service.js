@@ -359,10 +359,32 @@ class OSVService {
             vulnerableDependencies: []
         };
 
+        let totalMalwareDropped = 0;
         dependencies.forEach((dep, index) => {
             const vulnResult = results[index];
-            const vulnerabilities = vulnResult?.vulns || [];
-            
+            const rawVulns = vulnResult?.vulns || [];
+
+            // Defensive filter: drop MAL- advisories whose `affected[]`
+            // entries don't actually apply to this dep's version. The OSV
+            // batch endpoint occasionally returns malware advisories that
+            // pin a single version even when we asked about a different
+            // one (e.g. MAL-2025-6516 / graphemer@3.1.2 surfacing for
+            // graphemer@1.4.0). We re-run the OSV-spec match here so the
+            // false positives don't leak into the vuln dashboard, the
+            // findings page, the feeds, or the malware page.
+            const depEcosystem = dep.ecosystem || dep.category?.ecosystem || null;
+            const vulnerabilities = rawVulns.filter(v => {
+                if (!v) return false;
+                const isMal = this.classifyKind(v) === 'malware';
+                if (!isMal) return true; // CVE filtering is OSV's job
+                const matches = this.advisoryAppliesToVersion(v, dep.version, depEcosystem);
+                if (!matches) {
+                    totalMalwareDropped++;
+                    console.log(`🛡️ OSV: dropping ${v.id} for ${dep.name}@${dep.version || 'unknown'} (advisory targets a different version)`);
+                }
+                return matches;
+            });
+
             // Save to centralized storage if vulnerabilities found
             if (vulnerabilities.length > 0 && window.storageManager) {
                 const cacheKey = `${dep.name}@${dep.version}`;
@@ -418,23 +440,177 @@ class OSVService {
                     category: dep.category || null,
                     vulnerabilities: vulnerabilities.map(vuln => {
                         const severity = this.getHighestSeverity(vuln);
-                        console.log(`🔍 OSV: Mapped vulnerability ${vuln.id} severity: ${severity}`);
+                        const kind = this.classifyKind(vuln);
+                        console.log(`🔍 OSV: Mapped vulnerability ${vuln.id} severity: ${severity} kind: ${kind}`);
                         return {
                             id: vuln.id,
                             summary: vuln.summary,
                             details: vuln.details,
                             severity: severity,
+                            kind: kind,
                             published: vuln.published,
                             modified: vuln.modified,
-                            references: vuln.references || []
+                            references: vuln.references || [],
+                            affected: kind === 'malware' ? (vuln.affected || []) : undefined
                         };
                     })
                 });
             }
         });
 
+        if (totalMalwareDropped > 0) {
+            console.log(`🛡️ OSV: dropped ${totalMalwareDropped} malware advisor(ies) whose affected[] did not match the queried version`);
+        }
         console.log(`✅ OSV: Analysis complete - ${vulnerabilityAnalysis.vulnerablePackages} vulnerable packages found`);
         return vulnerabilityAnalysis;
+    }
+
+    /**
+     * Classify an OSV advisory as a CVE-style vulnerability or a malicious
+     * package. Malicious package advisories use the `MAL-YYYY-NNN` ID prefix
+     * and/or carry `affected[].database_specific['malicious-packages-origins']`.
+     * Returns either 'cve' or 'malware'. Defaults to 'cve' so existing
+     * consumers (e.g. severity dashboards) treat unknown advisories as vulns.
+     */
+    classifyKind(vuln) {
+        if (!vuln || typeof vuln !== 'object') return 'cve';
+        const id = String(vuln.id || '');
+        if (id.startsWith('MAL-')) return 'malware';
+        const affected = Array.isArray(vuln.affected) ? vuln.affected : [];
+        for (const a of affected) {
+            const ds = a && a.database_specific;
+            if (!ds || typeof ds !== 'object') continue;
+            if (ds['malicious-packages-origins']) return 'malware';
+            if (ds.malicious === true) return 'malware';
+        }
+        return 'cve';
+    }
+
+    /**
+     * OSV-spec strict version match against an advisory's `affected[]`.
+     * Used as a defensive secondary filter for MAL- advisories where the
+     * batch endpoint sometimes returns hits for non-matching versions.
+     *
+     * - if `affected[]` is empty/missing -> match (conservative)
+     * - if `version` is unknown/blank   -> match (we can't disprove it)
+     * - else each entry is a disjunction:
+     *     * `versions[]` includes the version, OR
+     *     * a *meaningful* `ranges[]` entry covers the version
+     *       (introduced > 0, or any `fixed` / `last_affected`), OR
+     *     * neither `versions` nor `ranges` is present (entry-level wildcard)
+     *
+     * Trivial open-ended placeholder ranges (`{introduced: "0"}` with no
+     * `fixed` / `last_affected`) are intentionally ignored when an
+     * explicit `versions[]` enumeration is present on the same entry.
+     * The OSSF Malicious Packages dataset routinely emits such a
+     * placeholder alongside the authoritative `versions[]` list (e.g.
+     * MAL-2024-2506 enumerates `["1.0.0", "10.1.1"]` while still pinning
+     * `ranges: [{introduced: "0"}]`) - trusting that range would flag
+     * every installed version of the package as malicious.
+     *
+     * NOTE: `database_specific.malicious-packages-origins[].ranges` is
+     * intentionally NOT consulted - that is import-source metadata, not an
+     * OSV affected-range and treating it as such causes broad mis-flags.
+     */
+    advisoryAppliesToVersion(vuln, version, ecosystem) {
+        if (!vuln || typeof vuln !== 'object') return true;
+        const affected = Array.isArray(vuln.affected) ? vuln.affected : [];
+        if (affected.length === 0) return true;
+        if (version === undefined || version === null) return true;
+        const v = String(version).trim();
+        if (!v || v.toLowerCase() === 'unknown') return true;
+        const depEco = ecosystem ? String(ecosystem).toLowerCase() : null;
+        for (const a of affected) {
+            if (!a || typeof a !== 'object') continue;
+            if (a.package && a.package.ecosystem && depEco) {
+                const advEco = String(a.package.ecosystem).toLowerCase();
+                if (advEco !== depEco) continue;
+            }
+            const versions = Array.isArray(a.versions) ? a.versions : [];
+            const ranges = Array.isArray(a.ranges) ? a.ranges : [];
+            if (versions.length === 0 && ranges.length === 0) return true;
+            if (versions.length > 0 && versions.includes(v)) return true;
+            // When `versions[]` is non-empty, consult only ranges that add
+            // information beyond the explicit enumeration - drop trivial
+            // open-ended placeholders so we don't mass-flag unaffected
+            // versions of a partially-malicious package.
+            const effectiveRanges = versions.length > 0
+                ? ranges.filter(r => !this._isTrivialOpenRange(r))
+                : ranges;
+            if (effectiveRanges.length > 0 && this._versionInRanges(v, effectiveRanges)) return true;
+        }
+        return false;
+    }
+
+    /**
+     * Returns true for a `ranges[]` entry that carries no information
+     * beyond "all versions" - i.e. a single `introduced: "0"` event with
+     * no `fixed` / `last_affected` companion. These are produced by the
+     * OSSF Malicious Packages dataset as a schema-required placeholder
+     * when the author only knows the explicit malicious versions, not a
+     * lower bound. See `advisoryAppliesToVersion` for context.
+     */
+    _isTrivialOpenRange(range) {
+        if (!range || !Array.isArray(range.events)) return false;
+        let introduced = null;
+        let fixed = null;
+        let lastAffected = null;
+        for (const ev of range.events) {
+            if (!ev || typeof ev !== 'object') continue;
+            if (Object.prototype.hasOwnProperty.call(ev, 'introduced')) introduced = ev.introduced;
+            if (Object.prototype.hasOwnProperty.call(ev, 'fixed')) fixed = ev.fixed;
+            if (Object.prototype.hasOwnProperty.call(ev, 'last_affected')) lastAffected = ev.last_affected;
+        }
+        return introduced === '0' && fixed === null && lastAffected === null;
+    }
+
+    _versionInRanges(version, ranges) {
+        for (const range of ranges) {
+            if (!range || !Array.isArray(range.events)) continue;
+            let introduced = null;
+            let fixed = null;
+            let lastAffected = null;
+            for (const ev of range.events) {
+                if (!ev || typeof ev !== 'object') continue;
+                if (Object.prototype.hasOwnProperty.call(ev, 'introduced')) introduced = ev.introduced;
+                if (Object.prototype.hasOwnProperty.call(ev, 'fixed')) fixed = ev.fixed;
+                if (Object.prototype.hasOwnProperty.call(ev, 'last_affected')) lastAffected = ev.last_affected;
+            }
+            if (introduced === null && fixed === null && lastAffected === null) continue;
+            const introducedOk = introduced === null
+                || introduced === '0'
+                || this._compareVersions(version, introduced) >= 0;
+            const fixedOk = fixed === null || this._compareVersions(version, fixed) < 0;
+            const lastAffectedOk = lastAffected === null || this._compareVersions(version, lastAffected) <= 0;
+            if (introducedOk && fixedOk && lastAffectedOk) return true;
+        }
+        return false;
+    }
+
+    _compareVersions(a, b) {
+        if (a === b) return 0;
+        const parse = (s) => {
+            const cleaned = String(s).replace(/^v/i, '');
+            const dashIdx = cleaned.search(/[-+]/);
+            const main = dashIdx === -1 ? cleaned : cleaned.slice(0, dashIdx);
+            const tail = dashIdx === -1 ? '' : cleaned.slice(dashIdx + 1);
+            const tokens = main.split('.').map(t => /^\d+$/.test(t) ? parseInt(t, 10) : t);
+            return { tokens, tail };
+        };
+        const A = parse(a);
+        const B = parse(b);
+        const len = Math.max(A.tokens.length, B.tokens.length);
+        for (let i = 0; i < len; i++) {
+            const x = A.tokens[i] === undefined ? 0 : A.tokens[i];
+            const y = B.tokens[i] === undefined ? 0 : B.tokens[i];
+            if (x === y) continue;
+            if (typeof x === 'number' && typeof y === 'number') return x - y;
+            return String(x).localeCompare(String(y));
+        }
+        if (A.tail && !B.tail) return -1;
+        if (!A.tail && B.tail) return 1;
+        if (A.tail && B.tail) return A.tail.localeCompare(B.tail);
+        return 0;
     }
 
     /**
@@ -538,11 +714,28 @@ class OSVService {
             vulnerableDependencies: []
         };
 
+        let totalMalwareDropped = 0;
         for (let index = 0; index < validDependencies.length; index++) {
             const dep = validDependencies[index];
             const vulnResult = results[index] || { vulns: [] };
-            const vulnerabilities = vulnResult?.vulns || [];
-            
+            const rawVulns = vulnResult?.vulns || [];
+
+            // Strict per-version filter for MAL- advisories. See the
+            // matching logic in `analyzeDependencies` for the rationale -
+            // we drop malware advisories that target a different version
+            // so they don't pollute the dashboards.
+            const depEcosystem = dep.ecosystem || dep.category?.ecosystem || null;
+            const vulnerabilities = rawVulns.filter(v => {
+                if (!v) return false;
+                if (this.classifyKind(v) !== 'malware') return true;
+                const matches = this.advisoryAppliesToVersion(v, dep.version, depEcosystem);
+                if (!matches) {
+                    totalMalwareDropped++;
+                    console.log(`🛡️ OSV: dropping ${v.id} for ${dep.name}@${dep.version || 'unknown'} (advisory targets a different version)`);
+                }
+                return matches;
+            });
+
             // ALWAYS save to cache immediately (even if no vulnerabilities found)
             // This ensures incremental storage during analysis
             const cacheKey = `${dep.name}@${dep.version}`;
@@ -607,15 +800,18 @@ class OSVService {
                     category: dep.category || null,
                     vulnerabilities: vulnerabilities.map(vuln => {
                         const severity = this.getHighestSeverity(vuln);
-                        console.log(`🔍 OSV: Mapped vulnerability ${vuln.id} severity: ${severity}`);
+                        const kind = this.classifyKind(vuln);
+                        console.log(`🔍 OSV: Mapped vulnerability ${vuln.id} severity: ${severity} kind: ${kind}`);
                         return {
                             id: vuln.id,
                             summary: vuln.summary,
                             details: vuln.details,
                             severity: severity,
+                            kind: kind,
                             published: vuln.published,
                             modified: vuln.modified,
-                            references: vuln.references || []
+                            references: vuln.references || [],
+                            affected: kind === 'malware' ? (vuln.affected || []) : undefined
                         };
                     })
                 });
@@ -647,6 +843,9 @@ class OSVService {
             onProgress(100, `Vulnerability analysis complete - ${vulnerabilityAnalysis.vulnerablePackages} vulnerable packages found`);
         }
 
+        if (totalMalwareDropped > 0) {
+            console.log(`🛡️ OSV: dropped ${totalMalwareDropped} malware advisor(ies) whose affected[] did not match the queried version`);
+        }
         console.log(`✅ OSV: Analysis complete - ${vulnerabilityAnalysis.vulnerablePackages} vulnerable packages found`);
         return vulnerabilityAnalysis;
     }

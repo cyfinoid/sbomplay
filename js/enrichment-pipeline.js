@@ -59,12 +59,20 @@ class EnrichmentPipeline {
             return currentResults;
         };
 
-        // Phase 1: Vulnerability analysis (60-68%)
+        // Phase 1: Vulnerability analysis (60-66%)
         onProgress('vulnerability', 60, 'Analyzing vulnerabilities...');
         await this.analyzeVulnerabilities(identifier, (pct, msg) => {
-            onProgress('vulnerability', 60 + pct * 0.08, msg);
+            onProgress('vulnerability', 60 + pct * 0.06, msg);
         });
         await saveProgress('Enrichment Phase 1: Vulnerabilities');
+
+        // Phase 1.5: Malware classification (66-68%)
+        // Reuses the OSV results gathered in Phase 1, no new external calls.
+        onProgress('malware', 66, 'Checking known-malicious packages...');
+        await this.analyzeMalware(identifier, (pct, msg) => {
+            onProgress('malware', 66 + pct * 0.02, msg);
+        });
+        await saveProgress('Enrichment Phase 1.5: Malware');
 
         // Phase 2: License fetching (68-76%)
         onProgress('licenses', 68, 'Fetching license information...');
@@ -130,6 +138,30 @@ class EnrichmentPipeline {
             }
         } catch (e) {
             console.warn(`⚠️ Vulnerability analysis failed: ${e.message}`);
+        }
+    }
+
+    /**
+     * Re-classify OSV results into a dedicated malware analysis bucket.
+     * No new network calls - this consumes the data already fetched by
+     * `analyzeVulnerabilities` and persists the result alongside the
+     * existing analysis record.
+     */
+    async analyzeMalware(identifier, onProgress = () => {}) {
+        if (!window.malwareService) {
+            console.warn('⚠️ Malware service not available');
+            return;
+        }
+        try {
+            const malwareAnalysis = await window.malwareService.analyzeFromProcessor(
+                this.sbomProcessor,
+                onProgress
+            );
+            if (malwareAnalysis && this.storageManager?.updateAnalysisWithMalware) {
+                await this.storageManager.updateAnalysisWithMalware(identifier, malwareAnalysis);
+            }
+        } catch (e) {
+            console.warn(`⚠️ Malware analysis failed: ${e.message}`);
         }
     }
 

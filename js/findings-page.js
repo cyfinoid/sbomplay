@@ -297,7 +297,73 @@ document.addEventListener('DOMContentLoaded', async function() {
      */
     async function generateSecurityFindingsHTML(orgData, severityFilter = 'all', findingTypeFilter = 'all', repoFilter = 'all', storageManager = null) {
         const allFindings = [];
-        
+
+        // === Collect Malware findings ===
+        // Malware advisories are the most severe class of finding here -
+        // they always map to "critical" severity and link out to the
+        // dedicated Malware page for the full report.
+        if (findingTypeFilter === 'all' || findingTypeFilter === 'malware') {
+            // Always prefer to re-derive from `vulnerabilityAnalysis` so the
+            // OSV-spec strict version filter (advisoryAppliesToVersion)
+            // gets re-applied at read time. This cleans up legacy stored
+            // analyses that pre-date strict matching without requiring
+            // a re-enrichment. Fall back to the persisted malwareAnalysis
+            // only when the source data is unavailable.
+            let malwareAnalysis = null;
+            if (window.malwareService && orgData?.data?.vulnerabilityAnalysis) {
+                await window.malwareService.hydrateAffectedFromCache(orgData.data.vulnerabilityAnalysis);
+                malwareAnalysis = window.malwareService.classifyFromVulnerabilityAnalysis(
+                    orgData.data.vulnerabilityAnalysis,
+                    orgData.data.allDependencies || []
+                );
+            }
+            if (!malwareAnalysis) {
+                malwareAnalysis = orgData?.data?.malwareAnalysis || null;
+            }
+
+            if (malwareAnalysis && Array.isArray(malwareAnalysis.maliciousDependencies)) {
+                for (const md of malwareAnalysis.maliciousDependencies) {
+                    const repos = Array.isArray(md.repositories) ? md.repositories : [];
+                    if (repoFilter && repoFilter !== 'all' && !repos.includes(repoFilter)) continue;
+                    if (severityFilter && severityFilter !== 'all' && severityFilter !== 'critical') continue;
+
+                    const advisoryIds = (md.advisories || []).map(a => a.id).filter(Boolean);
+                    const ecosystem = md.ecosystem || md.category?.ecosystem || 'unknown';
+                    const summary = md.advisories && md.advisories[0] && md.advisories[0].summary
+                        ? md.advisories[0].summary
+                        : '';
+                    const advisoryRef = advisoryIds.length > 0 ? advisoryIds[0] : null;
+
+                    allFindings.push({
+                        category: 'malware',
+                        type: 'KNOWN_MALICIOUS_PACKAGE',
+                        typeName: 'Known Malicious Package',
+                        description: 'Dependency matches an OSV `MAL-*` advisory or the OpenSSF Malicious Packages dataset. Remove or replace immediately and rotate any secrets that may have been exposed.',
+                        severity: 'critical',
+                        package: `${md.name}@${md.version || 'unknown'}`,
+                        packageName: md.name,
+                        packageVersion: md.version || 'unknown',
+                        ecosystem: ecosystem,
+                        repository: repos.length > 0 ? repos[0] : null,
+                        repositories: repos,
+                        advisoryIds: advisoryIds,
+                        primaryAdvisory: advisoryRef,
+                        primaryAdvisoryUrl: advisoryRef ? `https://osv.dev/vulnerability/${encodeURIComponent(advisoryRef)}` : null,
+                        message: advisoryIds.length === 1
+                            ? `Advisory ${advisoryIds[0]}: ${summary || 'Malicious package detected.'}`
+                            : `${advisoryIds.length} malware advisor${advisoryIds.length === 1 ? 'y' : 'ies'} detected. ${summary}`,
+                        depInfo: {
+                            name: md.name,
+                            version: md.version,
+                            type: 'direct',
+                            license: null,
+                            parentsByRepo: null
+                        }
+                    });
+                }
+            }
+        }
+
         // === Collect GitHub Actions findings ===
         if (findingTypeFilter === 'all' || findingTypeFilter === 'github-actions') {
             const githubActionsAnalysis = orgData?.data?.githubActionsAnalysis;
@@ -667,7 +733,7 @@ document.addEventListener('DOMContentLoaded', async function() {
         if (allFindings.length === 0) {
             return `<div class="alert alert-success">
                 <i class="fas fa-check-circle me-2"></i>
-                <strong>No security findings!</strong> No GitHub Actions security issues, dependency confusion risks, EOX issues, or dead source repos were detected for the selected filters.
+                <strong>No security findings!</strong> No malicious packages, GitHub Actions security issues, dependency confusion risks, EOX issues, or dead source repos were detected for the selected filters.
             </div>`;
         }
         
@@ -688,9 +754,9 @@ document.addEventListener('DOMContentLoaded', async function() {
             findingsByType.get(key).instances.push(finding);
         });
         
-        // Sort by severity (high first) then by count
+        // Sort by severity (critical first, then high, etc.) then by count
         const sortedTypes = Array.from(findingsByType.entries()).sort((a, b) => {
-            const severityOrder = { 'high': 3, 'error': 3, 'medium': 2, 'warning': 1, 'low': 0 };
+            const severityOrder = { 'critical': 4, 'high': 3, 'error': 3, 'medium': 2, 'warning': 1, 'low': 0 };
             const aSev = severityOrder[a[1].severity] || 0;
             const bSev = severityOrder[b[1].severity] || 0;
             if (aSev !== bSev) return bSev - aSev;
@@ -700,11 +766,13 @@ document.addEventListener('DOMContentLoaded', async function() {
         // Calculate statistics
         const stats = {
             total: allFindings.length,
+            critical: allFindings.filter(f => f.severity === 'critical').length,
             high: allFindings.filter(f => f.severity === 'high' || f.severity === 'error').length,
             medium: allFindings.filter(f => f.severity === 'medium').length,
             warning: allFindings.filter(f => f.severity === 'warning').length,
             low: allFindings.filter(f => f.severity === 'low').length,
             uniqueTypes: sortedTypes.length,
+            malware: allFindings.filter(f => f.category === 'malware').length,
             githubActions: allFindings.filter(f => f.category === 'github-actions').length,
             dependencyConfusion: allFindings.filter(f => f.category === 'dependency-confusion').length,
             eox: allFindings.filter(f => f.category === 'eox').length,
@@ -722,6 +790,14 @@ document.addEventListener('DOMContentLoaded', async function() {
                 <div class="card-body text-center py-2">
                     <h3 class="mb-0">${stats.total}</h3>
                     <small class="text-muted">Total Findings</small>
+                </div>
+            </div>
+        </div>`;
+        html += `<div class="col-md-2">
+            <div class="card ${stats.critical > 0 ? 'bg-danger text-white' : 'bg-light'}">
+                <div class="card-body text-center py-2">
+                    <h3 class="mb-0">${stats.critical}</h3>
+                    <small class="${stats.critical > 0 ? '' : 'text-muted'}">Critical</small>
                 </div>
             </div>
         </div>`;
@@ -750,9 +826,17 @@ document.addEventListener('DOMContentLoaded', async function() {
             </div>
         </div>`;
         html += '</div>';
-        
+
         // Second row: Category breakdown
         html += '<div class="row">';
+        html += `<div class="col-md-3">
+            <div class="card ${stats.malware > 0 ? 'bg-danger text-white' : 'bg-light'}">
+                <div class="card-body text-center py-2">
+                    <h3 class="mb-0"><i class="fas fa-biohazard"></i> ${stats.malware}</h3>
+                    <small class="${stats.malware > 0 ? '' : 'text-muted'}">Malware</small>
+                </div>
+            </div>
+        </div>`;
         html += `<div class="col-md-3">
             <div class="card bg-light">
                 <div class="card-body text-center py-2">
@@ -773,7 +857,7 @@ document.addEventListener('DOMContentLoaded', async function() {
             <div class="card ${stats.eox > 0 ? 'bg-secondary text-white' : 'bg-light'}">
                 <div class="card-body text-center py-2">
                     <h3 class="mb-0"><i class="fas fa-hourglass-end"></i> ${stats.eox}</h3>
-                    <small class="${stats.eox > 0 ? '' : 'text-muted'}">EOX (End-of-Life/Support)</small>
+                    <small class="${stats.eox > 0 ? '' : 'text-muted'}">EOX</small>
                 </div>
             </div>
         </div>`;
@@ -793,7 +877,10 @@ document.addEventListener('DOMContentLoaded', async function() {
         sortedTypes.forEach(([key, typeData], index) => {
             const collapseId = `finding-type-${index}`;
             let categoryIcon, categoryLabel;
-            if (typeData.category === 'github-actions') {
+            if (typeData.category === 'malware') {
+                categoryIcon = 'fas fa-biohazard';
+                categoryLabel = 'Malware';
+            } else if (typeData.category === 'github-actions') {
                 categoryIcon = 'fab fa-github';
                 categoryLabel = 'GitHub Actions';
             } else if (typeData.category === 'eox') {
@@ -828,7 +915,9 @@ document.addEventListener('DOMContentLoaded', async function() {
                             <table class="table table-sm table-striped">
                                 <thead>
                                     <tr>
-                                        ${typeData.category === 'github-actions' ? 
+                                        ${typeData.category === 'malware' ?
+                                            '<th>Package</th><th>Ecosystem</th><th>Advisor(ies)</th><th>Used In</th>' :
+                                            typeData.category === 'github-actions' ?
                                             '<th>Action</th><th>Location</th><th>Message</th>' :
                                             typeData.category === 'eox' ?
                                             '<th>Package</th><th>Ecosystem</th><th>Repositories</th><th>Details</th>' :
@@ -840,7 +929,37 @@ document.addEventListener('DOMContentLoaded', async function() {
                                 </thead>
                                 <tbody>
                                     ${typeData.instances.map(instance => {
-                                        if (typeData.category === 'github-actions') {
+                                        if (typeData.category === 'malware') {
+                                            const packageDisplay = escapeHtml(instance.package || '-');
+                                            const repos = Array.isArray(instance.repositories) ? instance.repositories : [];
+                                            const packageLink = instance.packageName ? `
+                                                <a href="#" class="package-details-link text-decoration-none"
+                                                   data-package-name="${escapeHtml(instance.packageName)}"
+                                                   data-package-version="${escapeHtml(instance.packageVersion || 'unknown')}"
+                                                   data-package-ecosystem="${escapeHtml(instance.ecosystem || '')}"
+                                                   data-package-repos='${escapeJsString(JSON.stringify(repos))}'
+                                                   data-dep-info='${escapeJsString(JSON.stringify(instance.depInfo || {}))}'>
+                                                    <code class="small">${packageDisplay}</code>
+                                                    <i class="fas fa-info-circle ms-1 text-primary small"></i>
+                                                </a>
+                                            ` : `<code class="small">${packageDisplay}</code>`;
+
+                                            const advisoryIds = Array.isArray(instance.advisoryIds) ? instance.advisoryIds : [];
+                                            const advisoryLinks = advisoryIds.length > 0
+                                                ? advisoryIds.slice(0, 6).map(id => `<a href="https://osv.dev/vulnerability/${encodeURIComponent(id)}" target="_blank" rel="noreferrer noopener"><code class="small">${escapeHtml(id)}</code></a>`).join('<br>')
+                                                : '<span class="text-muted">—</span>';
+                                            const overflow = advisoryIds.length > 6
+                                                ? `<br><small class="text-muted">+${advisoryIds.length - 6} more</small>`
+                                                : '';
+                                            const malwarePageLink = '<br><a href="malware.html" class="small">View on Malware page</a>';
+
+                                            return `<tr class="table-danger">
+                                                <td>${packageLink}<br><small class="text-muted">${escapeHtml(instance.message || '')}</small></td>
+                                                <td><span class="badge bg-secondary">${escapeHtml(instance.ecosystem || '-')}</span></td>
+                                                <td>${advisoryLinks}${overflow}${malwarePageLink}</td>
+                                                <td>${repos.length > 0 ? generateRepoListHTML(repos) : '<span class="text-muted">-</span>'}</td>
+                                            </tr>`;
+                                        } else if (typeData.category === 'github-actions') {
                                             // Build action cell with link to action repository
                                             let actionCell = '-';
                                             if (instance.action) {

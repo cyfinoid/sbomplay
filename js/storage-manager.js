@@ -868,6 +868,7 @@ class StorageManager {
             vulnerabilities: [],
             licenses: [],
             vulnerabilityAnalysis: null,
+            malwareAnalysis: null,
             licenseAnalysis: null,
             qualityAnalysis: null,
             githubActionsAnalysis: null,
@@ -1041,6 +1042,52 @@ class StorageManager {
                 highVulnerabilities: totalHighVulnerabilities,
                 mediumVulnerabilities: totalMediumVulnerabilities,
                 lowVulnerabilities: totalLowVulnerabilities
+            };
+        }
+
+        // Combine malware analysis from all entries (deduplicate by ecosystem|name|version)
+        const malwareMap = new Map();
+        let malwareTotalAdvisories = 0;
+        let malwareTotalPackages = 0;
+        for (const entry of entriesData) {
+            const ma = entry.data.malwareAnalysis;
+            if (!ma || !Array.isArray(ma.maliciousDependencies)) continue;
+            malwareTotalPackages += ma.totalPackages || 0;
+            for (const md of ma.maliciousDependencies) {
+                const key = `${(md.ecosystem || '').toLowerCase()}|${md.name}|${md.version || ''}`;
+                const advisories = Array.isArray(md.advisories) ? md.advisories : [];
+                if (malwareMap.has(key)) {
+                    const existing = malwareMap.get(key);
+                    const seen = new Set(existing.advisories.map(a => a.id));
+                    for (const adv of advisories) {
+                        if (!seen.has(adv.id)) {
+                            existing.advisories.push(adv);
+                            malwareTotalAdvisories++;
+                        }
+                    }
+                    const repos = new Set([...(existing.repositories || []), ...(md.repositories || [])]);
+                    existing.repositories = Array.from(repos);
+                } else {
+                    malwareMap.set(key, {
+                        name: md.name,
+                        version: md.version,
+                        ecosystem: md.ecosystem || null,
+                        category: md.category || null,
+                        repositories: Array.isArray(md.repositories) ? Array.from(md.repositories) : [],
+                        advisories: advisories.map(a => ({ ...a }))
+                    });
+                    malwareTotalAdvisories += advisories.length;
+                }
+            }
+        }
+        if (malwareMap.size > 0) {
+            combined.malwareAnalysis = {
+                timestamp: new Date().toISOString(),
+                totalPackages: malwareTotalPackages,
+                maliciousPackages: malwareMap.size,
+                totalAdvisories: malwareTotalAdvisories,
+                sources: { osv: true, openssf: true },
+                maliciousDependencies: Array.from(malwareMap.values())
             };
         }
 
@@ -1315,6 +1362,32 @@ class StorageManager {
             return await this.saveAnalysisData(name, existingData.data);
         } catch (error) {
             console.error('❌ Failed to update analysis with vulnerabilities:', error);
+            return false;
+        }
+    }
+
+    /**
+     * Update analysis with malware classification results.
+     * The malware analysis is derived from the OSV vulnerability data and
+     * stored alongside it on the analysis record (not in a separate
+     * IndexedDB store - the per-package OSV cache already holds the raw
+     * advisories).
+     */
+    async updateAnalysisWithMalware(name, malwareData) {
+        try {
+            if (!name) return false;
+            const existingData = await this.loadAnalysisDataForOrganization(name);
+            if (!existingData) {
+                console.warn('⚠️ No existing data found for:', name);
+                return false;
+            }
+
+            existingData.data.malwareAnalysis = malwareData;
+            existingData.timestamp = new Date().toISOString();
+
+            return await this.saveAnalysisData(name, existingData.data);
+        } catch (error) {
+            console.error('❌ Failed to update analysis with malware:', error);
             return false;
         }
     }

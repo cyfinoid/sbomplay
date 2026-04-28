@@ -497,6 +497,40 @@ class CacheManager {
 
     /**
      * ============================================
+     * MALWARE INDEX CACHE METHODS
+     * ============================================
+     *
+     * The malware "index" is the optional OpenSSF Malicious Packages
+     * dataset (`github.com/ossf/malicious-packages`). It augments the
+     * primary OSV-driven malware classification when present. We keep it
+     * memory-only by design - the data is large and OSV already mirrors
+     * it, so we avoid forcing every analysis to fetch a multi-megabyte
+     * blob. A future setting can opt in to a persistent refresh.
+     */
+
+    /**
+     * Get the cached OpenSSF malware index (memory only).
+     * @returns {Object|null} - { entries: [...], fetchedAt: ISO } or null
+     */
+    getMalwareIndex() {
+        const memoryKey = 'malware-index:openssf';
+        return this.memoryCache.get(memoryKey) || null;
+    }
+
+    /**
+     * Save the OpenSSF malware index in memory for the current session.
+     * @param {Object} indexData - { entries: [...], fetchedAt: ISO }
+     */
+    saveMalwareIndex(indexData) {
+        const memoryKey = 'malware-index:openssf';
+        this.memoryCache.set(memoryKey, {
+            ...indexData,
+            fetchedAt: indexData?.fetchedAt || new Date().toISOString()
+        });
+    }
+
+    /**
+     * ============================================
      * GITHUB REPOSITORY CACHE METHODS
      * ============================================
      */

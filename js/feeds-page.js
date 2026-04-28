@@ -129,10 +129,56 @@ console.log('📡 feeds-page.js loaded');
         allEntries = resolved.entries;
         allStats = resolved.stats;
 
+        // Prepend a global Malware advisories feed when the analysis has
+        // at least one malicious-package match. Subscribing to that feed
+        // gives the user ongoing notifications for new advisories beyond
+        // a single SBOM scan.
+        if ((await hasMalwareHits(data)) && typeof feedUrlBuilder.buildMalwareAdvisoryEntry === 'function') {
+            const malwareEntry = feedUrlBuilder.buildMalwareAdvisoryEntry();
+            allEntries = [malwareEntry, ...allEntries];
+            allStats.total++;
+            allStats.native++;
+            allStats.covered++;
+            allStats.direct++;
+            allStats.directCovered++;
+        }
+
         populateEcosystemFilter(allEntries);
         applyFilters();
 
         dom.loadingOverlay.classList.add('d-none');
+    }
+
+    /**
+     * Returns true when the loaded analysis has at least one detected
+     * malicious-package match (either persisted on `malwareAnalysis` or
+     * reachable by filtering `vulnerabilityAnalysis` for `MAL-` IDs).
+     */
+    async function hasMalwareHits(data) {
+        // Always re-derive when possible so the OSV-spec strict version
+        // filter applies. This keeps the global malware feed entry from
+        // being injected for legacy analyses whose only "malware" hit is
+        // a stale false positive (e.g. an advisory that targets a
+        // different version than the one installed). We hydrate
+        // `affected[]` from the per-package OSV cache first so legacy
+        // stored records (which don't carry `affected[]` on each vuln)
+        // also benefit from strict matching.
+        if (window.malwareService && data?.data?.vulnerabilityAnalysis) {
+            await window.malwareService.hydrateAffectedFromCache(data.data.vulnerabilityAnalysis);
+            const derived = window.malwareService.classifyFromVulnerabilityAnalysis(
+                data.data.vulnerabilityAnalysis,
+                data.data.allDependencies || []
+            );
+            if (derived && Array.isArray(derived.maliciousDependencies) && derived.maliciousDependencies.length > 0) {
+                return true;
+            }
+            return false;
+        }
+        const malware = data?.data?.malwareAnalysis;
+        if (malware && Array.isArray(malware.maliciousDependencies) && malware.maliciousDependencies.length > 0) {
+            return true;
+        }
+        return false;
     }
 
     /**
