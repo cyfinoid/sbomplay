@@ -31,8 +31,15 @@ class SettingsApp {
         if (tokenInput) {
             tokenInput.addEventListener('input', (e) => {
                 const token = e.target.value.trim();
-                if (token && !token.startsWith('ghp_')) {
-                    this.updateTokenStatus('Token should start with "ghp_"', 'warning');
+                const validFn = typeof window.isValidGitHubTokenFormat === 'function'
+                    ? window.isValidGitHubTokenFormat
+                    : (t) => !t || /^ghp_[A-Za-z0-9_]+$/.test(t);
+                const prefixes = window.GITHUB_TOKEN_PREFIXES || ['ghp_'];
+                if (token && !validFn(token)) {
+                    this.updateTokenStatus(
+                        `Token must start with one of: ${prefixes.join(', ')}`,
+                        'warning'
+                    );
                 } else if (token) {
                     this.updateTokenStatus('Token format looks valid', 'success');
                 } else {
@@ -197,6 +204,14 @@ class SettingsApp {
             });
         }
 
+        // Per-package GitHub contributor correlation toggle (T3.2). Default off so a
+        // fresh install / cleared localStorage avoids the extra GitHub API traffic.
+        const contributorCorrelationCheckbox = document.getElementById('enableContributorCorrelation');
+        if (contributorCorrelationCheckbox) {
+            contributorCorrelationCheckbox.checked =
+                localStorage.getItem('enableContributorCorrelation') === 'true';
+        }
+
         const saveAnalysisSettingsBtn = document.getElementById('saveAnalysisSettingsBtn');
         if (saveAnalysisSettingsBtn) {
             saveAnalysisSettingsBtn.addEventListener('click', () => this.saveAnalysisSettings());
@@ -315,7 +330,17 @@ class SettingsApp {
                 localStorage.setItem('parallelBatchSize', batchSize.toString());
             }
         }
-        
+
+        // Persist contributor-correlation toggle (T3.2). AuthorService reads
+        // localStorage at fetch time, so no module-level wiring is needed here.
+        const contributorCorrelationCheckbox = document.getElementById('enableContributorCorrelation');
+        if (contributorCorrelationCheckbox) {
+            localStorage.setItem(
+                'enableContributorCorrelation',
+                contributorCorrelationCheckbox.checked ? 'true' : 'false'
+            );
+        }
+
         // Update dependency tree resolver if available
         if (window.dependencyTreeResolver) {
             window.dependencyTreeResolver.maxDepth = depth;
@@ -356,7 +381,12 @@ class SettingsApp {
             if (currentParallelThresholdEl) currentParallelThresholdEl.textContent = '4';
             if (parallelBatchSizeInput) parallelBatchSizeInput.value = '10';
             if (currentParallelBatchSizeEl) currentParallelBatchSizeEl.textContent = '10';
-            
+
+            // Reset contributor correlation toggle (default off, T3.2)
+            localStorage.removeItem('enableContributorCorrelation');
+            const contributorCorrelationCheckbox = document.getElementById('enableContributorCorrelation');
+            if (contributorCorrelationCheckbox) contributorCorrelationCheckbox.checked = false;
+
             if (window.dependencyTreeResolver) {
                 window.dependencyTreeResolver.maxDepth = 10;
                 window.dependencyTreeResolver.parallelDepthThreshold = 4;
@@ -844,8 +874,15 @@ class SettingsApp {
         const token = tokenInput.value.trim();
         
         if (token) {
-            if (!token.startsWith('ghp_')) {
-                this.updateTokenStatus('Token should start with "ghp_"', 'warning');
+            const validFn = typeof window.isValidGitHubTokenFormat === 'function'
+                ? window.isValidGitHubTokenFormat
+                : (t) => /^ghp_[A-Za-z0-9_]+$/.test(t);
+            const prefixes = window.GITHUB_TOKEN_PREFIXES || ['ghp_'];
+            if (!validFn(token)) {
+                this.updateTokenStatus(
+                    `Token must start with one of: ${prefixes.join(', ')}`,
+                    'warning'
+                );
                 return;
             }
             
@@ -1315,17 +1352,28 @@ class SettingsApp {
      */
     async displayOrganizationsOverview() {
         const storageInfo = await this.storageManager.getStorageInfo();
-        
+
         // Refresh the redo org dropdown when organizations list is updated
         await this.populateRedoOrgDropdown();
-        
-        if (storageInfo.totalEntries === 0) {
-            document.getElementById('organizationsSection').style.display = 'none';
-            document.getElementById('noDataSection').style.display = 'block';
+
+        const orgSection = document.getElementById('organizationsSection');
+        const content = document.getElementById('organizationsContent');
+        const noDataSection = document.getElementById('noDataSection');
+
+        // Pages such as debug.html load settings.js for shared actions but do not
+        // render the stored-analyses table. Skip rendering when those nodes are absent.
+        if (!orgSection || !content) {
             return;
         }
 
-        const content = document.getElementById('organizationsContent');
+        if (storageInfo.totalEntries === 0) {
+            orgSection.style.display = 'none';
+            if (noDataSection) {
+                noDataSection.style.display = 'block';
+            }
+            return;
+        }
+
         const allEntries = [...storageInfo.organizations, ...storageInfo.repositories];
         
         let html = `
@@ -1421,7 +1469,7 @@ class SettingsApp {
         }
 
         content.innerHTML = html;
-        document.getElementById('organizationsSection').style.display = 'block';
+        orgSection.style.display = 'block';
     }
 
     /**

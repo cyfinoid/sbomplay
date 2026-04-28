@@ -30,13 +30,13 @@ jobs:
     
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           # Don't fetch history, only need current state
           fetch-depth: 1
       
       - name: Setup Pages
-        uses: actions/configure-pages@v5
+        uses: actions/configure-pages@45bfe0192ca1faeb007ade9deae92b16b8254a0d # v6.0.0
         
       - name: Create deployment directory
         run: |
@@ -56,7 +56,8 @@ jobs:
           cp about.html _site/
           cp debug.html _site/
           cp findings.html _site/
-          echo "✅ Copied 11 HTML files"
+          cp feeds.html _site/
+          echo "✅ Copied 12 HTML files"
           
           # Copy JavaScript, CSS, and images directories (matching update-prod.sh)
           cp -r js _site/
@@ -82,14 +83,14 @@ jobs:
           ls -la _site/
           
       - name: Upload artifact
-        uses: actions/upload-pages-artifact@v4
+        uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
         with:
           # Upload only necessary files (excludes .git, node_modules, etc.)
           path: '_site'
           
       - name: Deploy to GitHub Pages
         id: deployment
-        uses: actions/deploy-pages@v4
+        uses: actions/deploy-pages@cd2ce8fcbc39b97be8ca5fce6e763baed58fa128 # v5.0.0
         
       - name: Summary
         run: |

@@ -315,6 +315,10 @@ document.addEventListener('DOMContentLoaded', function() {
                 exportCSV(); // Fallback to local function
             }
         });
+        const exportOpmlBtn = document.getElementById('exportOpmlBtn');
+        if (exportOpmlBtn) {
+            exportOpmlBtn.addEventListener('click', () => exportOPML());
+        }
         const loadMoreBtn = document.getElementById('loadMoreBtn');
         if (loadMoreBtn) {
             loadMoreBtn.addEventListener('click', loadMoreEntries);
@@ -3242,6 +3246,47 @@ document.addEventListener('DOMContentLoaded', function() {
             a.click();
             URL.revokeObjectURL(url);
         }
+
+        function exportOPML() {
+            if (!window.FeedUrlBuilder || !window.OPMLBuilder) {
+                console.error('FeedUrlBuilder/OPMLBuilder not loaded');
+                alert('Feed export utilities are not loaded. Please refresh the page.');
+                return;
+            }
+            const builder = window.feedUrlBuilder || new window.FeedUrlBuilder();
+            const opml = window.opmlBuilder || new window.OPMLBuilder();
+
+            const exportSet = (filteredDependencies && filteredDependencies.length > 0)
+                ? filteredDependencies
+                : allDependencies;
+
+            if (!exportSet || exportSet.length === 0) {
+                alert('No dependencies available to export.');
+                return;
+            }
+
+            const resolved = builder.resolveAll(exportSet);
+            if (resolved.entries.length === 0 || resolved.stats.covered === 0) {
+                alert('None of the currently filtered dependencies have a discoverable RSS/Atom feed.');
+                return;
+            }
+
+            const analysisName = document.getElementById('analysisSelector')?.value || '';
+            const titleParts = ['SBOM Play'];
+            titleParts.push(analysisName || 'All analyses');
+            titleParts.push('dependency feeds');
+            const title = titleParts.join(' – ');
+            const slug = (analysisName || 'all-analyses')
+                .toLowerCase()
+                .replace(/[^a-z0-9]+/g, '-')
+                .replace(/^-+|-+$/g, '')
+                .slice(0, 80) || 'all-analyses';
+            const filename = `sbomplay-${slug}-feeds.opml`;
+
+            const result = opml.download(resolved.entries, { title, filename });
+            console.log(`📡 OPML export: included ${result.included}, skipped ${result.skipped}`);
+        }
+
         
         // escapeHtml is now provided by utils.js
 

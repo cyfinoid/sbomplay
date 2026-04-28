@@ -7,7 +7,19 @@ console.log('📦 SBOM Play app.js loaded - BUILD: 1764041288372');
 class SBOMPlayApp {
     constructor() {
         this.githubClient = new GitHubClient();
-        
+
+        // Live rate limit updates: every GitHub REST response carries
+        // X-RateLimit-* headers. Re-render the counter on each response so
+        // the UI ticks down without polling. GraphQL uses a separate bucket
+        // and is intentionally not surfaced here (the existing display only
+        // shows the core REST limit).
+        this.githubClient.addEventListener('rateLimitUpdate', (event) => {
+            const info = event && event.detail;
+            if (!info || info.bucket !== 'core') return;
+            if (info.limit === null && info.remaining === null) return;
+            this.updateRateLimitInfo(info);
+        });
+
         // Load GitHub token from sessionStorage if available
         const savedToken = sessionStorage.getItem('github_token');
         if (savedToken) {
@@ -24,6 +36,10 @@ class SBOMPlayApp {
         this.analysisStartTime = null;
         this.analysisEndTime = null;
         this.elapsedTimeInterval = null;
+        // Track packages processed per ecosystem so the displayed total
+        // sums across all ecosystems (each DependencyTreeResolver instance
+        // in sbom-processor.js maintains its own counter that resets to 0).
+        this.packageCountByEcosystem = new Map();
         
         // Background analysis mode
         this.isBackgroundAnalysis = false;
@@ -278,8 +294,15 @@ class SBOMPlayApp {
         // Token input validation
         document.getElementById('githubToken').addEventListener('input', (e) => {
             const token = e.target.value.trim();
-            if (token && !token.startsWith('ghp_')) {
-                this.updateTokenStatus('Token should start with "ghp_"', 'warning');
+            const validFn = typeof window.isValidGitHubTokenFormat === 'function'
+                ? window.isValidGitHubTokenFormat
+                : (t) => !t || /^ghp_[A-Za-z0-9_]+$/.test(t);
+            const prefixes = window.GITHUB_TOKEN_PREFIXES || ['ghp_'];
+            if (token && !validFn(token)) {
+                this.updateTokenStatus(
+                    `Token must start with one of: ${prefixes.join(', ')}`,
+                    'warning'
+                );
             } else if (token) {
                 this.updateTokenStatus('Token format looks valid', 'success');
             } else {
@@ -777,9 +800,18 @@ class SBOMPlayApp {
     saveToken() {
         const token = document.getElementById('githubToken').value.trim();
         
-        if (token && !token.startsWith('ghp_')) {
-            this.updateTokenStatus('Invalid token format. Should start with "ghp_"', 'danger');
-            return;
+        if (token) {
+            const validFn = typeof window.isValidGitHubTokenFormat === 'function'
+                ? window.isValidGitHubTokenFormat
+                : (t) => /^ghp_[A-Za-z0-9_]+$/.test(t);
+            const prefixes = window.GITHUB_TOKEN_PREFIXES || ['ghp_'];
+            if (!validFn(token)) {
+                this.updateTokenStatus(
+                    `Invalid token format. Must start with one of: ${prefixes.join(', ')}`,
+                    'danger'
+                );
+                return;
+            }
         }
 
         // Save to sessionStorage so it persists across page reloads
@@ -2139,13 +2171,29 @@ class SBOMPlayApp {
             progressText.textContent = enhancedMessage;
         }
         
-        // Update total packages processed counter
+        // Update total packages processed counter.
+        // Each ecosystem's resolver in sbom-processor.js has its own
+        // monotonically increasing counter that resets per ecosystem, so we
+        // store the latest value per ecosystem and display the SUM to give
+        // a true cross-ecosystem total (works for parallel and sequential
+        // resolution alike).
         if (subProgress && subProgress.totalPackagesProcessed !== undefined) {
+            if (!this.packageCountByEcosystem) {
+                this.packageCountByEcosystem = new Map();
+            }
+            const ecosystemKey = subProgress.ecosystem || '__default__';
+            this.packageCountByEcosystem.set(ecosystemKey, subProgress.totalPackagesProcessed);
+
+            let totalAcrossEcosystems = 0;
+            for (const count of this.packageCountByEcosystem.values()) {
+                totalAcrossEcosystems += count;
+            }
+
             const packagesProcessedDiv = document.getElementById('packagesProcessed');
             const packagesProcessedValue = document.getElementById('packagesProcessedValue');
             if (packagesProcessedDiv && packagesProcessedValue) {
                 packagesProcessedDiv.classList.remove('d-none');
-                packagesProcessedValue.textContent = subProgress.totalPackagesProcessed.toLocaleString();
+                packagesProcessedValue.textContent = totalAcrossEcosystems.toLocaleString();
             }
         }
         
@@ -2237,17 +2285,25 @@ class SBOMPlayApp {
      */
     updateRateLimitInfo(info) {
         const rateLimitDiv = document.getElementById('rateLimitInfo');
-        if (rateLimitDiv) {
-            const resetTime = new Date(info.reset * 1000).toLocaleTimeString();
-            
-            rateLimitDiv.innerHTML = `
-                <div class="alert alert-info alert-sm">
-                    <strong>Rate Limit:</strong> ${info.remaining}/${info.limit} requests remaining
-                    <br><strong>Reset Time:</strong> ${resetTime}
-                    <br><strong>Authenticated:</strong> ${info.authenticated}
-                </div>
-            `;
-        }
+        if (!rateLimitDiv) return;
+
+        const remainingDisplay = info.remaining === null || info.remaining === undefined
+            ? 'Unknown'
+            : info.remaining;
+        const limitDisplay = info.limit === null || info.limit === undefined
+            ? 'Unknown'
+            : info.limit;
+        const resetTime = info.reset
+            ? new Date(info.reset * 1000).toLocaleTimeString()
+            : 'Unknown';
+
+        rateLimitDiv.innerHTML = `
+            <div class="alert alert-info alert-sm">
+                <strong>Rate Limit:</strong> ${remainingDisplay}/${limitDisplay} requests remaining
+                <br><strong>Reset Time:</strong> ${resetTime}
+                <br><strong>Authenticated:</strong> ${info.authenticated}
+            </div>
+        `;
     }
 
     /**
@@ -2283,6 +2339,7 @@ class SBOMPlayApp {
                                         <th>Repositories</th>
                                         <th>Dependencies</th>
                                         <th>Last Updated</th>
+                                        <th>Actions</th>
                                     </tr>
                                 </thead>
                                 <tbody>
@@ -2291,6 +2348,13 @@ class SBOMPlayApp {
                                         const time = new Date(entry.timestamp).toLocaleTimeString();
                                         // escapeHtml is provided by utils.js
                                         const orgNameEscaped = escapeHtml(entry.name);
+                                        const isUpload = typeof entry.name === 'string' && entry.name.startsWith('upload/');
+                                        const rerunTitle = isUpload
+                                            ? 'Re-upload required: original SBOM file is not stored. Click to switch to the Upload tab.'
+                                            : 'Re-fetch SBOM from GitHub and run the full analysis pipeline (overwrites existing data).';
+                                        const rerunIcon = isUpload ? 'fas fa-upload' : 'fas fa-redo';
+                                        const rerunClass = isUpload ? 'btn-outline-secondary' : 'btn-outline-primary';
+                                        const rerunLabel = isUpload ? 'Re-upload' : 'Rerun';
                                         return `
                                             <tr>
                                                 <td>
@@ -2303,6 +2367,15 @@ class SBOMPlayApp {
                                                 <td><span class="badge bg-primary">${entry.repositories}</span></td>
                                                 <td><span class="badge bg-success">${entry.dependencies}</span></td>
                                                 <td><small>${date} ${time}</small></td>
+                                                <td>
+                                                    <button type="button"
+                                                            class="btn btn-sm ${rerunClass} rerun-analysis-btn"
+                                                            data-entry-name="${orgNameEscaped}"
+                                                            data-entry-upload="${isUpload ? '1' : '0'}"
+                                                            title="${escapeHtml(rerunTitle)}">
+                                                        <i class="${rerunIcon} me-1"></i>${rerunLabel}
+                                                    </button>
+                                                </td>
                                             </tr>
                                         `;
                                     }).join('')}
@@ -2327,7 +2400,20 @@ class SBOMPlayApp {
         resultsContent.innerHTML = html;
         resultsSection.classList.remove('d-none');
         resultsSection.classList.add('d-block');
-        
+
+        // Attach click handlers for the per-entry "Rerun" buttons (no inline onclick)
+        resultsContent.querySelectorAll('.rerun-analysis-btn').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                e.preventDefault();
+                const target = e.currentTarget;
+                const name = target.getAttribute('data-entry-name');
+                const isUpload = target.getAttribute('data-entry-upload') === '1';
+                if (name) {
+                    this.rerunAnalysis(name, isUpload);
+                }
+            });
+        });
+
         // Show/hide Quick Analysis Access section based on stored entries
         const quickAnalysisSection = document.getElementById('quickAnalysisSection');
         if (quickAnalysisSection) {
@@ -3761,6 +3847,104 @@ class SBOMPlayApp {
     }
 
     /**
+     * Rerun a previously completed analysis from scratch.
+     *
+     * For GitHub-sourced entries (organization, user, or owner/repo) this clears
+     * the in-memory GitHub client caches so SBOMs are re-fetched, pre-fills the
+     * input field with the stored entry's name, and kicks off the standard
+     * analysis pipeline. The new run overwrites the existing stored data on
+     * success; on failure the previous data is preserved (we deliberately do
+     * not pre-delete the entry).
+     *
+     * For upload-based entries we cannot automatically re-fetch the source
+     * SBOM (the original file is not persisted), so we redirect the user to
+     * the Upload tab.
+     *
+     * @param {string} name - Entry name (organization, user, owner/repo, or upload/<filename>)
+     * @param {boolean} isUpload - Whether the entry originated from a file upload
+     */
+    async rerunAnalysis(name, isUpload) {
+        if (!name) return;
+
+        if (this.isAnalyzing) {
+            this.showAlert('An analysis is already running. Please wait for it to finish before starting another.', 'warning');
+            return;
+        }
+
+        // Upload-based analyses cannot be automatically rerun: the original
+        // SBOM file is not retained in storage. Direct the user to the upload
+        // tab so they can re-supply the file.
+        if (isUpload || (typeof name === 'string' && name.startsWith('upload/'))) {
+            this.showAlert(
+                `"${name}" was created from an uploaded SBOM. The original file is not stored, so please switch to the "Upload SBOM" tab and re-upload the file to rerun the analysis.`,
+                'info'
+            );
+
+            const uploadTabBtn = document.getElementById('upload-tab');
+            if (uploadTabBtn && typeof bootstrap !== 'undefined' && bootstrap.Tab) {
+                try {
+                    bootstrap.Tab.getOrCreateInstance(uploadTabBtn).show();
+                } catch (err) {
+                    console.warn('Failed to switch to upload tab:', err);
+                }
+                const inputCard = uploadTabBtn.closest('.card');
+                if (inputCard) {
+                    inputCard.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                }
+            }
+            return;
+        }
+
+        const confirmMsg = `Rerun full analysis for "${name}"?\n\nThis will:\n  • Re-fetch fresh SBOM data from GitHub\n  • Re-run the full enrichment pipeline (vulns, licenses, drift, authors, GitHub Actions)\n  • Overwrite the currently stored results for "${name}" on success\n\nContinue?`;
+        if (!confirm(confirmMsg)) {
+            return;
+        }
+
+        // Drop in-memory GitHub client caches so the SBOM and repo metadata
+        // are actually re-fetched instead of returning the previous response.
+        try {
+            if (this.githubClient?.sbomCache?.clear) this.githubClient.sbomCache.clear();
+            if (this.githubClient?.userCache?.clear) this.githubClient.userCache.clear();
+            if (this.githubClient?.repoCache?.clear) this.githubClient.repoCache.clear();
+            console.log('🔄 Rerun: cleared in-memory GitHub client caches');
+        } catch (err) {
+            console.warn('Failed to clear GitHub client caches before rerun:', err);
+        }
+
+        // Reset processor state so leftover data from a prior run does not
+        // leak into the new analysis.
+        if (this.sbomProcessor && typeof this.sbomProcessor.reset === 'function') {
+            this.sbomProcessor.reset();
+        }
+
+        // Pre-fill the input and trigger the regular analysis flow. This
+        // reuses the rate-limit warning, background-mode, and progress UI
+        // exactly as if the user had typed the name and clicked "Start".
+        const orgInput = document.getElementById('orgName');
+        if (orgInput) {
+            orgInput.value = name;
+            orgInput.dispatchEvent(new Event('input', { bubbles: true }));
+        }
+
+        // Make sure the GitHub input tab is active (not the Upload tab).
+        const githubTabBtn = document.getElementById('github-tab');
+        if (githubTabBtn && typeof bootstrap !== 'undefined' && bootstrap.Tab) {
+            try {
+                bootstrap.Tab.getOrCreateInstance(githubTabBtn).show();
+            } catch (err) {
+                console.warn('Failed to switch to GitHub tab:', err);
+            }
+        }
+
+        const progressSection = document.getElementById('progressSection');
+        if (progressSection) {
+            progressSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
+
+        await this.startAnalysis();
+    }
+
+    /**
      * Export current results (async)
      */
     async exportResults() {
@@ -3964,7 +4148,13 @@ class SBOMPlayApp {
         
         this.analysisStartTime = Date.now();
         this.analysisEndTime = null;
-        
+
+        if (this.packageCountByEcosystem) {
+            this.packageCountByEcosystem.clear();
+        } else {
+            this.packageCountByEcosystem = new Map();
+        }
+
         const startDate = new Date(this.analysisStartTime);
         const startTimeString = startDate.toLocaleString();
         

@@ -330,6 +330,52 @@ class CacheManager {
     }
 
     /**
+     * Save one package + N author entities + N relationships in a single transaction (T3.3).
+     *
+     * Updates the in-memory cache eagerly (so subsequent reads see fresh data) and
+     * delegates the durable write to indexedDBManager.batchSavePackageAuthorBundle,
+     * which uses a single multi-store IDB transaction. This replaces the
+     * 1 (savePackage) + N (saveAuthorEntity) + N (savePackageAuthor) transactions
+     * the per-author write loop used to incur with one transaction per package.
+     *
+     * @param {Object} bundle
+     * @param {{packageKey: string, packageData: Object}|null} bundle.package
+     * @param {Array<[string, Object]>} bundle.authorEntities - [authorKey, entityData] pairs
+     * @param {Array<{packageKey: string, authorKey: string, isMaintainer?: boolean}>} bundle.relationships
+     * @returns {Promise<boolean>}
+     */
+    async savePackageAuthorBundle(bundle) {
+        const pkg = bundle?.package || null;
+        const authorEntities = bundle?.authorEntities || [];
+        const relationships = bundle?.relationships || [];
+
+        if (pkg) {
+            const memoryKey = `package:${pkg.packageKey}`;
+            this.memoryCache.set(memoryKey, {
+                ...pkg.packageData,
+                timestamp: new Date().toISOString()
+            });
+        }
+        authorEntities.forEach(([authorKey, authorData]) => {
+            const memoryKey = `author:${authorKey}`;
+            this.memoryCache.set(memoryKey, {
+                ...authorData,
+                timestamp: new Date().toISOString()
+            });
+        });
+
+        const dbManager = window.indexedDBManager;
+        if (dbManager && dbManager.db && typeof dbManager.batchSavePackageAuthorBundle === 'function') {
+            try {
+                return await dbManager.batchSavePackageAuthorBundle(bundle);
+            } catch (error) {
+                console.warn('⚠️ Cache: Failed to save package/author bundle:', error);
+            }
+        }
+        return false;
+    }
+
+    /**
      * ============================================
      * PACKAGE CACHE METHODS
      * ============================================

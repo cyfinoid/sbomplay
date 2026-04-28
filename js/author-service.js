@@ -17,10 +17,61 @@ class AuthorService {
             'gem': 'https://rubygems.org/api/v1/gems'
         };
         
+        // Per-run dedupe cache for GitHub contributor lookups.
+        // Keyed by `${owner}/${repo}::${fetchProfiles}`; value is a Promise<contributors[]>.
+        // Cleared at the start of each fetchAuthorsForPackages run so a single SBOM doesn't
+        // hit /repos/{owner}/{repo}/contributors multiple times when many packages share a repo
+        // (e.g. monorepos like babel/babel, microsoft/typescript-eslint).
+        this._contributorsRequestCache = new Map();
+        
+        // Session-level negative cache for author funding lookups (T2.1).
+        // The same author appears across many packages; without this, every package would
+        // re-probe profile.json + FUNDING.yml for the same GitHub user. The Set holds
+        // authorKeys we've already determined have no funding, so we skip them on the rest
+        // of the run. Persistent negative caching is layered on top via authorEntity.noFunding.
+        this._fundingNegativeCache = new Set();
+        // Per-run dedupe of in-flight funding probes so two packages that share an author
+        // don't both fire the network call before either finishes.
+        this._fundingInFlight = new Map();
+        
+        // Per-run memoization for cache-manager author lookups (T2.3).
+        // saveAuthorsToCache calls findAuthorByEmail / findAuthorByGitHub / getAuthorEntity
+        // for every author of every package. Many SBOMs have the same author across many
+        // packages (e.g. all @babel/* packages share the babel team). Without memoization,
+        // each cross-package re-query hits IndexedDB indexes again. These caches store the
+        // resolved promise per (email+ecosystem) / githubUsername / authorKey so repeat
+        // queries within a run are O(1). They're invalidated when we write to the same
+        // author so subsequent lookups still see the latest state.
+        this._findByEmailCache = new Map();   // key: `${ecosystem}::${email}` → Promise<{authorKey, entity}|null>
+        this._findByGitHubCache = new Map();  // key: githubUsername (lowercased) → Promise<{authorKey, entity}|null>
+        this._authorEntityMemo = new Map();   // key: authorKey → Promise<entity|null>  (layered on top of cacheManager's memory cache)
+        
         // Initialize registry list on startup (using shared RegistryManager)
         if (window.registryManager) {
             window.registryManager.initializeRegistries();
         }
+    }
+
+    /**
+     * Run an HTTP request through requestQueueManager so all author-service
+     * fetches share the global concurrency / rate-limit policy (T2.4).
+     *
+     * Each external surface gets its own queue lane (npm, pypi, cargo, gem,
+     * ecosystems, github) with its own concurrency cap. Falls back to a
+     * direct fetchWithTimeout call when requestQueueManager isn't loaded
+     * (e.g. in tests) so behavior degrades gracefully.
+     *
+     * @param {string} lane - queue lane: 'npm'|'pypi'|'cargo'|'gem'|'ecosystems'|'github'
+     * @param {string} url - request URL
+     * @param {Object} [options] - fetch options forwarded to fetchWithTimeout
+     * @returns {Promise<Response>} fetch response
+     */
+    _queuedFetch(lane, url, options) {
+        const queue = (typeof window !== 'undefined') ? window.requestQueueManager : null;
+        if (!queue) {
+            return fetchWithTimeout(url, options);
+        }
+        return queue.execute(lane, () => fetchWithTimeout(url, options));
     }
 
 
@@ -126,6 +177,7 @@ class AuthorService {
         let funding = null;
         let packageWarnings = null;
         let ecosystemsAuthors = []; // Keep track of ecosyste.ms authors for correlation
+        let nativeRepositoryUrl = null; // Captured from fetchFromNativeRegistry, reused for GitHub correlation + fallback
         
         // Try native registry and ecosyste.ms in parallel (race condition - use first successful response)
         const apiPromises = [];
@@ -163,6 +215,7 @@ class AuthorService {
                         nativeAuthors = result.authors || [];
                         funding = result.packageFunding || null;
                         packageWarnings = result.packageWarnings || null;
+                        nativeRepositoryUrl = result.repositoryUrl || null;
                     }
                 } else if (source === 'ecosystems') {
                     ecosystemsAuthors = result.authors || [];
@@ -181,10 +234,18 @@ class AuthorService {
             console.log(`✅ Found ${authors.length} authors for ${packageKey} from ecosyste.ms`);
         }
         
-        // Try to fetch GitHub contributors if we have a GitHub repository URL
-        // This provides tentative correlation (same GitHub user ID = same person)
-        if (authors.length > 0) {
-            const repoUrl = await this.getRepositoryUrl(ecosystem, packageName);
+        // Try to fetch GitHub contributors if we have a GitHub repository URL.
+        // This provides tentative correlation (same GitHub user ID = same person), but
+        // costs a GitHub API call per unique repo and the resulting author entries are
+        // tentative (login-based, no email/name authority). Gate behind a setting that
+        // defaults to off (T3.2).
+        const enableContributorCorrelation =
+            (typeof localStorage !== 'undefined' &&
+                localStorage.getItem('enableContributorCorrelation') === 'true');
+        if (authors.length > 0 && enableContributorCorrelation) {
+            // Reuse the repository URL captured from fetchFromNativeRegistry to avoid a duplicate registry GET.
+            // Fall back to getRepositoryUrl only if the native fetch did not yield one (e.g. ecosystems-only result).
+            const repoUrl = nativeRepositoryUrl || await this.getRepositoryUrl(ecosystem, packageName);
             if (repoUrl) {
                 const githubMatch = repoUrl.match(/github\.com[\/:]([^\/]+)\/([^\/]+)/i);
                 if (githubMatch) {
@@ -192,7 +253,9 @@ class AuthorService {
                     // Clean up repo name (remove .git suffix, etc.)
                     const cleanRepo = repo.replace(/\.git$/, '').replace(/\/$/, '');
                     try {
-                        const contributors = await this.fetchContributorsFromGitHub(owner, cleanRepo);
+                        // Skip per-contributor /users/{login} REST calls here — the post-pipeline
+                        // fetchAuthorLocationsBatch fills user profiles via batched GraphQL.
+                        const contributors = await this.fetchContributorsFromGitHub(owner, cleanRepo, false);
                         if (contributors.length > 0) {
                             authors = this.correlateWithContributors(authors, contributors);
                         }
@@ -213,7 +276,8 @@ class AuthorService {
                     authors = gaAuthors;
                 }
             } else {
-                const repoAuthors = await this.fetchAuthorsFromRepository(ecosystem, packageName);
+                // Reuse the repository URL captured from fetchFromNativeRegistry to avoid a third registry GET.
+                const repoAuthors = await this.fetchAuthorsFromRepository(ecosystem, packageName, nativeRepositoryUrl);
                 if (repoAuthors.length > 0) {
                     console.log(`✅ Found ${repoAuthors.length} repository owners for ${packageKey}`);
                     authors = repoAuthors;
@@ -283,14 +347,42 @@ class AuthorService {
         if (packageWarnings) {
             packageData.warnings = packageWarnings;  // Package warnings (maintenance and deprecation)
         }
-        
-        // Save package to cache immediately (with or without funding, with or without authors)
-        await window.cacheManager.savePackage(packageKey, packageData);
-        console.log(`📦 Saved package to cache: ${packageKey}${packageFunding ? ' (with funding)' : ''}${packageWarnings ? ' (with warnings)' : ''}${authors.length === 0 ? ' (no authors)' : ''}`);
+
+        // Bundle accumulator for the single per-package transaction (T3.3).
+        // We collect every entity write and relationship for this package and flush
+        // them all together at the end via cacheManager.savePackageAuthorBundle. The
+        // in-memory memo caches are updated eagerly inside the loop so that
+        // intra-package lookups still see fresh data even before the IDB write.
+        const pendingAuthorEntities = new Map(); // authorKey -> entityData (latest)
+        const pendingRelationships = []; // {packageKey, authorKey, isMaintainer}
+
+        const stagePendingEntity = (entityKey, entity) => {
+            pendingAuthorEntities.set(entityKey, entity);
+            // Keep the per-run memos consistent with the staged-but-not-yet-written state
+            // (mirrors what _memoSaveAuthorEntity does for direct writes; without this,
+            // a later author lookup in the same package could see a stale "not found"
+            // memo hit and re-create the entity instead of merging).
+            this._authorEntityMemo.set(entityKey, Promise.resolve(entity));
+            if (entity?.email) {
+                const entityEcosystem = entityKey.includes(':') ? entityKey.split(':')[0] : null;
+                if (entityEcosystem) {
+                    this._findByEmailCache.set(`${entityEcosystem}::${entity.email}`, Promise.resolve({ authorKey: entityKey, entity }));
+                }
+            }
+            if (entity?.metadata?.github) {
+                this._findByGitHubCache.set(String(entity.metadata.github).toLowerCase(), Promise.resolve({ authorKey: entityKey, entity }));
+            }
+        };
 
         // Process each author (if any)
         if (!authors || authors.length === 0) {
-            // Package saved but no authors to process
+            // Package saved but no authors to process — still flush the package row.
+            await window.cacheManager.savePackageAuthorBundle({
+                package: { packageKey, packageData },
+                authorEntities: [],
+                relationships: []
+            });
+            console.log(`📦 Saved package to cache: ${packageKey}${packageFunding ? ' (with funding)' : ''}${packageWarnings ? ' (with warnings)' : ''} (no authors)`);
             return;
         }
 
@@ -343,12 +435,15 @@ class AuthorService {
             // CRITICAL: Check for existing author by email OR GitHub username (for correlation)
             // This allows us to merge authors if they share the same email OR GitHub username
             // Priority: Email (same ecosystem) > GitHub username (cross-ecosystem) > authorKey
+            // Lookups are routed through the per-run memoization caches (T2.3) so that the
+            // same author appearing across many packages doesn't re-hit IndexedDB indexes
+            // for every package.
             let authorEntity = null;
             let existingAuthorKey = authorKey;
             
             // Step 1: Check by email in same ecosystem (most reliable, same ecosystem)
             if (authorMetadata?.email && window.cacheManager) {
-                const existingByEmail = await window.cacheManager.findAuthorByEmail(authorMetadata.email, ecosystem);
+                const existingByEmail = await this._memoFindAuthorByEmail(authorMetadata.email, ecosystem);
                 if (existingByEmail) {
                     authorEntity = existingByEmail.entity;
                     existingAuthorKey = existingByEmail.authorKey;
@@ -359,7 +454,7 @@ class AuthorService {
             // Step 2: Check by GitHub username (cross-ecosystem correlation)
             // Same GitHub username = same person across different package registries
             if (!authorEntity && authorMetadata?.github && window.cacheManager) {
-                const existingByGitHub = await window.cacheManager.findAuthorByGitHub(authorMetadata.github);
+                const existingByGitHub = await this._memoFindAuthorByGitHub(authorMetadata.github);
                 if (existingByGitHub) {
                     authorEntity = existingByGitHub.entity;
                     existingAuthorKey = existingByGitHub.authorKey;
@@ -369,7 +464,7 @@ class AuthorService {
             
             // Step 3: Check by authorKey (exact match)
             if (!authorEntity) {
-                authorEntity = await window.cacheManager.getAuthorEntity(authorKey);
+                authorEntity = await this._memoGetAuthorEntity(authorKey);
             }
             
             if (!authorEntity) {
@@ -381,8 +476,8 @@ class AuthorService {
                     metadata: authorMetadata || null,
                     funding: null  // Author-level funding will be fetched separately if needed
                 };
-                await window.cacheManager.saveAuthorEntity(authorKey, authorEntity);
-                console.log(`👤 Saved new author entity: ${authorKey}`);
+                stagePendingEntity(authorKey, authorEntity);
+                console.log(`👤 Staged new author entity: ${authorKey}`);
             } else {
                 // Merge with existing entity
                 // Strategy: Use display name (prefer longer/more complete name), but keep username for profile links
@@ -434,8 +529,8 @@ class AuthorService {
                     authorEntity.author = mergedName;
                     authorEntity.metadata = Object.keys(mergedMetadata).length > 0 ? mergedMetadata : null;
                     // If we found by email but authorKey is different, update the existing entity
-                    await window.cacheManager.saveAuthorEntity(existingAuthorKey, authorEntity);
-                    console.log(`👤 Updated author entity: ${existingAuthorKey} (display: ${mergedName}, username: ${mergedMetadata.npm_username || mergedMetadata.login || 'N/A'})`);
+                    stagePendingEntity(existingAuthorKey, authorEntity);
+                    console.log(`👤 Staged updated author entity: ${existingAuthorKey} (display: ${mergedName}, username: ${mergedMetadata.npm_username || mergedMetadata.login || 'N/A'})`);
                 }
             }
 
@@ -444,45 +539,37 @@ class AuthorService {
             // Remove any potential_github that might have been set (shouldn't happen now, but clean up if present)
             if (authorEntity.metadata?.potential_github) {
                 delete authorEntity.metadata.potential_github;
-                await window.cacheManager.saveAuthorEntity(existingAuthorKey, authorEntity);
+                stagePendingEntity(existingAuthorKey, authorEntity);
             }
 
-            // Fetch author-level funding if we have GitHub username or email
-            // This will be done asynchronously and updated separately
-            // Reload entity to get updated GitHub username if it was just added
-            authorEntity = await window.cacheManager.getAuthorEntity(existingAuthorKey);
+            // Fetch author-level funding if we have GitHub username or email.
+            // The in-memory authorEntity already reflects the merged metadata from above,
+            // so we no longer need a redundant getAuthorEntity round-trip.
             if (authorEntity?.metadata?.github || authorMetadata?.email) {
                 this.fetchAuthorFunding(existingAuthorKey, authorEntity).catch(err => 
                     console.warn(`Failed to fetch author funding for ${existingAuthorKey}:`, err)
                 );
             }
 
-            // Fetch author location if we have GitHub username
-            // CRITICAL: Only fetch if GitHub username exists AND we verify it's not an organization
-            // Check IndexedDB first - only fetch if location data is missing
-            if (authorEntity?.metadata?.github) {
-                // Check if location data already exists in the entity
-                const hasLocation = authorEntity.metadata.location || authorEntity.metadata.company;
-                
-                if (!hasLocation) {
-                    // Location data missing - fetch it now during initial analysis
-                    // fetchAuthorLocation will check if it's an organization and skip if so
-                    try {
-                        await this.fetchAuthorLocation(existingAuthorKey, authorEntity);
-                        // Reload entity to get updated location data (may have removed org GitHub username)
-                        authorEntity = await window.cacheManager.getAuthorEntity(existingAuthorKey);
-                    } catch (err) {
-                        console.warn(`Failed to fetch author location for ${existingAuthorKey}:`, err);
-                    }
-                } else {
-                    console.log(`📍 Location data already cached for ${existingAuthorKey}`);
-                }
-            }
+            // Author location is intentionally NOT fetched per-author here.
+            // The post-pipeline fetchAuthorLocationsBatch (see app.js) batches all GitHub user
+            // profile lookups into a single GraphQL query (50 users at a time), which is far
+            // cheaper than doing one REST call per author serially during cache writes.
 
-            // Save package-author relationship (junction table)
-            // Use existingAuthorKey (which may be different from authorKey if we found by email)
-            await window.cacheManager.savePackageAuthorRelationship(packageKey, existingAuthorKey, isMaintainer);
+            // Stage the package-author relationship for the bundled write below.
+            // Use existingAuthorKey (which may differ from authorKey if we matched by email).
+            pendingRelationships.push({ packageKey, authorKey: existingAuthorKey, isMaintainer });
         }
+
+        // Flush package + all staged author entities + all relationships in a single
+        // multi-store IndexedDB transaction (T3.3). Replaces the previous pattern of
+        // 1 + N + N separate transactions per package.
+        await window.cacheManager.savePackageAuthorBundle({
+            package: { packageKey, packageData },
+            authorEntities: Array.from(pendingAuthorEntities.entries()),
+            relationships: pendingRelationships
+        });
+        console.log(`📦 Saved package bundle to cache: ${packageKey}${packageFunding ? ' (with funding)' : ''}${packageWarnings ? ' (with warnings)' : ''} — ${pendingAuthorEntities.size} author entities, ${pendingRelationships.length} relationships`);
     }
 
     /**
@@ -499,21 +586,25 @@ class AuthorService {
                     url = `${this.registryUrls.npm}/${packageName}/latest`;
                     debugLogUrl(`🌐 [DEBUG] Fetching URL: ${url}`);
                     debugLogUrl(`   Reason: Fetching npm package metadata for ${packageName} to extract authors and funding information`);
-                    const npmResponse = await fetchWithTimeout(url);
+                    const npmResponse = await this._queuedFetch('npm', url);
                     if (!npmResponse.ok) {
                         console.log(`   ❌ Response: Status ${npmResponse.status} ${npmResponse.statusText}`);
-                        return { authors: [], packageFunding: null };
+                        return { authors: [], packageFunding: null, repositoryUrl: null };
                     }
                     data = await npmResponse.json();
                     description = data.description || null;
                     const npmAuthors = this.extractNpmAuthors(data);
                     const npmFunding = this.extractNpmFunding(data);
-                    console.log(`   ✅ Response: Status ${npmResponse.status}, Extracted: ${npmAuthors.length} author(s), funding: ${npmFunding ? 'yes' : 'no'}, description: ${description ? 'yes' : 'no'}`);
+                    const npmRepositoryUrl = data.repository
+                        ? (typeof data.repository === 'string' ? data.repository : data.repository.url || null)
+                        : null;
+                    console.log(`   ✅ Response: Status ${npmResponse.status}, Extracted: ${npmAuthors.length} author(s), funding: ${npmFunding ? 'yes' : 'no'}, description: ${description ? 'yes' : 'no'}, repo: ${npmRepositoryUrl ? 'yes' : 'no'}`);
                     return {
                         authors: npmAuthors,
                         packageFunding: npmFunding,  // Package-level funding (from package.json)
                         description: description,
-                        packageWarnings: this.parsePackageWarnings(description)
+                        packageWarnings: this.parsePackageWarnings(description),
+                        repositoryUrl: npmRepositoryUrl
                     };
                 
                 case 'pypi':
@@ -521,21 +612,32 @@ class AuthorService {
                     url = `${this.registryUrls.pypi}/${packageName}/json`;
                     debugLogUrl(`🌐 [DEBUG] Fetching URL: ${url}`);
                     debugLogUrl(`   Reason: Fetching PyPI package metadata for ${packageName} to extract authors and funding information`);
-                    const pypiResponse = await fetchWithTimeout(url);
+                    const pypiResponse = await this._queuedFetch('pypi', url);
                     if (!pypiResponse.ok) {
                         console.log(`   ❌ Response: Status ${pypiResponse.status} ${pypiResponse.statusText}`);
-                        return { authors: [], packageFunding: null };
+                        return { authors: [], packageFunding: null, repositoryUrl: null };
                     }
                     data = await pypiResponse.json();
                     description = data.info?.summary || data.info?.description || null;
                     const pypiAuthors = this.extractPyPiAuthors(data);
                     const pypiFunding = this.extractPyPiFunding(data);
-                    console.log(`   ✅ Response: Status ${pypiResponse.status}, Extracted: ${pypiAuthors.length} author(s), funding: ${pypiFunding ? 'yes' : 'no'}, description: ${description ? 'yes' : 'no'}`);
+                    const pypiProjectUrls = data.info?.project_urls || {};
+                    const pypiRepositoryUrl =
+                        pypiProjectUrls.Source ||
+                        pypiProjectUrls.source ||
+                        pypiProjectUrls.Homepage ||
+                        pypiProjectUrls.homepage ||
+                        pypiProjectUrls.Repository ||
+                        pypiProjectUrls.repository ||
+                        data.info?.home_page ||
+                        null;
+                    console.log(`   ✅ Response: Status ${pypiResponse.status}, Extracted: ${pypiAuthors.length} author(s), funding: ${pypiFunding ? 'yes' : 'no'}, description: ${description ? 'yes' : 'no'}, repo: ${pypiRepositoryUrl ? 'yes' : 'no'}`);
                     return {
                         authors: pypiAuthors,
                         packageFunding: pypiFunding,  // Package-level funding (from project_urls)
                         description: description,
-                        packageWarnings: this.parsePackageWarnings(description)
+                        packageWarnings: this.parsePackageWarnings(description),
+                        repositoryUrl: pypiRepositoryUrl
                     };
                 
                 case 'cargo':
@@ -543,20 +645,22 @@ class AuthorService {
                     url = `${this.registryUrls.cargo}/${packageName}`;
                     debugLogUrl(`🌐 [DEBUG] Fetching URL: ${url}`);
                     debugLogUrl(`   Reason: Fetching crates.io package metadata for ${packageName} to extract authors and funding information`);
-                    const cargoResponse = await fetchWithTimeout(url);
+                    const cargoResponse = await this._queuedFetch('cargo', url);
                     if (!cargoResponse.ok) {
                         console.log(`   ❌ Response: Status ${cargoResponse.status} ${cargoResponse.statusText}`);
-                        return { authors: [], packageFunding: null };
+                        return { authors: [], packageFunding: null, repositoryUrl: null };
                     }
                     data = await cargoResponse.json();
                     description = data.crate?.description || null;
                     const cargoAuthors = this.extractCargoAuthors(data);
-                    console.log(`   ✅ Response: Status ${cargoResponse.status}, Extracted: ${cargoAuthors.length} author(s), description: ${description ? 'yes' : 'no'}`);
+                    const cargoRepositoryUrl = data.crate?.repository || data.crate?.homepage || null;
+                    console.log(`   ✅ Response: Status ${cargoResponse.status}, Extracted: ${cargoAuthors.length} author(s), description: ${description ? 'yes' : 'no'}, repo: ${cargoRepositoryUrl ? 'yes' : 'no'}`);
                     return {
                         authors: cargoAuthors,
                         packageFunding: null,  // Crates.io doesn't have funding field in API
                         description: description,
-                        packageWarnings: this.parsePackageWarnings(description)
+                        packageWarnings: this.parsePackageWarnings(description),
+                        repositoryUrl: cargoRepositoryUrl
                     };
                 
                 case 'gem':
@@ -564,29 +668,31 @@ class AuthorService {
                     url = `${this.registryUrls.gem}/${packageName}.json`;
                     debugLogUrl(`🌐 [DEBUG] Fetching URL: ${url}`);
                     debugLogUrl(`   Reason: Fetching RubyGems package metadata for ${packageName} to extract authors and funding information`);
-                    const gemResponse = await fetchWithTimeout(url);
+                    const gemResponse = await this._queuedFetch('gem', url);
                     if (!gemResponse.ok) {
                         console.log(`   ❌ Response: Status ${gemResponse.status} ${gemResponse.statusText}`);
-                        return { authors: [], packageFunding: null };
+                        return { authors: [], packageFunding: null, repositoryUrl: null };
                     }
                     data = await gemResponse.json();
                     description = data.info || data.description || null;
                     const gemAuthors = this.extractGemAuthors(data);
                     const gemFunding = this.extractGemFunding(data);
-                    console.log(`   ✅ Response: Status ${gemResponse.status}, Extracted: ${gemAuthors.length} author(s), funding: ${gemFunding ? 'yes' : 'no'}, description: ${description ? 'yes' : 'no'}`);
+                    const gemRepositoryUrl = data.source_code_uri || data.homepage_uri || null;
+                    console.log(`   ✅ Response: Status ${gemResponse.status}, Extracted: ${gemAuthors.length} author(s), funding: ${gemFunding ? 'yes' : 'no'}, description: ${description ? 'yes' : 'no'}, repo: ${gemRepositoryUrl ? 'yes' : 'no'}`);
                     return {
                         authors: gemAuthors,
                         packageFunding: gemFunding,  // Package-level funding
                         description: description,
-                        packageWarnings: this.parsePackageWarnings(description)
+                        packageWarnings: this.parsePackageWarnings(description),
+                        repositoryUrl: gemRepositoryUrl
                     };
                 
                 default:
-                    return { authors: [], packageFunding: null };
+                    return { authors: [], packageFunding: null, repositoryUrl: null };
             }
         } catch (error) {
             console.warn(`Error fetching from native registry ${ecosystem}:`, error.message);
-            return { authors: [], packageFunding: null };
+            return { authors: [], packageFunding: null, repositoryUrl: null };
         }
     }
     
@@ -825,102 +931,124 @@ class AuthorService {
      * @returns {Promise<Object|null>} - Author-level funding information
      */
     async fetchAuthorFunding(authorKey, authorEntity) {
-        // If author already has funding, don't refetch
+        // Already-known funding short-circuits everything.
         if (authorEntity?.funding) {
             return authorEntity.funding;
+        }
+        // Persistent negative cache: if we previously determined this author has no
+        // funding (within the cache TTL), skip the network probes entirely.
+        if (authorEntity?.noFunding === true) {
+            return null;
+        }
+        // Session negative cache: skip authors we already discovered have no funding
+        // earlier in this run (covers the common case of one author appearing in many packages).
+        if (this._fundingNegativeCache.has(authorKey)) {
+            return null;
         }
 
         const githubUsername = authorEntity?.metadata?.github;
         if (!githubUsername) {
             return null;  // Can't fetch without GitHub username
         }
+        
+        // Per-run in-flight dedupe: when many packages share the same author, the funding
+        // probe is fired once and every caller awaits the same Promise.
+        if (this._fundingInFlight.has(authorKey)) {
+            return this._fundingInFlight.get(authorKey);
+        }
 
-        try {
-            // Try fetching from GitHub profile JSON files
-            // GitHub supports profile.json at root of user's .github repository
-            const githubProfileJsonUrl = `https://raw.githubusercontent.com/${githubUsername}/.github/main/profile.json`;
-            debugLogUrl(`🌐 [DEBUG] Fetching URL: ${githubProfileJsonUrl} (HEAD)`);
-            debugLogUrl(`   Reason: Checking if GitHub profile.json exists for user ${githubUsername} to extract funding information`);
-            let response = await fetchWithTimeout(githubProfileJsonUrl, { 
-                method: 'HEAD',  // Check if file exists without downloading
-                cache: 'no-cache'
-            });
-            console.log(`   ✅ Response: Status ${response.status} ${response.statusText}`);
-
-            if (response.ok) {
-                // File exists, fetch it
+        const probePromise = (async () => {
+            try {
+                // Single GET (T2.2): the previous HEAD-then-GET pattern doubled the round-trip
+                // count and didn't actually save bandwidth — raw.githubusercontent.com responds
+                // with the body in either case, and most authors don't have profile.json so the
+                // HEAD almost always 404s anyway.
+                const githubProfileJsonUrl = `https://raw.githubusercontent.com/${githubUsername}/.github/main/profile.json`;
                 debugLogUrl(`🌐 [DEBUG] Fetching URL: ${githubProfileJsonUrl}`);
                 debugLogUrl(`   Reason: Fetching GitHub profile.json for user ${githubUsername} to extract funding information`);
-                response = await fetchWithTimeout(githubProfileJsonUrl, { cache: 'no-cache' });
+                let response = await this._queuedFetch('github', githubProfileJsonUrl, { cache: 'no-cache' });
                 if (response.ok) {
-                    const profile = await response.json();
-                    const hasFunding = profile.sponsor && profile.sponsor.github;
-                    console.log(`   ✅ Response: Status ${response.status}, Extracted: Profile data, funding: ${hasFunding ? 'yes' : 'no'}`);
-                    if (hasFunding) {
+                    try {
+                        const profile = await response.json();
+                        const hasFunding = profile.sponsor && profile.sponsor.github;
+                        console.log(`   ✅ Response: Status ${response.status}, Extracted: Profile data, funding: ${hasFunding ? 'yes' : 'no'}`);
+                        if (hasFunding) {
+                            const funding = {
+                                url: `https://github.com/sponsors/${githubUsername}`,
+                                github: true
+                            };
+                            authorEntity.funding = funding;
+                            await window.cacheManager.saveAuthorEntity(authorKey, authorEntity);
+                            return funding;
+                        }
+                    } catch (parseErr) {
+                        console.debug(`profile.json parse failed for ${githubUsername}:`, parseErr.message);
+                    }
+                } else {
+                    console.log(`   ❌ Response: Status ${response.status} ${response.statusText} for profile.json`);
+                }
+
+                // Try alternative: .github/FUNDING.yml (GitHub Sponsors)
+                const fundingYmlUrl = `https://raw.githubusercontent.com/${githubUsername}/.github/main/FUNDING.yml`;
+                debugLogUrl(`🌐 [DEBUG] Fetching URL: ${fundingYmlUrl}`);
+                debugLogUrl(`   Reason: Fetching GitHub FUNDING.yml for user ${githubUsername} to extract funding information`);
+                response = await this._queuedFetch('github', fundingYmlUrl, { cache: 'no-cache' });
+                if (response.ok) {
+                    const yml = await response.text();
+                    const githubMatch = yml.match(/github:\s*(\S+)/i);
+                    const customMatch = yml.match(/custom:\s*(\S+)/i);
+                    
+                    const hasFunding = !!(githubMatch || customMatch);
+                    console.log(`   ✅ Response: Status ${response.status}, Extracted: FUNDING.yml content, funding: ${hasFunding ? 'yes' : 'no'}`);
+                    
+                    if (githubMatch) {
+                        const username = githubMatch[1].replace(/['"]/g, '');
                         const funding = {
-                            url: `https://github.com/sponsors/${githubUsername}`,
+                            url: `https://github.com/sponsors/${username}`,
                             github: true
                         };
-                        // Update author entity with funding
                         authorEntity.funding = funding;
                         await window.cacheManager.saveAuthorEntity(authorKey, authorEntity);
                         return funding;
                     }
-                } else {
-                    console.log(`   ❌ Response: Status ${response.status} ${response.statusText}`);
-                }
-            }
-
-            // Try alternative: .github/FUNDING.yml (GitHub Sponsors)
-            const fundingYmlUrl = `https://raw.githubusercontent.com/${githubUsername}/.github/main/FUNDING.yml`;
-            debugLogUrl(`🌐 [DEBUG] Fetching URL: ${fundingYmlUrl}`);
-            debugLogUrl(`   Reason: Fetching GitHub FUNDING.yml for user ${githubUsername} to extract funding information`);
-            response = await fetchWithTimeout(fundingYmlUrl, { cache: 'no-cache' });
-            if (response.ok) {
-                const yml = await response.text();
-                // Simple parsing for FUNDING.yml
-                const githubMatch = yml.match(/github:\s*(\S+)/i);
-                const customMatch = yml.match(/custom:\s*(\S+)/i);
-                
-                const hasFunding = !!(githubMatch || customMatch);
-                console.log(`   ✅ Response: Status ${response.status}, Extracted: FUNDING.yml content, funding: ${hasFunding ? 'yes' : 'no'}`);
-                
-                if (githubMatch) {
-                    const username = githubMatch[1].replace(/['"]/g, '');
-                    const funding = {
-                        url: `https://github.com/sponsors/${username}`,
-                        github: true
-                    };
-                    authorEntity.funding = funding;
-                    await window.cacheManager.saveAuthorEntity(authorKey, authorEntity);
-                    return funding;
-                }
-                
-                if (customMatch) {
-                    const url = customMatch[1].replace(/['"]/g, '');
-                    const funding = { url: url };
                     
-                    // Detect platform (secure hostname validation)
-                    if (isUrlFromHostname(url, 'opencollective.com')) funding.opencollective = true;
-                    if (isUrlFromHostname(url, 'patreon.com')) funding.patreon = true;
-                    
-                    authorEntity.funding = funding;
-                    await window.cacheManager.saveAuthorEntity(authorKey, authorEntity);
-                    return funding;
+                    if (customMatch) {
+                        const url = customMatch[1].replace(/['"]/g, '');
+                        const funding = { url: url };
+                        
+                        if (isUrlFromHostname(url, 'opencollective.com')) funding.opencollective = true;
+                        if (isUrlFromHostname(url, 'patreon.com')) funding.patreon = true;
+                        
+                        authorEntity.funding = funding;
+                        await window.cacheManager.saveAuthorEntity(authorKey, authorEntity);
+                        return funding;
+                    }
                 }
+                
+                // Both sources came up empty — record this in the persistent + session caches
+                // so we don't re-probe this author for the rest of the run, or in future runs.
+                this._fundingNegativeCache.add(authorKey);
+                authorEntity.noFunding = true;
+                authorEntity.noFundingCheckedAt = Date.now();
+                try {
+                    await window.cacheManager.saveAuthorEntity(authorKey, authorEntity);
+                } catch (saveErr) {
+                    console.debug(`Failed to persist noFunding flag for ${authorKey}:`, saveErr.message);
+                }
+                
+            } catch (error) {
+                // Silently fail - author funding is optional. Don't poison the negative cache
+                // with transient failures (network errors, timeouts) — only confirmed 404s
+                // mark the author as "no funding".
+                console.debug(`Could not fetch author funding for ${authorKey}:`, error.message);
+            } finally {
+                this._fundingInFlight.delete(authorKey);
             }
-
-            // Check if GitHub Sponsors profile exists (by checking if sponsors page exists)
-            // Note: This is a lightweight check, actual sponsorship status requires API
-            // We'll just note that GitHub Sponsors might be available
-            // In practice, we'd need to use GitHub API to check if user has sponsorships enabled
-            
-        } catch (error) {
-            // Silently fail - author funding is optional
-            console.debug(`Could not fetch author funding for ${authorKey}:`, error.message);
-        }
-
-        return null;
+            return null;
+        })();
+        
+        this._fundingInFlight.set(authorKey, probePromise);
+        return probePromise;
     }
 
     /**
@@ -1250,7 +1378,7 @@ class AuthorService {
             debugLogUrl(`🌐 [DEBUG] Fetching URL: ${url}`);
             debugLogUrl(`   Reason: Fetching ecosyste.ms package metadata for ${packageName} (${ecosystem}/${registry.name}) to extract maintainers/authors`);
             
-            const response = await fetchWithTimeout(url);
+            const response = await this._queuedFetch('ecosystems', url);
             if (!response.ok) {
                 console.warn(`ecosyste.ms returned ${response.status} for ${registry.name}/${packageName}`);
                 console.log(`   ❌ Response: Status ${response.status} ${response.statusText}`);
@@ -1278,8 +1406,12 @@ class AuthorService {
 
     /**
      * Extract repository owner/org from URLs as fallback authors
+     * @param {string} ecosystem
+     * @param {string} packageName
+     * @param {string|null} prefetchedRepositoryUrl - Optional URL already obtained from fetchFromNativeRegistry,
+     *   passed through to avoid a redundant registry GET.
      */
-    async fetchAuthorsFromRepository(ecosystem, packageName) {
+    async fetchAuthorsFromRepository(ecosystem, packageName, prefetchedRepositoryUrl = null) {
         try {
             let repositoryUrl = null;
             
@@ -1297,8 +1429,8 @@ class AuthorService {
                 }
             }
             
-            // Try to get repository URL from package metadata
-            repositoryUrl = await this.getRepositoryUrl(ecosystem, packageName);
+            // Reuse a URL captured upstream when available; otherwise fall back to a registry GET.
+            repositoryUrl = prefetchedRepositoryUrl || await this.getRepositoryUrl(ecosystem, packageName);
             
             if (!repositoryUrl) {
                 return [];
@@ -1326,7 +1458,7 @@ class AuthorService {
                     url = `${this.registryUrls.npm}/${packageName}/latest`;
                     debugLogUrl(`🌐 [DEBUG] Fetching URL: ${url}`);
                     debugLogUrl(`   Reason: Fetching npm package metadata for ${packageName} to extract repository URL`);
-                    const npmResponse = await fetchWithTimeout(url);
+                    const npmResponse = await this._queuedFetch('npm', url);
                     if (!npmResponse.ok) {
                         console.log(`   ❌ Response: Status ${npmResponse.status} ${npmResponse.statusText}`);
                         return null;
@@ -1343,7 +1475,7 @@ class AuthorService {
                     url = `${this.registryUrls.pypi}/${packageName}/json`;
                     debugLogUrl(`🌐 [DEBUG] Fetching URL: ${url}`);
                     debugLogUrl(`   Reason: Fetching PyPI package metadata for ${packageName} to extract repository URL`);
-                    const pypiResponse = await fetchWithTimeout(url);
+                    const pypiResponse = await this._queuedFetch('pypi', url);
                     if (!pypiResponse.ok) {
                         console.log(`   ❌ Response: Status ${pypiResponse.status} ${pypiResponse.statusText}`);
                         return null;
@@ -1361,7 +1493,7 @@ class AuthorService {
                     url = `${this.registryUrls.cargo}/${packageName}`;
                     debugLogUrl(`🌐 [DEBUG] Fetching URL: ${url}`);
                     debugLogUrl(`   Reason: Fetching crates.io package metadata for ${packageName} to extract repository URL`);
-                    const cargoResponse = await fetchWithTimeout(url);
+                    const cargoResponse = await this._queuedFetch('cargo', url);
                     if (!cargoResponse.ok) {
                         console.log(`   ❌ Response: Status ${cargoResponse.status} ${cargoResponse.statusText}`);
                         return null;
@@ -1378,7 +1510,7 @@ class AuthorService {
                     url = `${this.registryUrls.gem}/${packageName}.json`;
                     debugLogUrl(`🌐 [DEBUG] Fetching URL: ${url}`);
                     debugLogUrl(`   Reason: Fetching RubyGems package metadata for ${packageName} to extract repository URL`);
-                    const gemResponse = await fetchWithTimeout(url);
+                    const gemResponse = await this._queuedFetch('gem', url);
                     if (!gemResponse.ok) {
                         console.log(`   ❌ Response: Status ${gemResponse.status} ${gemResponse.statusText}`);
                         return null;
@@ -2110,20 +2242,32 @@ class AuthorService {
             return [];
         }
 
-        try {
-            const githubClient = new window.GitHubClient();
-            const token = sessionStorage.getItem('github_token') || null;
-            if (token) {
-                githubClient.setToken(token);
-            }
-            
-            // Fetch full profiles by default (can be set to false to save API calls if needed)
-            const contributors = await githubClient.getContributors(owner, repo, 10, fetchProfiles);
-            return contributors;
-        } catch (error) {
-            console.warn(`Failed to fetch GitHub contributors for ${owner}/${repo}:`, error);
-            return [];
+        // Per-run dedupe: many packages from the same repo (monorepos) ask for contributors.
+        // Cache the in-flight Promise keyed by (owner, repo, fetchProfiles) so we make exactly
+        // one /repos/{owner}/{repo}/contributors request per repo per fetchAuthorsForPackages run.
+        const cacheKey = `${owner.toLowerCase()}/${repo.toLowerCase()}::${fetchProfiles ? '1' : '0'}`;
+        if (this._contributorsRequestCache.has(cacheKey)) {
+            return this._contributorsRequestCache.get(cacheKey);
         }
+
+        const requestPromise = (async () => {
+            try {
+                const githubClient = new window.GitHubClient();
+                const token = sessionStorage.getItem('github_token') || null;
+                if (token) {
+                    githubClient.setToken(token);
+                }
+                
+                const contributors = await githubClient.getContributors(owner, repo, 10, fetchProfiles);
+                return contributors;
+            } catch (error) {
+                console.warn(`Failed to fetch GitHub contributors for ${owner}/${repo}:`, error);
+                return [];
+            }
+        })();
+
+        this._contributorsRequestCache.set(cacheKey, requestPromise);
+        return requestPromise;
     }
 
     /**
@@ -2697,14 +2841,111 @@ class AuthorService {
         const oneDay = 24 * 60 * 60 * 1000;
         return Date.now() - timestamp < oneDay;
     }
+    
+    /**
+     * Memoized wrapper around cacheManager.findAuthorByEmail (T2.3).
+     * Caches promises per (ecosystem, email) for the duration of a fetchAuthorsForPackages run.
+     */
+    async _memoFindAuthorByEmail(email, ecosystem) {
+        if (!email || !ecosystem || !window.cacheManager) return null;
+        const memoKey = `${ecosystem}::${email}`;
+        if (this._findByEmailCache.has(memoKey)) {
+            return this._findByEmailCache.get(memoKey);
+        }
+        const promise = window.cacheManager.findAuthorByEmail(email, ecosystem);
+        this._findByEmailCache.set(memoKey, promise);
+        return promise;
+    }
+    
+    /**
+     * Memoized wrapper around cacheManager.findAuthorByGitHub (T2.3).
+     * Caches promises per github username for the duration of a fetchAuthorsForPackages run.
+     */
+    async _memoFindAuthorByGitHub(githubUsername) {
+        if (!githubUsername || !window.cacheManager) return null;
+        const memoKey = String(githubUsername).toLowerCase();
+        if (this._findByGitHubCache.has(memoKey)) {
+            return this._findByGitHubCache.get(memoKey);
+        }
+        const promise = window.cacheManager.findAuthorByGitHub(githubUsername);
+        this._findByGitHubCache.set(memoKey, promise);
+        return promise;
+    }
+    
+    /**
+     * Memoized wrapper around cacheManager.getAuthorEntity (T2.3).
+     * cacheManager already has its own in-memory cache; this layer collapses the
+     * per-run calls into a single Promise per authorKey so concurrent packages with
+     * the same author share work.
+     */
+    async _memoGetAuthorEntity(authorKey) {
+        if (!authorKey || !window.cacheManager) return null;
+        if (this._authorEntityMemo.has(authorKey)) {
+            return this._authorEntityMemo.get(authorKey);
+        }
+        const promise = window.cacheManager.getAuthorEntity(authorKey);
+        this._authorEntityMemo.set(authorKey, promise);
+        return promise;
+    }
+    
+    /**
+     * Save an author entity through cacheManager and refresh the per-run memo caches
+     * so subsequent lookups within the same fetchAuthorsForPackages run see the latest
+     * state (T2.3). Without this we'd risk stale "not found" memo hits after a write.
+     */
+    async _memoSaveAuthorEntity(authorKey, authorData) {
+        await window.cacheManager.saveAuthorEntity(authorKey, authorData);
+        // Update memos to reflect the just-saved entity. Wrapping with Promise.resolve
+        // lets callers continue to await without distinguishing memoized vs fresh.
+        this._authorEntityMemo.set(authorKey, Promise.resolve(authorData));
+        if (authorData?.email) {
+            const ecosystem = authorKey.includes(':') ? authorKey.split(':')[0] : null;
+            if (ecosystem) {
+                this._findByEmailCache.set(`${ecosystem}::${authorData.email}`, Promise.resolve({ authorKey, entity: authorData }));
+            }
+        }
+        if (authorData?.metadata?.github) {
+            this._findByGitHubCache.set(String(authorData.metadata.github).toLowerCase(), Promise.resolve({ authorKey, entity: authorData }));
+        }
+    }
 
     /**
      * Batch fetch authors for multiple packages with funding information (parallelized)
      */
     async fetchAuthorsForPackages(packages, onProgress) {
+        // Pipeline shape (T3.1):
+        //   Phase 1 — Fetch + extract + per-package cache write
+        //             (parallel batches of CONCURRENCY_LIMIT packages; each fetchAuthors call
+        //              hits native registry + ecosyste.ms in parallel, optionally enriches via
+        //              GitHub contributors, then writes packageAuthors / authorEntities through
+        //              the per-run memoization caches).
+        //   Phase 2 — In-memory aggregation across packages
+        //             (collapses per-package authors into a single Map keyed by authorKey).
+        //   Phase 3 — (driven by app.js, see fetchAuthorLocationsBatch)
+        //             Batch GraphQL profile/location enrichment for new GitHub authors.
+        //
+        // Phases 1 and 2 happen here; Phase 3 runs after this function returns.
         const results = new Map();
         const CONCURRENCY_LIMIT = 12; // Process 12 packages concurrently
         let processed = 0;
+        const pipelineStartedAt = Date.now();
+        console.log(`🧭 Author pipeline: starting (${packages.length} packages, batch size ${CONCURRENCY_LIMIT})`);
+
+        // Reset the per-run contributor dedupe cache so a fresh SBOM analysis starts clean.
+        // Without this we'd carry over Promises from a previous run which, while completed,
+        // would prevent fresh data after the user re-imports a project.
+        this._contributorsRequestCache.clear();
+        // Reset the per-run funding caches so a re-import gives authors a fresh funding probe
+        // (the persistent authorEntity.noFunding flag still avoids redundant work across runs).
+        this._fundingNegativeCache.clear();
+        this._fundingInFlight.clear();
+        // Reset per-run cache-manager memoization (T2.3) so we start with empty memo state.
+        this._findByEmailCache.clear();
+        this._findByGitHubCache.clear();
+        this._authorEntityMemo.clear();
+
+        console.log('🧭 Author pipeline: phase 1 — fetch + extract + cache writes (per package)');
+        const phase1StartedAt = Date.now();
         
         // Helper function to process a single package
         const processPackage = async (pkg) => {
@@ -2812,7 +3053,12 @@ class AuthorService {
                 onProgress(processed, packages.length);
             }
         }
-        
+
+        const phase1Ms = Date.now() - phase1StartedAt;
+        console.log(`🧭 Author pipeline: phase 1 done in ${phase1Ms}ms — ${results.size} unique authors aggregated from ${packages.length} packages`);
+
+        console.log('🧭 Author pipeline: phase 2 — finalize aggregated author records');
+        const phase2StartedAt = Date.now();
         // Calculate repository count for each author (unique repos across all their packages)
         results.forEach(entry => {
             entry.repositoryCount = entry.repositories.size;
@@ -2823,11 +3069,13 @@ class AuthorService {
                 entry.packageRepositories[pkgName].sort();
             });
         });
-        
-        // Fetch author-level funding from author entities (NOT package funding)
+
+        // Fetch author-level funding from author entities (NOT package funding).
+        // Use the per-run author-entity memo (T2.3) so we don't re-hit IndexedDB for
+        // entities we already touched while writing them in phase 1.
         if (window.cacheManager) {
             const authorKeyPromises = Array.from(results.keys()).map(async (authorKey) => {
-                const authorEntity = await window.cacheManager.getAuthorEntity(authorKey);
+                const authorEntity = await this._memoGetAuthorEntity(authorKey);
                 if (authorEntity?.funding) {
                     const entry = results.get(authorKey);
                     entry.funding = authorEntity.funding;  // Author-level funding from profile
@@ -2835,7 +3083,10 @@ class AuthorService {
             });
             await Promise.all(authorKeyPromises);
         }
-        
+        const phase2Ms = Date.now() - phase2StartedAt;
+        console.log(`🧭 Author pipeline: phase 2 done in ${phase2Ms}ms`);
+        console.log(`🧭 Author pipeline: complete in ${Date.now() - pipelineStartedAt}ms (phase 3 GraphQL enrichment runs in app.js after this returns)`);
+
         return results;
     }
 

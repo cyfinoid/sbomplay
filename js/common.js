@@ -6,6 +6,7 @@
  * 
  * Contents:
  * - Security utilities (escapeHtml, escapeJsString, isUrlFromHostname, safeSetHTML)
+ * - GitHub token format validation (isValidGitHubTokenFormat)
  * - UI utilities (setupCollapseIcon, getSeverityBadgeClass)
  * - Network utilities (fetchWithTimeout, debugLogUrl)
  * - Data loading utilities (loadAnalysesList, loadOrganizationData, getUrlParams)
@@ -109,6 +110,25 @@ function safeSetHTML(element, html) {
         // Fallback - set innerHTML directly (HTML should already be escaped)
         element.innerHTML = html || '';
     }
+}
+
+/**
+ * Known GitHub API token prefixes (classic PAT, fine-grained PAT, OAuth, GitHub App).
+ * @see https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/about-authentication-to-the-github-api
+ */
+const GITHUB_TOKEN_PREFIXES = ['ghp_', 'github_pat_', 'gho_', 'ghu_', 'ghs_', 'ghr_'];
+
+/**
+ * Return true if the string looks like a valid GitHub token (prefix + alphanumeric/underscore body).
+ * @param {string} token - Trimmed token from user input
+ * @returns {boolean}
+ */
+function isValidGitHubTokenFormat(token) {
+    if (!token || typeof token !== 'string') return false;
+    const trimmed = token.trim();
+    if (!trimmed) return false;
+    return GITHUB_TOKEN_PREFIXES.some((p) => trimmed.startsWith(p))
+        && /^[A-Za-z0-9_]+$/.test(trimmed);
 }
 
 // =============================================================================
@@ -590,3 +610,6 @@ window.escapeHtml = escapeHtml;
 window.escapeJsString = escapeJsString;
 window.isUrlFromHostname = isUrlFromHostname;
 window.safeSetHTML = safeSetHTML;
+
+window.GITHUB_TOKEN_PREFIXES = GITHUB_TOKEN_PREFIXES;
+window.isValidGitHubTokenFormat = isValidGitHubTokenFormat;

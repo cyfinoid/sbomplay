@@ -16,6 +16,7 @@ This document provides comprehensive flowcharts documenting how SBOM Play perfor
 10. [Storage Operations Flow](#storage-operations-flow)
 11. [View Rendering Flow](#view-rendering-flow)
 12. [Rate Limit Handling Flow](#rate-limit-handling-flow)
+13. [Feed Export Flow (OPML)](#feed-export-flow-opml)
 
 ---
 
@@ -385,18 +386,17 @@ flowchart TD
     U -->|Yes| S
     U -->|No| V[Empty authors array]
     S --> W[Extract funding information]
-    V --> X[Save to unified cache immediately]
+    V --> X[Stage entities + relationships in per-package bundle]
     W --> X
-    X --> Y[Save to IndexedDB]
+    X --> Y[Single multi-store IndexedDB transaction per package]
     Y --> Z[Update progress]
     Z --> AA{More packages?}
     AA -->|Yes| F
-    AA -->|No| AB[Group authors by author key]
+    AA -->|No| AB[Aggregate authors by author key]
     AB --> AC[Calculate repository counts]
-    AC --> AD[Fetch author funding from profiles]
-    AD --> AE[Save author entities]
-    AE --> AF[Save package-author relationships]
-    AF --> AG[Analysis complete]
+    AC --> AD[Batch GraphQL location/profile enrichment]
+    AD --> AE[Country-only authors map via static centroids]
+    AE --> AG[Analysis complete]
     
     J --> Z
     M --> Z
@@ -418,9 +418,13 @@ flowchart TD
 - **PURL-Based Extraction**: Extracts packages using PURL information from dependencies
 - **Package Deduplication**: Deduplicates by ecosystem:name before fetching
 - **Multi-source Fetching**: Tries multiple sources for maximum coverage
-- **Funding Detection**: Identifies GitHub Sponsors, Open Collective, Patreon, Tidelift (both package and author level)
+- **Funding Detection**: Identifies GitHub Sponsors, Open Collective, Patreon, Tidelift (both package and author level), with session and persistent negative caching to skip authors with no funding
 - **Author Grouping**: Groups authors by author key and calculates repository counts
-- **Incremental Caching**: Saves immediately after fetching each package to unified cache and IndexedDB
+- **Bundled Per-Package Writes**: Each package commits its package row, author entities, and relationships in a single IndexedDB transaction (`cacheManager.savePackageAuthorBundle`) instead of 1+N+N separate transactions
+- **Per-Run Memoization**: `findAuthorByEmail` / `findAuthorByGitHub` / `getAuthorEntity` results are memoized for the duration of a `fetchAuthorsForPackages` run so authors shared across packages cost one IDB lookup, not many
+- **Unified Rate-Limited HTTP**: All registry/funding fetches go through `requestQueueManager` lanes (`npm`, `pypi`, `cargo`, `gem`, `ecosystems`, `github`) with shared 429/403 backoff
+- **Country-Only Map**: The authors map renders one Leaflet marker per country using static ISO 3166-1 alpha-2 centroids from `js/country-data.js`; `LocationService.geocode()` resolves country / US-state suffixes locally before falling back to Nominatim, near-eliminating geocoding round-trips
+- **Optional Contributor Correlation**: Per-package GitHub contributor correlation (extra `/repos/<owner>/<repo>/contributors` calls) is gated behind a setting in `settings.html` and is **off by default**
 
 ---
 
@@ -897,12 +901,60 @@ flowchart LR
     L --> M[IndexedDB]
     M --> N[View Manager]
     N --> O[UI Display]
-    
+    M --> FUB[Feed URL Builder]
+    H --> FUB
+    FUB --> OPM[OPML Builder]
+    OPM --> OPF[OPML Download]
+
     style A fill:#e1f5ff
     style O fill:#c8e6c9
     style L fill:#e1bee7
     style M fill:#fff9c4
+    style OPF fill:#c8e6c9
+    style FUB fill:#fff3e0
 ```
+
+---
+
+## Feed Export Flow (OPML)
+
+The Feeds page (`feeds.html`) and the Deps page export button reuse the
+stored analysis to generate an OPML 2.0 bundle of RSS/Atom subscriptions
+for every direct and transitive dependency.
+
+```mermaid
+flowchart TD
+    A[User opens feeds.html / clicks Export OPML] --> B[Load analysis from StorageManager]
+    B --> C[Iterate allDependencies]
+    C --> D[FeedUrlBuilder.resolveFeed per dep]
+    D --> E{Native registry feed?}
+    E -->|PyPI / RubyGems / Packagist| F[Use registry RSS/Atom URL]
+    E -->|No native feed| G{GitHub source repo known?}
+    G -->|Yes - via SBOM externalRefs / PURL / Go path / Action owner-repo| H[Use github.com/owner/repo/releases.atom]
+    G -->|No| I[Mark Uncovered]
+    F --> J[OPMLBuilder.build]
+    H --> J
+    I --> K[Excluded from OPML, surfaced in UI]
+    J --> L[OPML XML grouped by Direct/Transitive then by Ecosystem]
+    L --> M[Browser download as .opml]
+    K --> N[Coverage stats displayed on feeds.html]
+
+    style A fill:#e1f5ff
+    style M fill:#c8e6c9
+    style I fill:#ffcdd2
+    style D fill:#fff3e0
+    style J fill:#e1bee7
+```
+
+**Feed Source Precedence:**
+- `native` — Registry exposes a per-package RSS/Atom feed (PyPI, RubyGems, Packagist)
+- `github-releases` — Source repo is on GitHub; use `releases.atom`
+- `github-tags` — Reserved for GitHub repos that don't publish Releases
+- `uncovered` — No discoverable feed; package excluded from OPML body
+
+**Out of Scope (intentional):**
+- No background polling inside the app — the user's feed reader handles delivery
+- No per-version pinning — feed readers don't support "notify only if newer than X"
 
 ---
 

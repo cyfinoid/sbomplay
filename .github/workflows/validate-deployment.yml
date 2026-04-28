@@ -19,7 +19,7 @@ jobs:
     
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           fetch-depth: 1
       
@@ -38,6 +38,7 @@ jobs:
             "about.html"
             "debug.html"
             "findings.html"
+            "feeds.html"
           )
           
           MISSING=0
@@ -88,11 +89,14 @@ jobs:
             "js/cache-manager.js"
             "js/common.js"
             "js/dependency-tree-resolver.js"
+            "js/country-data.js"
             "js/depconfuse-service.js"
             "js/deps-page.js"
             "js/ecosystem-utils.js"
             "js/enrichment-pipeline.js"
             "js/eox-service.js"
+            "js/feed-url-builder.js"
+            "js/feeds-page.js"
             "js/github-actions-analyzer.js"
             "js/github-client.js"
             "js/index-page.js"
@@ -101,6 +105,7 @@ jobs:
             "js/license-processor.js"
             "js/licenses-page.js"
             "js/location-service.js"
+            "js/opml-builder.js"
             "js/osv-service.js"
             "js/package-details-modal.js"
             "js/registry-utils.js"
