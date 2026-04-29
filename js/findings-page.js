@@ -539,6 +539,14 @@ document.addEventListener('DOMContentLoaded', async function() {
                 
                 // Check for EOL/EOS from eoxStatus
                 if (eoxStatus) {
+                    // Build a citation back to the endoflife.date page that confirmed
+                    // the EOL/EOS so the Findings row can link to its source.
+                    const productMatched = eoxStatus.productMatched || null;
+                    const sourceUrl = productMatched
+                        ? `https://endoflife.date/${encodeURIComponent(productMatched)}`
+                        : null;
+                    const sourceName = 'endoflife.date';
+
                     if (eoxStatus.isEOL) {
                         // Filter by severity (EOL is high)
                         if (severityFilter && severityFilter !== 'all' && severityFilter !== 'high') {
@@ -558,6 +566,9 @@ document.addEventListener('DOMContentLoaded', async function() {
                             repository: repos.length > 0 ? repos[0] : null,
                             repositories: repos,
                             eolDate: eoxStatus.eolDate || null,
+                            productMatched: productMatched,
+                            sourceUrl: sourceUrl,
+                            sourceName: sourceName,
                             message: `${dep.name} has reached End-of-Life${eoxStatus.eolDate ? ` (${eoxStatus.eolDate})` : ''}. No security updates are provided.`,
                             // Store minimal depInfo for the modal
                             depInfo: {
@@ -590,6 +601,9 @@ document.addEventListener('DOMContentLoaded', async function() {
                             repository: repos.length > 0 ? repos[0] : null,
                             repositories: repos,
                             eosDate: eoxStatus.eosDate || null,
+                            productMatched: productMatched,
+                            sourceUrl: sourceUrl,
+                            sourceName: sourceName,
                             message: `${dep.name} has reached End-of-Support${eoxStatus.eosDate ? ` (${eoxStatus.eosDate})` : ''}. Security updates may not be provided.`,
                             // Store minimal depInfo for the modal
                             depInfo: {
@@ -1068,6 +1082,15 @@ document.addEventListener('DOMContentLoaded', async function() {
                                                 const months = instance.monthsSinceRelease % 12;
                                                 const ageStr = years > 0 ? `${years}y ${months}m` : `${months}m`;
                                                 detailsHtml += `<br><small class="text-muted">Age: ${ageStr} since last release</small>`;
+                                            }
+                                            // Cite the endoflife.date page that confirmed this EOL/EOS
+                                            // (only set on confirmed EOL/EOS rows, not staleness-based ones).
+                                            if (instance.sourceUrl) {
+                                                const sourceLabel = escapeHtml(instance.sourceName || 'endoflife.date');
+                                                const productSuffix = instance.productMatched
+                                                    ? ` (${escapeHtml(instance.productMatched)})`
+                                                    : '';
+                                                detailsHtml += `<br><small><i class="fas fa-external-link-alt me-1"></i>Source: <a href="${escapeHtml(instance.sourceUrl)}" target="_blank" rel="noreferrer noopener">${sourceLabel}${productSuffix}</a></small>`;
                                             }
                                             
                                             // Create clickable package link that opens the package details modal
