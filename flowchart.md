@@ -18,6 +18,7 @@ This document provides comprehensive flowcharts documenting how SBOM Play perfor
 11. [View Rendering Flow](#view-rendering-flow)
 12. [Rate Limit Handling Flow](#rate-limit-handling-flow)
 13. [Feed Export Flow (OPML)](#feed-export-flow-opml)
+14. [Insights Aggregation Flow](#insights-aggregation-flow)
 
 ---
 
@@ -302,6 +303,8 @@ flowchart TD
 - **Dependency Categorization**: Classifies as code, workflow, or infrastructure
 - **Relationship Tracking**: Identifies direct vs transitive dependencies
 - **Quality Assessment**: Evaluates SBOM completeness and quality
+- **GitHub Repo Metadata**: `processSBOM(owner, repo, sbomData, repositoryLicense, archived, meta)` accepts a `meta` object with `pushedAt`, `primaryLanguage`, and `defaultBranch`. These fields are populated from the GraphQL user-repo query (`pushedAt` / `primaryLanguage { name }` / `defaultBranchRef { name }`) and the REST org-repo / single-repo endpoints (`pushed_at` / `language` / `default_branch`), and are propagated through `allRepositories[]` for the Insights page (repo activity buckets, language stack) and any future repo-level hygiene signal.
+- **Per-Dep Enrichment Persistence**: `exportData()` emits `versionDrift`, `staleness`, `eoxStatus`, and `sourceRepoStatus` on **every** dep — not just the vulnerable subset. The enrichment pipeline mirrors each enrichment back onto `this.dependencies` (the in-memory Map) via `syncDriftToProcessor` / `syncEOXToProcessor` / `syncSourceRepoStatusToProcessor` so the next `saveProgress` re-export carries them.
 
 ---
 
@@ -1023,6 +1026,84 @@ flowchart TD
 **Out of Scope (intentional):**
 - No background polling inside the app — the user's feed reader handles delivery
 - No per-version pinning — feed readers don't support "notify only if newer than X"
+
+---
+
+## Insights Aggregation Flow
+
+The Insights page (`insights.html` + `js/insights-page.js`) is a **read-only**
+roll-up over data already produced by the enrichment pipeline. It does not
+trigger any new fetches — it consumes the persisted `allDependencies` /
+`allRepositories` / `vulnerabilityAnalysis` / `licenseAnalysis` /
+`malwareAnalysis` / `qualityAnalysis` / `githubActionsAnalysis` blobs from
+IndexedDB and renders them with CSS bars + inline conic-gradient SVG donuts
+(no chart library, so the airgapped allowlist is unchanged).
+
+```mermaid
+flowchart LR
+    A[User opens insights.html] --> B[loadAnalysesList]
+    B --> C[loadOrganizationData]
+    C --> D[storageManager.loadAnalysisDataForOrganization<br/>or getCombinedData]
+    D --> E[buildInsights analysisData]
+    E --> F1[computeDriftStats<br/>per-dep versionDrift]
+    E --> F2[computeAgeStats<br/>per-dep staleness]
+    E --> F3[computeVulnAgeStats<br/>OSV published × severity]
+    E --> F4[computeEolStats<br/>per-dep eoxStatus]
+    E --> F5[computeLicenseStats<br/>licenseAnalysis + direct copyleft]
+    E --> F6[computeRepoHygiene<br/>SBOM grade + pushedAt activity]
+    E --> F7[computeSupplyChainStats<br/>malware + dep-confusion + unpinned actions]
+    E --> F8[computePerRepoStats]
+    F1 --> G[computeTechDebt<br/>weighted A-F composite]
+    F2 --> G
+    F3 --> G
+    F4 --> G
+    F5 --> G
+    F6 --> G
+    F7 --> G
+    F8 --> G
+    G --> H[generateInsightsHTML]
+    H --> H1[KPI strip]
+    H --> H2[Language stack]
+    H --> H3[Package age]
+    H --> H4[Version drift]
+    H --> H5[Vulnerability age]
+    H --> H6[Repository hygiene]
+    H --> H7[Supply chain & M&A red flags]
+    H --> H8[Tech-debt composite]
+    H --> H9[Per-repo CSV export]
+
+    style A fill:#e1f5ff
+    style E fill:#e1bee7
+    style G fill:#fff9c4
+    style H fill:#c8e6c9
+```
+
+**Inputs (all pre-computed by earlier phases):**
+- `allDependencies[].versionDrift` — major/minor/patch drift, `latestVersion` (Phase 4 broadened ecosystem coverage: npm / pypi / cargo / maven / nuget / go / gem / composer)
+- `allDependencies[].staleness` — `monthsSinceRelease`, `isProbableEOL`, `probableEOLReason` (publish-date sourcing now covers the same 8 ecosystems via `fetchVersionPublishDate`)
+- `allDependencies[].eoxStatus` — confirmed EOL/EOS via endoflife.date
+- `allDependencies[].license{,Full}` + `licenseAnalysis.summary.riskBreakdown`
+- `vulnerabilityAnalysis.vulnerableDependencies[*].vulnerabilities[*].published / .severity` — OSV `published` ISO timestamp drives the age × severity heatmap
+- `allRepositories[].pushedAt / .primaryLanguage / .defaultBranch` — GitHub metadata from the widened GraphQL query / REST repo objects
+- `allRepositories[].qualityAssessment.grade` — A–F SBOM grade donut
+- `malwareAnalysis`, `githubActionsAnalysis`, `categoryStats`, `languageStats`
+
+**Tech-Debt composite weights** (mirrored on the page so the score is never opaque):
+- 25% drift (major-behind weighted 3× minor)
+- 25% vulnerability density (CVEs/dep, severity-weighted Critical=10, High=4, Medium=1)
+- 15% stale / aged packages (>2y or probable-EOL share of dated deps)
+- 10% license risk (high-risk share + conflicts penalty)
+- 10% SBOM grade (1 − averageScore/100)
+- 10% EOL runtime exposure (`eolCount + 0.5 * eosCount` over total deps)
+- 5% supply-chain hygiene (unpinned actions + dep-confusion + malware presence)
+
+**Backwards compatibility for legacy analyses:**
+The page renders gracefully on stored analyses produced before this release.
+Each section labels its own data coverage; a yellow "partial enrichment"
+banner appears at the top whenever overall age or drift coverage is below
+50%, prompting the user to re-run the analysis to populate the new fields.
+The CSS/SVG-only render path means missing data simply produces a smaller
+or absent bar — never a runtime error.
 
 ---
 

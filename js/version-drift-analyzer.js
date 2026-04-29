@@ -404,13 +404,33 @@ class VersionDriftAnalyzer {
     }
 
     /**
-     * Fetch publish date for a specific version
+     * Fetch publish date for a specific version.
+     *
+     * Coverage matrix (the Insights page surfaces a per-portfolio coverage % so users
+     * see which ecosystems contribute publish-date signal):
+     *
+     *   ecosystem | source                                                | notes
+     *   ----------|-------------------------------------------------------|--------------------
+     *   npm       | registry.npmjs.org `time[<version>]`                  | native
+     *   pypi      | pypi.org JSON API `releases[<version>][0].upload_time`| native
+     *   cargo     | crates.io API `versions[].created_at`                 | native
+     *   maven     | api.deps.dev `publishedAt`                            | added for Insights
+     *   nuget     | api.deps.dev `publishedAt`                            | added for Insights
+     *   go/golang | api.deps.dev `publishedAt` (Go versions get a "v" prefix per AGENTS) | added
+     *   gem       | rubygems.org `versions/{name}.json` → `created_at`    | added for Insights
+     *   composer  | repo.packagist.org p2 `time` per version              | added for Insights
+     *
+     * deps.dev / rubygems.org / repo.packagist.org are already on the airgapped allowlist
+     * (license-fetcher.js / registry-utils.js) so the Insights coverage broadening adds
+     * no new external hosts.
+     *
      * @param {string} packageName - Package name
      * @param {string} version - Version
      * @param {string} ecosystem - Ecosystem
      * @returns {Promise<string|null>} - ISO date string or null
      */
     async fetchVersionPublishDate(packageName, version, ecosystem) {
+        if (!packageName || !version || version === 'unknown' || !ecosystem) return null;
         const normalizedEcosystem = ecosystem.toLowerCase();
         
         try {
@@ -421,6 +441,20 @@ class VersionDriftAnalyzer {
                     return await this.fetchPyPiVersionDate(packageName, version);
                 case 'cargo':
                     return await this.fetchCargoVersionDate(packageName, version);
+                case 'maven':
+                    return await this.fetchDepsDevVersionDate('maven', packageName, version);
+                case 'nuget':
+                    return await this.fetchDepsDevVersionDate('nuget', packageName, version);
+                case 'go':
+                case 'golang':
+                    // Go versions need "v" prefix per AGENTS.md "External APIs" rules.
+                    return await this.fetchDepsDevVersionDate('go', packageName, this.normaliseGoVersion(version));
+                case 'gem':
+                case 'rubygems':
+                    return await this.fetchRubyGemsVersionDate(packageName, version);
+                case 'composer':
+                case 'packagist':
+                    return await this.fetchPackagistVersionDate(packageName, version);
                 default:
                     return null;
             }
@@ -428,6 +462,64 @@ class VersionDriftAnalyzer {
             console.warn(`⚠️ Failed to fetch publish date for ${ecosystem}:${packageName}@${version}:`, error);
             return null;
         }
+    }
+
+    /**
+     * Normalise a Go version for deps.dev queries.
+     * deps.dev expects the canonical `v`-prefixed semver; many SBOMs strip the `v`.
+     */
+    normaliseGoVersion(version) {
+        const v = String(version || '').trim();
+        if (!v) return v;
+        if (/^v\d/i.test(v)) return v;
+        if (/^\d/.test(v)) return `v${v}`;
+        return v;
+    }
+
+    /**
+     * Generic deps.dev version-metadata fetch: returns `publishedAt` (ISO) or null.
+     * Range syntax is rejected upstream (we only call this from drift/staleness paths
+     * that operate on pinned versions).
+     */
+    async fetchDepsDevVersionDate(system, packageName, version) {
+        const url = `https://api.deps.dev/v3/systems/${encodeURIComponent(system)}/packages/${encodeURIComponent(packageName)}/versions/${encodeURIComponent(version)}`;
+        const response = await this.fetchWithTimeout(url, {}, this.requestTimeout);
+        if (!response.ok) {
+            return null;
+        }
+        const data = await response.json();
+        return data.publishedAt || data.publishTime || null;
+    }
+
+    /**
+     * Fetch publish date from RubyGems.
+     * `versions/{name}.json` returns the full version list; we match `number` exactly.
+     */
+    async fetchRubyGemsVersionDate(packageName, version) {
+        const url = `https://rubygems.org/api/v1/versions/${encodeURIComponent(packageName)}.json`;
+        const response = await this.fetchWithTimeout(url, {}, this.requestTimeout);
+        if (!response.ok) return null;
+        const data = await response.json();
+        if (!Array.isArray(data)) return null;
+        const match = data.find(v => v.number === version);
+        return match?.created_at || null;
+    }
+
+    /**
+     * Fetch publish date from Packagist (composer).
+     * `repo.packagist.org/p2/<vendor>/<name>.json` returns a `packages` map keyed by
+     * the package id; each entry contains an array of version objects with a `time`
+     * field (ISO 8601). We match by the exact `version` field.
+     */
+    async fetchPackagistVersionDate(packageName, version) {
+        const url = `https://repo.packagist.org/p2/${packageName.toLowerCase()}.json`;
+        const response = await this.fetchWithTimeout(url, {}, this.requestTimeout);
+        if (!response.ok) return null;
+        const data = await response.json();
+        const versions = data?.packages?.[packageName.toLowerCase()] || data?.packages?.[packageName] || null;
+        if (!Array.isArray(versions)) return null;
+        const match = versions.find(v => v.version === version || v.version_normalized === version);
+        return match?.time || null;
     }
 
     /**

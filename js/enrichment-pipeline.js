@@ -371,7 +371,77 @@ class EnrichmentPipeline {
             }
         }
 
+        // Mirror drift/staleness back onto the processor's dependency Map. exportData()
+        // rebuilds `allDependencies` fresh from the Map, so without this sync the per-dep
+        // versionDrift/staleness fields would only survive on the array we mutated above
+        // (and would be wiped out the next time exportData() runs in saveProgress).
+        this.syncDriftToProcessor(depsToCheck);
+
         console.log(`✅ Version drift complete: ${checked} checked`);
+    }
+
+    /**
+     * Mirror enriched drift/staleness onto the processor's `this.dependencies` Map so the
+     * Insights page (and any future per-dep dashboard) can read them via the standard
+     * `allDependencies` export shape.
+     */
+    syncDriftToProcessor(dependencies) {
+        if (!this.sbomProcessor?.dependencies) return;
+        let synced = 0;
+        for (const dep of dependencies) {
+            if (!dep || (!dep.versionDrift && !dep.staleness)) continue;
+            const key = `${dep.name}@${dep.version}`;
+            const procDep = this.sbomProcessor.dependencies.get(key);
+            if (procDep) {
+                if (dep.versionDrift) procDep.versionDrift = dep.versionDrift;
+                if (dep.staleness) procDep.staleness = dep.staleness;
+                synced++;
+            }
+        }
+        if (synced > 0) {
+            console.log(`📊 Synced ${synced} drift/staleness records to processor`);
+        }
+    }
+
+    /**
+     * Mirror enriched EOX status onto the processor's `this.dependencies` Map so the
+     * standard exportData() shape carries `eoxStatus` on every dep.
+     */
+    syncEOXToProcessor(dependencies) {
+        if (!this.sbomProcessor?.dependencies) return;
+        let synced = 0;
+        for (const dep of dependencies) {
+            if (!dep || !dep.eoxStatus) continue;
+            const key = `${dep.name}@${dep.version}`;
+            const procDep = this.sbomProcessor.dependencies.get(key);
+            if (procDep) {
+                procDep.eoxStatus = dep.eoxStatus;
+                synced++;
+            }
+        }
+        if (synced > 0) {
+            console.log(`⏳ Synced ${synced} EOX records to processor`);
+        }
+    }
+
+    /**
+     * Mirror source-repo validation results onto the processor's dependency Map.
+     */
+    syncSourceRepoStatusToProcessor(dependencies) {
+        if (!this.sbomProcessor?.dependencies) return;
+        let synced = 0;
+        for (const dep of dependencies) {
+            if (!dep || !dep.sourceRepoStatus) continue;
+            const key = `${dep.name}@${dep.version}`;
+            const procDep = this.sbomProcessor.dependencies.get(key);
+            if (procDep) {
+                procDep.sourceRepoStatus = dep.sourceRepoStatus;
+                synced++;
+            }
+        }
+        if (synced > 0) {
+            console.log(`🔗 Synced ${synced} source-repo status records to processor`);
+        }
     }
 
     /**
@@ -463,6 +533,9 @@ class EnrichmentPipeline {
                 await new Promise(r => setTimeout(r, 50));
             }
         }
+
+        // Mirror to processor so eoxStatus survives the next exportData() rebuild.
+        this.syncEOXToProcessor(depsToCheck);
 
         const eoxCount = depsToCheck.filter(d => d.eoxStatus).length;
         console.log(`✅ EOX status complete: ${eoxCount} packages have EOX data`);
@@ -572,6 +645,9 @@ class EnrichmentPipeline {
                 await new Promise(r => setTimeout(r, 200));
             }
         }
+
+        // Mirror sourceRepoStatus onto the processor's Map for export persistence.
+        this.syncSourceRepoStatusToProcessor(dependencies);
 
         console.log(`✅ Source repo validation complete: ${notFoundCount} repos not found`);
     }

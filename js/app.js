@@ -1354,7 +1354,16 @@ class SBOMPlayApp {
                 }
             }
             
-            const success = await this.sbomProcessor.processSBOM(owner, repo, sbomData, repositoryLicense);
+            // Forward GitHub repo metadata so the Insights page has push activity / language /
+            // default branch even on single-repo scans.
+            const repoMeta = {
+                pushedAt: repoData.pushed_at || null,
+                primaryLanguage: repoData.language || null,
+                defaultBranch: repoData.default_branch || null
+            };
+            const success = await this.sbomProcessor.processSBOM(
+                owner, repo, sbomData, repositoryLicense, repoData.archived || false, repoMeta
+            );
             
             if (!success) {
                 this.showAlert(`Failed to process SBOM data for ${repoKey}`, 'danger');
@@ -1689,7 +1698,16 @@ class SBOMPlayApp {
                         
                         // Extract archived status from GitHub API response
                         const archived = repo.archived || false;
-                        const success = await this.sbomProcessor.processSBOM(owner, name, sbomData, repositoryLicense, archived);
+                        // Forward GitHub repo metadata (push activity, primary language,
+                        // default branch) used by the Insights page for hygiene and
+                        // language-stack signals. REST returns snake_case; GraphQL
+                        // mapping in github-client.js normalises to the same shape.
+                        const repoMeta = {
+                            pushedAt: repo.pushed_at || null,
+                            primaryLanguage: repo.language || null,
+                            defaultBranch: repo.default_branch || null
+                        };
+                        const success = await this.sbomProcessor.processSBOM(owner, name, sbomData, repositoryLicense, archived, repoMeta);
                         this.sbomProcessor.updateProgress(success);
                         if (success) {
                             result.success = true;
@@ -1720,11 +1738,17 @@ class SBOMPlayApp {
                             },
                             hasDependencyGraph: false, // NEW FLAG
                             repositoryLicense: repo.license?.spdx_id || repo.license?.key || null,
+                            license: repo.license?.spdx_id || repo.license?.key || null,
                             archived: repo.archived || false,
                             description: repo.description || null,
                             url: repo.html_url || `https://github.com/${owner}/${name}`,
                             visibility: repo.visibility || 'public',
-                            language: repo.language || null
+                            language: repo.language || null,
+                            // Insights page hygiene/language signals
+                            pushedAt: repo.pushed_at || null,
+                            primaryLanguage: repo.language || null,
+                            defaultBranch: repo.default_branch || null,
+                            languages: new Set()
                         };
                         
                         this.sbomProcessor.repositories.set(repoKey, repoData);

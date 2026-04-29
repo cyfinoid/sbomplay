@@ -589,6 +589,12 @@ class GitHubClient {
      * @returns {Promise<Object>} - Object with repos array, hasNextPage, endCursor, totalCount
      */
     async getUserRepositoriesGraphQL(username, first = 100, after = null) {
+        // Fields fetched per repo:
+        //   - pushedAt          → repo last-push activity (Insights "repo activity" buckets)
+        //   - primaryLanguage   → GitHub's primary-language detection (Insights language stack)
+        //   - defaultBranchRef  → default branch name (used for HEAD-based file links / future)
+        // These complement the older fields and are also returned by the REST endpoint
+        // (`pushed_at`, `language`, `default_branch`) so downstream code stays uniform.
         const query = `
             query($login: String!, $first: Int!, $after: String) {
                 user(login: $login) {
@@ -609,6 +615,13 @@ class GitHubClient {
                             description
                             url
                             isArchived
+                            pushedAt
+                            primaryLanguage {
+                                name
+                            }
+                            defaultBranchRef {
+                                name
+                            }
                             licenseInfo {
                                 spdxId
                                 name
@@ -641,6 +654,9 @@ class GitHubClient {
                 description: repo.description,
                 html_url: repo.url,
                 archived: repo.isArchived,
+                pushed_at: repo.pushedAt || null,
+                language: repo.primaryLanguage?.name || null,
+                default_branch: repo.defaultBranchRef?.name || null,
                 license: repo.licenseInfo ? {
                     spdx_id: repo.licenseInfo.spdxId,
                     key: repo.licenseInfo.spdxId,

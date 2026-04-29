@@ -237,8 +237,9 @@ class SBOMProcessor {
      * @param {Object} sbomData - SBOM data from GitHub
      * @param {string} repositoryLicense - Repository's own license (SPDX identifier, e.g., 'GPL-3.0', 'MIT')
      * @param {boolean} archived - Whether the repository is archived
+     * @param {Object} [meta] - Optional GitHub metadata: { pushedAt, primaryLanguage, defaultBranch }
      */
-    async processSBOM(owner, repo, sbomData, repositoryLicense = null, archived = false) {
+    async processSBOM(owner, repo, sbomData, repositoryLicense = null, archived = false, meta = {}) {
         if (!sbomData || !sbomData.sbom || !sbomData.sbom.packages) {
             console.log(`⚠️  Invalid SBOM data for ${owner}/${repo}`);
             return false;
@@ -258,6 +259,11 @@ class SBOMProcessor {
             owner: owner,
             license: repositoryLicense || null,  // Store repository's own license
             archived: archived || false,  // Store archived status
+            // GitHub metadata used by the Insights page (also useful for repo-level
+            // hygiene signals on other pages going forward).
+            pushedAt: meta?.pushedAt || null,
+            primaryLanguage: meta?.primaryLanguage || null,
+            defaultBranch: meta?.defaultBranch || null,
             dependencies: new Set(),
             directDependencies: new Set(),  // Track direct dependencies from relationships
             totalDependencies: 0,
@@ -1181,7 +1187,14 @@ class SBOMProcessor {
                 licenseFull: licenseFull,  // Include license (full form, from SBOM or fetched)
                 licenseAugmented: licenseAugmented,  // True if license was fetched externally
                 licenseSource: licenseSource,  // 'sbom' or 'deps.dev' or 'external'
-                repositoryLicense: repositoryLicense  // Include repository license as fallback
+                repositoryLicense: repositoryLicense,  // Include repository license as fallback
+                // Insights / executive metrics: persist enrichment results on EVERY dep so
+                // dashboards (Insights page, age/drift/EOL charts, tech-debt scoring) don't
+                // depend on whether the dep was also flagged as vulnerable.
+                versionDrift: dep.versionDrift || null,
+                staleness: dep.staleness || null,
+                eoxStatus: dep.eoxStatus || null,
+                sourceRepoStatus: dep.sourceRepoStatus || null
             };
         });
         const allRepos = Array.from(this.repositories.values()).map(repo => {
@@ -1191,6 +1204,11 @@ class SBOMProcessor {
                 owner: repo.owner,
                 license: repo.license || null,  // Include repository license
                 archived: repo.archived || false,  // Include archived status
+                // GitHub metadata for Insights / hygiene metrics
+                pushedAt: repo.pushedAt || null,
+                primaryLanguage: repo.primaryLanguage || repo.language || null,
+                defaultBranch: repo.defaultBranch || null,
+                hasDependencyGraph: repo.hasDependencyGraph !== false,
                 totalDependencies: repo.totalDependencies,
                 dependencies: Array.from(repo.dependencies || []),
                 directDependencies: Array.from(repo.directDependencies || []),  // Direct dependencies
