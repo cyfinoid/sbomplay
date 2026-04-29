@@ -549,8 +549,17 @@ document.addEventListener('DOMContentLoaded', async function() {
                 
                 // Try to get EOX status:
                 // 1. First check if eoxStatus exists directly on the dependency (new exports)
-                // 2. If not, try to compute dynamically via eoxService
+                //    -- but only if it was produced by the current matcher logic; older
+                //    versions had false positives (e.g. @tailwindcss/node matched as Node.js).
+                // 2. Otherwise compute dynamically via eoxService.
+                const currentLogicVersion = (window.EOXService && window.EOXService.LOGIC_VERSION) || 0;
                 let eoxStatus = dep.eoxStatus || null;
+                if (eoxStatus && currentLogicVersion) {
+                    const ver = Number(eoxStatus.logicVersion) || 0;
+                    if (ver < currentLogicVersion) {
+                        eoxStatus = null;
+                    }
+                }
                 if (!eoxStatus && window.eoxService) {
                     eoxStatus = await getEOXStatusDynamic(dep);
                 }

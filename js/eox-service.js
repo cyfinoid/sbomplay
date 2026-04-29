@@ -935,6 +935,12 @@ class EOXService {
     }
 }
 
+// Version of the EOX matching/checking logic. Bump when productMappings or matching
+// rules change in a way that may have produced different (potentially wrong) results
+// in earlier runs. Persisted analyses stamp this onto each dep.eoxStatus so loaders
+// can drop stale entries (see js/storage-manager.js, js/findings-page.js).
+EOXService.LOGIC_VERSION = 2;
+
 // Create global instance
 if (typeof window !== 'undefined') {
     window.EOXService = EOXService;

@@ -568,8 +568,15 @@ flowchart TD
     D -->|No| E[Skip EOX check]
     D -->|Yes| F[Loop: For each dependency]
     F --> G[Find matching product]
-    G --> H{Product found?}
-    H -->|No| I[Skip dependency]
+    G --> G1{npm scoped name?}
+    G1 -->|Yes| G2[Use full @scope/name only<br/>no scope-strip variations]
+    G1 -->|No| G3[Try name + dash/underscore/dot variations<br/>+ post-slash tail for non-npm]
+    G2 --> G4[Lookup in productMappings]
+    G3 --> G4
+    G4 --> G5{Mapping allowed for<br/>this ecosystem?<br/>'*' = SBOM-level only}
+    G5 -->|No| I[Skip dependency]
+    G5 -->|Yes| H{Product found?}
+    H -->|No| I
     H -->|Yes| J[Check IndexedDB cache]
     J --> K{Cached?}
     K -->|Yes| L[Use cached data]
@@ -590,7 +597,7 @@ flowchart TD
     X --> Y{Coming soon?}
     Y -->|Yes| Z[Mark as Warning - Low severity]
     Y -->|No| AA[No EOX issues]
-    U --> AB[Store EOX status on dependency]
+    U --> AB[Stamp logicVersion + store on dependency]
     W --> AB
     Z --> AB
     AA --> AB
@@ -608,11 +615,13 @@ flowchart TD
 ```
 
 **Key Features:**
-- **Product Mapping**: Maps package names to endoflife.date product identifiers
-- **Version Matching**: Finds the version cycle that matches the package version
+- **Ecosystem-Gated Product Mapping**: Each `productMappings` entry carries `{ product, ecosystems }`. Runtimes/OSes/servers/databases/CLIs are tagged `['*']` only (SBOM-level entries with no ecosystem) so they cannot match an npm/PyPI/Maven/etc. package whose name happens to collide (e.g. `@tailwindcss/node` no longer matches the Node.js runtime). Frameworks distributed as packages (`react`, `django`, `log4j`, `next`, …) are gated to the ecosystem(s) they actually ship in.
+- **Scope-Aware Name Variations**: For npm scoped packages (`@scope/name`), the full identifier is used as the lookup key — the scope is never stripped. The `split('/').pop()` fallback is preserved only for non-npm purl-shaped names like `golang.org/x/crypto`.
+- **Version Matching**: Finds the version cycle that matches the package version (with range support for Composer/etc. style version specs)
 - **Caching**: 7-day cache in IndexedDB to minimize API calls
 - **Severity Levels**: EOL = High, EOS = Medium, Upcoming = Low
 - **Notable Dependencies**: Focuses on runtimes, frameworks, databases (not every npm package)
+- **Stale-Status Invalidation**: Every `eoxStatus` is stamped with `EOXService.LOGIC_VERSION`. `StorageManager.loadAnalysisData` / `loadAnalysisDataForOrganization` walks dependencies on load and drops any `dep.eoxStatus` whose `logicVersion` is missing or older than the current value, so analyses produced by a previous matcher revision (which may have contained false positives) self-correct on next page load without requiring a full re-enrichment. The Findings page applies the same staleness guard around its in-memory `dep.eoxStatus` read, falling back to the dynamic `getEOXStatusDynamic` path whenever the stamped version is stale.
 
 **Data Sources:**
 - **Primary**: endoflife.date API (https://endoflife.date/api/)

@@ -95,7 +95,9 @@ class StorageManager {
             const entries = await this.indexedDB.getAllEntries();
             if (entries.length > 0) {
                 // Return the most recent entry
-                return entries[0];
+                const entry = entries[0];
+                this._invalidateStaleEOXStatus(entry);
+                return entry;
             }
             return null;
         } catch (error) {
@@ -118,14 +120,50 @@ class StorageManager {
             // Names with 3+ parts (e.g., github.com/owner/repo) are treated as organizations
             const isRepo = name.includes('/') && name.split('/').length === 2;
             
-            if (isRepo) {
-                return await this.indexedDB.getRepository(name);
-            } else {
-                return await this.indexedDB.getOrganization(name);
-            }
+            const entry = isRepo
+                ? await this.indexedDB.getRepository(name)
+                : await this.indexedDB.getOrganization(name);
+            this._invalidateStaleEOXStatus(entry);
+            return entry;
         } catch (error) {
             console.error('❌ Failed to load data for:', name, error);
             return null;
+        }
+    }
+
+    /**
+     * Drop dep.eoxStatus entries from a loaded analysis whose logicVersion is missing
+     * or older than the current EOXService.LOGIC_VERSION. The previous matcher logic
+     * produced false positives (e.g. @tailwindcss/node misclassified as Node.js EOL),
+     * so any persisted result from before the matcher was bumped is unsafe to reuse.
+     * Re-running enrichment will repopulate eoxStatus with the current logic.
+     * @param {Object|null} entry - Loaded analysis entry (may be null)
+     */
+    _invalidateStaleEOXStatus(entry) {
+        if (!entry || !entry.data) return;
+        const currentVersion = (typeof window !== 'undefined' && window.EOXService && window.EOXService.LOGIC_VERSION) || 0;
+        if (!currentVersion) return;
+        
+        const collections = [];
+        if (Array.isArray(entry.data.allDependencies)) collections.push(entry.data.allDependencies);
+        if (Array.isArray(entry.data.topDependencies)) collections.push(entry.data.topDependencies);
+        if (Array.isArray(entry.data.vulnerableDependencies)) collections.push(entry.data.vulnerableDependencies);
+        if (Array.isArray(entry.data.highRiskDependencies)) collections.push(entry.data.highRiskDependencies);
+        
+        let dropped = 0;
+        for (const list of collections) {
+            for (const dep of list) {
+                if (dep && dep.eoxStatus) {
+                    const ver = Number(dep.eoxStatus.logicVersion) || 0;
+                    if (ver < currentVersion) {
+                        delete dep.eoxStatus;
+                        dropped++;
+                    }
+                }
+            }
+        }
+        if (dropped > 0) {
+            console.log(`🧹 EOX: dropped ${dropped} stale eoxStatus entr${dropped === 1 ? 'y' : 'ies'} (older matcher logic)`);
         }
     }
 
