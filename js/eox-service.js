@@ -22,104 +22,114 @@ class EOXService {
         this.productList = null;
         this.productListFetchedAt = null;
         
-        // Mapping from ecosystem/package names to endoflife.date product identifiers
-        // This helps match SBOM packages to their EOL data
+        // Mapping from ecosystem/package names to endoflife.date product identifiers.
+        // Each entry is { product, ecosystems } where ecosystems is an array of allowed
+        // ecosystem names (matched case-insensitively against SBOM ecosystem labels emitted
+        // by sbom-processor.js: 'npm', 'PyPI', 'Maven', 'NuGet', 'Cargo', 'Composer', 'Go',
+        // 'GitHub Actions', 'Docker', 'Helm', 'Terraform'). The sentinel '*' means "no
+        // ecosystem / SBOM-level / unspecified" -- used for runtimes, OSes, servers, etc.
+        // that are NOT distributed as a package in any of the above ecosystems.
+        //
+        // Rule of thumb:
+        //   - Runtimes/OSes/servers/databases/CLIs/build tools => ['*'] only.
+        //     They must NEVER match a code-package ecosystem, otherwise scoped npm/PyPI
+        //     packages whose name happens to collide (e.g. @tailwindcss/node, @types/node)
+        //     get falsely flagged with the runtime's EOL.
+        //   - Frameworks distributed as packages => the ecosystem(s) where they actually
+        //     ship (e.g. react -> ['npm'], django -> ['PyPI'], log4j -> ['Maven']).
         this.productMappings = {
-            // Programming Languages/Runtimes
-            'python': 'python',
-            'nodejs': 'nodejs',
-            'node': 'nodejs',
-            'ruby': 'ruby',
-            'php': 'php',
-            'go': 'go',
-            'golang': 'go',
-            'java': 'java',
-            'openjdk': 'openjdk',
-            'dotnet': 'dotnet',
-            '.net': 'dotnet',
-            'rust': 'rust',
-            'perl': 'perl',
-            'elixir': 'elixir',
-            'erlang': 'erlang',
+            // Programming Languages/Runtimes (SBOM-level only)
+            'python': { product: 'python', ecosystems: ['*'] },
+            'nodejs': { product: 'nodejs', ecosystems: ['*'] },
+            'ruby': { product: 'ruby', ecosystems: ['*'] },
+            'php': { product: 'php', ecosystems: ['*'] },
+            'go': { product: 'go', ecosystems: ['*'] },
+            'golang': { product: 'go', ecosystems: ['*'] },
+            'java': { product: 'java', ecosystems: ['*'] },
+            'openjdk': { product: 'openjdk', ecosystems: ['*'] },
+            'dotnet': { product: 'dotnet', ecosystems: ['*'] },
+            '.net': { product: 'dotnet', ecosystems: ['*'] },
+            'rust': { product: 'rust', ecosystems: ['*'] },
+            'perl': { product: 'perl', ecosystems: ['*'] },
+            'elixir': { product: 'elixir', ecosystems: ['*'] },
+            'erlang': { product: 'erlang', ecosystems: ['*'] },
             
-            // Frameworks
-            'django': 'django',
-            'rails': 'rails',
-            'ruby-on-rails': 'rails',
-            'laravel': 'laravel',
-            'symfony': 'symfony',
-            'spring-boot': 'spring-boot',
-            'spring-framework': 'spring-framework',
-            'angular': 'angular',
-            'angularjs': 'angularjs',
-            'react': 'react',
-            'vue': 'vue',
-            'vuejs': 'vue',
-            'nuxt': 'nuxt',
-            'nextjs': 'nextjs',
-            'next': 'nextjs',
-            'express': 'express',
-            'fastapi': 'fastapi',
-            'flask': 'flask',
-            'jquery': 'jquery',
-            'bootstrap': 'bootstrap',
+            // Frameworks (allowed in the ecosystem they ship in)
+            'django': { product: 'django', ecosystems: ['PyPI'] },
+            'rails': { product: 'rails', ecosystems: ['*'] }, // RubyGems not in parser's ecosystem set
+            'ruby-on-rails': { product: 'rails', ecosystems: ['*'] },
+            'laravel': { product: 'laravel', ecosystems: ['Composer'] },
+            'symfony': { product: 'symfony', ecosystems: ['Composer'] },
+            'spring-boot': { product: 'spring-boot', ecosystems: ['Maven'] },
+            'spring-framework': { product: 'spring-framework', ecosystems: ['Maven'] },
+            'spring': { product: 'spring-framework', ecosystems: ['Maven'] },
+            'angular': { product: 'angular', ecosystems: ['npm'] },
+            'angularjs': { product: 'angularjs', ecosystems: ['npm'] },
+            'react': { product: 'react', ecosystems: ['npm'] },
+            'vue': { product: 'vue', ecosystems: ['npm'] },
+            'vuejs': { product: 'vue', ecosystems: ['npm'] },
+            'nuxt': { product: 'nuxt', ecosystems: ['npm'] },
+            'nextjs': { product: 'nextjs', ecosystems: ['npm'] },
+            'next': { product: 'nextjs', ecosystems: ['npm'] },
+            'express': { product: 'express', ecosystems: ['npm'] },
+            'fastapi': { product: 'fastapi', ecosystems: ['PyPI'] },
+            'flask': { product: 'flask', ecosystems: ['PyPI'] },
+            'jquery': { product: 'jquery', ecosystems: ['npm'] },
+            'bootstrap': { product: 'bootstrap', ecosystems: ['npm'] },
             
-            // Databases
-            'mysql': 'mysql',
-            'postgresql': 'postgresql',
-            'postgres': 'postgresql',
-            'mongodb': 'mongodb',
-            'redis': 'redis',
-            'elasticsearch': 'elasticsearch',
-            'mariadb': 'mariadb',
-            'sqlite': 'sqlite',
-            'oracle-database': 'oracle-database',
-            'mssqlserver': 'mssqlserver',
-            'sql-server': 'mssqlserver',
+            // Databases (SBOM-level only)
+            'mysql': { product: 'mysql', ecosystems: ['*'] },
+            'postgresql': { product: 'postgresql', ecosystems: ['*'] },
+            'postgres': { product: 'postgresql', ecosystems: ['*'] },
+            'mongodb': { product: 'mongodb', ecosystems: ['*'] },
+            'redis': { product: 'redis', ecosystems: ['*'] },
+            'elasticsearch': { product: 'elasticsearch', ecosystems: ['*'] },
+            'mariadb': { product: 'mariadb', ecosystems: ['*'] },
+            'sqlite': { product: 'sqlite', ecosystems: ['*'] },
+            'oracle-database': { product: 'oracle-database', ecosystems: ['*'] },
+            'mssqlserver': { product: 'mssqlserver', ecosystems: ['*'] },
+            'sql-server': { product: 'mssqlserver', ecosystems: ['*'] },
             
-            // Web Servers/Proxies
-            'nginx': 'nginx',
-            'apache': 'apache',
-            'apache-http-server': 'apache',
-            'tomcat': 'tomcat',
-            'apache-tomcat': 'tomcat',
-            'haproxy': 'haproxy',
+            // Web Servers/Proxies (SBOM-level only)
+            'nginx': { product: 'nginx', ecosystems: ['*'] },
+            'apache': { product: 'apache', ecosystems: ['*'] },
+            'apache-http-server': { product: 'apache', ecosystems: ['*'] },
+            'tomcat': { product: 'tomcat', ecosystems: ['*'] },
+            'apache-tomcat': { product: 'tomcat', ecosystems: ['*'] },
+            'haproxy': { product: 'haproxy', ecosystems: ['*'] },
             
-            // Container/Cloud
-            'kubernetes': 'kubernetes',
-            'k8s': 'kubernetes',
-            'docker': 'docker-engine',
-            'docker-engine': 'docker-engine',
-            'terraform': 'terraform',
-            'ansible': 'ansible',
-            'helm': 'helm',
+            // Container/Cloud (SBOM-level only)
+            'kubernetes': { product: 'kubernetes', ecosystems: ['*'] },
+            'docker-engine': { product: 'docker-engine', ecosystems: ['*'] },
+            'terraform': { product: 'terraform', ecosystems: ['*'] },
+            'ansible': { product: 'ansible', ecosystems: ['*'] },
+            'helm': { product: 'helm', ecosystems: ['*'] },
             
-            // Operating Systems
-            'ubuntu': 'ubuntu',
-            'debian': 'debian',
-            'centos': 'centos',
-            'rhel': 'rhel',
-            'red-hat-enterprise-linux': 'rhel',
-            'alpine': 'alpine',
-            'amazon-linux': 'amazon-linux',
-            'windows-server': 'windows-server',
+            // Operating Systems (SBOM-level only)
+            'ubuntu': { product: 'ubuntu', ecosystems: ['*'] },
+            'debian': { product: 'debian', ecosystems: ['*'] },
+            'centos': { product: 'centos', ecosystems: ['*'] },
+            'rhel': { product: 'rhel', ecosystems: ['*'] },
+            'red-hat-enterprise-linux': { product: 'rhel', ecosystems: ['*'] },
+            'alpine': { product: 'alpine', ecosystems: ['*'] },
+            'amazon-linux': { product: 'amazon-linux', ecosystems: ['*'] },
+            'windows-server': { product: 'windows-server', ecosystems: ['*'] },
             
-            // Package Managers/Build Tools
-            'npm': 'npm',
-            'yarn': 'yarn',
-            'pip': 'pip',
-            'composer': 'composer',
-            'gradle': 'gradle',
-            'maven': 'maven',
+            // Package Managers/Build Tools (the CLIs themselves; SBOM-level only)
+            'npm': { product: 'npm', ecosystems: ['*'] },
+            'yarn': { product: 'yarn', ecosystems: ['*'] },
+            'pip': { product: 'pip', ecosystems: ['*'] },
+            'composer': { product: 'composer', ecosystems: ['*'] },
+            'gradle': { product: 'gradle', ecosystems: ['*'] },
+            'maven': { product: 'maven', ecosystems: ['*'] },
             
-            // Other Common
-            'openssl': 'openssl',
-            'openssh': 'openssh',
-            'git': 'git',
-            'linux': 'linux',
-            'linux-kernel': 'linux',
-            'log4j': 'log4j',
-            'spring': 'spring-framework'
+            // Other Common (SBOM-level only)
+            'openssl': { product: 'openssl', ecosystems: ['*'] },
+            'openssh': { product: 'openssh', ecosystems: ['*'] },
+            'git': { product: 'git', ecosystems: ['*'] },
+            'linux': { product: 'linux', ecosystems: ['*'] },
+            'linux-kernel': { product: 'linux', ecosystems: ['*'] },
+            'log4j': { product: 'log4j', ecosystems: ['Maven'] }
         };
         
         // Reverse mapping: endoflife.date product -> common package names
@@ -131,7 +141,9 @@ class EOXService {
      */
     buildReverseMappings() {
         const reverse = {};
-        for (const [packageName, product] of Object.entries(this.productMappings)) {
+        for (const [packageName, mapping] of Object.entries(this.productMappings)) {
+            const product = mapping && typeof mapping === 'object' ? mapping.product : mapping;
+            if (!product) continue;
             if (!reverse[product]) {
                 reverse[product] = [];
             }
@@ -280,7 +292,12 @@ class EOXService {
             lts: false,
             checkedAt: Date.now(),
             source: 'endoflife.date',
-            productMatched: null
+            productMatched: null,
+            // Stamped onto every status so older cached/persisted results from previous
+            // matcher logic (which had false positives like @tailwindcss/node -> Node.js)
+            // can be detected and invalidated on load. Bump when the matcher changes
+            // in a way that may have produced different (potentially wrong) results.
+            logicVersion: EOXService.LOGIC_VERSION
         };
         
         if (!packageName) return result;
@@ -354,9 +371,12 @@ class EOXService {
     }
     
     /**
-     * Find the matching product identifier for a package
+     * Find the matching product identifier for a package.
+     * Mappings are gated by ecosystem -- a runtime mapping (e.g. 'nodejs') will not
+     * match an npm/PyPI/etc. package, even if the package's name happens to collide
+     * (e.g. @tailwindcss/node, @types/node would otherwise be misflagged as Node.js).
      * @param {string} packageName - Package name
-     * @param {string} ecosystem - Package ecosystem
+     * @param {string} ecosystem - Package ecosystem (e.g. 'npm', 'PyPI', 'Maven')
      * @returns {string|null} Product identifier or null
      */
     findProduct(packageName, ecosystem) {
@@ -364,47 +384,85 @@ class EOXService {
         
         const normalizedName = packageName.toLowerCase().trim();
         const normalizedEcosystem = ecosystem ? ecosystem.toLowerCase().trim() : '';
+        const isNpmScoped = normalizedName.startsWith('@') && normalizedName.includes('/');
         
-        // Direct mapping lookup
-        if (this.productMappings[normalizedName]) {
-            return this.productMappings[normalizedName];
-        }
-        
-        // Try with ecosystem prefix
-        const withEcosystem = `${normalizedEcosystem}-${normalizedName}`;
-        if (this.productMappings[withEcosystem]) {
-            return this.productMappings[withEcosystem];
-        }
-        
-        // Try common variations
-        const variations = [
+        // Build candidate name list. For npm scoped packages (@scope/name) the full
+        // identifier is the package name; never strip the scope, otherwise
+        // @tailwindcss/node collapses to 'node' and falsely matches the Node.js runtime.
+        const candidates = [
             normalizedName,
             normalizedName.replace(/-/g, ''),
             normalizedName.replace(/_/g, '-'),
             normalizedName.replace(/\./g, '-'),
-            normalizedName.split('/').pop(), // Handle scoped packages like @org/package
         ];
-        
-        for (const variation of variations) {
-            if (this.productMappings[variation]) {
-                return this.productMappings[variation];
-            }
+        if (normalizedEcosystem) {
+            candidates.push(`${normalizedEcosystem}-${normalizedName}`);
+        }
+        // Only fall back to the post-slash segment for non-npm purl-shaped names like
+        // 'golang.org/x/crypto'. Skip entirely for npm scoped packages.
+        if (!isNpmScoped && normalizedName.includes('/')) {
+            const tail = normalizedName.split('/').pop();
+            if (tail) candidates.push(tail);
         }
         
-        // Check if it's directly a known product (async check against product list)
-        // For now, return null if no mapping found
+        const seen = new Set();
+        for (const candidate of candidates) {
+            if (!candidate || seen.has(candidate)) continue;
+            seen.add(candidate);
+            const mapping = this.productMappings[candidate];
+            if (!mapping) continue;
+            if (!this.isMappingAllowed(mapping, normalizedEcosystem)) continue;
+            return mapping.product;
+        }
+        
         return null;
     }
     
     /**
+     * Check whether a product mapping is allowed for a given ecosystem.
+     * The sentinel '*' means the mapping only applies to SBOM-level / unspecified
+     * ecosystem entries (i.e. NOT a code package in npm/PyPI/etc.).
+     * @param {Object} mapping - { product, ecosystems } entry from productMappings
+     * @param {string} normalizedEcosystem - Lowercased ecosystem string (may be '')
+     * @returns {boolean}
+     */
+    isMappingAllowed(mapping, normalizedEcosystem) {
+        if (!mapping || !mapping.ecosystems) return false;
+        const allowed = mapping.ecosystems.map(e => String(e).toLowerCase());
+        if (!normalizedEcosystem) {
+            // SBOM-level entry with no ecosystem; '*' permits this.
+            return allowed.includes('*');
+        }
+        return allowed.includes(normalizedEcosystem);
+    }
+    
+    /**
      * Find the version cycle that matches the given version
+     *
+     * Handles two distinct cases:
+     *   1. Pinned version (e.g. "7.0.10", "v1.2.3"): match the cycle that
+     *      contains it (here: cycle "7.0").
+     *   2. Version RANGE (e.g. "7.0,< 8.0", "^7.0", ">=7.0 <8.0", "*"): find
+     *      every cycle that satisfies the range and return the LATEST
+     *      (highest) one. This avoids false-positive EOL flags when a range
+     *      like composer's `^7.0` (serialised as `7.0,< 8.0`) covers cycles
+     *      that include both EOL minors (7.0, 7.1, 7.2, 7.3) and a still-
+     *      supported one (e.g. 7.4 LTS) — the user could be on the supported
+     *      version, so we cannot definitively call the dependency EOL.
+     *
      * @param {Array} cycles - Array of version cycles from endoflife.date
-     * @param {string} version - Version to match
+     * @param {string} version - Version (pinned or range) to match
      * @returns {Object|null} Matching cycle or null
      */
     findVersionCycle(cycles, version) {
         if (!cycles || !Array.isArray(cycles) || !version) return null;
-        
+
+        // Range handling first — pinned-version logic below assumes a single
+        // concrete version and would otherwise lock onto the lower bound.
+        if (this.isVersionRange(version)) {
+            return this.findLatestCycleInRange(cycles, version);
+        }
+
         // Normalize version
         const normalizedVersion = version.replace(/^v/, '').trim();
         
@@ -466,6 +524,268 @@ class EOXService {
         }
         
         return true;
+    }
+
+    /**
+     * Detect whether a version string represents a range rather than a pinned
+     * version. Recognises composer/maven/npm range syntaxes such as
+     *   "7.0,< 8.0", ">=7.0 <8.0", "^7.0", "~7.0", "7.*", "*", "7 || 8"
+     *
+     * Pre-release / build metadata in pinned versions (e.g. "1.2.3-rc.1",
+     * "1.2.3+build.5") is intentionally NOT treated as a range.
+     *
+     * @param {string} version
+     * @returns {boolean}
+     */
+    isVersionRange(version) {
+        if (!version || typeof version !== 'string') return false;
+        const trimmed = version.trim();
+        if (!trimmed) return false;
+
+        // Wildcards
+        if (trimmed === '*' || trimmed === 'x' || trimmed === 'X') return true;
+        if (/[*xX]/.test(trimmed) && /\.[*xX]/.test(trimmed)) return true; // 7.*  /  7.x
+        // Range operators / separators
+        if (/[<>=^~]/.test(trimmed)) return true;
+        if (/\|\|/.test(trimmed)) return true;
+        // Comma-separated bounds (composer/maven SBOM serialisation)
+        if (trimmed.includes(',')) return true;
+        // Whitespace-separated multi-clause range (e.g. ">=7.0 <8.0")
+        if (/\s/.test(trimmed) && /[<>=]/.test(trimmed)) return true;
+        return false;
+    }
+
+    /**
+     * Parse a version range into structured lower/upper bounds.
+     *
+     * Supported syntaxes (the union of what we have observed in real SBOMs):
+     *   - Comma bounds:        "7.0,< 8.0", ">=1.0.108, <2.0.0"
+     *   - Whitespace bounds:   ">=7.0 <8.0"
+     *   - Caret:               "^7.0"   → [7.0, 8.0)
+     *   - Tilde:               "~7.0"   → [7.0, 7.1)   (composer/npm "~"-style)
+     *                          "~7"     → [7, 8)
+     *   - Single comparator:   ">=7.0", "<8.0", ">7.0", "<=7.4", "=7.0"
+     *   - Wildcard:            "*", "x", "7.*", "7.x"
+     *
+     * @param {string} version
+     * @returns {{lower: string|null, upper: string|null,
+     *            lowerInclusive: boolean, upperInclusive: boolean}|null}
+     */
+    parseVersionRange(version) {
+        if (!version || typeof version !== 'string') return null;
+        const raw = version.trim();
+        if (!raw) return null;
+
+        // Pure wildcard — match every cycle
+        if (raw === '*' || raw === 'x' || raw === 'X') {
+            return { lower: null, upper: null, lowerInclusive: true, upperInclusive: false };
+        }
+
+        // OR-ranges ("^6 || ^7"): take the union, which for our purposes is
+        // the lowest lower-bound and the highest upper-bound across clauses.
+        if (raw.includes('||')) {
+            const clauses = raw.split('||').map(c => c.trim()).filter(Boolean);
+            let lower = null, upper = null;
+            let lowerInclusive = true, upperInclusive = false;
+            let upperSet = false; // distinguishes "not yet seeded" from "unbounded"
+            for (const clause of clauses) {
+                const part = this.parseVersionRange(clause);
+                if (!part) continue;
+                if (part.lower !== null && (lower === null || this.compareVersionStrings(part.lower, lower) < 0)) {
+                    lower = part.lower;
+                    lowerInclusive = part.lowerInclusive;
+                }
+                if (!upperSet) {
+                    upper = part.upper;
+                    upperInclusive = part.upperInclusive;
+                    upperSet = true;
+                } else if (part.upper === null) {
+                    upper = null; // any clause being unbounded above wins
+                    upperInclusive = false;
+                } else if (upper !== null && this.compareVersionStrings(part.upper, upper) > 0) {
+                    upper = part.upper;
+                    upperInclusive = part.upperInclusive;
+                }
+            }
+            return { lower, upper, lowerInclusive, upperInclusive };
+        }
+
+        // Caret: "^7.0" → [7.0, 8.0). For 0.x.y it pins the minor (npm semver
+        // semantics), but for our cycle granularity (major or major.minor)
+        // pinning to next-major is good enough and never under-matches.
+        if (raw.startsWith('^')) {
+            const ver = raw.slice(1).trim();
+            const major = parseInt(ver.split('.')[0], 10);
+            if (!Number.isFinite(major)) return null;
+            return {
+                lower: ver,
+                upper: `${major + 1}.0.0`,
+                lowerInclusive: true,
+                upperInclusive: false
+            };
+        }
+
+        // Tilde: "~7.0" → [7.0, 7.1).  "~7" → [7, 8).
+        if (raw.startsWith('~')) {
+            const ver = raw.slice(1).trim();
+            const parts = ver.split('.').map(p => parseInt(p, 10));
+            if (!Number.isFinite(parts[0])) return null;
+            let upper;
+            if (parts.length >= 2 && Number.isFinite(parts[1])) {
+                upper = `${parts[0]}.${parts[1] + 1}.0`;
+            } else {
+                upper = `${parts[0] + 1}.0.0`;
+            }
+            return { lower: ver, upper, lowerInclusive: true, upperInclusive: false };
+        }
+
+        // Wildcard with prefix: "7.*" / "7.x" / "7.0.*"
+        const wildcardMatch = raw.match(/^(\d+(?:\.\d+)*)\.[*xX]$/);
+        if (wildcardMatch) {
+            const prefix = wildcardMatch[1];
+            const partsArr = prefix.split('.').map(p => parseInt(p, 10));
+            const last = partsArr[partsArr.length - 1];
+            if (!Number.isFinite(last)) return null;
+            const upperParts = [...partsArr];
+            upperParts[upperParts.length - 1] = last + 1;
+            return {
+                lower: prefix,
+                upper: upperParts.join('.'),
+                lowerInclusive: true,
+                upperInclusive: false
+            };
+        }
+
+        // Multi-clause: split on comma OR whitespace between clauses.
+        // We split on commas first, then split any non-operator-prefixed
+        // remainder on whitespace so ">=7.0 <8.0" works the same as
+        // ">=7.0,<8.0".
+        const clauseTokens = raw
+            .split(',')
+            .flatMap(s => s.trim().split(/\s+(?=[<>=])/))
+            .map(s => s.trim())
+            .filter(Boolean);
+
+        let lower = null, upper = null;
+        let lowerInclusive = true, upperInclusive = false;
+
+        for (const token of clauseTokens) {
+            const m = token.match(/^(>=|<=|>|<|=|==)?\s*v?(\d+(?:\.\d+)*(?:[-+][a-zA-Z0-9.\-]+)?)/);
+            if (!m) continue;
+            const op = m[1] || '=';
+            const ver = m[2];
+            switch (op) {
+                case '>=':
+                    if (lower === null || this.compareVersionStrings(ver, lower) > 0) {
+                        lower = ver; lowerInclusive = true;
+                    }
+                    break;
+                case '>':
+                    if (lower === null || this.compareVersionStrings(ver, lower) >= 0) {
+                        lower = ver; lowerInclusive = false;
+                    }
+                    break;
+                case '<=':
+                    if (upper === null || this.compareVersionStrings(ver, upper) < 0) {
+                        upper = ver; upperInclusive = true;
+                    }
+                    break;
+                case '<':
+                    if (upper === null || this.compareVersionStrings(ver, upper) <= 0) {
+                        upper = ver; upperInclusive = false;
+                    }
+                    break;
+                case '=':
+                case '==':
+                default:
+                    // Bare version inside a multi-clause range (e.g. composer
+                    // "7.0,< 8.0") means "≥ this version".
+                    if (lower === null || this.compareVersionStrings(ver, lower) > 0) {
+                        lower = ver; lowerInclusive = true;
+                    }
+                    break;
+            }
+        }
+
+        if (lower === null && upper === null) return null;
+        return { lower, upper, lowerInclusive, upperInclusive };
+    }
+
+    /**
+     * Compare two version strings numerically segment-by-segment.
+     * Pre-release / build metadata is stripped before comparison so cycle
+     * labels like "7.0" and pinned versions like "7.0.0" sort consistently.
+     *
+     * @returns {number} negative if a<b, 0 if equal, positive if a>b
+     */
+    compareVersionStrings(a, b) {
+        if (a == null && b == null) return 0;
+        if (a == null) return -1;
+        if (b == null) return 1;
+        const norm = (v) => String(v).replace(/^v/, '').split(/[-+]/)[0].split('.');
+        const aParts = norm(a);
+        const bParts = norm(b);
+        const len = Math.max(aParts.length, bParts.length);
+        for (let i = 0; i < len; i++) {
+            const aN = parseInt(aParts[i] || '0', 10);
+            const bN = parseInt(bParts[i] || '0', 10);
+            const aV = Number.isFinite(aN) ? aN : 0;
+            const bV = Number.isFinite(bN) ? bN : 0;
+            if (aV !== bV) return aV - bV;
+        }
+        return 0;
+    }
+
+    /**
+     * Check whether an endoflife.date cycle satisfies the parsed range.
+     * Cycle labels are typically major (e.g. "7") or major.minor ("7.4"); we
+     * compare them against the parsed bounds using the same numeric segment
+     * comparator.
+     */
+    cycleSatisfiesRange(cycle, range) {
+        if (!cycle || !cycle.cycle || !range) return false;
+        const cycleVer = String(cycle.cycle);
+
+        if (range.lower != null) {
+            const cmp = this.compareVersionStrings(cycleVer, range.lower);
+            if (range.lowerInclusive ? cmp < 0 : cmp <= 0) return false;
+        }
+        if (range.upper != null) {
+            const cmp = this.compareVersionStrings(cycleVer, range.upper);
+            if (range.upperInclusive ? cmp > 0 : cmp >= 0) return false;
+        }
+        return true;
+    }
+
+    /**
+     * Given a version range, return the LATEST endoflife.date cycle that
+     * satisfies it. If none can be determined we fall back to whatever
+     * pinned-version matching can find for the lower bound, so callers still
+     * get *some* signal rather than silently dropping the dependency.
+     *
+     * @param {Array} cycles
+     * @param {string} version - Range string
+     * @returns {Object|null}
+     */
+    findLatestCycleInRange(cycles, version) {
+        const range = this.parseVersionRange(version);
+        if (!range) {
+            // Couldn't parse — fall back to the lower bound as a best guess.
+            const lowerCandidate = String(version).replace(/^[\^~>=<]+\s*/, '').split(/[,\s]/)[0];
+            if (lowerCandidate && lowerCandidate !== version) {
+                // Recurse with a likely-pinned candidate; isVersionRange()
+                // returns false for plain "7.0" so we do not infinite-loop.
+                return this.findVersionCycle(cycles, lowerCandidate);
+            }
+            return null;
+        }
+
+        const matching = cycles.filter(c => this.cycleSatisfiesRange(c, range));
+        if (matching.length === 0) return null;
+
+        // Pick the cycle with the highest version label.
+        matching.sort((a, b) => this.compareVersionStrings(b.cycle, a.cycle));
+        return matching[0];
     }
     
     /**

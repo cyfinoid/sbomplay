@@ -389,6 +389,24 @@ document.addEventListener('DOMContentLoaded', async function() {
                     gaFindings = githubActionsAnalysis.findings;
                 }
                 
+                // Read-time dedup: legacy stored analyses (pre-fix) emitted both
+                // MUTABLE_TAG_REFERENCE and UNPINNED_ACTION_REFERENCE for the same
+                // mutable-tag ref. Now that the analyzer emits exactly one of them,
+                // suppress the redundant UNPINNED_ACTION_REFERENCE here too so old
+                // stored data self-declutters on next page load (no re-enrichment).
+                const mutableTagActions = new Set(
+                    gaFindings
+                        .filter(f => f.rule_id === 'MUTABLE_TAG_REFERENCE' && f.action)
+                        .map(f => f.action)
+                );
+                if (mutableTagActions.size > 0) {
+                    gaFindings = gaFindings.filter(f => !(
+                        f.rule_id === 'UNPINNED_ACTION_REFERENCE' &&
+                        f.action &&
+                        mutableTagActions.has(f.action)
+                    ));
+                }
+                
                 // Filter by repository if specified
                 if (repoFilter && repoFilter !== 'all') {
                     gaFindings = gaFindings.filter(f => f.repository === repoFilter);
@@ -797,42 +815,42 @@ document.addEventListener('DOMContentLoaded', async function() {
         html += '<div class="card-header"><h5 class="mb-0"><i class="fas fa-shield-alt me-2"></i>Security Findings Summary</h5></div>';
         html += '<div class="card-body">';
         
-        // Statistics cards
-        html += '<div class="row mb-4">';
-        html += `<div class="col-md-2">
-            <div class="card bg-light">
+        // Severity breakdown (5 equal-width tiles)
+        html += '<div class="row row-cols-2 row-cols-sm-3 row-cols-md-5 g-2 mb-2">';
+        html += `<div class="col">
+            <div class="card h-100 bg-light">
                 <div class="card-body text-center py-2">
                     <h3 class="mb-0">${stats.total}</h3>
                     <small class="text-muted">Total Findings</small>
                 </div>
             </div>
         </div>`;
-        html += `<div class="col-md-2">
-            <div class="card ${stats.critical > 0 ? 'bg-danger text-white' : 'bg-light'}">
+        html += `<div class="col">
+            <div class="card h-100 ${stats.critical > 0 ? 'bg-danger text-white' : 'bg-light'}">
                 <div class="card-body text-center py-2">
                     <h3 class="mb-0">${stats.critical}</h3>
                     <small class="${stats.critical > 0 ? '' : 'text-muted'}">Critical</small>
                 </div>
             </div>
         </div>`;
-        html += `<div class="col-md-2">
-            <div class="card ${stats.high > 0 ? 'bg-danger text-white' : 'bg-light'}">
+        html += `<div class="col">
+            <div class="card h-100 ${stats.high > 0 ? 'bg-danger text-white' : 'bg-light'}">
                 <div class="card-body text-center py-2">
                     <h3 class="mb-0">${stats.high}</h3>
                     <small class="${stats.high > 0 ? '' : 'text-muted'}">High</small>
                 </div>
             </div>
         </div>`;
-        html += `<div class="col-md-2">
-            <div class="card ${stats.medium > 0 ? 'bg-warning' : 'bg-light'}">
+        html += `<div class="col">
+            <div class="card h-100 ${stats.medium > 0 ? 'bg-warning' : 'bg-light'}">
                 <div class="card-body text-center py-2">
                     <h3 class="mb-0">${stats.medium}</h3>
                     <small class="${stats.medium > 0 ? '' : 'text-muted'}">Medium</small>
                 </div>
             </div>
         </div>`;
-        html += `<div class="col-md-2">
-            <div class="card ${stats.warning > 0 ? 'bg-info' : 'bg-light'}">
+        html += `<div class="col">
+            <div class="card h-100 ${stats.warning > 0 ? 'bg-info' : 'bg-light'}">
                 <div class="card-body text-center py-2">
                     <h3 class="mb-0">${stats.warning}</h3>
                     <small class="${stats.warning > 0 ? '' : 'text-muted'}">Warning</small>
@@ -841,44 +859,44 @@ document.addEventListener('DOMContentLoaded', async function() {
         </div>`;
         html += '</div>';
 
-        // Second row: Category breakdown
-        html += '<div class="row">';
-        html += `<div class="col-md-3">
-            <div class="card ${stats.malware > 0 ? 'bg-danger text-white' : 'bg-light'}">
+        // Category breakdown (5 equal-width tiles, aligned with row above)
+        html += '<div class="row row-cols-2 row-cols-sm-3 row-cols-md-5 g-2">';
+        html += `<div class="col">
+            <div class="card h-100 ${stats.malware > 0 ? 'bg-danger text-white' : 'bg-light'}">
                 <div class="card-body text-center py-2">
-                    <h3 class="mb-0"><i class="fas fa-biohazard"></i> ${stats.malware}</h3>
+                    <h3 class="mb-0"><i class="fas fa-biohazard me-1"></i>${stats.malware}</h3>
                     <small class="${stats.malware > 0 ? '' : 'text-muted'}">Malware</small>
                 </div>
             </div>
         </div>`;
-        html += `<div class="col-md-3">
-            <div class="card bg-light">
+        html += `<div class="col">
+            <div class="card h-100 bg-light">
                 <div class="card-body text-center py-2">
-                    <h3 class="mb-0"><i class="fab fa-github"></i> ${stats.githubActions}</h3>
+                    <h3 class="mb-0"><i class="fab fa-github me-1"></i>${stats.githubActions}</h3>
                     <small class="text-muted">GitHub Actions</small>
                 </div>
             </div>
         </div>`;
-        html += `<div class="col-md-3">
-            <div class="card bg-light">
+        html += `<div class="col">
+            <div class="card h-100 bg-light">
                 <div class="card-body text-center py-2">
-                    <h3 class="mb-0"><i class="fas fa-box"></i> ${stats.dependencyConfusion}</h3>
-                    <small class="text-muted">Dependency Confusion</small>
+                    <h3 class="mb-0"><i class="fas fa-box me-1"></i>${stats.dependencyConfusion}</h3>
+                    <small class="text-muted">Dep. Confusion</small>
                 </div>
             </div>
         </div>`;
-        html += `<div class="col-md-3">
-            <div class="card ${stats.eox > 0 ? 'bg-secondary text-white' : 'bg-light'}">
+        html += `<div class="col">
+            <div class="card h-100 ${stats.eox > 0 ? 'bg-secondary text-white' : 'bg-light'}">
                 <div class="card-body text-center py-2">
-                    <h3 class="mb-0"><i class="fas fa-hourglass-end"></i> ${stats.eox}</h3>
+                    <h3 class="mb-0"><i class="fas fa-hourglass-end me-1"></i>${stats.eox}</h3>
                     <small class="${stats.eox > 0 ? '' : 'text-muted'}">EOX</small>
                 </div>
             </div>
         </div>`;
-        html += `<div class="col-md-3">
-            <div class="card ${stats.sourceRepo > 0 ? 'bg-warning' : 'bg-light'}">
+        html += `<div class="col">
+            <div class="card h-100 ${stats.sourceRepo > 0 ? 'bg-warning' : 'bg-light'}">
                 <div class="card-body text-center py-2">
-                    <h3 class="mb-0"><i class="fas fa-unlink"></i> ${stats.sourceRepo}</h3>
+                    <h3 class="mb-0"><i class="fas fa-unlink me-1"></i>${stats.sourceRepo}</h3>
                     <small class="${stats.sourceRepo > 0 ? '' : 'text-muted'}">Dead Source Repos</small>
                 </div>
             </div>
@@ -974,9 +992,66 @@ document.addEventListener('DOMContentLoaded', async function() {
                                                 <td>${repos.length > 0 ? generateRepoListHTML(repos) : '<span class="text-muted">-</span>'}</td>
                                             </tr>`;
                                         } else if (typeData.category === 'github-actions') {
-                                            // Build action cell with link to action repository
+                                            // Docker-related rules (DOCKER_* / DOCKERFILE_FLOATING_BASE_IMAGE)
+                                            // are emitted *against the third-party Action's Dockerfile* (or its
+                                            // `runs.image:`), not the user's workflow file. They must be rendered
+                                            // with a chain that ends in the Action's Dockerfile so the row's link
+                                            // actually points at the offending FROM line.
+                                            const isDockerFinding = instance.type && (
+                                                instance.type.startsWith('DOCKER_') ||
+                                                instance.type === 'DOCKERFILE_FLOATING_BASE_IMAGE'
+                                            );
+                                            
+                                            // Pin file links to the analysed commit so the line anchor matches
+                                            // the file content the analyzer actually read. The analyzer stores
+                                            // the resolved SHA in `instance.action` as the part after the last
+                                            // '@'. Anything that isn't a 40-char hex falls back to HEAD.
+                                            let actionSha = null;
+                                            if (instance.action && typeof instance.action === 'string' && instance.action.includes('@')) {
+                                                const refPart = instance.action.split('@').pop();
+                                                if (refPart && /^[a-f0-9]{40}$/i.test(refPart)) {
+                                                    actionSha = refPart;
+                                                }
+                                            }
+                                            const fileRef = actionSha || 'HEAD';
+                                            
+                                            // Pull the affected docker image out of the finding so the row tells
+                                            // the reader *what* the FROM is pinned to (e.g. `ubuntu:22.04`),
+                                            // independent of the action's name.
+                                            let affectedImage = null;
+                                            if (isDockerFinding) {
+                                                if ((instance.type === 'DOCKER_FLOATING_TAG' || instance.type === 'DOCKER_IMPLICIT_LATEST') &&
+                                                    instance.action && !instance.action.includes('@')) {
+                                                    affectedImage = instance.action;
+                                                }
+                                                if (!affectedImage && instance.message) {
+                                                    const m = instance.message.match(/:\s+(\S[^\s]*)\s*$/);
+                                                    if (m) affectedImage = m[1];
+                                                }
+                                            }
+                                            
                                             let actionCell = '-';
-                                            if (instance.action) {
+                                            if (isDockerFinding) {
+                                                const imageDisplay = affectedImage
+                                                    ? `<div><i class="fab fa-docker me-1 text-info"></i><code class="small">${escapeHtml(affectedImage)}</code></div>`
+                                                    : '';
+                                                const actionLabel = instance.action && instance.action.includes('@')
+                                                    ? instance.action
+                                                    : (instance.actionRepository || '');
+                                                let actionSubLine = '';
+                                                if (actionLabel) {
+                                                    const actionParts = actionLabel.split('@')[0].split('/');
+                                                    if (actionParts.length >= 2) {
+                                                        const actionOwner = actionParts[0];
+                                                        const actionRepo = actionParts[1];
+                                                        const actionUrl = `https://github.com/${actionOwner}/${actionRepo}`;
+                                                        actionSubLine = `<small class="text-muted">in <a href="${actionUrl}" target="_blank" rel="noreferrer noopener" class="text-muted text-decoration-none"><i class="fab fa-github me-1"></i><code>${escapeHtml(actionLabel)}</code></a></small>`;
+                                                    } else {
+                                                        actionSubLine = `<small class="text-muted">in <code>${escapeHtml(actionLabel)}</code></small>`;
+                                                    }
+                                                }
+                                                actionCell = (imageDisplay + actionSubLine) || '-';
+                                            } else if (instance.action) {
                                                 const actionParts = instance.action.split('@')[0].split('/');
                                                 if (actionParts.length >= 2) {
                                                     const actionOwner = actionParts[0];
@@ -992,14 +1067,81 @@ document.addEventListener('DOMContentLoaded', async function() {
                                                 actionCell = `<code class="small">${escapeHtml(instance.file)}</code>`;
                                             }
                                             
-                                            // Build location cell with workflow file links
                                             let locationCell = '<small class="text-muted">—</small>';
                                             const workflowLocations = instance.workflowLocations || [];
                                             
-                                            if (workflowLocations.length > 0) {
+                                            if (isDockerFinding) {
+                                                // Build the chain  User repo → workflow file:line → Action repo → Dockerfile:line
+                                                // The Dockerfile lives inside the third-party Action's repo, not
+                                                // the user's repo, so we link to it at the resolved SHA the
+                                                // analyzer used (or HEAD as a fallback).
+                                                const actionRepository = instance.actionRepository ||
+                                                    (instance.action && instance.action.includes('@')
+                                                        ? instance.action.split('@')[0].split('/').slice(0, 2).join('/')
+                                                        : null);
+                                                const actionDockerfile = instance.actionDockerfile ||
+                                                    (instance.file && /Dockerfile$/i.test(instance.file) ? instance.file : null) ||
+                                                    'Dockerfile';
+                                                const dockerfileLine = instance.line;
+                                                const actionRepoParts = actionRepository ? actionRepository.split('/') : null;
+                                                const hasActionRepoLink = actionRepoParts && actionRepoParts.length === 2;
+                                                
+                                                const buildChain = (loc) => {
+                                                    const parts = [];
+                                                    const workflowRepo = loc?.repository || instance.repository;
+                                                    const workflowFile = loc?.workflow;
+                                                    const workflowLine = loc?.line;
+                                                    const workflowRepoParts = workflowRepo ? workflowRepo.split('/') : null;
+                                                    
+                                                    if (workflowRepoParts && workflowRepoParts.length === 2) {
+                                                        const [wOwner, wRepo] = workflowRepoParts;
+                                                        parts.push(`<a href="https://github.com/${wOwner}/${wRepo}" target="_blank" rel="noreferrer noopener" class="text-decoration-none"><code>${escapeHtml(workflowRepo)}</code></a>`);
+                                                        if (workflowFile) {
+                                                            const fileUrl = `https://github.com/${wOwner}/${wRepo}/blob/HEAD/${workflowFile}${workflowLine ? '#L' + workflowLine : ''}`;
+                                                            const fileDisplay = workflowFile.split('/').pop();
+                                                            const lineDisplay = workflowLine ? ':' + workflowLine : '';
+                                                            parts.push(`<a href="${fileUrl}" target="_blank" rel="noreferrer noopener" class="text-decoration-none"><code class="small">${escapeHtml(fileDisplay)}${lineDisplay}</code></a>`);
+                                                        }
+                                                    }
+                                                    
+                                                    if (hasActionRepoLink) {
+                                                        const [actionOwner, actionRepoName] = actionRepoParts;
+                                                        parts.push(`<a href="https://github.com/${actionOwner}/${actionRepoName}" target="_blank" rel="noreferrer noopener" class="text-decoration-none"><code>${escapeHtml(actionRepository)}</code></a>`);
+                                                        const dockerfileUrl = `https://github.com/${actionOwner}/${actionRepoName}/blob/${fileRef}/${actionDockerfile}${dockerfileLine ? '#L' + dockerfileLine : ''}`;
+                                                        const dockerfileName = actionDockerfile.split('/').pop();
+                                                        const dfLineDisplay = dockerfileLine ? ':' + dockerfileLine : '';
+                                                        parts.push(`<a href="${dockerfileUrl}" target="_blank" rel="noreferrer noopener" class="text-decoration-none"><i class="fab fa-docker me-1 text-info"></i><code class="small">${escapeHtml(dockerfileName)}${dfLineDisplay}</code></a>`);
+                                                    }
+                                                    return parts;
+                                                };
+                                                
+                                                if (workflowLocations.length > 0 && hasActionRepoLink) {
+                                                    const primary = workflowLocations[0];
+                                                    const chainParts = buildChain(primary);
+                                                    if (chainParts.length > 0) {
+                                                        let chainLine = `<div class="d-flex flex-wrap align-items-center gap-1" style="font-size: 0.85em;">
+                                                            ${chainParts.join(' <i class="fas fa-arrow-right text-muted" style="font-size: 0.7em;"></i> ')}
+                                                        </div>`;
+                                                        if (workflowLocations.length > 1) {
+                                                            chainLine += `<small class="text-muted"><i class="fas fa-list me-1"></i>+ ${workflowLocations.length - 1} more workflow location${workflowLocations.length - 1 > 1 ? 's' : ''}</small>`;
+                                                        }
+                                                        locationCell = `<div class="d-flex flex-column gap-1">${chainLine}</div>`;
+                                                    }
+                                                } else if (hasActionRepoLink) {
+                                                    const [actionOwner, actionRepoName] = actionRepoParts;
+                                                    const dockerfileUrl = `https://github.com/${actionOwner}/${actionRepoName}/blob/${fileRef}/${actionDockerfile}${dockerfileLine ? '#L' + dockerfileLine : ''}`;
+                                                    const dockerfileName = actionDockerfile.split('/').pop();
+                                                    const dfLineDisplay = dockerfileLine ? ':' + dockerfileLine : '';
+                                                    locationCell = `<a href="${dockerfileUrl}" target="_blank" rel="noreferrer noopener" class="text-decoration-none">
+                                                        <i class="fab fa-docker me-1 text-info"></i><code class="small">${escapeHtml(actionRepository)}/${escapeHtml(dockerfileName)}${dfLineDisplay}</code>
+                                                    </a>`;
+                                                } else if (instance.repository) {
+                                                    locationCell = formatRepoHTML(instance.repository);
+                                                }
+                                            } else if (workflowLocations.length > 0) {
                                                 const locationParts = [];
                                                 
-                                                workflowLocations.forEach((loc, idx) => {
+                                                workflowLocations.forEach((loc) => {
                                                     const workflowRepo = loc.repository || instance.repository;
                                                     const workflowFile = loc.workflow;
                                                     const workflowLine = loc.line;
@@ -1009,12 +1151,10 @@ document.addEventListener('DOMContentLoaded', async function() {
                                                         if (repoParts.length === 2) {
                                                             const [owner, repo] = repoParts;
                                                             
-                                                            // Build workflow file link with line number
                                                             const fileUrl = `https://github.com/${owner}/${repo}/blob/HEAD/${workflowFile}${workflowLine ? '#L' + workflowLine : ''}`;
                                                             const fileDisplay = workflowFile.split('/').pop();
                                                             const lineDisplay = workflowLine ? ':' + workflowLine : '';
                                                             
-                                                            // Show: repo → file:line
                                                             locationParts.push(`<div class="d-flex flex-wrap align-items-center gap-1" style="font-size: 0.85em;">
                                                                 <a href="https://github.com/${owner}/${repo}" target="_blank" rel="noreferrer noopener" class="text-decoration-none"><code>${escapeHtml(workflowRepo)}</code></a>
                                                                 <i class="fas fa-arrow-right text-muted" style="font-size: 0.7em;"></i>
@@ -1027,17 +1167,14 @@ document.addEventListener('DOMContentLoaded', async function() {
                                                 if (locationParts.length === 1) {
                                                     locationCell = locationParts[0];
                                                 } else if (locationParts.length > 1 && locationParts.length <= 3) {
-                                                    // Show all locations
                                                     locationCell = `<div class="d-flex flex-column gap-1">${locationParts.join('')}</div>`;
                                                 } else if (locationParts.length > 3) {
-                                                    // Show first + count
                                                     locationCell = `<div class="d-flex flex-column gap-1">
                                                         ${locationParts[0]}
                                                         <small class="text-muted"><i class="fas fa-list me-1"></i>+ ${locationParts.length - 1} more location${locationParts.length - 1 > 1 ? 's' : ''}</small>
                                                     </div>`;
                                                 }
                                             } else if (instance.repository && instance.file) {
-                                                // Fallback: use repository and file directly
                                                 const repoParts = instance.repository.split('/');
                                                 if (repoParts.length === 2) {
                                                     const [owner, repo] = repoParts;
@@ -1052,7 +1189,6 @@ document.addEventListener('DOMContentLoaded', async function() {
                                                     </div>`;
                                                 }
                                             } else if (instance.repository) {
-                                                // Just show repository
                                                 locationCell = formatRepoHTML(instance.repository);
                                             }
                                             

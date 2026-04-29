@@ -449,7 +449,7 @@ function getFindingName(ruleId) {
         'MUTABLE_TAG_REFERENCE': 'Mutable Tag Reference',
         'DOCKER_FLOATING_TAG': 'Docker Floating Tag',
         'DOCKER_IMPLICIT_LATEST': 'Docker Implicit Latest Tag',
-        'DOCKERFILE_FLOATING_BASE_IMAGE': 'Dockerfile Floating Base Image',
+        'DOCKERFILE_FLOATING_BASE_IMAGE': "Action's Dockerfile Floating Base Image",
         'DOCKER_UNPINNED_DEPENDENCIES': 'Docker Unpinned Dependencies',
         'DOCKER_REMOTE_CODE_NO_INTEGRITY': 'Docker Remote Code Without Integrity Check',
         'COMPOSITE_NESTED_UNPINNED_ACTION': 'Composite Nested Unpinned Action',
@@ -478,11 +478,11 @@ function getFindingName(ruleId) {
  */
 function getFindingDescription(ruleId) {
     const descriptions = {
-        'UNPINNED_ACTION_REFERENCE': 'Actions referenced without a commit SHA are mutable and can change, posing security risks. Always pin actions to a full 40-character commit SHA.',
-        'MUTABLE_TAG_REFERENCE': 'Tags like "latest", "main", or version ranges can change over time. Use immutable commit SHAs instead.',
+        'UNPINNED_ACTION_REFERENCE': 'Action is pinned to a specific version tag (e.g. `v1.2.3`) instead of a 40-character commit SHA. Tags are mutable refs — the action\'s maintainer (or anyone with push access via tag-squatting) can move the tag to a different commit at any time without your repo seeing a diff. Pin to a SHA for true supply-chain immutability. Distinct from "Mutable Tag Reference", which covers known floating tags (`latest`, `main`, `v1`, …) that legitimately roll forward.',
+        'MUTABLE_TAG_REFERENCE': 'Action is pinned to a known floating tag (`latest`, `main`, `master`, `dev`, `v1`, `v2`, …) that the maintainer legitimately rolls forward as new versions ship. The action you run today may differ from yesterday\'s run with no warning. Replace with a 40-character commit SHA. Distinct from "Unpinned Action Reference", which covers specific version tags like `v1.2.3` that are technically movable but not on the floating-tag list.',
         'DOCKER_FLOATING_TAG': 'Docker images using floating tags (e.g., "latest", version ranges) are not immutable and can introduce unexpected changes.',
         'DOCKER_IMPLICIT_LATEST': 'Docker images without explicit tags default to "latest", which is mutable and insecure.',
-        'DOCKERFILE_FLOATING_BASE_IMAGE': 'Dockerfile base images using floating tags can change, affecting build reproducibility and security.',
+        'DOCKERFILE_FLOATING_BASE_IMAGE': "A third-party GitHub Action used by this repo's workflows is built from a Dockerfile whose `FROM` base image is unpinned (a floating tag like `ubuntu:22.04`, `latest`, or no tag at all — no `@sha256:` digest). When the workflow runs, the action's Docker image is rebuilt from whatever the registry serves at that tag, so the runtime container is not reproducible and is exposed to base-image takeover by upstream maintainers or registry compromise. The fix lives in the Action's repo (not yours): pin the `FROM` line to a digest, e.g. `FROM ubuntu@sha256:…`. The location column links directly to the offending `FROM` line in the Action's Dockerfile at the commit your workflow pins.",
         'DOCKER_UNPINNED_DEPENDENCIES': 'Docker container dependencies should be pinned to specific versions for security and reproducibility.',
         'DOCKER_REMOTE_CODE_NO_INTEGRITY': 'Remote code execution in Docker without integrity checks can lead to supply chain attacks.',
         'COMPOSITE_NESTED_UNPINNED_ACTION': 'Composite actions calling other actions without pinning create nested security risks.',

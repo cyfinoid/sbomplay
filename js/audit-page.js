@@ -889,6 +889,24 @@ document.addEventListener('DOMContentLoaded', async function() {
                 gaFindings = githubActionsAnalysis.findings;
             }
             
+            // Read-time dedup: legacy stored analyses (pre-fix) emitted both
+            // MUTABLE_TAG_REFERENCE and UNPINNED_ACTION_REFERENCE for the same
+            // mutable-tag ref. Now that the analyzer emits exactly one of them,
+            // suppress the redundant UNPINNED_ACTION_REFERENCE here too so old
+            // stored data self-declutters on next page load (no re-enrichment).
+            const mutableTagActions = new Set(
+                gaFindings
+                    .filter(f => f.rule_id === 'MUTABLE_TAG_REFERENCE' && f.action)
+                    .map(f => f.action)
+            );
+            if (mutableTagActions.size > 0) {
+                gaFindings = gaFindings.filter(f => !(
+                    f.rule_id === 'UNPINNED_ACTION_REFERENCE' &&
+                    f.action &&
+                    mutableTagActions.has(f.action)
+                ));
+            }
+            
             // Filter by repository if specified
             if (repoFilter && repoFilter !== 'all') {
                 gaFindings = gaFindings.filter(f => f.repository === repoFilter);
@@ -1260,6 +1278,17 @@ document.addEventListener('DOMContentLoaded', async function() {
                         const workflowLocations = instance.workflowLocations || [];
                         const actionRepository = instance.actionRepository || instance.action?.split('@')[0] || null;
                         const actionDockerfile = instance.actionDockerfile || 'Dockerfile';
+                        // Pin the Dockerfile link to the analysed commit so the line anchor matches
+                        // the file content the analyzer actually read. Anything that isn't a
+                        // 40-char hex (e.g. when only a tag was preserved) falls back to HEAD.
+                        let dockerActionSha = null;
+                        if (instance.action && typeof instance.action === 'string' && instance.action.includes('@')) {
+                            const refPart = instance.action.split('@').pop();
+                            if (refPart && /^[a-f0-9]{40}$/i.test(refPart)) {
+                                dockerActionSha = refPart;
+                            }
+                        }
+                        const dockerFileRef = dockerActionSha || 'HEAD';
                         
                         if (workflowLocations.length > 0 && actionRepository) {
                             // Build the full path chain
@@ -1296,8 +1325,8 @@ document.addEventListener('DOMContentLoaded', async function() {
                                 const actionUrl = `https://github.com/${actionOwner}/${actionRepoName}`;
                                 pathParts.push(`<a href="${actionUrl}" target="_blank" rel="noreferrer noopener" class="text-decoration-none"><code>${escapeHtml(actionRepository)}</code></a>`);
                                 
-                                // 4. Dockerfile (in action repository)
-                                const dockerfileUrl = `https://github.com/${actionOwner}/${actionRepoName}/blob/HEAD/${actionDockerfile}${instance.line ? `#L${instance.line}` : ''}`;
+                                // 4. Dockerfile (in action repository, pinned to the analysed commit)
+                                const dockerfileUrl = `https://github.com/${actionOwner}/${actionRepoName}/blob/${dockerFileRef}/${actionDockerfile}${instance.line ? `#L${instance.line}` : ''}`;
                                 const dockerfileName = actionDockerfile.split('/').pop();
                                 pathParts.push(`<a href="${dockerfileUrl}" target="_blank" rel="noreferrer noopener" class="text-decoration-none"><code>${escapeHtml(dockerfileName)}${instance.line ? `:${instance.line}` : ''}</code></a>`);
                                 
@@ -1309,7 +1338,7 @@ document.addEventListener('DOMContentLoaded', async function() {
                                 // Fallback: just show action repository Dockerfile link
                                 if (actionRepoParts.length === 2) {
                                     const [actionOwner, actionRepoName] = actionRepoParts;
-                                    const dockerfileUrl = `https://github.com/${actionOwner}/${actionRepoName}/blob/HEAD/${actionDockerfile}${instance.line ? `#L${instance.line}` : ''}`;
+                                    const dockerfileUrl = `https://github.com/${actionOwner}/${actionRepoName}/blob/${dockerFileRef}/${actionDockerfile}${instance.line ? `#L${instance.line}` : ''}`;
                                     const dockerfileName = actionDockerfile.split('/').pop();
                                     locationCell = `<a href="${dockerfileUrl}" target="_blank" rel="noreferrer noopener" class="text-decoration-none">
                                         <i class="fas fa-code me-1"></i><code class="small">${escapeHtml(actionRepository)}/${escapeHtml(dockerfileName)}${instance.line ? `:${instance.line}` : ''}</code>
@@ -1321,7 +1350,7 @@ document.addEventListener('DOMContentLoaded', async function() {
                             const actionRepoParts = actionRepository.split('/');
                             if (actionRepoParts.length === 2) {
                                 const [actionOwner, actionRepoName] = actionRepoParts;
-                                const dockerfileUrl = `https://github.com/${actionOwner}/${actionRepoName}/blob/HEAD/${actionDockerfile}${instance.line ? `#L${instance.line}` : ''}`;
+                                const dockerfileUrl = `https://github.com/${actionOwner}/${actionRepoName}/blob/${dockerFileRef}/${actionDockerfile}${instance.line ? `#L${instance.line}` : ''}`;
                                 const dockerfileName = actionDockerfile.split('/').pop();
                                 locationCell = `<a href="${dockerfileUrl}" target="_blank" rel="noreferrer noopener" class="text-decoration-none">
                                     <i class="fas fa-code me-1"></i><code class="small">${escapeHtml(actionRepository)}/${escapeHtml(dockerfileName)}${instance.line ? `:${instance.line}` : ''}</code>

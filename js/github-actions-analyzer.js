@@ -1450,6 +1450,17 @@ class GitHubActionsAnalyzer {
 
     /**
      * Check workflow-level unpinned references
+     *
+     * Emits exactly one finding per unpinned ref so the two rules are
+     * cleanly disjoint:
+     *   - MUTABLE_TAG_REFERENCE (high) when the ref is a known floating tag
+     *     (`latest`, `main`, `master`, `v1`, …) that legitimately rolls forward.
+     *   - UNPINNED_ACTION_REFERENCE (medium) when the ref is a specific tag
+     *     (e.g. `v1.2.3`) that is not a 40-char SHA but is not on the floating
+     *     list either.
+     * The previous behaviour was to also emit UNPINNED_ACTION_REFERENCE (high)
+     * for every mutable tag, which double-counted with MUTABLE_TAG_REFERENCE
+     * coming from `applyHeuristics`.
      */
     checkWorkflowLevel(owner, repo, ref, path) {
         const findings = [];
@@ -1459,11 +1470,11 @@ class GitHubActionsAnalyzer {
             const mutableTagCheck = this.checkMutableTag(ref);
             if (mutableTagCheck) {
                 findings.push({
-                    rule_id: 'UNPINNED_ACTION_REFERENCE',
+                    rule_id: 'MUTABLE_TAG_REFERENCE',
                     severity: 'high',
                     message: mutableTagCheck.message,
                     action: `${owner}/${repo}${path ? '/' + path : ''}@${ref}`,
-                    details: `Action reference '${ref}' is not pinned to a commit SHA. Use a full 40-character commit SHA for immutability.`
+                    details: `Action reference '${ref}' is a known floating tag. Replace with a 40-character commit SHA for true supply-chain immutability.`
                 });
             } else {
                 findings.push({
@@ -1471,7 +1482,7 @@ class GitHubActionsAnalyzer {
                     severity: 'medium',
                     message: `Action reference is not a commit SHA: ${ref}`,
                     action: `${owner}/${repo}${path ? '/' + path : ''}@${ref}`,
-                    details: `Action reference '${ref}' should be pinned to a commit SHA for immutability.`
+                    details: `Action reference '${ref}' is a tag (movable) and not a 40-character commit SHA. Tags can be re-pointed by the action's maintainer; pin to a SHA for immutability.`
                 });
             }
         }
@@ -1498,24 +1509,14 @@ class GitHubActionsAnalyzer {
 
     /**
      * Apply general heuristics to action metadata
+     *
+     * NOTE: MUTABLE_TAG_REFERENCE is no longer emitted here — it is now emitted
+     * exactly once from `checkWorkflowLevel` so the rule is disjoint with
+     * UNPINNED_ACTION_REFERENCE. Leaving the function in place as a hook for
+     * future metadata-driven heuristics.
      */
     applyHeuristics(metadata, owner, repo, ref, path) {
-        const findings = [];
-
-        // Check for mutable tags in metadata
-        if (ref && !this.isPinned(ref)) {
-            const mutableCheck = this.checkMutableTag(ref);
-            if (mutableCheck) {
-                findings.push({
-                    rule_id: 'MUTABLE_TAG_REFERENCE',
-                    severity: mutableCheck.severity,
-                    message: mutableCheck.message,
-                    action: `${owner}/${repo}${path ? '/' + path : ''}@${ref}`
-                });
-            }
-        }
-
-        return findings;
+        return [];
     }
 
     /**
