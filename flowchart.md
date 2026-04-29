@@ -9,7 +9,8 @@ This document provides comprehensive flowcharts documenting how SBOM Play perfor
 3. [Organization/User Analysis Flow](#organizationuser-analysis-flow)
 4. [SBOM Processing Flow](#sbom-processing-flow)
 5. [Vulnerability Analysis Flow](#vulnerability-analysis-flow)
-6. [Author Analysis Flow](#author-analysis-flow)
+6. [Malware Check Flow](#malware-check-flow)
+7. [Author Analysis Flow](#author-analysis-flow)
 7. [License Compliance Analysis Flow](#license-compliance-analysis-flow)
 8. [EOX (End-of-Life) Analysis Flow](#eox-end-of-life-analysis-flow)
 9. [SBOM Audit Flow](#sbom-audit-flow)
@@ -353,6 +354,64 @@ flowchart TD
 - **Ecosystem Mapping**: Maps internal ecosystem names to OSV.dev format using PURL extraction
 - **Incremental Saving**: Saves results incrementally during analysis
 - **Severity Analysis**: Categorizes vulnerabilities by severity (CRITICAL, HIGH, MEDIUM, LOW)
+- **Kind Tagging**: Each returned advisory is tagged with `kind: 'cve' | 'malware'` so downstream consumers can split the two cleanly without re-parsing IDs.
+
+---
+
+## Malware Check Flow
+
+The malware check runs as Phase 1.5 of the enrichment pipeline (right after
+Vulnerabilities, before Licenses). It does **not** issue any new external
+calls: it consumes the OSV results already gathered in Phase 1 and
+re-classifies entries with `id` starting `MAL-` (or carrying
+`affected[].database_specific['malicious-packages-origins']`) into a
+dedicated `malwareAnalysis` collection. A second pass optionally
+cross-checks against a session-cached OpenSSF Malicious Packages index for
+defense-in-depth.
+
+```mermaid
+flowchart TD
+    A[Phase 1.5 trigger] --> B[Read sbomProcessor.vulnerabilityAnalysis]
+    B --> C{vulnerableDependencies?}
+    C -->|No| D[Empty malwareAnalysis]
+    C -->|Yes| E[Loop: For each vuln dep]
+    E --> F[Filter advisories where kind=malware or id starts with MAL-]
+    F --> G{Any malicious advisory?}
+    G -->|No| H[Skip dependency]
+    G -->|Yes| I[Normalize advisory metadata]
+    I --> J[Append to maliciousDependencies]
+    J --> K{More deps?}
+    H --> K
+    K -->|Yes| E
+    K -->|No| L[Optional: cross-check OpenSSF index from cache]
+    L --> M[Merge any new advisories]
+    M --> N[Persist on processor.malwareAnalysis]
+    N --> O[storageManager.updateAnalysisWithMalware]
+    O --> P[Phase 1.5 complete]
+    
+    D --> P
+    
+    style A fill:#e1f5ff
+    style P fill:#c8e6c9
+    style F fill:#fff3e0
+    style L fill:#fff9c4
+    style N fill:#e1bee7
+```
+
+**Key Features:**
+- **Zero extra network calls**: Re-uses OSV results from Phase 1; the OpenSSF index is consulted only if already cached.
+- **Backward compatible**: Older analyses without `malwareAnalysis` are re-classified on the fly when the Malware page loads them.
+- **Critical severity surface**: Every malicious-package match shows up on the Findings page as `critical` (above High) and on the dedicated Malware page with full advisory details and links to OSV.dev.
+- **Feed integration**: When at least one malicious-package match is detected, the OPML export prepends a global "OpenSSF Malicious Packages" feed entry so users keep getting notified of new advisories in their RSS reader after the scan.
+
+**Data Sources:**
+- **Primary**: OSV.dev `MAL-YYYY-NNN` advisories (already used by the vulnerability flow).
+- **Secondary (optional)**: OpenSSF Malicious Packages dataset (`github.com/ossf/malicious-packages`).
+
+**Out of Scope (intentional):**
+- No heuristic detection (typosquatting, install-script abuse, etc.) — high false-positive risk requires separate UX.
+- No dynamic/behavior analysis — impossible client-side.
+- No fetching of malicious package contents — only advisory metadata is shown.
 
 ---
 
@@ -961,7 +1020,7 @@ flowchart TD
 ## Key Design Patterns
 
 1. **Incremental Processing**: Large analyses are broken into chunks with incremental saves
-2. **Phase-Based Progress Tracking**: Progress calculated using weighted phases (initialization 2%, fetching-repo 5%, fetching-sbom 10%, processing-sbom 8%, resolving-trees 50%, generating-results 5%, license-analysis 5%, saving-initial 2%, vulnerability-analysis 8%, author-analysis 4%, saving-final 1%)
+2. **Phase-Based Progress Tracking**: Progress calculated using weighted phases (initialization 2%, fetching-repo 5%, fetching-sbom 10%, processing-sbom 8%, resolving-trees 50%, generating-results 5%, license-analysis 5%, saving-initial 2%, vulnerability-analysis 6%, malware-check 2%, author-analysis 4%, saving-final 1%)
 3. **Enhanced Status Messages**: Detailed progress messages showing ecosystem, package counts, and current operation (e.g., "Resolving github actions dependencies (3/4 packages)...")
 4. **Caching Strategy**: Multi-layer caching (unified cache, IndexedDB, in-memory)
 5. **Error Resilience**: Failed operations don't stop entire analysis

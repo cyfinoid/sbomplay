@@ -163,6 +163,8 @@ function setupCollapseIcon(collapseId, iconId) {
  */
 function getSeverityBadgeClass(severity) {
     switch (severity?.toLowerCase()) {
+        case 'critical':
+            return 'bg-danger';
         case 'high':
         case 'error':
             return 'bg-danger';

@@ -1230,6 +1230,7 @@ class SBOMProcessor {
             categoryStats: this.getDependencyCategoryStats(),
             languageStats: this.getLanguageStats(),
             vulnerabilityAnalysis: this.vulnerabilityAnalysis || null,
+            malwareAnalysis: this.malwareAnalysis || null,
             licenseAnalysis: this.licenseAnalysis || null,
             qualityAnalysis: qualityAnalysis,  // Add aggregate quality analysis
             githubActionsAnalysis: this.githubActionsAnalysis || null  // Add GitHub Actions analysis

@@ -322,6 +322,37 @@ class FeedUrlBuilder {
     }
 
     /**
+     * Build a synthetic feed entry that points at the OpenSSF Malicious
+     * Packages atom feed. Used by the feeds page (and OPML export) when
+     * the loaded analysis has at least one malicious-package match, so
+     * users get ongoing notifications about new advisories in their RSS
+     * reader without us needing per-package malware feeds.
+     *
+     * @returns {{ dep: Object, feed: Object }}
+     */
+    buildMalwareAdvisoryEntry() {
+        return {
+            dep: {
+                name: 'OpenSSF Malicious Packages',
+                version: 'feed',
+                ecosystem: 'Malware',
+                type: 'direct',
+                directIn: ['SBOM Play'],
+                transitiveIn: [],
+                repositories: []
+            },
+            feed: {
+                status: 'native',
+                url: 'https://github.com/ossf/malicious-packages/commits/main.atom',
+                htmlUrl: 'https://github.com/ossf/malicious-packages',
+                title: 'OpenSSF Malicious Packages advisories',
+                ecosystem: 'Malware',
+                reason: null
+            }
+        };
+    }
+
+    /**
      * Try to extract a {owner, repo} pair from a dependency by inspecting
      * the embedded SPDX/CycloneDX externalRefs that the SBOM parser stored.
      * @param {Object} dep
