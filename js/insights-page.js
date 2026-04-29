@@ -767,12 +767,12 @@ function renderLanguageSection(ins, data) {
             <div class="card-header"><h5 class="mb-0"><i class="fas fa-language me-2"></i>Language &amp; ecosystem stack</h5></div>
             <div class="card-body">
                 <div class="row g-4">
-                    <div class="col-lg-6">
+                    <div class="col-12">
                         <h6 class="text-muted text-uppercase small mb-1">Dependency mix by ecosystem</h6>
                         <p class="small text-muted mb-3">Each count is a package-manager dependency tagged to its ecosystem language, summed across every repository it appears in (a package used in 5 repos counts 5 times). YAML rows are GitHub Actions workflow steps. <strong>Not</strong> source-code line counts or file counts.</p>
                         ${langBars || '<p class="text-muted small mb-0">No language statistics available.</p>'}
                     </div>
-                    <div class="col-lg-6">
+                    <div class="col-12">
                         <h6 class="text-muted text-uppercase small mb-3">Polyglot repositories <span class="text-muted small">(&ge; 3 ecosystems)</span></h6>
                         ${polyglot.length === 0 ? '<p class="text-muted small mb-0">No polyglot repositories detected.</p>' : `
                             <div class="table-responsive" style="max-height: 320px;">
@@ -864,7 +864,7 @@ function renderAgeSection(ins) {
                 <div class="mb-4">${legend}</div>
 
                 <div class="row g-4">
-                    <div class="col-lg-6">
+                    <div class="col-12">
                         <h6 class="text-muted text-uppercase small mb-3">Oldest dependency per repository</h6>
                         ${oldestRows ? `
                             <div class="table-responsive" style="max-height: 380px;">
@@ -874,7 +874,7 @@ function renderAgeSection(ins) {
                                 </table>
                             </div>` : '<p class="text-muted small mb-0">No publish-date data available for any repository.</p>'}
                     </div>
-                    <div class="col-lg-6">
+                    <div class="col-12">
                         <h6 class="text-muted text-uppercase small mb-3">Probable EOL packages</h6>
                         ${ins.ageStats.probableEol === 0 ? '<p class="text-muted small mb-0">No probable-EOL packages detected.</p>' : `
                             <div class="table-responsive" style="max-height: 380px;">
@@ -950,7 +950,7 @@ function renderDriftSection(ins) {
             <div class="card-header"><h5 class="mb-0"><i class="fas fa-arrow-up-right-dots me-2"></i>Version drift</h5></div>
             <div class="card-body">
                 <div class="row g-4">
-                    <div class="col-lg-7">
+                    <div class="col-12">
                         <h6 class="text-muted text-uppercase small mb-3">Drift per repository</h6>
                         <p class="small text-muted mb-2">Stack order: <span class="badge bg-success">current</span> <span class="badge bg-info">patch</span> <span class="badge bg-warning text-dark">minor</span> <span class="badge bg-danger">major</span></p>
                         ${rows ? `
@@ -961,7 +961,7 @@ function renderDriftSection(ins) {
                                 </table>
                             </div>` : '<p class="text-muted small mb-0">No drift data available.</p>'}
                     </div>
-                    <div class="col-lg-5">
+                    <div class="col-12">
                         <h6 class="text-muted text-uppercase small mb-3">Top 20 lagging packages <span class="text-muted small">(by repos × major)</span></h6>
                         ${topRows ? `
                             <div class="table-responsive" style="max-height: 450px;">
@@ -1058,7 +1058,7 @@ function renderVulnAgeSection(ins) {
                     </table>
                 </div>
                 <div class="row g-4">
-                    <div class="col-lg-7">
+                    <div class="col-12">
                         <h6 class="text-muted text-uppercase small mb-3">Time-bomb CVEs <span class="text-muted small">(&ge; 90d old, fix available, C/H)</span></h6>
                         ${tbRows ? `
                             <div class="table-responsive" style="max-height: 380px;">
@@ -1068,7 +1068,7 @@ function renderVulnAgeSection(ins) {
                                 </table>
                             </div>` : '<p class="text-muted small mb-0">No time-bomb CVEs detected.</p>'}
                     </div>
-                    <div class="col-lg-5">
+                    <div class="col-12">
                         <h6 class="text-muted text-uppercase small mb-3">Critical+High by repository</h6>
                         ${repoCHRows ? `
                             <div class="table-responsive" style="max-height: 380px;">
@@ -1268,7 +1268,7 @@ function renderRedFlagsSection(ins) {
                 </div>
                 <hr>
                 <div class="row g-4">
-                    <div class="col-lg-6">
+                    <div class="col-12">
                         <h6 class="text-muted text-uppercase small mb-3">Copyleft licenses on direct dependencies <span class="text-muted small">(GPL/AGPL/LGPL/MPL/EPL/CDDL/OSL/EUPL)</span></h6>
                         ${directRows ? `
                             <div class="table-responsive" style="max-height: 360px;">
@@ -1278,7 +1278,7 @@ function renderRedFlagsSection(ins) {
                                 </table>
                             </div>` : '<p class="text-muted small mb-0">No copyleft licenses found on direct dependencies.</p>'}
                     </div>
-                    <div class="col-lg-6">
+                    <div class="col-12">
                         <h6 class="text-muted text-uppercase small mb-3">EOL components <span class="text-muted small">(top 25)</span></h6>
                         ${eolRows ? `
                             <div class="table-responsive" style="max-height: 360px;">
