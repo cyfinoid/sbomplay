@@ -43,8 +43,14 @@ class GitHubClient {
     /**
      * Read GitHub rate limit headers from a fetch Response and emit a
      * `rateLimitUpdate` event so the UI can tick the counter down live.
-     * Bucket is `'core'` for REST (api.github.com/...) and `'graphql'` for
-     * the GraphQL endpoint — these are independent rate limit pools.
+     *
+     * GitHub charges each request against one of several independent
+     * rate-limit pools (`core`, `graphql`, `search`, `code_search`,
+     * `dependency_snapshots`, `integration_manifest`, …) and identifies
+     * which pool was charged via the `X-RateLimit-Resource` response header.
+     * We trust that header when present; the explicit `bucket` arg is only
+     * a fallback for the GraphQL endpoint (where we already know the bucket
+     * up-front) and for older/edge responses that don't include the header.
      */
     extractRateLimitFromResponse(response, bucket) {
         if (!response || !response.headers) return;
@@ -52,24 +58,27 @@ class GitHubClient {
         const limitHeader = response.headers.get('X-RateLimit-Limit');
         const remainingHeader = response.headers.get('X-RateLimit-Remaining');
         const resetHeader = response.headers.get('X-RateLimit-Reset');
+        const resourceHeader = response.headers.get('X-RateLimit-Resource');
 
         if (limitHeader === null && remainingHeader === null) {
             return;
         }
+
+        const resolvedBucket = resourceHeader || bucket;
 
         const limit = limitHeader !== null ? parseInt(limitHeader, 10) : null;
         const remaining = remainingHeader !== null ? parseInt(remainingHeader, 10) : null;
         const reset = resetHeader !== null ? parseInt(resetHeader, 10) : null;
 
         const info = {
-            bucket,
+            bucket: resolvedBucket,
             limit,
             remaining,
             reset,
             authenticated: this.token ? 'Yes' : 'No'
         };
 
-        this.lastRateLimit[bucket] = info;
+        this.lastRateLimit[resolvedBucket] = info;
 
         try {
             this.dispatchEvent(new CustomEvent('rateLimitUpdate', { detail: info }));
@@ -931,20 +940,50 @@ class GitHubClient {
     }
 
     /**
-     * Get rate limit information
+     * Get rate limit information.
+     *
+     * `/rate_limit` returns every bucket GitHub knows about (`core`,
+     * `graphql`, `search`, `code_search`, `dependency_snapshots`,
+     * `integration_manifest`, …). We seed the live UI with one
+     * `rateLimitUpdate` event per resource so all buckets appear up-front,
+     * then return the `core` summary for the legacy callers that only care
+     * about the top-line REST limit.
      */
     async getRateLimitInfo() {
         const url = `${this.baseUrl}/rate_limit`;
         const response = await this.makeRequest(url);
-        
+
         if (response.ok) {
             const data = await response.json();
-            const core = data.resources.core;
+            const resources = data && data.resources ? data.resources : {};
+            const authenticated = this.token ? 'Yes' : 'No';
+
+            for (const [bucket, entry] of Object.entries(resources)) {
+                if (!entry || typeof entry !== 'object') continue;
+
+                const info = {
+                    bucket,
+                    limit: typeof entry.limit === 'number' ? entry.limit : null,
+                    remaining: typeof entry.remaining === 'number' ? entry.remaining : null,
+                    reset: typeof entry.reset === 'number' ? entry.reset : null,
+                    authenticated
+                };
+
+                this.lastRateLimit[bucket] = info;
+
+                try {
+                    this.dispatchEvent(new CustomEvent('rateLimitUpdate', { detail: info }));
+                } catch (err) {
+                    console.debug('Failed to dispatch rateLimitUpdate event:', err);
+                }
+            }
+
+            const core = resources.core || {};
             return {
                 limit: core.limit,
                 remaining: core.remaining,
                 reset: core.reset,
-                authenticated: this.token ? 'Yes' : 'No'
+                authenticated
             };
         } else {
             return {
