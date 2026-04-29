@@ -36,25 +36,30 @@ document.addEventListener('DOMContentLoaded', async function () {
     await loadAnalysesList('analysisSelector', storageManager, document.getElementById('noDataSection'));
 
     async function loadInsightsData() {
-        const analysisSelector = document.getElementById('analysisSelector');
-        if (!analysisSelector) {
-            const container = document.getElementById('insights-page-content');
-            if (container) {
-                safeSetHTML(container, '<div class="alert alert-info">Please select an analysis to view insights.</div>');
-            }
-            return;
-        }
-
-        await loadOrganizationData(analysisSelector.value, storageManager, {
-            containerId: 'insights-page-content',
-            noDataSection: document.getElementById('noDataSection'),
-            renderFunction: async (data) => {
+        showFilterLoading('insights-page-content');
+        try {
+            const analysisSelector = document.getElementById('analysisSelector');
+            if (!analysisSelector) {
                 const container = document.getElementById('insights-page-content');
-                const html = generateInsightsHTML(data);
-                safeSetHTML(container, html);
-                attachInsightsHandlers(data);
+                if (container) {
+                    safeSetHTML(container, '<div class="alert alert-info">Please select an analysis to view insights.</div>');
+                }
+                return;
             }
-        });
+
+            await loadOrganizationData(analysisSelector.value, storageManager, {
+                containerId: 'insights-page-content',
+                noDataSection: document.getElementById('noDataSection'),
+                renderFunction: async (data) => {
+                    const container = document.getElementById('insights-page-content');
+                    const html = generateInsightsHTML(data);
+                    safeSetHTML(container, html);
+                    attachInsightsHandlers(data);
+                }
+            });
+        } finally {
+            hideFilterLoading('insights-page-content');
+        }
     }
 
     const analysisSelector = document.getElementById('analysisSelector');
@@ -1143,7 +1148,7 @@ function renderHygieneSection(ins) {
     `;
 }
 
-function renderConicDonut(slices) {
+function renderConicDonut(slices, centerLabel = 'repos') {
     const total = slices.reduce((a, b) => a + b.count, 0);
     if (total <= 0) {
         return '<div class="text-muted small">No data</div>';
@@ -1164,7 +1169,7 @@ function renderConicDonut(slices) {
             <div class="position-absolute top-50 start-50 translate-middle bg-white text-dark rounded-circle d-flex align-items-center justify-content-center" style="width: 110px; height: 110px;">
                 <div class="text-center">
                     <div class="fw-bold fs-4">${total}</div>
-                    <div class="small text-muted">repos</div>
+                    <div class="small text-muted">${escapeHtml(centerLabel)}</div>
                 </div>
             </div>
         </div>
@@ -1179,7 +1184,33 @@ function renderRedFlagsSection(ins) {
         { key: 'Medium', color: '#ffc107', count: ls.medium },
         { key: 'Low', color: '#198754', count: ls.low }
     ];
-    const licDonut = renderConicDonut(licSlices);
+    const licDonut = renderConicDonut(licSlices, 'deps');
+
+    const sc = ins.supplyChain;
+    // Each slice = a discrete supply-chain red-flag bucket; sizing the donut by raw
+    // counts gives the reader an immediate read on which class of issue dominates the
+    // portfolio (e.g. "almost all our findings are unpinned Actions" vs "EOL is
+    // driving most of our risk"). Keeping the colour scheme aligned with the original
+    // bullet-list icons (skull = malware, dep-confusion = orange, pin = warning yellow,
+    // EOL = purple/info) so users transitioning from the v1 layout don't have to relearn
+    // semantics.
+    const scSlices = [
+        { key: 'Malware', color: '#dc3545', count: sc.malwareCount,
+          tooltip: 'Malicious-package matches (OSV.dev MAL-* / OpenSSF malicious-packages)' },
+        { key: 'Dep-confusion', color: '#fd7e14', count: sc.depConfusion,
+          tooltip: 'Dependency-confusion candidates (registry / namespace not found)' },
+        { key: 'Unpinned actions', color: '#ffc107', count: sc.unpinnedActions,
+          tooltip: `Unpinned / mutable-tag GitHub Actions (${sc.unpinnedActions} of ${sc.totalActions} action references)` },
+        { key: 'EOL', color: '#6f42c1', count: ins.eolStats.eolCount,
+          tooltip: 'End-of-life components per endoflife.date' },
+        { key: 'EOS', color: '#0dcaf0', count: ins.eolStats.eosCount,
+          tooltip: 'End-of-support components per endoflife.date' }
+    ];
+    const scTotal = scSlices.reduce((a, b) => a + b.count, 0);
+    const scDonut = renderConicDonut(scSlices, 'findings');
+    const scSubtitle = sc.totalActions
+        ? `${scTotal} red-flag findings · ${sc.totalActions} Actions scanned`
+        : `${scTotal} red-flag findings`;
 
     const directRows = ls.directHighRisk.map(r => `
         <tr>
@@ -1209,8 +1240,6 @@ function renderRedFlagsSection(ins) {
         </div>
     ` : '<p class="text-muted small mb-0">No license conflicts detected.</p>';
 
-    const sc = ins.supplyChain;
-
     return `
         <section class="card mb-4">
             <div class="card-header"><h5 class="mb-0"><i class="fas fa-flag me-2"></i>Supply-chain &amp; M&amp;A red flags</h5></div>
@@ -1228,14 +1257,13 @@ function renderRedFlagsSection(ins) {
                         <h6 class="text-muted text-uppercase small mb-3">Conflicts</h6>
                         ${conflicts}
                     </div>
-                    <div class="col-md-4">
+                    <div class="col-md-4 text-center">
                         <h6 class="text-muted text-uppercase small mb-3">Supply-chain hygiene</h6>
-                        <ul class="list-unstyled mb-0 small">
-                            <li><i class="fas fa-skull text-danger me-2"></i><strong>${sc.malwareCount}</strong> malicious-package matches</li>
-                            <li><i class="fas fa-user-secret text-warning me-2"></i><strong>${sc.depConfusion}</strong> dependency-confusion candidates</li>
-                            <li><i class="fas fa-thumbtack text-warning me-2"></i><strong>${sc.unpinnedActions}</strong> unpinned/mutable Actions out of ${sc.totalActions}</li>
-                            <li><i class="fas fa-skull-crossbones text-danger me-2"></i><strong>${ins.eolStats.eolCount}</strong> EOL components / <strong>${ins.eolStats.eosCount}</strong> EOS</li>
-                        </ul>
+                        ${scDonut}
+                        <div class="d-flex flex-wrap justify-content-center mt-3 small">
+                            ${scSlices.map(s => `<span class="me-3" title="${escapeHtml(s.tooltip)}"><span class="d-inline-block me-1" style="width:10px; height:10px; vertical-align: middle; background-color: ${s.color};"></span>${escapeHtml(s.key)}: <strong>${s.count}</strong></span>`).join('')}
+                        </div>
+                        <div class="text-muted small mt-2">${scSubtitle}</div>
                     </div>
                 </div>
                 <hr>

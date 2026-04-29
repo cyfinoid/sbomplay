@@ -28,6 +28,7 @@ document.addEventListener('DOMContentLoaded', async function() {
     }
     
     async function loadLicenseData() {
+        showFilterLoading('license-compliance-page');
         try {
             const analysisName = document.getElementById('analysisSelector')?.value;
             const categoryFilter = document.getElementById('categoryFilter')?.value || 'all';
@@ -95,6 +96,8 @@ document.addEventListener('DOMContentLoaded', async function() {
             if (container) {
                 container.innerHTML = '<div class="alert alert-danger">Error loading license data. Please try again.</div>';
             }
+        } finally {
+            hideFilterLoading('license-compliance-page');
         }
     }
     

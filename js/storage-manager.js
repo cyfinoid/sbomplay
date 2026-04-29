@@ -97,6 +97,7 @@ class StorageManager {
                 // Return the most recent entry
                 const entry = entries[0];
                 this._invalidateStaleEOXStatus(entry);
+                await this._hydrateDriftAndStaleness(entry);
                 return entry;
             }
             return null;
@@ -124,6 +125,7 @@ class StorageManager {
                 ? await this.indexedDB.getRepository(name)
                 : await this.indexedDB.getOrganization(name);
             this._invalidateStaleEOXStatus(entry);
+            await this._hydrateDriftAndStaleness(entry);
             return entry;
         } catch (error) {
             console.error('❌ Failed to load data for:', name, error);
@@ -164,6 +166,206 @@ class StorageManager {
         }
         if (dropped > 0) {
             console.log(`🧹 EOX: dropped ${dropped} stale eoxStatus entr${dropped === 1 ? 'y' : 'ies'} (older matcher logic)`);
+        }
+    }
+
+    /**
+     * Build a Map<packageKey, packageRecord> from the IndexedDB packages store.
+     * Used by `_hydrateDriftAndStaleness` to recover per-dep version-drift / staleness
+     * data on already-stored analyses that were saved before the array-vs-Map sync
+     * fix landed (i.e. their `allDependencies[].versionDrift` is `null` even though
+     * the underlying drift records are perfectly intact in the IndexedDB packages
+     * store, where `version-drift-analyzer.js` writes them via
+     * `saveVersionDriftToCache`).
+     *
+     * One IndexedDB `getAll` call is far cheaper than per-dep `getPackage` lookups
+     * (an N=6500 analysis would do 6500 transactions otherwise). Returns `null` when
+     * the IndexedDB layer isn't ready so the caller can skip cache-based hydration
+     * gracefully.
+     *
+     * @returns {Promise<Map<string, Object>|null>}
+     */
+    async _ensurePackageMap() {
+        const dbm = window.indexedDBManager;
+        if (!dbm || typeof dbm.getAllPackages !== 'function') return null;
+        try {
+            const pkgs = await dbm.getAllPackages();
+            const map = new Map();
+            for (const pkg of (pkgs || [])) {
+                if (pkg && pkg.packageKey) map.set(pkg.packageKey, pkg);
+            }
+            return map;
+        } catch (e) {
+            console.warn('⚠️ Failed to read packages cache for drift/staleness hydration:', e);
+            return null;
+        }
+    }
+
+    /**
+     * Self-healing hydration for `versionDrift` / `staleness` / `eoxStatus` on
+     * `allDependencies`.
+     *
+     * Analyses saved before the GitHub-fetched `runLicenseAndVersionDriftEnrichment`
+     * Map-sync fix landed have `versionDrift: null`, `staleness: null`, and
+     * `eoxStatus: null` on every entry of `data.allDependencies` — even though
+     * the underlying enrichment fetched the data correctly (the *export* nulled it
+     * out by rebuilding `allDependencies` from a Map that the legacy code never
+     * synced into). Re-running the scan repopulates everything correctly, but to
+     * spare users that round-trip we recover what we can on every load:
+     *
+     *   1. From `vulnerabilityAnalysis.vulnerableDependencies[]` (sync, in-memory).
+     *      That subset shares its references with the live processor object so its
+     *      `versionDrift` survived export. Cheap, ~5% coverage on typical analyses.
+     *   2. From the IndexedDB `packages` store (one bulk `getAll`). Covers every
+     *      dep that was ever drift-checked in any session — typically 100% on a
+     *      stored analysis, since the packages store outlives `allDependencies`
+     *      writes.
+     *   3. Promote any `dep.versionDrift.staleness` to `dep.staleness` so the
+     *      Insights / Findings pages — which read the canonical top-level
+     *      `dep.staleness?.monthsSinceRelease` path — see the data even when only
+     *      the nested form survived (the secondary bug from the same fix).
+     *   4. Re-derive `eoxStatus` via `EOXService.checkEOX`. Unlike drift/staleness,
+     *      endoflife.date data is cached by *product* (not by package@version), so
+     *      we have to re-run the matcher per dep. We keep this cheap by using
+     *      `eoxService.findProduct` (a sync hash-table lookup) as a pre-filter,
+     *      so only the handful of deps that map to a known runtime/framework/OS
+     *      ever pay the async `checkEOX` cost. The per-product `getProductEOX`
+     *      fetch is itself memoised in the cache manager. Skipped silently when
+     *      `eoxService` isn't loaded on the current page (it ships on the pages
+     *      that render EOX rows: insights.html, deps.html, findings.html, and
+     *      index.html).
+     *
+     * Mutates `entry.data.allDependencies` in place. Same self-correcting pattern
+     * as `_invalidateStaleEOXStatus` and `MalwareService.hydrateAffectedFromCache`.
+     *
+     * @param {Object|null} entry - Loaded analysis entry (may be null).
+     * @param {Map<string, Object>|null} [pkgMap] - Optional pre-built package map
+     *   (caller already paid the `getAllPackages` cost — used by `getCombinedData`
+     *   to share one read across multiple entries).
+     */
+    async _hydrateDriftAndStaleness(entry, pkgMap = null) {
+        if (!entry || !entry.data || !Array.isArray(entry.data.allDependencies)) return;
+        const deps = entry.data.allDependencies;
+        if (deps.length === 0) return;
+
+        // Quick exit: nothing to hydrate (every dep already has drift+staleness AND
+        // eoxStatus, OR `eoxService` isn't loaded on this page so we can't recover
+        // EOX anyway). Each downstream pass also has its own guards, but this short-
+        // circuits the common case where the analysis was already produced by post-
+        // fix code so we skip even the cheap loops.
+        const eoxAvailable = !!(window.eoxService && typeof window.eoxService.checkEOX === 'function');
+        const everythingPopulated = deps.every(d => !d || (d.versionDrift && d.staleness && (d.eoxStatus || !eoxAvailable)));
+        if (everythingPopulated) return;
+
+        const stats = { fromVuln: 0, fromCache: 0, promotedStaleness: 0, eoxRecovered: 0 };
+
+        // Pass 1: in-memory hydration from vulnerableDependencies. The
+        // vulnerableDependencies array shares references with the live
+        // sbomProcessor.vulnerabilityAnalysis object, so its versionDrift survived
+        // the broken `exportData()` rebuild (only `allDependencies` is rebuilt).
+        const vulnDeps = entry.data?.vulnerabilityAnalysis?.vulnerableDependencies;
+        if (Array.isArray(vulnDeps) && vulnDeps.length > 0) {
+            const vulnByKey = new Map();
+            for (const v of vulnDeps) {
+                if (v && v.name) vulnByKey.set(`${v.name}@${v.version}`, v);
+            }
+            for (const dep of deps) {
+                if (!dep || !dep.name) continue;
+                if (dep.versionDrift) continue;
+                const vuln = vulnByKey.get(`${dep.name}@${dep.version}`);
+                if (vuln && vuln.versionDrift) {
+                    dep.versionDrift = vuln.versionDrift;
+                    stats.fromVuln++;
+                }
+            }
+        }
+
+        // Pass 2: bulk hydration from IndexedDB packages cache. Skip if everything
+        // is already covered by Pass 1, otherwise pay the one `getAllPackages`
+        // call (or reuse the caller-provided map for `getCombinedData`).
+        const stillMissing = deps.some(d => d && (!d.versionDrift || !d.staleness));
+        let mapToUse = pkgMap;
+        if (stillMissing && !mapToUse) {
+            mapToUse = await this._ensurePackageMap();
+        }
+        if (mapToUse && stillMissing) {
+            for (const dep of deps) {
+                if (!dep || !dep.name || !dep.version) continue;
+                if (dep.versionDrift && dep.staleness) continue;
+
+                const ecosystemRaw = (dep.category?.ecosystem || dep.ecosystem || '').toLowerCase();
+                if (!ecosystemRaw) continue;
+                // Mirror the ecosystem normalisation used by version-drift-analyzer's
+                // `checkVersionDrift` so the packageKey we look up matches the one
+                // it wrote.
+                let ecosystem = ecosystemRaw;
+                if (ecosystem === 'rubygems' || ecosystem === 'gem') ecosystem = 'gem';
+                else if (ecosystem === 'go' || ecosystem === 'golang') ecosystem = 'golang';
+                else if (ecosystem === 'packagist' || ecosystem === 'composer') ecosystem = 'composer';
+
+                const pkg = mapToUse.get(`${ecosystem}:${dep.name}`);
+                if (!pkg || !pkg.versionDrift) continue;
+                const driftRecord = pkg.versionDrift[dep.version];
+                if (!driftRecord) continue;
+
+                if (!dep.versionDrift) {
+                    dep.versionDrift = driftRecord;
+                    stats.fromCache++;
+                }
+            }
+        }
+
+        // Pass 3: promote nested staleness to the canonical top-level path. Runs
+        // unconditionally so it also fixes deps that had drift attached the whole
+        // time (e.g. the vulnerable subset) but never got staleness promoted.
+        for (const dep of deps) {
+            if (!dep) continue;
+            if (!dep.staleness && dep.versionDrift?.staleness) {
+                dep.staleness = dep.versionDrift.staleness;
+                stats.promotedStaleness++;
+            }
+        }
+
+        // Pass 4: recover `eoxStatus` for already-stored analyses by re-running
+        // `EOXService.checkEOX` against the in-memory product mapping table.
+        // Unlike drift/staleness, endoflife.date data is cached by *product*
+        // (e.g. `nodejs`, `python`, `symfony`) rather than per package@version,
+        // so there's no per-dep verdict to read straight out of the packages
+        // store — we have to re-derive it. Two key cost optimisations make this
+        // cheap enough to run on every load:
+        //   (a) `eoxService.findProduct(name, ecosystem)` is a SYNC hash-table
+        //       lookup, so we filter the 6500+ deps down to the 0-200 that
+        //       actually map to a known endoflife.date product before paying
+        //       any async cost.
+        //   (b) `checkEOX -> getProductEOX -> cacheManager.getEOXProduct` is
+        //       backed by an in-memory cache (and an IndexedDB fallback that
+        //       was already populated when the analysis was first scanned), so
+        //       all per-product lookups after the first are O(1).
+        //
+        // Skipped silently if `eoxService` isn't loaded on the current page —
+        // it's only loaded on `insights.html`, `deps.html`, `index.html`, and
+        // `findings.html`, which is sufficient because those are the pages that
+        // actually render EOL/EOS data.
+        if (window.eoxService && typeof window.eoxService.checkEOX === 'function' && typeof window.eoxService.findProduct === 'function') {
+            for (const dep of deps) {
+                if (!dep || !dep.name) continue;
+                if (dep.eoxStatus) continue;
+                const ecosystem = dep.category?.ecosystem || dep.ecosystem || '';
+                if (!window.eoxService.findProduct(dep.name, ecosystem)) continue;
+                try {
+                    const eoxStatus = await window.eoxService.checkEOX(dep.name, dep.version, ecosystem);
+                    if (eoxStatus && (eoxStatus.isEOL || eoxStatus.isEOS || eoxStatus.eolDate || eoxStatus.eosDate)) {
+                        dep.eoxStatus = eoxStatus;
+                        stats.eoxRecovered++;
+                    }
+                } catch (e) {
+                    // Best-effort hydration; per-dep errors should not break the load.
+                }
+            }
+        }
+
+        if (stats.fromVuln || stats.fromCache || stats.promotedStaleness || stats.eoxRecovered) {
+            console.log(`💧 Drift hydration on "${entry.organization || entry.name || 'entry'}": ${stats.fromVuln} from vulns, ${stats.fromCache} from packages cache, ${stats.promotedStaleness} staleness records promoted, ${stats.eoxRecovered} EOX records recovered`);
         }
     }
 
@@ -868,6 +1070,18 @@ class StorageManager {
 
             if (allData.length === 0) {
                 return null;
+            }
+
+            // Self-heal each entry's `allDependencies` BEFORE merging — the combiner
+            // spreads `...dep` so any drift / staleness we hydrate here carries
+            // through into `combined.allDependencies` automatically. We share one
+            // packages-store read across all entries via `_ensurePackageMap()` so
+            // a 3-org / 6500-dep portfolio still pays a single bulk IndexedDB
+            // transaction rather than one per entry.
+            const pkgMap = await this._ensurePackageMap();
+            for (const entry of allData) {
+                this._invalidateStaleEOXStatus(entry);
+                await this._hydrateDriftAndStaleness(entry, pkgMap);
             }
 
             // Combine the data

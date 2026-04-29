@@ -547,43 +547,48 @@
             }
             
             async function loadAuthorData() {
-                const analysisId = document.getElementById('analysisSelector').value;
-                const ecosystem = document.getElementById('ecosystemFilter').value;
-                const location = document.getElementById('locationFilter').value;
-                
-                console.log(`📊 Authors Page - Loading data for: ${analysisId}, ecosystem: ${ecosystem}, location: ${location}`);
-                
-                let authorData;
-                
-                if (analysisId === 'combined') {
-                    console.log('📊 Authors Page - Loading combined authors...');
-                    authorData = await loadCombinedAuthors();
-                } else {
-                    console.log(`📊 Authors Page - Loading single analysis: ${analysisId}`);
-                    authorData = await loadSingleAnalysisAuthors(analysisId);
+                showFilterLoading('authorContent');
+                try {
+                    const analysisId = document.getElementById('analysisSelector').value;
+                    const ecosystem = document.getElementById('ecosystemFilter').value;
+                    const location = document.getElementById('locationFilter').value;
+                    
+                    console.log(`📊 Authors Page - Loading data for: ${analysisId}, ecosystem: ${ecosystem}, location: ${location}`);
+                    
+                    let authorData;
+                    
+                    if (analysisId === 'combined') {
+                        console.log('📊 Authors Page - Loading combined authors...');
+                        authorData = await loadCombinedAuthors();
+                    } else {
+                        console.log(`📊 Authors Page - Loading single analysis: ${analysisId}`);
+                        authorData = await loadSingleAnalysisAuthors(analysisId);
+                    }
+                    
+                    console.log(`📊 Authors Page - Loaded ${authorData ? authorData.length : 0} authors`);
+                    
+                    // Filter by repository if repo parameter is present
+                    if (window.repoParam && authorData) {
+                        authorData = authorData.filter(author => {
+                            // Check if any of the author's packages are used in the specified repository
+                            if (author.packageRepositories) {
+                                return Object.values(author.packageRepositories).some(repos => 
+                                    repos && repos.includes(window.repoParam)
+                                );
+                            }
+                            // Fallback: check repositories array
+                            if (author.repositories && Array.isArray(author.repositories)) {
+                                return author.repositories.includes(window.repoParam);
+                            }
+                            return false;
+                        });
+                        console.log(`📊 Authors Page - Filtered to ${authorData.length} authors for repo ${window.repoParam}`);
+                    }
+                    
+                    displayAuthors(authorData, ecosystem, location);
+                } finally {
+                    hideFilterLoading('authorContent');
                 }
-                
-                console.log(`📊 Authors Page - Loaded ${authorData ? authorData.length : 0} authors`);
-                
-                // Filter by repository if repo parameter is present
-                if (window.repoParam && authorData) {
-                    authorData = authorData.filter(author => {
-                        // Check if any of the author's packages are used in the specified repository
-                        if (author.packageRepositories) {
-                            return Object.values(author.packageRepositories).some(repos => 
-                                repos && repos.includes(window.repoParam)
-                            );
-                        }
-                        // Fallback: check repositories array
-                        if (author.repositories && Array.isArray(author.repositories)) {
-                            return author.repositories.includes(window.repoParam);
-                        }
-                        return false;
-                    });
-                    console.log(`📊 Authors Page - Filtered to ${authorData.length} authors for repo ${window.repoParam}`);
-                }
-                
-                displayAuthors(authorData, ecosystem, location);
             }
             
             // Update location filter dropdown with unique locations from authors

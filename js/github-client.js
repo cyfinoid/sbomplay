@@ -942,12 +942,15 @@ class GitHubClient {
     /**
      * Get rate limit information.
      *
-     * `/rate_limit` returns every bucket GitHub knows about (`core`,
-     * `graphql`, `search`, `code_search`, `dependency_snapshots`,
-     * `integration_manifest`, …). We seed the live UI with one
-     * `rateLimitUpdate` event per resource so all buckets appear up-front,
-     * then return the `core` summary for the legacy callers that only care
-     * about the top-line REST limit.
+     * Returns the `core` REST summary from GitHub's `/rate_limit` endpoint
+     * for legacy callers that only care about the top-line limit (e.g.
+     * estimation banners, token verification, settings page). The live
+     * per-bucket UI panel is intentionally NOT seeded from this response —
+     * each bucket appears in the panel only after we actually make a call
+     * that charges against it (driven by `extractRateLimitFromResponse`
+     * reading `X-RateLimit-Resource` from each real API response). The
+     * `/rate_limit` request itself routes through `makeRequest()`, so the
+     * `core` row still lights up at scan start via that natural path.
      */
     async getRateLimitInfo() {
         const url = `${this.baseUrl}/rate_limit`;
@@ -955,44 +958,21 @@ class GitHubClient {
 
         if (response.ok) {
             const data = await response.json();
-            const resources = data && data.resources ? data.resources : {};
-            const authenticated = this.token ? 'Yes' : 'No';
-
-            for (const [bucket, entry] of Object.entries(resources)) {
-                if (!entry || typeof entry !== 'object') continue;
-
-                const info = {
-                    bucket,
-                    limit: typeof entry.limit === 'number' ? entry.limit : null,
-                    remaining: typeof entry.remaining === 'number' ? entry.remaining : null,
-                    reset: typeof entry.reset === 'number' ? entry.reset : null,
-                    authenticated
-                };
-
-                this.lastRateLimit[bucket] = info;
-
-                try {
-                    this.dispatchEvent(new CustomEvent('rateLimitUpdate', { detail: info }));
-                } catch (err) {
-                    console.debug('Failed to dispatch rateLimitUpdate event:', err);
-                }
-            }
-
-            const core = resources.core || {};
+            const core = (data && data.resources && data.resources.core) || {};
             return {
                 limit: core.limit,
                 remaining: core.remaining,
                 reset: core.reset,
-                authenticated
-            };
-        } else {
-            return {
-                limit: 'Unknown',
-                remaining: 'Unknown',
-                reset: 'Unknown',
-                authenticated: 'No'
+                authenticated: this.token ? 'Yes' : 'No'
             };
         }
+
+        return {
+            limit: 'Unknown',
+            remaining: 'Unknown',
+            reset: 'Unknown',
+            authenticated: 'No'
+        };
     }
 
     /**

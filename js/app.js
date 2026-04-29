@@ -16,9 +16,12 @@ class SBOMPlayApp {
         this.rateLimitByBucket = new Map();
 
         // Live rate limit updates: every GitHub response carries
-        // X-RateLimit-* headers. The client emits one event per response
-        // (and seeds every known bucket from `/rate_limit` at scan start)
-        // so we re-render the per-bucket panel without polling.
+        // X-RateLimit-* headers, and the client emits one event per
+        // response keyed by the actual `X-RateLimit-Resource` bucket. Each
+        // bucket appears in the panel only the first time we hit an
+        // endpoint that charges against it (and ticks down on subsequent
+        // hits) — we intentionally do not prepopulate the full bucket list
+        // up-front, so the panel only shows buckets actually in use.
         this.githubClient.addEventListener('rateLimitUpdate', (event) => {
             const info = event && event.detail;
             if (!info || !info.bucket) return;
@@ -5298,10 +5301,36 @@ class SBOMPlayApp {
             
             if (driftData) {
                 dep.versionDrift = driftData;
+                // Surface staleness at the canonical `dep.staleness` path that the
+                // Insights / Findings pages read (they look up
+                // `dep.staleness?.monthsSinceRelease`, NOT `dep.versionDrift.staleness…`).
+                // Without this promotion, the Insights "Package age" coverage bar
+                // would show 0% even when staleness was correctly fetched and cached
+                // alongside the drift data above.
+                if (driftData.staleness) {
+                    dep.staleness = driftData.staleness;
+                }
                 attachedCount++;
             }
         });
-        
+
+        // Mirror drift/staleness back onto sbomProcessor.dependencies (the Map).
+        // runLicenseAndVersionDriftEnrichment calls `this.sbomProcessor.exportData()`
+        // *after* this method, and exportData() rebuilds `allDependencies` fresh from
+        // the Map — so without this sync, the array mutations above are silently
+        // wiped on the next save and the Insights page sees `versionDrift: null` /
+        // `staleness: null` on every dep. Reuses the shared helper from
+        // EnrichmentPipeline (per AGENTS.md "use shared services") instead of
+        // duplicating the sync logic here.
+        if (window.EnrichmentPipeline && this.sbomProcessor) {
+            try {
+                const pipeline = new window.EnrichmentPipeline(this.sbomProcessor, this.storageManager);
+                pipeline.syncDriftToProcessor(dependencies);
+            } catch (e) {
+                console.warn('⚠️ Failed to sync version drift/staleness back to processor:', e);
+            }
+        }
+
         console.log(`✅ Version drift and staleness fetching complete: ${processed} versions fetched, ${attachedCount} attached to dependencies`);
     }
 
@@ -5361,7 +5390,22 @@ class SBOMPlayApp {
                 await new Promise(resolve => setTimeout(resolve, 200));
             }
         }
-        
+
+        // Mirror eoxStatus back onto sbomProcessor.dependencies (the Map) so it
+        // survives the next `this.sbomProcessor.exportData()` call inside
+        // runLicenseAndVersionDriftEnrichment. Same array-vs-Map gap as drift/
+        // staleness above — exportData() rebuilds `allDependencies` from the Map,
+        // so without this sync the Insights "EOL components" / "Probable EOL"
+        // tables show zero counts after a full GitHub scan.
+        if (window.EnrichmentPipeline && this.sbomProcessor) {
+            try {
+                const pipeline = new window.EnrichmentPipeline(this.sbomProcessor, this.storageManager);
+                pipeline.syncEOXToProcessor(dependencies);
+            } catch (e) {
+                console.warn('⚠️ Failed to sync EOX status back to processor:', e);
+            }
+        }
+
         console.log(`✅ EOX checking complete: ${processed} checked, ${eoxCount} with EOX data`);
     }
 

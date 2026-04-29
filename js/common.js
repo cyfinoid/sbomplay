@@ -414,6 +414,92 @@ async function loadOrganizationData(name, storageManager, options = {}) {
     return data;
 }
 
+// =============================================================================
+// FILTER LOADING OVERLAY
+// =============================================================================
+// Debounced loading-overlay helpers used across all filterable pages so a
+// spinner only appears when filter/render work takes more than ~150ms. Pages
+// that already ship a hand-authored `.loading-overlay` child (deps/repos/feeds)
+// have it reused; other pages get one injected on first use.
+
+const _filterLoadingState = new Map();
+
+/**
+ * Show a debounced loading overlay over the given container.
+ * If hideFilterLoading is called before the debounce timer fires, no spinner
+ * is ever rendered, keeping fast filters flicker-free.
+ *
+ * @param {string} containerId - id of the element to overlay
+ * @param {Object} [opts]
+ * @param {number} [opts.delay=150] - debounce in ms before showing the overlay
+ * @param {string} [opts.message='Loading...'] - text shown under the spinner
+ */
+function showFilterLoading(containerId, opts = {}) {
+    const { delay = 150, message = 'Loading...' } = opts;
+    const container = document.getElementById(containerId);
+    if (!container) return;
+
+    const prev = _filterLoadingState.get(containerId);
+    if (prev?.timeoutId) clearTimeout(prev.timeoutId);
+
+    if (getComputedStyle(container).position === 'static') {
+        container.style.position = 'relative';
+    }
+
+    const timeoutId = setTimeout(() => {
+        let overlay = container.querySelector(':scope > .loading-overlay');
+        if (!overlay) {
+            overlay = document.createElement('div');
+            overlay.className = 'loading-overlay';
+
+            const spinnerWrap = document.createElement('div');
+            spinnerWrap.className = 'loading-spinner';
+
+            const spinner = document.createElement('div');
+            spinner.className = 'spinner-border text-primary';
+            spinner.setAttribute('role', 'status');
+
+            const sr = document.createElement('span');
+            sr.className = 'visually-hidden';
+            sr.textContent = 'Loading...';
+            spinner.appendChild(sr);
+
+            const label = document.createElement('p');
+            label.className = 'mt-2';
+            label.textContent = message;
+
+            spinnerWrap.appendChild(spinner);
+            spinnerWrap.appendChild(label);
+            overlay.appendChild(spinnerWrap);
+            container.appendChild(overlay);
+        } else {
+            const label = overlay.querySelector('.loading-spinner p');
+            if (label && message) label.textContent = message;
+            overlay.classList.remove('d-none');
+        }
+        _filterLoadingState.set(containerId, { timeoutId: null, overlayEl: overlay });
+    }, delay);
+
+    _filterLoadingState.set(containerId, {
+        timeoutId,
+        overlayEl: prev?.overlayEl || null
+    });
+}
+
+/**
+ * Hide the loading overlay for a container. Safe to call when nothing is
+ * currently shown (cancels any pending debounce timer).
+ *
+ * @param {string} containerId
+ */
+function hideFilterLoading(containerId) {
+    const state = _filterLoadingState.get(containerId);
+    if (!state) return;
+    if (state.timeoutId) clearTimeout(state.timeoutId);
+    if (state.overlayEl) state.overlayEl.classList.add('d-none');
+    _filterLoadingState.delete(containerId);
+}
+
 /**
  * Get URL parameters as an object with parsed values
  * @param {Array<string>} filterNames - Array of parameter names to extract

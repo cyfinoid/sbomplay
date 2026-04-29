@@ -49,6 +49,8 @@ document.addEventListener('DOMContentLoaded', async function() {
     await loadAnalysesList('analysisSelector', storageManager, document.getElementById('noDataSection'));
     
     async function loadAuditData() {
+        showFilterLoading('audit-analysis-page');
+        try {
         const analysisSelector = document.getElementById('analysisSelector');
         const severityFilterEl = document.getElementById('severityFilter');
         const sectionFilterEl = document.getElementById('sectionFilter');
@@ -94,6 +96,9 @@ document.addEventListener('DOMContentLoaded', async function() {
                 safeSetHTML(container, html);
             }
         });
+        } finally {
+            hideFilterLoading('audit-analysis-page');
+        }
     }
     
     /**

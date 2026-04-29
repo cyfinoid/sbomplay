@@ -292,10 +292,15 @@ document.addEventListener('DOMContentLoaded', function() {
         // Display limit selector (show top 25 or all)
         const displayLimitSelect = document.getElementById('displayLimitSelect');
         if (displayLimitSelect) {
-            displayLimitSelect.addEventListener('change', (e) => {
+            displayLimitSelect.addEventListener('change', async (e) => {
                 const value = e.target.value;
                 displayLimit = value === 'all' ? 'all' : parseInt(value, 10);
-                    renderTable(filteredDependencies, false);
+                showFilterLoading('tableCard');
+                try {
+                    await renderTable(filteredDependencies, false);
+                } finally {
+                    hideFilterLoading('tableCard');
+                }
             });
         }
         
@@ -1167,6 +1172,8 @@ document.addEventListener('DOMContentLoaded', function() {
         }
 
         async function filterTable() {
+            showFilterLoading('tableCard');
+            try {
             const vulnerableFilter = document.getElementById('vulnerableFilter').checked;
             const analysisSelector = document.getElementById('analysisSelector');
             
@@ -1498,6 +1505,9 @@ document.addEventListener('DOMContentLoaded', function() {
             
             updateStats(filtered);
             await renderTable(filtered, true);
+            } finally {
+                hideFilterLoading('tableCard');
+            }
         }
         
         function updateStats(filtered) {

@@ -98,53 +98,58 @@ document.addEventListener('DOMContentLoaded', async function() {
     }
     
     async function loadFindingsData() {
-        const analysisSelector = document.getElementById('analysisSelector');
-        const severityFilterEl = document.getElementById('severityFilter');
-        const findingTypeFilterEl = document.getElementById('findingTypeFilter');
-        const repoFilterEl = document.getElementById('repoFilter');
-        
-        if (!analysisSelector) {
-            const container = document.getElementById('findings-page-content');
-            if (container) {
-                safeSetHTML(container, '<div class="alert alert-info">Please select an analysis to view security findings.</div>');
-            }
-            return;
-        }
-        
-        // Use filters from form or URL
-        const severityFilter = severityFilterEl ? severityFilterEl.value : (urlParamsObj.severity || 'all');
-        const findingTypeFilter = findingTypeFilterEl ? findingTypeFilterEl.value : (urlParamsObj.type || 'all');
-        const repoFilter = repoFilterEl ? repoFilterEl.value : (urlParamsObj.repo || 'all');
-        
-        await loadOrganizationData(analysisSelector.value, storageManager, {
-            severityFilter: severityFilter === 'all' ? null : severityFilter,
-            findingTypeFilter: findingTypeFilter === 'all' ? null : findingTypeFilter,
-            repoFilter: repoFilter === 'all' ? null : repoFilter,
-            containerId: 'findings-page-content',
-            noDataSection: document.getElementById('noDataSection'),
-            renderFunction: async (data, severityFilter, sectionFilter, repoFilter, categoryFilter) => {
-                // Populate repository filter dropdown
-                populateRepoFilter(data);
-                
-                // Set repo filter from URL if present (after populating dropdown)
-                if (repoFilter && repoFilterEl) {
-                    const option = repoFilterEl.querySelector(`option[value="${repoFilter}"]`);
-                    if (option) {
-                        repoFilterEl.value = repoFilter;
-                    }
-                }
-                
+        showFilterLoading('findings-page-content');
+        try {
+            const analysisSelector = document.getElementById('analysisSelector');
+            const severityFilterEl = document.getElementById('severityFilter');
+            const findingTypeFilterEl = document.getElementById('findingTypeFilter');
+            const repoFilterEl = document.getElementById('repoFilter');
+            
+            if (!analysisSelector) {
                 const container = document.getElementById('findings-page-content');
-                // Get findingTypeFilter from the dropdown since it's not passed through
-                const typeFilter = findingTypeFilterEl ? findingTypeFilterEl.value : 'all';
-                // Render security findings (async to support cache lookups)
-                const html = await generateSecurityFindingsHTML(data, severityFilter || 'all', typeFilter, repoFilter || 'all', storageManager);
-                safeSetHTML(container, html);
-                
-                // Attach click handlers for package details links
-                attachPackageDetailsHandlers(data, analysisSelector.value);
+                if (container) {
+                    safeSetHTML(container, '<div class="alert alert-info">Please select an analysis to view security findings.</div>');
+                }
+                return;
             }
-        });
+            
+            // Use filters from form or URL
+            const severityFilter = severityFilterEl ? severityFilterEl.value : (urlParamsObj.severity || 'all');
+            const findingTypeFilter = findingTypeFilterEl ? findingTypeFilterEl.value : (urlParamsObj.type || 'all');
+            const repoFilter = repoFilterEl ? repoFilterEl.value : (urlParamsObj.repo || 'all');
+            
+            await loadOrganizationData(analysisSelector.value, storageManager, {
+                severityFilter: severityFilter === 'all' ? null : severityFilter,
+                findingTypeFilter: findingTypeFilter === 'all' ? null : findingTypeFilter,
+                repoFilter: repoFilter === 'all' ? null : repoFilter,
+                containerId: 'findings-page-content',
+                noDataSection: document.getElementById('noDataSection'),
+                renderFunction: async (data, severityFilter, sectionFilter, repoFilter, categoryFilter) => {
+                    // Populate repository filter dropdown
+                    populateRepoFilter(data);
+                    
+                    // Set repo filter from URL if present (after populating dropdown)
+                    if (repoFilter && repoFilterEl) {
+                        const option = repoFilterEl.querySelector(`option[value="${repoFilter}"]`);
+                        if (option) {
+                            repoFilterEl.value = repoFilter;
+                        }
+                    }
+                    
+                    const container = document.getElementById('findings-page-content');
+                    // Get findingTypeFilter from the dropdown since it's not passed through
+                    const typeFilter = findingTypeFilterEl ? findingTypeFilterEl.value : 'all';
+                    // Render security findings (async to support cache lookups)
+                    const html = await generateSecurityFindingsHTML(data, severityFilter || 'all', typeFilter, repoFilter || 'all', storageManager);
+                    safeSetHTML(container, html);
+                    
+                    // Attach click handlers for package details links
+                    attachPackageDetailsHandlers(data, analysisSelector.value);
+                }
+            });
+        } finally {
+            hideFilterLoading('findings-page-content');
+        }
     }
     
     /**
