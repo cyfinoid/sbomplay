@@ -624,14 +624,33 @@ function computeSupplyChainStats(allDeps, malwareAnalysis, ghActions) {
 /**
  * Build dependency-depth aggregates for the Insights "Dependency depth" section.
  *
- * The persisted shape is one global tree per ecosystem (see `DependencyTreeResolver`):
- *   - direct deps live in `dep.directIn` and are NOT in the resolver tree → `dep.depth` is null
- *   - 1st-level transitives have `dep.depth === 1`, Nth-level have `dep.depth === N`
- *   - the resolver caps recursion at `localStorage.maxDepth` (default 10), so deps at the
- *     deepest stored depth had their children skipped — the truncation signal we want to
- *     surface to the user.
+ * Why per-repo BFS instead of reading `dep.depth`:
  *
- * UI labelling uses the natural mental model: Level 1 = direct, Level N+1 = `dep.depth = N`.
+ *   The resolver writes ONE global tree per ecosystem and tags each tree entry with the
+ *   depth at which it was first discovered from any direct dep. Two issues flow from that:
+ *
+ *     1. The resolver only writes children of a package into the tree (see
+ *        `DependencyTreeResolver.resolvePackageDependencies`) — direct deps themselves are
+ *        never added. So `dep.depth === 1` actually means "1st-level transitive" (a child of
+ *        a direct dep), not "direct". Direct deps have `dep.depth === null` and are tracked
+ *        only via SBOM parsing into `repo.directDependencies` and `dep.directIn`.
+ *
+ *     2. Pre-fix sbom-processor.js (lines 891-928) treated `dep.depth === 1` as direct and
+ *        stamped every 1st-level transitive's `directIn` with every repo that had any direct
+ *        dep in the ecosystem; the bug then cascaded down through the parent traces, so
+ *        every Nth-level transitive ended up associated with every repo. Storage self-heal
+ *        (`StorageManager._recomputeDirectAndTransitive`) corrects that on load, but the
+ *        global `dep.depth` is still per-ecosystem-tree, not per-repo: a package reachable
+ *        via different direct deps in different repos has only one global depth, which may
+ *        not match any specific repo's actual depth from its own direct deps.
+ *
+ *   Both problems vanish if we recompute depth per repo here. We BFS from each repo's
+ *   `directDependencies` (the SBOM ground truth) through a children-by-parent reverse index
+ *   built from each dep's `parents` array (which IS clean — the bug only mis-classified
+ *   directIn / transitiveIn / repositories, not the parent edges). Each (dep, repo) pair
+ *   then gets the dep's true depth in that repo's subtree.
+ *
+ * UI labelling: Level 1 = direct, Level N = (N-1)-th level transitive.
  */
 function computeDepthStats(allDeps, allRepos) {
     let configuredMaxDepth = 10;
@@ -641,6 +660,37 @@ function computeDepthStats(allDeps, allRepos) {
         if (Number.isFinite(parsed) && parsed > 0) configuredMaxDepth = parsed;
     } catch (_) {
         // localStorage may be unavailable in some embedded contexts; fall back to default.
+    }
+
+    // Build depByKey + childrenByParent reverse index once.
+    //
+    // depByKey is keyed by the same `${name}@${version}` shape that the SBOM processor uses
+    // for `repo.directDependencies` / `dep.parents` / `dep.children`. The exported `dep.version`
+    // is `dep.displayVersion || dep.version` (see SBOMProcessor.exportData), which is exactly
+    // the form depKey was built from at SBOM parse time, so no additional normalisation is
+    // needed here.
+    const depByKey = new Map();
+    for (const dep of allDeps) {
+        if (!dep || !dep.name) continue;
+        const key = `${dep.name}@${dep.version}`;
+        depByKey.set(key, dep);
+    }
+
+    // childrenByParent is the inverted edge set: for every dep D that lists P in its parents,
+    // record D as a child of P. We invert from `dep.parents` (rather than reading
+    // `dep.children`) because direct deps are never in the resolver tree and so have an empty
+    // `dep.children` array — but every 1st-level transitive D lists its parent direct dep in
+    // D.parents, so the inversion gives us children of direct deps for free.
+    const childrenByParent = new Map();
+    for (const dep of allDeps) {
+        if (!dep || !dep.name) continue;
+        const childKey = `${dep.name}@${dep.version}`;
+        const parents = Array.isArray(dep.parents) ? dep.parents : [];
+        for (const parentKey of parents) {
+            if (!parentKey) continue;
+            if (!childrenByParent.has(parentKey)) childrenByParent.set(parentKey, new Set());
+            childrenByParent.get(parentKey).add(childKey);
+        }
     }
 
     const perRepo = new Map();
@@ -660,29 +710,72 @@ function computeDepthStats(allDeps, allRepos) {
         globalBuckets.set(levelKey, (globalBuckets.get(levelKey) || 0) + 1);
     };
 
-    for (const dep of allDeps) {
-        const directIn = new Set(dep.directIn || []);
-        const repoSet = new Set(dep.repositories || []);
-        // Belt-and-suspenders: legacy data may have only `directIn` populated.
-        for (const r of directIn) repoSet.add(r);
+    // Track which (depKey, repoKey) pairs the BFS visited so we can detect deps that are
+    // associated with a repo (via dep.repositories) but unreachable from its direct deps.
+    // Those land in the `unknown` bucket so SBOM-only / orphaned deps still show up.
+    const visitedByRepo = new Map(); // repoKey -> Set<depKey>
 
-        for (const repoKey of repoSet) {
-            let levelKey;
-            if (directIn.has(repoKey)) {
-                levelKey = 1;
-            } else if (typeof dep.depth === 'number' && dep.depth >= 1) {
-                levelKey = dep.depth + 1;
-                hasDepthData = true;
-            } else {
-                levelKey = 'unknown';
+    for (const repo of allRepos) {
+        const repoKey = `${repo.owner}/${repo.name}`;
+        const directDeps = Array.isArray(repo.directDependencies) ? repo.directDependencies : [];
+
+        // BFS from this repo's direct deps. For each visited dep, record the *minimum* level
+        // at which it appears — a dep reached by two paths is counted at its shallowest.
+        const levelByDep = new Map();
+        const queue = [];
+        for (const dk of directDeps) {
+            if (!levelByDep.has(dk)) {
+                levelByDep.set(dk, 1);
+                queue.push(dk);
             }
-            bumpRepo(repoKey, levelKey);
-            bumpGlobal(levelKey);
-            if (typeof levelKey === 'number') {
-                if (observedMaxLevel === null || levelKey > observedMaxLevel) {
-                    observedMaxLevel = levelKey;
+        }
+
+        while (queue.length > 0) {
+            const cur = queue.shift();
+            const curLevel = levelByDep.get(cur);
+            const kids = childrenByParent.get(cur);
+            if (!kids) continue;
+            for (const childKey of kids) {
+                const next = curLevel + 1;
+                const existing = levelByDep.get(childKey);
+                if (existing === undefined || next < existing) {
+                    levelByDep.set(childKey, next);
+                    queue.push(childKey);
                 }
             }
+        }
+
+        const visited = new Set();
+        for (const [depKey, level] of levelByDep) {
+            visited.add(depKey);
+            bumpRepo(repoKey, level);
+            bumpGlobal(level);
+            if (level > 1) hasDepthData = true;
+            if (observedMaxLevel === null || level > observedMaxLevel) {
+                observedMaxLevel = level;
+            }
+        }
+        visitedByRepo.set(repoKey, visited);
+    }
+
+    // Capture (dep, repo) pairs that are listed on `dep.repositories` but were not reached by
+    // the repo's BFS. This is rare but happens for SBOM-only orphans or analyses where the
+    // dependency graph wasn't fully resolved (e.g. unresolved registry, max-depth cap hit
+    // before children were enumerated). Bucket them as `unknown` so they don't silently
+    // disappear from the totals.
+    for (const dep of allDeps) {
+        if (!dep || !dep.name) continue;
+        const depKey = `${dep.name}@${dep.version}`;
+        const repos = new Set([
+            ...(Array.isArray(dep.repositories) ? dep.repositories : []),
+            ...(Array.isArray(dep.directIn) ? dep.directIn : []),
+            ...(Array.isArray(dep.transitiveIn) ? dep.transitiveIn : [])
+        ]);
+        for (const repoKey of repos) {
+            const visited = visitedByRepo.get(repoKey);
+            if (visited && visited.has(depKey)) continue; // already counted above
+            bumpRepo(repoKey, 'unknown');
+            bumpGlobal('unknown');
         }
     }
 
@@ -1113,12 +1206,22 @@ function renderExpandableTable({
     if (!Array.isArray(rows) || rows.length === 0) {
         return emptyHtml;
     }
+    // Defense-in-depth: the project-wide `.table-responsive` rule in
+    // css/style.css sets `overflow: hidden`, which clips any wrapper that
+    // also carries a `max-height` — i.e. every Insights expandable table.
+    // Force `overflow: auto` here so vertical scroll works for both the
+    // collapsed top-N and the expanded full view, without touching the
+    // global rule (which still gives every other page the rounded-corner
+    // + box-shadow treatment they rely on). Inline style wins on specificity.
+    const effectiveWrapperStyle = /\boverflow\s*:/.test(wrapperStyle)
+        ? wrapperStyle
+        : `${wrapperStyle.replace(/;\s*$/, '')}; overflow: auto;`;
     const total = rows.length;
     const displayCap = Math.max(1, Math.min(capCount || total, total));
     const collapsedHtml = rows.slice(0, displayCap).map((r, i) => rowFormatter(r, i)).join('');
 
     if (total <= displayCap) {
-        return `<div class="${wrapperClass}" style="${wrapperStyle}">
+        return `<div class="${wrapperClass}" style="${effectiveWrapperStyle}">
             <table class="${tableClass} mb-0">
                 ${headerHtml || ''}
                 <tbody>${collapsedHtml}</tbody>
@@ -1129,7 +1232,7 @@ function renderExpandableTable({
     const fullHtml = rows.map((r, i) => rowFormatter(r, i)).join('');
     const id = nextInsightsExpandId();
     return `
-        <div class="${wrapperClass}" style="${wrapperStyle}">
+        <div class="${wrapperClass}" style="${effectiveWrapperStyle}">
             <table class="${tableClass} mb-0">
                 ${headerHtml || ''}
                 <tbody class="insights-rows-collapsed" data-expand-target="${id}" data-expand-role="collapsed">${collapsedHtml}</tbody>

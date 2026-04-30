@@ -811,6 +811,7 @@ flowchart TD
 - **Type Detection**: Auto-detects organization vs repository entries
 - **Export/Import**: Full data export with checksum validation
 - **Storage Management**: Tracks usage and provides cleanup options
+- **Load-Time Self-Heals**: `loadAnalysisData` / `loadAnalysisDataForOrganization` / `getCombinedData` run a sequence of read-time correctors on every entry before returning it, so already-stored analyses pick up shape/logic fixes without forcing the user to re-scan: (1) `_invalidateStaleEOXStatus` drops any `dep.eoxStatus` whose stamped `logicVersion` is older than the current `EOXService.LOGIC_VERSION` (covers prior false-positive matchers); (2) `_recomputeDirectAndTransitive` BFS-walks the dep graph from `repo.directDependencies` through a children-by-parent reverse index built from each `dep.parents` and rewrites `dep.directIn` / `dep.transitiveIn` / `dep.repositories` / `dep.count` accordingly (heals analyses where the legacy SBOM-processor mistakenly classified 1st-level transitives as direct deps in every repo); (3) `_hydrateDriftAndStaleness` recovers per-dep `versionDrift` / `staleness` / `eoxStatus` from `vulnerabilityAnalysis.vulnerableDependencies[]` (in-memory) and the IndexedDB `packages` store (one bulk read), and re-derives EOX via `EOXService.checkEOX` on pages that load `eox-service.js`. All three mutate `entry.data` in memory only — the persisted IndexedDB record is unchanged — and gate on flags (e.g. `entry._directTransitiveHealed`) so re-loading the same entry within a session is a no-op.
 
 ---
 

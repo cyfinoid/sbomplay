@@ -97,6 +97,7 @@ class StorageManager {
                 // Return the most recent entry
                 const entry = entries[0];
                 this._invalidateStaleEOXStatus(entry);
+                this._recomputeDirectAndTransitive(entry);
                 await this._hydrateDriftAndStaleness(entry);
                 return entry;
             }
@@ -125,6 +126,7 @@ class StorageManager {
                 ? await this.indexedDB.getRepository(name)
                 : await this.indexedDB.getOrganization(name);
             this._invalidateStaleEOXStatus(entry);
+            this._recomputeDirectAndTransitive(entry);
             await this._hydrateDriftAndStaleness(entry);
             return entry;
         } catch (error) {
@@ -166,6 +168,170 @@ class StorageManager {
         }
         if (dropped > 0) {
             console.log(`🧹 EOX: dropped ${dropped} stale eoxStatus entr${dropped === 1 ? 'y' : 'ies'} (older matcher logic)`);
+        }
+    }
+
+    /**
+     * Recompute `dep.directIn` / `dep.transitiveIn` / `dep.repositories` on every dep in a
+     * loaded analysis from the SBOM-clean source of truth (`repo.directDependencies` and
+     * `dep.parents`).
+     *
+     * Why this exists: pre-fix `SBOMProcessor` (lines 891-928 of `js/sbom-processor.js`)
+     * mistakenly treated every 1st-level transitive (`treeNode.depth === 1`) as a "direct
+     * dependency" and stamped every repo that had any direct dep in the ecosystem onto the
+     * transitive's `directIn`. The bug then cascaded down: deeper transitives traced their
+     * parents' inflated `directIn` and inherited the same repo set, so every repo ended up
+     * carrying every transitive at every depth. Symptoms on stored analyses included L2
+     * always blank in the Insights "Dependency depth" section, identical L3+ counts across
+     * every repo, and the Deps/Repos pages showing 1st-level transitives as "direct".
+     *
+     * What stayed clean (and is what we BFS over here):
+     *   - `repo.directDependencies` — only written during SBOM parsing (line 385), never
+     *     touched by the buggy post-tree code.
+     *   - `dep.parents` — written from `treeNode.parents` (line 868) which the resolver
+     *     populates correctly. The bug only mis-classified `directIn` / `transitiveIn` /
+     *     `repositories`, not the graph edges themselves.
+     *
+     * Algorithm (read-time only; persisted IndexedDB data is untouched, same posture as
+     * `_invalidateStaleEOXStatus` and `_hydrateDriftAndStaleness`):
+     *   1. Build `childrenByParent` from each dep's `parents` array (the inversion gives us
+     *      children of direct deps for free, even though direct deps have empty `children`
+     *      because the resolver only writes children of tree entries).
+     *   2. For each repo, BFS from `repo.directDependencies` through `childrenByParent`,
+     *      recording the minimum level seen per (depKey, repoKey) pair.
+     *   3. For each dep, set `directIn` = repos where it was seen at level 1, `transitiveIn`
+     *      = repos where it was seen at level >= 2 (and not already in directIn).
+     *      `repositories` is the union of the recomputed sets and any pre-existing entries
+     *      so SBOM-only orphans the BFS can't reach (rare) aren't dropped.
+     *   4. Stamp `entry._directTransitiveHealed = true` so reload of the same in-memory
+     *      entry within a session is a no-op.
+     *
+     * @param {Object|null} entry - Loaded analysis entry (may be null).
+     */
+    _recomputeDirectAndTransitive(entry) {
+        if (!entry || !entry.data || entry._directTransitiveHealed) return;
+        const allDeps = Array.isArray(entry.data.allDependencies) ? entry.data.allDependencies : null;
+        const allRepos = Array.isArray(entry.data.allRepositories) ? entry.data.allRepositories : null;
+        if (!allDeps || !allRepos || allDeps.length === 0 || allRepos.length === 0) {
+            entry._directTransitiveHealed = true;
+            return;
+        }
+
+        // Build the children-by-parent reverse index from dep.parents. Direct deps don't
+        // appear in any tree, so they have an empty `dep.children`; but every 1st-level
+        // transitive lists its parent direct dep in `parents`, so the inversion reaches
+        // direct deps as parent keys for free.
+        const childrenByParent = new Map();
+        for (const dep of allDeps) {
+            if (!dep || !dep.name) continue;
+            const childKey = `${dep.name}@${dep.version}`;
+            const parents = Array.isArray(dep.parents) ? dep.parents : [];
+            for (const parentKey of parents) {
+                if (!parentKey) continue;
+                if (!childrenByParent.has(parentKey)) childrenByParent.set(parentKey, new Set());
+                childrenByParent.get(parentKey).add(childKey);
+            }
+        }
+
+        // Per-(repo, dep) minimum level from BFS.
+        const directInByDep = new Map();      // depKey -> Set<repoKey>
+        const transitiveInByDep = new Map();  // depKey -> Set<repoKey>
+        const reposByDep = new Map();         // depKey -> Set<repoKey>
+        const addTo = (map, depKey, repoKey) => {
+            if (!map.has(depKey)) map.set(depKey, new Set());
+            map.get(depKey).add(repoKey);
+        };
+
+        let reposVisited = 0;
+
+        for (const repo of allRepos) {
+            const repoKey = `${repo.owner}/${repo.name}`;
+            const directDeps = Array.isArray(repo.directDependencies) ? repo.directDependencies : [];
+            if (directDeps.length === 0) continue;
+
+            const levelByDep = new Map();
+            const queue = [];
+            for (const dk of directDeps) {
+                if (!levelByDep.has(dk)) {
+                    levelByDep.set(dk, 1);
+                    queue.push(dk);
+                }
+            }
+
+            while (queue.length > 0) {
+                const cur = queue.shift();
+                const curLevel = levelByDep.get(cur);
+                const kids = childrenByParent.get(cur);
+                if (!kids) continue;
+                for (const childKey of kids) {
+                    const next = curLevel + 1;
+                    const existing = levelByDep.get(childKey);
+                    if (existing === undefined || next < existing) {
+                        levelByDep.set(childKey, next);
+                        queue.push(childKey);
+                    }
+                }
+            }
+
+            for (const [depKey, level] of levelByDep) {
+                addTo(reposByDep, depKey, repoKey);
+                if (level === 1) {
+                    addTo(directInByDep, depKey, repoKey);
+                } else {
+                    addTo(transitiveInByDep, depKey, repoKey);
+                }
+            }
+            reposVisited++;
+        }
+
+        // Apply recomputed sets back onto each dep. We union with pre-existing entries
+        // so SBOM-only orphans (deps with no parents and not in any repo.directDependencies
+        // — rare, but possible on malformed analyses) keep their existing repo associations
+        // rather than disappearing from the deps page entirely.
+        let depsChanged = 0;
+        for (const dep of allDeps) {
+            if (!dep || !dep.name) continue;
+            const depKey = `${dep.name}@${dep.version}`;
+            const newDirect = directInByDep.get(depKey);
+            const newTransitive = transitiveInByDep.get(depKey);
+            const newRepos = reposByDep.get(depKey);
+            if (!newDirect && !newTransitive) continue; // dep wasn't reached by any repo's BFS — leave it alone
+
+            const beforeDirect = (dep.directIn || []).join('|');
+            const beforeTransitive = (dep.transitiveIn || []).join('|');
+
+            const directArr = newDirect ? Array.from(newDirect) : [];
+            // A repo can never be both direct and transitive on the same dep — direct wins.
+            const transitiveArr = newTransitive
+                ? Array.from(newTransitive).filter(r => !newDirect || !newDirect.has(r))
+                : [];
+
+            // Merge with pre-existing dep.repositories so deps reached only via SBOM listing
+            // (e.g. listed in repo.dependencies but not in repo.directDependencies and not
+            // wired into any tree) stay associated with their repos.
+            const existingRepos = new Set(Array.isArray(dep.repositories) ? dep.repositories : []);
+            const mergedRepos = new Set([
+                ...directArr,
+                ...transitiveArr,
+                ...(newRepos ? newRepos : []),
+                ...existingRepos
+            ]);
+
+            dep.directIn = directArr;
+            dep.transitiveIn = transitiveArr;
+            dep.repositories = Array.from(mergedRepos);
+            // Keep dep.count consistent with the recomputed repository set.
+            dep.count = dep.repositories.length;
+
+            if (beforeDirect !== directArr.join('|') || beforeTransitive !== transitiveArr.join('|')) {
+                depsChanged++;
+            }
+        }
+
+        entry._directTransitiveHealed = true;
+
+        if (depsChanged > 0) {
+            console.log(`🧹 Direct/transitive recomputed: ${depsChanged} dep${depsChanged === 1 ? '' : 's'} relabeled across ${reposVisited} repo${reposVisited === 1 ? '' : 's'}`);
         }
     }
 
@@ -1081,6 +1247,7 @@ class StorageManager {
             const pkgMap = await this._ensurePackageMap();
             for (const entry of allData) {
                 this._invalidateStaleEOXStatus(entry);
+                this._recomputeDirectAndTransitive(entry);
                 await this._hydrateDriftAndStaleness(entry, pkgMap);
             }
 

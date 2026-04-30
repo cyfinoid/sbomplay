@@ -868,84 +868,63 @@ class SBOMProcessor {
                         dep.parents = Array.from(treeNode.parents);
                         dep.children = Array.from(treeNode.children);
                         
-                        // CRITICAL: Ensure ALL dependencies (direct and transitive) are associated with the current repository
-                        // This is essential because every dependency belongs to at least one repository in the scan
-                        if (dep.repositories.size === 0 && reposWithDirectDeps.size > 0) {
-                            // This dependency was discovered during tree resolution but has no repos yet
-                            // Add it to all repos that are being scanned
-                            reposWithDirectDeps.forEach(repoKey => {
-                                dep.repositories.add(repoKey);
-                                if (treeNode.depth === 1) {
-                                    dep.directIn.add(repoKey);
-                                } else {
-                                    dep.transitiveIn.add(repoKey);
-                                }
-                            });
-                            dep.count = dep.repositories.size;
-                            console.log(`   📌 Associated ${packageKey} (depth ${treeNode.depth}) with ${dep.repositories.size} repo(s)`);
-                        }
-                        
-                        // Update directIn/transitiveIn based on depth
-                        // Depth 1 = direct, depth 2+ = transitive
-                        // For transitive dependencies, add them to transitiveIn for all repos that have their parent as direct
-                        if (treeNode.depth === 1) {
-                            // Direct dependency - ensure repos are marked correctly
-                            reposWithDirectDeps.forEach(repoKey => {
-                                // Add repo even if not already present (for newly discovered deps)
-                                dep.repositories.add(repoKey);
-                                dep.directIn.add(repoKey);
-                                dep.transitiveIn.delete(repoKey);
-                            });
-                            dep.count = dep.repositories.size;
-                        } else if (treeNode.depth > 1) {
-                            // Transitive dependency - mark as transitive in repos where parent is used
-                            // Trace back through parents to find which repos use this transitively
-                            const reposUsingTransitive = new Set();
-                            treeNode.parents.forEach(parentKey => {
-                                const parentDep = this.dependencies.get(parentKey);
-                                if (parentDep) {
-                                    // If parent is direct in a repo, then this transitive dep should be transitive in that repo
-                                    parentDep.directIn.forEach(repo => {
-                                        reposUsingTransitive.add(repo);
-                                        dep.repositories.add(repo);
-                                    });
-                                    // Also check if parent itself is transitive in some repos
-                                    parentDep.transitiveIn.forEach(repo => {
-                                        reposUsingTransitive.add(repo);
-                                        dep.repositories.add(repo);
-                                    });
-                                } else {
-                                    // Parent might be a direct dependency - check reposWithDirectDeps
-                                    reposWithDirectDeps.forEach(repo => reposUsingTransitive.add(repo));
-                                }
-                            });
-                            
-                            // Mark as transitive in all relevant repos
-                            reposUsingTransitive.forEach(repoKey => {
+                        // All tree entries are transitives. The resolver only writes children of a
+                        // package into the tree (see DependencyTreeResolver.resolvePackageDependencies),
+                        // so a direct dep itself is never present here — direct deps live in
+                        // `repo.directDependencies` / `dep.directIn` from SBOM parsing only. Any value of
+                        // `treeNode.depth >= 1` therefore means "this dep was reached transitively from
+                        // some direct dep". The previous logic mistakenly treated `treeNode.depth === 1`
+                        // as direct and bloated `dep.directIn` with every repo that had any direct dep
+                        // in this ecosystem; that propagated to deeper levels via parent traces, so every
+                        // repo ended up with every transitive at every depth. Both arms are now collapsed
+                        // into a single "trace parents → transitiveIn" pass that:
+                        //   • never touches `dep.directIn` (SBOM parsing is the single source of truth
+                        //     for "this repo declared this dep directly"),
+                        //   • only marks a repo as `transitiveIn` if it isn't already `directIn` for the
+                        //     same dep (a repo can declare a dep AND reach it transitively; we keep it
+                        //     classified as direct in that case).
+                        const reposUsingTransitive = new Set();
+                        treeNode.parents.forEach(parentKey => {
+                            const parentDep = this.dependencies.get(parentKey);
+                            if (parentDep) {
+                                parentDep.directIn.forEach(repo => reposUsingTransitive.add(repo));
+                                parentDep.transitiveIn.forEach(repo => reposUsingTransitive.add(repo));
+                            } else {
+                                // Parent dep isn't tracked yet (tree-only entry encountered out of order
+                                // during parallel resolution). Fall back to the broad reposWithDirectDeps
+                                // set so the dep at least lands in this scan's repos rather than being
+                                // orphaned; the next dep in the iteration that DOES find a real parent
+                                // will narrow the set correctly.
+                                reposWithDirectDeps.forEach(repo => reposUsingTransitive.add(repo));
+                            }
+                        });
+
+                        reposUsingTransitive.forEach(repoKey => {
+                            dep.repositories.add(repoKey);
+                            if (!dep.directIn.has(repoKey)) {
                                 dep.transitiveIn.add(repoKey);
-                                dep.directIn.delete(repoKey); // Ensure it's not marked as direct
-                                dep.repositories.add(repoKey);
-                            });
-                            
-                            // Update count to reflect all repositories
-                            dep.count = dep.repositories.size;
-                            
-                            // Fallback: if transitive dep still has no repositories, inherit from first parent
-                            if (dep.repositories.size === 0 && treeNode.parents && treeNode.parents.length > 0) {
-                                const firstParentKey = treeNode.parents[0];
-                                const parentDep = this.dependencies.get(firstParentKey);
-                                
-                                if (parentDep && parentDep.repositories.size > 0) {
-                                    // Inherit all repositories from first parent
-                                    parentDep.repositories.forEach(repo => {
-                                        dep.repositories.add(repo);
+                            }
+                        });
+                        dep.count = dep.repositories.size;
+
+                        // Fallback: dep was discovered during tree resolution and we couldn't trace any
+                        // repo via parents (e.g. parents not yet processed in a parallel batch). Inherit
+                        // from the first parent's existing repositories so the dep doesn't end up
+                        // orphaned in `this.dependencies`.
+                        if (dep.repositories.size === 0 && treeNode.parents && treeNode.parents.length > 0) {
+                            const firstParentKey = Array.from(treeNode.parents)[0];
+                            const parentDep = this.dependencies.get(firstParentKey);
+                            if (parentDep && parentDep.repositories.size > 0) {
+                                parentDep.repositories.forEach(repo => {
+                                    dep.repositories.add(repo);
+                                    if (!dep.directIn.has(repo)) {
                                         dep.transitiveIn.add(repo);
-                                    });
-                                    dep.count = dep.repositories.size;
-                                    console.log(`   📌 Inherited ${dep.repositories.size} repos from parent for ${depKey}`);
-                                } else {
-                                    console.warn(`   ⚠️  No repositories found for transitive dep ${depKey}`);
-                                }
+                                    }
+                                });
+                                dep.count = dep.repositories.size;
+                                console.log(`   📌 Inherited ${dep.repositories.size} repos from parent for ${packageKey}`);
+                            } else {
+                                console.warn(`   ⚠️  No repositories found for transitive dep ${packageKey}`);
                             }
                         }
                     }
