@@ -112,6 +112,7 @@ function buildInsights(analysisData) {
     const licenseStats = computeLicenseStats(allDeps, licenseAnalysis);
     const repoHygiene = computeRepoHygiene(allRepos);
     const supplyChain = computeSupplyChainStats(allDeps, malwareAnalysis, ghActions);
+    const depthStats = computeDepthStats(allDeps, allRepos);
 
     const perRepo = computePerRepoStats(allRepos, allDeps, vulnAnalysis, ghActions);
     const techDebt = computeTechDebt({
@@ -123,7 +124,7 @@ function buildInsights(analysisData) {
         totalRepos, reposWithSbom, reposWithoutSbom, reposArchived,
         totalDeps, directCount, transitiveCount,
         driftStats, ageStats, vulnAgeStats, eolStats, licenseStats,
-        repoHygiene, supplyChain, qualityAnalysis,
+        repoHygiene, supplyChain, depthStats, qualityAnalysis,
         languageStats: normalizedLanguageStats,
         perRepo, techDebt,
         analysisName: analysisData._analysisName || ''
@@ -456,6 +457,112 @@ function computeSupplyChainStats(allDeps, malwareAnalysis, ghActions) {
     return { depConfusion, malwareCount, unpinnedActions, totalActions };
 }
 
+/**
+ * Build dependency-depth aggregates for the Insights "Dependency depth" section.
+ *
+ * The persisted shape is one global tree per ecosystem (see `DependencyTreeResolver`):
+ *   - direct deps live in `dep.directIn` and are NOT in the resolver tree → `dep.depth` is null
+ *   - 1st-level transitives have `dep.depth === 1`, Nth-level have `dep.depth === N`
+ *   - the resolver caps recursion at `localStorage.maxDepth` (default 10), so deps at the
+ *     deepest stored depth had their children skipped — the truncation signal we want to
+ *     surface to the user.
+ *
+ * UI labelling uses the natural mental model: Level 1 = direct, Level N+1 = `dep.depth = N`.
+ */
+function computeDepthStats(allDeps, allRepos) {
+    let configuredMaxDepth = 10;
+    try {
+        const saved = (typeof localStorage !== 'undefined') ? localStorage.getItem('maxDepth') : null;
+        const parsed = saved ? parseInt(saved, 10) : NaN;
+        if (Number.isFinite(parsed) && parsed > 0) configuredMaxDepth = parsed;
+    } catch (_) {
+        // localStorage may be unavailable in some embedded contexts; fall back to default.
+    }
+
+    const perRepo = new Map();
+    const globalBuckets = new Map();
+    let observedMaxLevel = null;
+    let hasDepthData = false;
+
+    const bumpRepo = (repoKey, levelKey) => {
+        if (!perRepo.has(repoKey)) {
+            perRepo.set(repoKey, { byLevel: new Map(), total: 0 });
+        }
+        const entry = perRepo.get(repoKey);
+        entry.byLevel.set(levelKey, (entry.byLevel.get(levelKey) || 0) + 1);
+        entry.total++;
+    };
+    const bumpGlobal = (levelKey) => {
+        globalBuckets.set(levelKey, (globalBuckets.get(levelKey) || 0) + 1);
+    };
+
+    for (const dep of allDeps) {
+        const directIn = new Set(dep.directIn || []);
+        const repoSet = new Set(dep.repositories || []);
+        // Belt-and-suspenders: legacy data may have only `directIn` populated.
+        for (const r of directIn) repoSet.add(r);
+
+        for (const repoKey of repoSet) {
+            let levelKey;
+            if (directIn.has(repoKey)) {
+                levelKey = 1;
+            } else if (typeof dep.depth === 'number' && dep.depth >= 1) {
+                levelKey = dep.depth + 1;
+                hasDepthData = true;
+            } else {
+                levelKey = 'unknown';
+            }
+            bumpRepo(repoKey, levelKey);
+            bumpGlobal(levelKey);
+            if (typeof levelKey === 'number') {
+                if (observedMaxLevel === null || levelKey > observedMaxLevel) {
+                    observedMaxLevel = levelKey;
+                }
+            }
+        }
+    }
+
+    // Ensure every repo has an entry (even empty) and decorate with deepest/repoKey for renderer.
+    for (const repo of allRepos) {
+        const repoKey = `${repo.owner}/${repo.name}`;
+        if (!perRepo.has(repoKey)) {
+            perRepo.set(repoKey, { byLevel: new Map(), total: 0 });
+        }
+        const entry = perRepo.get(repoKey);
+        let deepest = null;
+        for (const k of entry.byLevel.keys()) {
+            if (typeof k === 'number' && (deepest === null || k > deepest)) deepest = k;
+        }
+        entry.deepest = deepest;
+        entry.deepestCount = deepest !== null ? entry.byLevel.get(deepest) : 0;
+        entry.repoKey = repoKey;
+        entry.owner = repo.owner;
+        entry.name = repo.name;
+    }
+
+    const truncationCandidates = [];
+    if (observedMaxLevel !== null) {
+        for (const [repoKey, entry] of perRepo) {
+            const cnt = entry.byLevel.get(observedMaxLevel) || 0;
+            if (cnt === 0 || entry.total === 0) continue;
+            const share = cnt / entry.total;
+            if (cnt >= 25 || share >= 0.05) {
+                truncationCandidates.push({ repoKey, count: cnt, total: entry.total, share });
+            }
+        }
+        truncationCandidates.sort((a, b) => b.count - a.count);
+    }
+
+    return {
+        globalBuckets,
+        perRepo,
+        observedMaxLevel,
+        configuredMaxDepth,
+        truncationCandidates,
+        hasDepthData
+    };
+}
+
 function computePerRepoStats(allRepos, allDeps, vulnAnalysis, ghActions) {
     const depsByRepo = new Map();
     for (const dep of allDeps) {
@@ -642,6 +749,7 @@ function generateInsightsHTML(orgData) {
         renderLanguageSection(ins, data),
         renderAgeSection(ins),
         renderDriftSection(ins),
+        renderDepthSection(ins),
         renderVulnAgeSection(ins),
         renderHygieneSection(ins),
         renderRedFlagsSection(ins),
@@ -972,6 +1080,176 @@ function renderDriftSection(ins) {
                             </div>` : '<p class="text-muted small mb-0">No drift data available.</p>'}
                     </div>
                 </div>
+            </div>
+        </section>
+    `;
+}
+
+function renderDepthSection(ins) {
+    const ds = ins.depthStats;
+    if (!ds) return '';
+
+    const observedMax = ds.observedMaxLevel || 0;
+    const levels = [];
+    for (let l = 1; l <= observedMax; l++) levels.push(l);
+
+    const knownTotal = levels.reduce((acc, l) => acc + (ds.globalBuckets.get(l) || 0), 0);
+    const unknownTotal = ds.globalBuckets.get('unknown') || 0;
+    const portfolioTotal = knownTotal + unknownTotal;
+
+    // Sequential palette: green for direct (Level 1), warming up to red as depth grows.
+    // Reuses Bootstrap utility colors so it matches the rest of the page; the 'orange'
+    // sentinel is mapped via inline style because Bootstrap 5.1 has no `bg-orange`.
+    const colorForLevel = (level) => {
+        if (level === 'unknown') return 'secondary';
+        if (level === 1) return 'success';
+        if (level === 2) return 'info';
+        if (level === 3) return 'primary';
+        if (level === 4) return 'warning';
+        if (level === 5) return 'orange';
+        return 'danger';
+    };
+    const segmentStyle = (color, widthPct) => `width: ${widthPct}%;${color === 'orange' ? ' background-color: #fd7e14;' : ''}`;
+    const segmentClass = (color) => `bg-${color === 'orange' ? 'warning' : color}`;
+
+    const portfolioSegments = (() => {
+        if (portfolioTotal === 0) return '';
+        const parts = levels.map(l => {
+            const c = ds.globalBuckets.get(l) || 0;
+            if (c === 0) return '';
+            const pct = (c / portfolioTotal) * 100;
+            const color = colorForLevel(l);
+            return `<div class="progress-bar ${segmentClass(color)}" role="progressbar"
+                style="${segmentStyle(color, pct)}"
+                title="Level ${l}: ${c.toLocaleString()} (${pct.toFixed(1)}%)"
+                aria-valuenow="${pct}" aria-valuemin="0" aria-valuemax="100"></div>`;
+        });
+        if (unknownTotal) {
+            const pct = (unknownTotal / portfolioTotal) * 100;
+            parts.push(`<div class="progress-bar bg-secondary" role="progressbar"
+                style="width: ${pct}%;"
+                title="Unknown depth: ${unknownTotal.toLocaleString()} (${pct.toFixed(1)}%)"
+                aria-valuenow="${pct}" aria-valuemin="0" aria-valuemax="100"></div>`);
+        }
+        return parts.join('');
+    })();
+
+    const legend = (() => {
+        const parts = levels.map(l => {
+            const c = ds.globalBuckets.get(l) || 0;
+            const color = colorForLevel(l);
+            return `<span class="me-3 small">
+                <span class="d-inline-block me-1" style="width:10px; height:10px; vertical-align: middle; background-color: ${cssColorForBucket(color)};"></span>
+                Level ${l}: <strong>${c.toLocaleString()}</strong>
+            </span>`;
+        });
+        if (unknownTotal) {
+            parts.push(`<span class="me-3 small">
+                <span class="d-inline-block me-1" style="width:10px; height:10px; vertical-align: middle; background-color: ${cssColorForBucket('secondary')};"></span>
+                Unknown: <strong>${unknownTotal.toLocaleString()}</strong>
+            </span>`);
+        }
+        return parts.join('');
+    })();
+
+    // Depth-cap warning: with our labelling scheme, Level (configuredMaxDepth + 1) is the
+    // deepest the resolver can reach. Hitting it means we stopped resolving children of
+    // those packages, so there *might* be more transitives the user isn't seeing.
+    const truncationAlert = (() => {
+        if (!ds.hasDepthData || ds.observedMaxLevel === null) return '';
+        const capLevel = ds.configuredMaxDepth + 1;
+        if (ds.observedMaxLevel < capLevel) return '';
+        const deepestCount = ds.globalBuckets.get(ds.observedMaxLevel) || 0;
+        if (deepestCount === 0) return '';
+        return `
+            <div class="alert alert-warning d-flex align-items-start" role="alert">
+                <i class="fas fa-exclamation-triangle me-2 mt-1"></i>
+                <div>
+                    <strong>Depth limit hit.</strong>
+                    ${deepestCount.toLocaleString()} dependency occurrences sit at Level ${ds.observedMaxLevel}, which equals the current <code>maxDepth</code> setting (${ds.configuredMaxDepth}). Their transitive children were not resolved.
+                    Raise <code>maxDepth</code> in <a href="settings.html">Settings</a> and re-run the analysis to surface deeper transitives.
+                </div>
+            </div>
+        `;
+    })();
+
+    const repos = Array.from(ds.perRepo.values())
+        .filter(r => r.total > 0)
+        .sort((a, b) => b.total - a.total);
+    const maxRepoTotal = Math.max(1, ...repos.map(r => r.total));
+
+    const colHeader = levels.map(l => `<th class="text-end small">L${l}</th>`).join('');
+    const repoRows = repos.map(r => {
+        const segParts = levels.map(l => {
+            const c = r.byLevel.get(l) || 0;
+            if (c === 0) return '';
+            const pct = (c / r.total) * 100;
+            const color = colorForLevel(l);
+            return `<div class="progress-bar ${segmentClass(color)}"
+                style="${segmentStyle(color, pct)}"
+                title="Level ${l}: ${c}"></div>`;
+        });
+        const u = r.byLevel.get('unknown') || 0;
+        if (u) {
+            const pct = (u / r.total) * 100;
+            segParts.push(`<div class="progress-bar bg-secondary"
+                style="width: ${pct}%;"
+                title="Unknown: ${u}"></div>`);
+        }
+        const segs = segParts.join('');
+        const widthPct = (r.total / maxRepoTotal) * 100;
+
+        const levelCells = levels.map(l => {
+            const c = r.byLevel.get(l) || 0;
+            return `<td class="text-end small">${c ? c.toLocaleString() : '<span class="text-muted">—</span>'}</td>`;
+        }).join('');
+
+        const deepestCnt = r.deepestCount || 0;
+        const deepestShare = r.total ? deepestCnt / r.total : 0;
+        const deepestStrong = (deepestCnt > 0 && deepestShare >= 0.25);
+        const deepestLabel = r.deepest === null
+            ? '<span class="text-muted">—</span>'
+            : `${deepestCnt.toLocaleString()} <span class="text-muted small">@ L${r.deepest}</span>`;
+
+        return `
+            <tr>
+                <td><a href="repos.html?repo=${encodeURIComponent(r.repoKey)}">${escapeHtml(r.repoKey)}</a></td>
+                <td style="min-width: 220px;">
+                    <div class="progress" style="height: 14px; width: ${widthPct}%; min-width: 40px;">${segs}</div>
+                </td>
+                ${levelCells}
+                <td class="text-end small fw-semibold">${r.total.toLocaleString()}</td>
+                <td class="text-end small ${deepestStrong ? 'text-danger fw-bold' : ''}">${deepestLabel}</td>
+            </tr>
+        `;
+    }).join('');
+
+    const headerBadge = ds.observedMaxLevel !== null
+        ? `<span class="badge bg-secondary">Observed max: Level ${ds.observedMaxLevel} · Configured maxDepth: ${ds.configuredMaxDepth}</span>`
+        : `<span class="badge bg-secondary">Configured maxDepth: ${ds.configuredMaxDepth}</span>`;
+
+    return `
+        <section class="card mb-4">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="mb-0"><i class="fas fa-layer-group me-2"></i>Dependency depth</h5>
+                ${headerBadge}
+            </div>
+            <div class="card-body">
+                ${truncationAlert}
+                <h6 class="text-muted text-uppercase small mb-2">Portfolio-wide depth distribution</h6>
+                <p class="small text-muted mb-2">Each (dependency × repository) occurrence is bucketed by how deep it sits below the repo's direct deps. Level 1 = direct, Level 2 = first-level transitive, …, Level N+1 = N-th level transitive.</p>
+                <div class="progress mb-2" style="height: 24px;">${portfolioSegments || '<div class="progress-bar bg-light" role="progressbar" style="width: 100%;"></div>'}</div>
+                <div class="mb-4">${legend || '<span class="text-muted small">No depth data available.</span>'}</div>
+                <h6 class="text-muted text-uppercase small mb-3">Per-repository depth breakdown <span class="text-muted small">(${repos.length} ${repos.length === 1 ? 'repository' : 'repositories'})</span></h6>
+                ${repos.length === 0 ? '<p class="text-muted small mb-0">No dependency data available.</p>' : `
+                    <div class="table-responsive" style="max-height: 480px;">
+                        <table class="table table-sm table-striped align-middle">
+                            <thead><tr><th>Repository</th><th>Distribution</th>${colHeader}<th class="text-end small">Total</th><th class="text-end small">Deepest</th></tr></thead>
+                            <tbody>${repoRows}</tbody>
+                        </table>
+                    </div>
+                `}
+                <p class="small text-muted mt-2 mb-0"><i class="fas fa-info-circle me-1"></i>Depth is the global per-ecosystem resolver depth — a package reached via different direct dependencies in different repos can therefore show the same level across repos.</p>
             </div>
         </section>
     `;
