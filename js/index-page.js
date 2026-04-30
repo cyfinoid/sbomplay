@@ -7,6 +7,7 @@ document.addEventListener('DOMContentLoaded', function() {
     // Setup collapse icon rotations for all collapsible sections
     const collapseConfigs = [
         { collapseId: 'resultsCollapse', iconId: 'resultsCollapseIcon' },
+        { collapseId: 'insightsKpiCollapse', iconId: 'insightsKpiCollapseIcon' },
         { collapseId: 'statsOverviewCollapse', iconId: 'statsOverviewCollapseIcon' },
         { collapseId: 'qualityCollapse', iconId: 'qualityCollapseIcon' },
         { collapseId: 'licenseDistributionCollapse', iconId: 'licenseDistributionCollapseIcon' },

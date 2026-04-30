@@ -2548,7 +2548,8 @@ class SBOMPlayApp {
     async displayStatsDashboard() {
         const statsOverview = document.getElementById('statsDashboardOverview');
         const statsQuality = document.getElementById('statsQualityDashboard');
-        
+        const insightsKpiSection = document.getElementById('insightsKpiSection');
+
         // Check if stats elements exist on this page
         if (!statsOverview) {
             return; // Stats sections don't exist on this page
@@ -2562,13 +2563,18 @@ class SBOMPlayApp {
             statsOverview.classList.remove('d-block');
             statsQuality.classList.add('d-none');
             statsQuality.classList.remove('d-block');
+            if (insightsKpiSection) insightsKpiSection.classList.add('d-none');
             return;
         }
         
         // Show stats sections
         statsOverview.classList.remove('d-none');
         statsOverview.classList.add('d-block');
-        
+
+        // Render the high-level Insights KPI strip (Portfolio Snapshot) above the
+        // existing 4-stat overview. No-ops on pages that don't ship the section.
+        this.displayInsightsKpiStrip(combinedData);
+
         // Display overview
         await this.displayStatsOverview(combinedData);
         
@@ -2583,6 +2589,50 @@ class SBOMPlayApp {
         
         // Display license distribution
         this.displayLicenseDistribution(combinedData);
+    }
+
+    /**
+     * Render the 8-tile Portfolio Snapshot (KPI strip) shared with insights.html
+     * into `#insightsKpiSection` on the home dashboard. Each tile links to its
+     * matching detail page so users can drill in without leaving the dashboard.
+     *
+     * Silently no-ops when the section/content elements are missing (other pages)
+     * or when `js/insights-aggregator.js` hasn't been loaded.
+     */
+    displayInsightsKpiStrip(combinedData) {
+        const section = document.getElementById('insightsKpiSection');
+        const content = document.getElementById('insightsKpiContent');
+        if (!section || !content) return;
+
+        if (typeof buildInsights !== 'function' || typeof renderKpiStrip !== 'function') {
+            section.classList.add('d-none');
+            return;
+        }
+
+        try {
+            const ins = buildInsights(combinedData?.data || {});
+            const html = renderKpiStrip(ins, {
+                linkMap: {
+                    repos: 'repos.html',
+                    deps: 'deps.html',
+                    vulnsCH: 'vuln.html',
+                    vulnAge: 'vuln.html',
+                    eol: 'findings.html',
+                    licenses: 'licenses.html',
+                    drift: 'insights.html',
+                    techDebt: 'insights.html'
+                }
+            });
+            if (typeof safeSetHTML === 'function') {
+                safeSetHTML(content, html);
+            } else {
+                content.innerHTML = html;
+            }
+            section.classList.remove('d-none');
+        } catch (err) {
+            console.warn('[home] Failed to render insights KPI strip:', err);
+            section.classList.add('d-none');
+        }
     }
     
     /**
