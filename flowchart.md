@@ -1036,8 +1036,12 @@ roll-up over data already produced by the enrichment pipeline. It does not
 trigger any new fetches — it consumes the persisted `allDependencies` /
 `allRepositories` / `vulnerabilityAnalysis` / `licenseAnalysis` /
 `malwareAnalysis` / `qualityAnalysis` / `githubActionsAnalysis` blobs from
-IndexedDB and renders them with CSS bars + inline conic-gradient SVG donuts
-(no chart library, so the airgapped allowlist is unchanged).
+IndexedDB and renders them with Chart.js bar / stacked-bar / doughnut charts
+(loaded from `cdn.jsdelivr.net`, which is already on the airgapped allowlist
+for Bootstrap / DOMPurify / marked.js / js-yaml). Tables that would otherwise
+truncate to a top-N slice ship a collapsed and a full `<tbody>` plus an
+"Expand to show all (N of M)" button, so leaders can drill past the default
+view without re-running the analysis.
 
 ```mermaid
 flowchart LR

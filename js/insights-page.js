@@ -5,16 +5,170 @@
  *   - KPI strip (SBOM coverage, Critical+High, median CVE age, tech-debt grade, etc.)
  *   - Language & ecosystem stack
  *   - Package age (oldest per repo, age buckets, probable EOL leaderboard)
- *   - Version drift (per-repo stacked bars + top-20 lagging packages)
+ *   - Version drift (per-repo stacked bars + top-N lagging packages)
  *   - Vulnerability age (severity x age stacked bars, time-bomb table, C+H by repo)
  *   - Repository hygiene (SBOM grade donut, archived/no-graph counts, pushedAt activity)
  *   - Supply chain & M&A red flags (license risk, GPL/AGPL on direct, EOL runtimes,
  *     dep-confusion, malware, unpinned actions)
  *   - Tech-debt composite (weighted 0-100 with breakdown + per-repo CSV export)
  *
- * Renders entirely with CSS bars / inline SVG donuts (no chart library, keeping the
- * airgapped allowlist unchanged).
+ * Visualisations are rendered with Chart.js (loaded from cdn.jsdelivr.net, which is
+ * already on the airgapped allowlist for Bootstrap / DOMPurify / marked.js / js-yaml).
+ * Tables that would otherwise truncate to a top-N slice now ship two `<tbody>` blocks
+ * (collapsed top-N and full) and an `Expand to show all (N of M)` toggle button.
  */
+
+// =============================================================================
+// CHART LIFECYCLE
+// =============================================================================
+//
+// HTML for Insights is generated as a single string and then injected into the
+// container via `safeSetHTML`. Chart.js needs a real DOM canvas to bind to, so
+// the renderers emit `<canvas id="...">` placeholders and queue their config
+// builders into `pendingCharts`; once the HTML is in the DOM we walk the queue
+// and instantiate the Chart instances. Re-renders (e.g. switching the analysis
+// selector) destroy all live instances first so we never leak.
+const insightsCharts = [];
+const pendingCharts = [];
+let __insightsCanvasCounter = 0;
+let __insightsExpandCounter = 0;
+let __insightsThemeObserverAttached = false;
+let __insightsExpandHandlerAttached = false;
+
+function nextInsightsCanvasId(prefix = 'ins-chart') {
+    __insightsCanvasCounter++;
+    return `${prefix}-${__insightsCanvasCounter}`;
+}
+
+function nextInsightsExpandId() {
+    __insightsExpandCounter++;
+    return `ins-expand-${__insightsExpandCounter}`;
+}
+
+function destroyAllInsightsCharts() {
+    while (insightsCharts.length) {
+        const c = insightsCharts.pop();
+        try { c.destroy(); } catch (_) { /* already gone */ }
+    }
+    pendingCharts.length = 0;
+}
+
+function queueChart(canvasId, factory) {
+    pendingCharts.push({ canvasId, factory });
+}
+
+function flushPendingCharts() {
+    if (typeof Chart === 'undefined') {
+        if (pendingCharts.length) {
+            console.warn('Chart.js not loaded; skipping', pendingCharts.length, 'queued chart(s).');
+        }
+        pendingCharts.length = 0;
+        return;
+    }
+    while (pendingCharts.length) {
+        const { canvasId, factory } = pendingCharts.shift();
+        const canvas = document.getElementById(canvasId);
+        if (!canvas) continue;
+        try {
+            const config = factory();
+            const chart = new Chart(canvas, config);
+            insightsCharts.push(chart);
+        } catch (err) {
+            console.warn('Insights chart init failed for', canvasId, err);
+        }
+    }
+}
+
+function getInsightsThemeColors() {
+    const styles = getComputedStyle(document.documentElement);
+    const read = (name, fallback) => (styles.getPropertyValue(name) || fallback || '').trim() || fallback;
+    return {
+        text: read('--text-primary', '#212529'),
+        textMuted: read('--text-secondary', '#6c757d'),
+        border: read('--border-color', 'rgba(108, 117, 125, 0.25)'),
+        bgPrimary: read('--bg-primary', '#ffffff'),
+        bgSecondary: read('--bg-secondary', '#f8f9fa')
+    };
+}
+
+function applyChartGlobalDefaults() {
+    if (typeof Chart === 'undefined') return;
+    const colors = getInsightsThemeColors();
+    Chart.defaults.color = colors.textMuted;
+    Chart.defaults.borderColor = colors.border;
+    try {
+        Chart.defaults.font.family = (getComputedStyle(document.body).fontFamily || 'inherit');
+    } catch (_) { /* very early calls during init may not have body styles yet */ }
+    Chart.defaults.plugins = Chart.defaults.plugins || {};
+    Chart.defaults.plugins.tooltip = Chart.defaults.plugins.tooltip || {};
+    Chart.defaults.plugins.tooltip.padding = 8;
+    Chart.defaults.plugins.tooltip.boxPadding = 4;
+}
+
+function attachInsightsThemeObserver() {
+    if (__insightsThemeObserverAttached) return;
+    __insightsThemeObserverAttached = true;
+    const observer = new MutationObserver(() => {
+        applyChartGlobalDefaults();
+        const colors = getInsightsThemeColors();
+        for (const chart of insightsCharts) {
+            try {
+                if (chart.options?.plugins?.legend?.labels) {
+                    chart.options.plugins.legend.labels.color = colors.text;
+                }
+                if (chart.options?.scales) {
+                    for (const scaleId of Object.keys(chart.options.scales)) {
+                        const scale = chart.options.scales[scaleId];
+                        if (!scale) continue;
+                        if (scale.ticks) scale.ticks.color = colors.textMuted;
+                        if (scale.grid) scale.grid.color = colors.border;
+                        if (scale.title) scale.title.color = colors.text;
+                    }
+                }
+                chart.update('none');
+            } catch (_) { /* skip charts that have already been torn down */ }
+        }
+    });
+    observer.observe(document.documentElement, {
+        attributes: true,
+        attributeFilter: ['data-theme']
+    });
+}
+
+// Delegated handler for every `.insights-expand-btn`. Toggles the visibility of the
+// collapsed (`top-N`) and full `<tbody>` blocks for the matching `data-target` and
+// flips the button label/icon. Bound once for the lifetime of the page.
+function attachInsightsExpandHandler() {
+    if (__insightsExpandHandlerAttached) return;
+    __insightsExpandHandlerAttached = true;
+    document.body.addEventListener('click', (e) => {
+        const btn = e.target.closest('.insights-expand-btn');
+        if (!btn) return;
+        const id = btn.dataset.target;
+        if (!id) return;
+        const collapsed = document.querySelector(`[data-expand-target="${id}"][data-expand-role="collapsed"]`);
+        const full = document.querySelector(`[data-expand-target="${id}"][data-expand-role="full"]`);
+        if (!collapsed || !full) return;
+        const isCurrentlyCollapsed = !collapsed.classList.contains('d-none');
+        collapsed.classList.toggle('d-none', isCurrentlyCollapsed);
+        full.classList.toggle('d-none', !isCurrentlyCollapsed);
+        const icon = btn.querySelector('i');
+        const label = btn.querySelector('.insights-expand-label');
+        if (isCurrentlyCollapsed) {
+            if (icon) {
+                icon.classList.remove('fa-chevron-down');
+                icon.classList.add('fa-chevron-up');
+            }
+            if (label) label.textContent = btn.dataset.expandedLabel || 'Show fewer';
+        } else {
+            if (icon) {
+                icon.classList.remove('fa-chevron-up');
+                icon.classList.add('fa-chevron-down');
+            }
+            if (label) label.textContent = btn.dataset.collapsedLabel || 'Expand to show all';
+        }
+    });
+}
 
 document.addEventListener('DOMContentLoaded', async function () {
     if (typeof StorageManager === 'undefined') {
@@ -33,6 +187,10 @@ document.addEventListener('DOMContentLoaded', async function () {
         window.cacheManager = new CacheManager();
     }
 
+    applyChartGlobalDefaults();
+    attachInsightsThemeObserver();
+    attachInsightsExpandHandler();
+
     await loadAnalysesList('analysisSelector', storageManager, document.getElementById('noDataSection'));
 
     async function loadInsightsData() {
@@ -40,6 +198,7 @@ document.addEventListener('DOMContentLoaded', async function () {
         try {
             const analysisSelector = document.getElementById('analysisSelector');
             if (!analysisSelector) {
+                destroyAllInsightsCharts();
                 const container = document.getElementById('insights-page-content');
                 if (container) {
                     safeSetHTML(container, '<div class="alert alert-info">Please select an analysis to view insights.</div>');
@@ -51,9 +210,11 @@ document.addEventListener('DOMContentLoaded', async function () {
                 containerId: 'insights-page-content',
                 noDataSection: document.getElementById('noDataSection'),
                 renderFunction: async (data) => {
+                    destroyAllInsightsCharts();
                     const container = document.getElementById('insights-page-content');
                     const html = generateInsightsHTML(data);
                     safeSetHTML(container, html);
+                    flushPendingCharts();
                     attachInsightsHandlers(data);
                 }
             });
@@ -193,7 +354,10 @@ function computeDriftStats(allDeps) {
     }
 
     lagging.sort((a, b) => b.score - a.score);
-    return { withDrift, major, minor, patch, current, top: lagging.slice(0, 20), majorPct: withDrift ? (major / withDrift) * 100 : 0 };
+    // Renderers slice to the collapsed view themselves so the expand-toggle has the
+    // full ordered list available — keeping `top` as the field name for backwards
+    // compatibility with anything that may still read it externally.
+    return { withDrift, major, minor, patch, current, top: lagging, majorPct: withDrift ? (major / withDrift) * 100 : 0 };
 }
 
 function computeAgeStats(allDeps) {
@@ -246,7 +410,7 @@ function computeAgeStats(allDeps) {
         withAge,
         coveragePct: allDeps.length ? (withAge / allDeps.length) * 100 : 0,
         probableEol,
-        probableEolTop: probableEolList.slice(0, 25),
+        probableEolTop: probableEolList,
         oldestPerRepo
     };
 }
@@ -334,7 +498,7 @@ function computeVulnAgeStats(vulnAnalysis, allDeps) {
         return b.ageDays - a.ageDays;
     });
 
-    return { buckets, totalCves: total, medianAgeDays, timeBombs: timeBombs.slice(0, 50), perRepoCH };
+    return { buckets, totalCves: total, medianAgeDays, timeBombs, perRepoCH };
 }
 
 function computeEolStats(allDeps) {
@@ -396,8 +560,8 @@ function computeLicenseStats(allDeps, licenseAnalysis) {
 
     return {
         high, medium, low, totalLicensed,
-        conflicts: conflicts.slice(0, 25),
-        directHighRisk: directHighRisk.slice(0, 25),
+        conflicts,
+        directHighRisk,
         highRiskShare: totalLicensed ? high / totalLicensed : 0
     };
 }
@@ -742,6 +906,9 @@ function generateInsightsHTML(orgData) {
     const data = orgData?.data || {};
     const ins = buildInsights(data);
     window.__insightsCache = ins;
+    // Reset queues — `destroyAllInsightsCharts` is called from the loader before
+    // every render but make doubly sure no stale entries leak into the next run.
+    pendingCharts.length = 0;
 
     return [
         renderKpiStrip(ins),
@@ -755,6 +922,227 @@ function generateInsightsHTML(orgData) {
         renderRedFlagsSection(ins),
         renderTechDebtSection(ins)
     ].join('\n');
+}
+
+// =============================================================================
+// CHART + EXPAND HELPERS
+// =============================================================================
+
+// Stable palette aligned with the Bootstrap utility classes used elsewhere on the
+// page (so the legend swatches match what users already associate with each
+// severity / drift bucket). `cssColorForBucket` is still exposed for callers
+// that compose mixed CSS+chart UI; both helpers MUST agree.
+const INSIGHTS_PALETTE = {
+    success: '#198754',
+    info: '#0dcaf0',
+    primary: '#0d6efd',
+    warning: '#ffc107',
+    orange: '#fd7e14',
+    danger: '#dc3545',
+    secondary: '#6c757d',
+    light: '#adb5bd',
+    purple: '#6f42c1',
+    teal: '#20c997'
+};
+
+function paletteHex(name) {
+    return INSIGHTS_PALETTE[name] || INSIGHTS_PALETTE.secondary;
+}
+
+// Render a `<canvas>` placeholder of fixed pixel size and queue a Chart factory
+// to be flushed once the surrounding HTML is in the DOM.
+function renderChartCanvas({ id, factory, height = 220, width = null, wrapperClass = 'insights-chart-wrap', wrapperStyle = '' }) {
+    const canvasId = id || nextInsightsCanvasId();
+    queueChart(canvasId, factory);
+    const heightAttr = `height="${height}"`;
+    const widthAttr = width ? `width="${width}"` : '';
+    const wrapperStyleAttr = wrapperStyle ? `style="${wrapperStyle}"` : '';
+    return `<div class="${wrapperClass}" ${wrapperStyleAttr}>
+        <canvas id="${canvasId}" ${widthAttr} ${heightAttr}></canvas>
+    </div>`;
+}
+
+// Mini canvas placed inside a table row. Chart.js is configured with no
+// animation, no legend, no axes — only a one-line tooltip on hover — so the
+// 14px tall stacked bar reads like a sparkline and ~130 of them render in a
+// single page without thrash.
+function renderInlineMiniBarCanvas({ datasets, labels = [''], width = 220, height = 14, tooltipLabelFormatter = null, totalForDataset = null }) {
+    const canvasId = nextInsightsCanvasId('ins-mini');
+    queueChart(canvasId, () => buildInlineMiniBarConfig({
+        datasets, labels, tooltipLabelFormatter, totalForDataset
+    }));
+    return `<canvas id="${canvasId}" class="insights-mini-canvas" width="${width}" height="${height}" style="width: ${width}px; height: ${height}px; display: block;"></canvas>`;
+}
+
+function buildInlineMiniBarConfig({ datasets, labels, tooltipLabelFormatter, totalForDataset }) {
+    return {
+        type: 'bar',
+        data: { labels, datasets },
+        options: {
+            indexAxis: 'y',
+            responsive: false,
+            maintainAspectRatio: false,
+            animation: false,
+            layout: { padding: 0 },
+            plugins: {
+                legend: { display: false },
+                tooltip: {
+                    enabled: true,
+                    displayColors: true,
+                    callbacks: {
+                        title: () => '',
+                        label: (ctx) => {
+                            if (typeof tooltipLabelFormatter === 'function') {
+                                return tooltipLabelFormatter(ctx);
+                            }
+                            const total = typeof totalForDataset === 'number' && totalForDataset > 0 ? totalForDataset : null;
+                            const v = ctx.parsed.x ?? ctx.parsed.y ?? 0;
+                            const lbl = ctx.dataset.label || '';
+                            const pct = total ? ` (${((v / total) * 100).toFixed(1)}%)` : '';
+                            return `${lbl}: ${v}${pct}`;
+                        }
+                    }
+                }
+            },
+            scales: {
+                x: { stacked: true, display: false, beginAtZero: true },
+                y: { stacked: true, display: false }
+            },
+            elements: {
+                bar: { borderWidth: 0 }
+            }
+        }
+    };
+}
+
+// Build a doughnut chart factory from a slices array (`{key, color, count}`).
+// Center-label rendering is done with a tiny inline plugin so we don't depend on
+// chartjs-plugin-doughnutlabel (would expand the airgapped allowlist).
+function buildDoughnutConfig(slices, centerLabel) {
+    const filtered = slices.filter(s => s.count > 0);
+    const total = filtered.reduce((a, s) => a + s.count, 0);
+    return {
+        type: 'doughnut',
+        data: {
+            labels: filtered.map(s => s.key),
+            datasets: [{
+                data: filtered.map(s => s.count),
+                backgroundColor: filtered.map(s => s.color),
+                borderColor: getInsightsThemeColors().bgSecondary,
+                borderWidth: 2,
+                hoverOffset: 6
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            cutout: '62%',
+            plugins: {
+                legend: { display: false },
+                tooltip: {
+                    callbacks: {
+                        label: (ctx) => {
+                            const v = ctx.parsed || 0;
+                            const pct = total ? ` (${((v / total) * 100).toFixed(1)}%)` : '';
+                            return `${ctx.label}: ${v}${pct}`;
+                        }
+                    }
+                }
+            }
+        },
+        plugins: [{
+            id: 'insightsCenterLabel',
+            afterDraw: (chart) => {
+                const { ctx, chartArea } = chart;
+                if (!chartArea) return;
+                const colors = getInsightsThemeColors();
+                const cx = (chartArea.left + chartArea.right) / 2;
+                const cy = (chartArea.top + chartArea.bottom) / 2;
+                ctx.save();
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                ctx.fillStyle = colors.text;
+                ctx.font = '700 22px ' + (Chart.defaults.font.family || 'sans-serif');
+                ctx.fillText(String(total), cx, cy - 8);
+                ctx.fillStyle = colors.textMuted;
+                ctx.font = '400 12px ' + (Chart.defaults.font.family || 'sans-serif');
+                ctx.fillText(centerLabel || '', cx, cy + 12);
+                ctx.restore();
+            }
+        }]
+    };
+}
+
+// Inline a Chart.js doughnut + a flexbox legend that exactly mirrors the slice
+// colours. Returns the HTML the caller should drop into its grid column.
+function renderDoughnutBlock(slices, centerLabel, opts = {}) {
+    const filtered = slices.filter(s => s.count > 0);
+    if (!filtered.length) {
+        return '<div class="text-muted small">No data</div>';
+    }
+    const canvasId = nextInsightsCanvasId('ins-doughnut');
+    queueChart(canvasId, () => buildDoughnutConfig(slices, centerLabel));
+    const legend = filtered.map(s => `
+        <span class="me-3"><span class="d-inline-block me-1" style="width:10px; height:10px; vertical-align: middle; background-color: ${s.color};"></span>${escapeHtml(s.key)}: <strong>${s.count.toLocaleString()}</strong></span>
+    `).join('');
+    const size = opts.size || 200;
+    return `
+        <div class="insights-doughnut-wrap" style="height: ${size}px;">
+            <canvas id="${canvasId}"></canvas>
+        </div>
+        <div class="d-flex flex-wrap justify-content-center mt-3 small">
+            ${legend}
+        </div>
+    `;
+}
+
+// Wrap a `<table>` in collapsed/full `<tbody>` blocks plus an expand button so
+// the user can see beyond the top-N slice. If the data already fits within the
+// cap (or there is no data at all) we render a single tbody and skip the button.
+function renderExpandableTable({
+    rows,            // full ordered array of row models (size N)
+    capCount,        // top-N rows to show in collapsed view
+    rowFormatter,    // (rowModel, indexInFullList) => '<tr>...</tr>'
+    headerHtml,      // '<thead>...</thead>' or ''
+    tableClass = 'table table-sm table-striped',
+    wrapperClass = 'table-responsive',
+    wrapperStyle = 'max-height: 480px;',
+    emptyHtml = '<p class="text-muted small mb-0">No data.</p>',
+    rowsLabel = 'rows'
+}) {
+    if (!Array.isArray(rows) || rows.length === 0) {
+        return emptyHtml;
+    }
+    const total = rows.length;
+    const displayCap = Math.max(1, Math.min(capCount || total, total));
+    const collapsedHtml = rows.slice(0, displayCap).map((r, i) => rowFormatter(r, i)).join('');
+
+    if (total <= displayCap) {
+        return `<div class="${wrapperClass}" style="${wrapperStyle}">
+            <table class="${tableClass} mb-0">
+                ${headerHtml || ''}
+                <tbody>${collapsedHtml}</tbody>
+            </table>
+        </div>`;
+    }
+
+    const fullHtml = rows.map((r, i) => rowFormatter(r, i)).join('');
+    const id = nextInsightsExpandId();
+    return `
+        <div class="${wrapperClass}" style="${wrapperStyle}">
+            <table class="${tableClass} mb-0">
+                ${headerHtml || ''}
+                <tbody class="insights-rows-collapsed" data-expand-target="${id}" data-expand-role="collapsed">${collapsedHtml}</tbody>
+                <tbody class="insights-rows-full d-none" data-expand-target="${id}" data-expand-role="full">${fullHtml}</tbody>
+            </table>
+        </div>
+        <button type="button" class="btn btn-sm btn-outline-secondary mt-2 insights-expand-btn"
+                data-target="${id}"
+                data-collapsed-label="Expand to show all (${displayCap} of ${total} ${rowsLabel})"
+                data-expanded-label="Show top ${displayCap} ${rowsLabel}">
+            <i class="fas fa-chevron-down me-1"></i><span class="insights-expand-label">Expand to show all (${displayCap} of ${total} ${rowsLabel})</span>
+        </button>
+    `;
 }
 
 function renderKpiStrip(ins) {
@@ -834,41 +1222,54 @@ function renderLanguageSection(ins, data) {
     // so we no longer touch `data.languageStats` directly here (which can be an object
     // when the combined "All Analyses" view is loaded).
     const langStats = (ins.languageStats || []).slice(0).sort((a, b) => (b.count || 0) - (a.count || 0));
-    const totalLangCount = langStats.reduce((acc, l) => acc + (l.count || 0), 0) || 1;
-    const langBars = langStats.slice(0, 12).map(l => {
-        const pct = ((l.count || 0) / totalLangCount) * 100;
-        const uniq = l.uniqueDependencies || 0;
-        return `
-            <div class="mb-2">
-                <div class="d-flex justify-content-between small">
-                    <span>${escapeHtml(l.language || 'Unknown')}</span>
-                    <span class="text-muted" title="${(l.count || 0).toLocaleString()} dep×repo occurrences from ${uniq.toLocaleString()} unique packages">${(l.count || 0).toLocaleString()} occurrences (${pct.toFixed(1)}%)</span>
-                </div>
-                <div class="progress" style="height: 8px;">
-                    <div class="progress-bar bg-info" role="progressbar" style="width: ${pct}%;" aria-valuenow="${pct}" aria-valuemin="0" aria-valuemax="100"></div>
-                </div>
-            </div>
-        `;
-    }).join('');
+    const totalLangCount = langStats.reduce((acc, l) => acc + (l.count || 0), 0) || 0;
+    const topLangs = langStats.slice(0, 12);
+
+    const langChartHtml = topLangs.length === 0
+        ? '<p class="text-muted small mb-0">No language statistics available.</p>'
+        : renderChartCanvas({
+            height: Math.max(220, 28 * topLangs.length + 40),
+            factory: () => buildLanguageBarConfig(topLangs, totalLangCount)
+        });
 
     const polyglot = ins.perRepo.filter(r => (r.languages || []).length >= 3);
-    const polyglotRows = polyglot.slice(0, 25).map(r => `
+    const polyglotRowFormatter = (r) => `
         <tr>
             <td><a href="repos.html?repo=${encodeURIComponent(r.repoKey)}">${escapeHtml(r.repoKey)}</a></td>
             <td>${escapeHtml(r.primaryLanguage || '—')}</td>
             <td>${(r.languages || []).map(l => `<span class="badge bg-secondary me-1">${escapeHtml(l)}</span>`).join('') || '<span class="text-muted">—</span>'}</td>
             <td class="text-end">${r.depCount.toLocaleString()}</td>
         </tr>
-    `).join('');
+    `;
+    const polyglotTable = polyglot.length === 0
+        ? '<p class="text-muted small mb-0">No polyglot repositories detected.</p>'
+        : renderExpandableTable({
+            rows: polyglot,
+            capCount: 25,
+            rowFormatter: polyglotRowFormatter,
+            headerHtml: '<thead><tr><th>Repository</th><th>Primary</th><th>Ecosystems</th><th class="text-end">Deps</th></tr></thead>',
+            wrapperStyle: 'max-height: 380px;',
+            rowsLabel: 'repos'
+        });
 
-    const repoLangRows = ins.perRepo.slice(0, 50).map(r => `
+    const repoLangRowFormatter = (r) => `
         <tr>
             <td><a href="repos.html?repo=${encodeURIComponent(r.repoKey)}">${escapeHtml(r.repoKey)}</a></td>
             <td>${escapeHtml(r.primaryLanguage || '—')}</td>
             <td>${(r.languages || []).slice(0, 6).map(l => `<span class="badge bg-secondary me-1">${escapeHtml(l)}</span>`).join('') || '<span class="text-muted">—</span>'}</td>
             <td class="text-end">${r.depCount.toLocaleString()}</td>
         </tr>
-    `).join('');
+    `;
+    const repoLangTable = ins.perRepo.length === 0
+        ? '<p class="text-muted small mb-0">No repositories.</p>'
+        : renderExpandableTable({
+            rows: ins.perRepo,
+            capCount: 50,
+            rowFormatter: repoLangRowFormatter,
+            headerHtml: '<thead><tr><th>Repository</th><th>Primary (GitHub)</th><th>Ecosystems (from PURLs)</th><th class="text-end">Deps</th></tr></thead>',
+            wrapperStyle: 'max-height: 480px;',
+            rowsLabel: 'repos'
+        });
 
     return `
         <section class="card mb-4">
@@ -878,79 +1279,123 @@ function renderLanguageSection(ins, data) {
                     <div class="col-12">
                         <h6 class="text-muted text-uppercase small mb-1">Dependency mix by ecosystem</h6>
                         <p class="small text-muted mb-3">Each count is a package-manager dependency tagged to its ecosystem language, summed across every repository it appears in (a package used in 5 repos counts 5 times). YAML rows are GitHub Actions workflow steps. <strong>Not</strong> source-code line counts or file counts.</p>
-                        ${langBars || '<p class="text-muted small mb-0">No language statistics available.</p>'}
+                        ${langChartHtml}
                     </div>
                     <div class="col-12">
                         <h6 class="text-muted text-uppercase small mb-3">Polyglot repositories <span class="text-muted small">(&ge; 3 ecosystems)</span></h6>
-                        ${polyglot.length === 0 ? '<p class="text-muted small mb-0">No polyglot repositories detected.</p>' : `
-                            <div class="table-responsive" style="max-height: 320px;">
-                                <table class="table table-sm table-striped">
-                                    <thead><tr><th>Repository</th><th>Primary</th><th>Ecosystems</th><th class="text-end">Deps</th></tr></thead>
-                                    <tbody>${polyglotRows}</tbody>
-                                </table>
-                            </div>
-                        `}
+                        ${polyglotTable}
                     </div>
                 </div>
                 <hr>
                 <div class="d-flex justify-content-between align-items-center mb-2 cursor-pointer" data-bs-toggle="collapse" data-bs-target="#perRepoLangStackCollapse" aria-expanded="false" aria-controls="perRepoLangStackCollapse" role="button">
-                    <h6 class="text-muted text-uppercase small mb-0">Per-repository language stack <span class="text-muted small text-lowercase">(${ins.perRepo.length} ${ins.perRepo.length === 1 ? 'repository' : 'repositories'}${ins.perRepo.length > 50 ? ', top 50 shown' : ''})</span></h6>
+                    <h6 class="text-muted text-uppercase small mb-0">Per-repository language stack <span class="text-muted small text-lowercase">(${ins.perRepo.length} ${ins.perRepo.length === 1 ? 'repository' : 'repositories'})</span></h6>
                     <i class="fas fa-chevron-down small text-muted"></i>
                 </div>
                 <div class="collapse" id="perRepoLangStackCollapse">
-                    <div class="table-responsive">
-                        <table class="table table-sm table-striped">
-                            <thead><tr><th>Repository</th><th>Primary (GitHub)</th><th>Ecosystems (from PURLs)</th><th class="text-end">Deps</th></tr></thead>
-                            <tbody>${repoLangRows || '<tr><td colspan="4" class="text-muted">No repositories.</td></tr>'}</tbody>
-                        </table>
-                    </div>
+                    ${repoLangTable}
                 </div>
             </div>
         </section>
     `;
 }
 
+function buildLanguageBarConfig(topLangs, totalLangCount) {
+    const colors = getInsightsThemeColors();
+    return {
+        type: 'bar',
+        data: {
+            labels: topLangs.map(l => l.language || 'Unknown'),
+            datasets: [{
+                label: 'Occurrences',
+                data: topLangs.map(l => l.count || 0),
+                backgroundColor: paletteHex('info'),
+                borderColor: paletteHex('info'),
+                borderWidth: 0
+            }]
+        },
+        options: {
+            indexAxis: 'y',
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                legend: { display: false },
+                tooltip: {
+                    callbacks: {
+                        label: (ctx) => {
+                            const lang = topLangs[ctx.dataIndex] || {};
+                            const v = ctx.parsed.x || 0;
+                            const pct = totalLangCount ? ` (${((v / totalLangCount) * 100).toFixed(1)}%)` : '';
+                            const uniq = lang.uniqueDependencies || 0;
+                            return [
+                                `${v.toLocaleString()} occurrences${pct}`,
+                                `${uniq.toLocaleString()} unique packages`
+                            ];
+                        }
+                    }
+                }
+            },
+            scales: {
+                x: {
+                    beginAtZero: true,
+                    ticks: { color: colors.textMuted },
+                    grid: { color: colors.border }
+                },
+                y: {
+                    ticks: { color: colors.text },
+                    grid: { display: false }
+                }
+            }
+        }
+    };
+}
+
 function renderAgeSection(ins) {
-    const total = Object.values(ins.ageStats.buckets).reduce((a, b) => a + b, 0) || 1;
+    const total = Object.values(ins.ageStats.buckets).reduce((a, b) => a + b, 0);
     const labels = ['<6m', '6-12m', '1-2y', '2-3y', '3-5y', '>5y'];
-    const colors = ['success', 'info', 'primary', 'warning', 'orange', 'danger'];
+    const bucketColors = ['success', 'info', 'primary', 'warning', 'orange', 'danger'];
     const buckets = labels.map((label, i) => ({
         label,
         count: ins.ageStats.buckets[label] || 0,
-        pct: ((ins.ageStats.buckets[label] || 0) / total) * 100,
-        color: colors[i]
+        color: bucketColors[i]
     }));
 
-    const segments = buckets.map(b => `
-        <div class="progress-bar bg-${b.color === 'orange' ? 'warning' : b.color}" role="progressbar"
-             style="width: ${b.pct}%;${b.color === 'orange' ? ' background-color: #fd7e14;' : ''}"
-             title="${b.label}: ${b.count} (${b.pct.toFixed(1)}%)"
-             aria-valuenow="${b.pct}" aria-valuemin="0" aria-valuemax="100">
-        </div>
-    `).join('');
+    const ageChartHtml = total === 0
+        ? '<p class="text-muted small mb-0">No publish-date data available.</p>'
+        : renderChartCanvas({
+            height: 110,
+            factory: () => buildAgeStackedBarConfig(buckets, total)
+        });
 
     const legend = buckets.map(b => `
         <span class="me-3 small">
             <span class="d-inline-block me-1" style="width:10px; height:10px; vertical-align: middle; background-color: ${cssColorForBucket(b.color)};"></span>
-            ${escapeHtml(b.label)}: <strong>${b.count}</strong>
+            ${escapeHtml(b.label)}: <strong>${b.count.toLocaleString()}</strong>
         </span>
     `).join('');
 
-    const oldestRows = ins.perRepo
+    const oldestList = ins.perRepo
         .filter(r => r.oldest)
-        .sort((a, b) => (b.oldest?.months || 0) - (a.oldest?.months || 0))
-        .slice(0, 30)
-        .map(r => `
-            <tr>
-                <td><a href="repos.html?repo=${encodeURIComponent(r.repoKey)}">${escapeHtml(r.repoKey)}</a></td>
-                <td>${escapeHtml(r.oldest.name)}@${escapeHtml(r.oldest.version)}</td>
-                <td><span class="badge bg-secondary">${escapeHtml(r.oldest.ecosystem || '—')}</span></td>
-                <td class="text-end">${r.oldest.months} mo</td>
-                <td class="text-end">${formatYears(r.oldest.months)}</td>
-            </tr>
-        `).join('');
+        .sort((a, b) => (b.oldest?.months || 0) - (a.oldest?.months || 0));
+    const oldestRowFormatter = (r) => `
+        <tr>
+            <td><a href="repos.html?repo=${encodeURIComponent(r.repoKey)}">${escapeHtml(r.repoKey)}</a></td>
+            <td>${escapeHtml(r.oldest.name)}@${escapeHtml(r.oldest.version)}</td>
+            <td><span class="badge bg-secondary">${escapeHtml(r.oldest.ecosystem || '—')}</span></td>
+            <td class="text-end">${r.oldest.months} mo</td>
+            <td class="text-end">${formatYears(r.oldest.months)}</td>
+        </tr>
+    `;
+    const oldestTable = renderExpandableTable({
+        rows: oldestList,
+        capCount: 30,
+        rowFormatter: oldestRowFormatter,
+        headerHtml: '<thead><tr><th>Repository</th><th>Package</th><th>Ecosystem</th><th class="text-end">Age</th><th class="text-end">~years</th></tr></thead>',
+        wrapperStyle: 'max-height: 480px;',
+        emptyHtml: '<p class="text-muted small mb-0">No publish-date data available for any repository.</p>',
+        rowsLabel: 'repos'
+    });
 
-    const eolRows = ins.ageStats.probableEolTop.map(p => `
+    const eolRowFormatter = (p) => `
         <tr>
             <td>${escapeHtml(p.name)}@${escapeHtml(p.version)}</td>
             <td><span class="badge bg-secondary">${escapeHtml(p.ecosystem || '—')}</span></td>
@@ -958,7 +1403,16 @@ function renderAgeSection(ins) {
             <td class="text-end">${p.repoCount}</td>
             <td class="small text-muted">${escapeHtml(p.reason)}</td>
         </tr>
-    `).join('');
+    `;
+    const eolTable = renderExpandableTable({
+        rows: ins.ageStats.probableEolTop || [],
+        capCount: 25,
+        rowFormatter: eolRowFormatter,
+        headerHtml: '<thead><tr><th>Package</th><th>Ecosystem</th><th class="text-end">Age</th><th class="text-end">Repos</th><th>Reason</th></tr></thead>',
+        wrapperStyle: 'max-height: 480px;',
+        emptyHtml: '<p class="text-muted small mb-0">No probable-EOL packages detected.</p>',
+        rowsLabel: 'packages'
+    });
 
     return `
         <section class="card mb-4">
@@ -968,35 +1422,68 @@ function renderAgeSection(ins) {
             </div>
             <div class="card-body">
                 <h6 class="text-muted text-uppercase small mb-3">Portfolio age distribution</h6>
-                <div class="progress mb-2" style="height: 24px;">${segments}</div>
-                <div class="mb-4">${legend}</div>
+                ${ageChartHtml}
+                <div class="mb-4 mt-2">${legend}</div>
 
                 <div class="row g-4">
                     <div class="col-12">
                         <h6 class="text-muted text-uppercase small mb-3">Oldest dependency per repository</h6>
-                        ${oldestRows ? `
-                            <div class="table-responsive" style="max-height: 380px;">
-                                <table class="table table-sm table-striped">
-                                    <thead><tr><th>Repository</th><th>Package</th><th>Ecosystem</th><th class="text-end">Age</th><th class="text-end">~years</th></tr></thead>
-                                    <tbody>${oldestRows}</tbody>
-                                </table>
-                            </div>` : '<p class="text-muted small mb-0">No publish-date data available for any repository.</p>'}
+                        ${oldestTable}
                     </div>
                     <div class="col-12">
                         <h6 class="text-muted text-uppercase small mb-3">Probable EOL packages</h6>
-                        ${ins.ageStats.probableEol === 0 ? '<p class="text-muted small mb-0">No probable-EOL packages detected.</p>' : `
-                            <div class="table-responsive" style="max-height: 380px;">
-                                <table class="table table-sm table-striped">
-                                    <thead><tr><th>Package</th><th>Ecosystem</th><th class="text-end">Age</th><th class="text-end">Repos</th><th>Reason</th></tr></thead>
-                                    <tbody>${eolRows}</tbody>
-                                </table>
-                            </div>
-                        `}
+                        ${eolTable}
                     </div>
                 </div>
             </div>
         </section>
     `;
+}
+
+function buildAgeStackedBarConfig(buckets, total) {
+    const colors = getInsightsThemeColors();
+    return {
+        type: 'bar',
+        data: {
+            labels: ['Portfolio'],
+            datasets: buckets.map(b => ({
+                label: b.label,
+                data: [b.count],
+                backgroundColor: cssColorForBucket(b.color),
+                borderWidth: 0,
+                stack: 'age'
+            }))
+        },
+        options: {
+            indexAxis: 'y',
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                legend: { display: false },
+                tooltip: {
+                    callbacks: {
+                        label: (ctx) => {
+                            const v = ctx.parsed.x || 0;
+                            const pct = total ? ` (${((v / total) * 100).toFixed(1)}%)` : '';
+                            return `${ctx.dataset.label}: ${v.toLocaleString()}${pct}`;
+                        }
+                    }
+                }
+            },
+            scales: {
+                x: {
+                    stacked: true,
+                    beginAtZero: true,
+                    ticks: { color: colors.textMuted },
+                    grid: { color: colors.border }
+                },
+                y: {
+                    stacked: true,
+                    display: false
+                }
+            }
+        }
+    };
 }
 
 function cssColorForBucket(color) {
@@ -1020,38 +1507,60 @@ function formatYears(months) {
 function renderDriftSection(ins) {
     const repos = ins.perRepo
         .filter(r => r.driftCounts.withDrift > 0)
-        .sort((a, b) => (b.driftCounts.major - a.driftCounts.major) || (b.driftCounts.minor - a.driftCounts.minor))
-        .slice(0, 50);
+        .sort((a, b) => (b.driftCounts.major - a.driftCounts.major) || (b.driftCounts.minor - a.driftCounts.minor));
 
-    const rows = repos.map(r => {
+    const driftRowFormatter = (r) => {
         const dc = r.driftCounts;
-        const total = dc.withDrift || 1;
-        const pct = (n) => (n / total) * 100;
+        const datasets = [
+            { label: 'Current', data: [dc.current], backgroundColor: cssColorForBucket('success'), borderWidth: 0, stack: 'drift' },
+            { label: 'Patch behind', data: [dc.patch], backgroundColor: cssColorForBucket('info'), borderWidth: 0, stack: 'drift' },
+            { label: 'Minor behind', data: [dc.minor], backgroundColor: cssColorForBucket('warning'), borderWidth: 0, stack: 'drift' },
+            { label: 'Major behind', data: [dc.major], backgroundColor: cssColorForBucket('danger'), borderWidth: 0, stack: 'drift' }
+        ];
+        const miniCanvas = renderInlineMiniBarCanvas({
+            datasets,
+            width: 240,
+            height: 16,
+            totalForDataset: dc.withDrift
+        });
         return `
             <tr>
                 <td><a href="repos.html?repo=${encodeURIComponent(r.repoKey)}">${escapeHtml(r.repoKey)}</a></td>
-                <td style="min-width: 240px;">
-                    <div class="progress" style="height: 16px;">
-                        <div class="progress-bar bg-success" role="progressbar" style="width: ${pct(dc.current)}%;" title="Current: ${dc.current}"></div>
-                        <div class="progress-bar bg-info" role="progressbar" style="width: ${pct(dc.patch)}%;" title="Patch behind: ${dc.patch}"></div>
-                        <div class="progress-bar bg-warning text-dark" role="progressbar" style="width: ${pct(dc.minor)}%;" title="Minor behind: ${dc.minor}"></div>
-                        <div class="progress-bar bg-danger" role="progressbar" style="width: ${pct(dc.major)}%;" title="Major behind: ${dc.major}"></div>
-                    </div>
-                </td>
+                <td style="min-width: 250px;">${miniCanvas}</td>
                 <td class="text-end small">${dc.current}/${dc.patch}/${dc.minor}/<strong class="text-danger">${dc.major}</strong></td>
                 <td class="text-end small">${dc.withDrift}</td>
             </tr>
         `;
-    }).join('');
+    };
 
-    const topRows = ins.driftStats.top.map(p => `
+    const driftTable = renderExpandableTable({
+        rows: repos,
+        capCount: 50,
+        rowFormatter: driftRowFormatter,
+        headerHtml: '<thead><tr><th>Repository</th><th>Drift breakdown</th><th class="text-end">C/P/Mi/Ma</th><th class="text-end">Total</th></tr></thead>',
+        tableClass: 'table table-sm table-striped align-middle',
+        wrapperStyle: 'max-height: 520px;',
+        emptyHtml: '<p class="text-muted small mb-0">No drift data available.</p>',
+        rowsLabel: 'repos'
+    });
+
+    const topRowFormatter = (p) => `
         <tr>
             <td>${escapeHtml(p.name)}@${escapeHtml(p.version)} <span class="text-muted small">→ ${escapeHtml(p.latestVersion)}</span></td>
             <td><span class="badge bg-secondary">${escapeHtml(p.ecosystem || '—')}</span></td>
             <td><span class="badge bg-${p.kind === 'major' ? 'danger' : 'warning text-dark'}">${p.kind}</span></td>
             <td class="text-end">${p.repoCount}</td>
         </tr>
-    `).join('');
+    `;
+    const topTable = renderExpandableTable({
+        rows: ins.driftStats.top || [],
+        capCount: 20,
+        rowFormatter: topRowFormatter,
+        headerHtml: '<thead><tr><th>Package</th><th>Ecosystem</th><th>Drift</th><th class="text-end">Repos</th></tr></thead>',
+        wrapperStyle: 'max-height: 520px;',
+        emptyHtml: '<p class="text-muted small mb-0">No drift data available.</p>',
+        rowsLabel: 'packages'
+    });
 
     return `
         <section class="card mb-4">
@@ -1061,23 +1570,11 @@ function renderDriftSection(ins) {
                     <div class="col-12">
                         <h6 class="text-muted text-uppercase small mb-3">Drift per repository</h6>
                         <p class="small text-muted mb-2">Stack order: <span class="badge bg-success">current</span> <span class="badge bg-info">patch</span> <span class="badge bg-warning text-dark">minor</span> <span class="badge bg-danger">major</span></p>
-                        ${rows ? `
-                            <div class="table-responsive" style="max-height: 450px;">
-                                <table class="table table-sm table-striped align-middle">
-                                    <thead><tr><th>Repository</th><th>Drift breakdown</th><th class="text-end">C/P/Mi/Ma</th><th class="text-end">Total</th></tr></thead>
-                                    <tbody>${rows}</tbody>
-                                </table>
-                            </div>` : '<p class="text-muted small mb-0">No drift data available.</p>'}
+                        ${driftTable}
                     </div>
                     <div class="col-12">
-                        <h6 class="text-muted text-uppercase small mb-3">Top 20 lagging packages <span class="text-muted small">(by repos × major)</span></h6>
-                        ${topRows ? `
-                            <div class="table-responsive" style="max-height: 450px;">
-                                <table class="table table-sm table-striped">
-                                    <thead><tr><th>Package</th><th>Ecosystem</th><th>Drift</th><th class="text-end">Repos</th></tr></thead>
-                                    <tbody>${topRows}</tbody>
-                                </table>
-                            </div>` : '<p class="text-muted small mb-0">No drift data available.</p>'}
+                        <h6 class="text-muted text-uppercase small mb-3">Top lagging packages <span class="text-muted small">(by repos × major)</span></h6>
+                        ${topTable}
                     </div>
                 </div>
             </div>
@@ -1109,48 +1606,33 @@ function renderDepthSection(ins) {
         if (level === 5) return 'orange';
         return 'danger';
     };
-    const segmentStyle = (color, widthPct) => `width: ${widthPct}%;${color === 'orange' ? ' background-color: #fd7e14;' : ''}`;
-    const segmentClass = (color) => `bg-${color === 'orange' ? 'warning' : color}`;
 
-    const portfolioSegments = (() => {
-        if (portfolioTotal === 0) return '';
-        const parts = levels.map(l => {
-            const c = ds.globalBuckets.get(l) || 0;
-            if (c === 0) return '';
-            const pct = (c / portfolioTotal) * 100;
-            const color = colorForLevel(l);
-            return `<div class="progress-bar ${segmentClass(color)}" role="progressbar"
-                style="${segmentStyle(color, pct)}"
-                title="Level ${l}: ${c.toLocaleString()} (${pct.toFixed(1)}%)"
-                aria-valuenow="${pct}" aria-valuemin="0" aria-valuemax="100"></div>`;
+    const portfolioBuckets = levels.map(l => ({
+        label: `Level ${l}`,
+        count: ds.globalBuckets.get(l) || 0,
+        color: cssColorForBucket(colorForLevel(l))
+    }));
+    if (unknownTotal) {
+        portfolioBuckets.push({
+            label: 'Unknown',
+            count: unknownTotal,
+            color: cssColorForBucket('secondary')
         });
-        if (unknownTotal) {
-            const pct = (unknownTotal / portfolioTotal) * 100;
-            parts.push(`<div class="progress-bar bg-secondary" role="progressbar"
-                style="width: ${pct}%;"
-                title="Unknown depth: ${unknownTotal.toLocaleString()} (${pct.toFixed(1)}%)"
-                aria-valuenow="${pct}" aria-valuemin="0" aria-valuemax="100"></div>`);
-        }
-        return parts.join('');
-    })();
+    }
 
-    const legend = (() => {
-        const parts = levels.map(l => {
-            const c = ds.globalBuckets.get(l) || 0;
-            const color = colorForLevel(l);
-            return `<span class="me-3 small">
-                <span class="d-inline-block me-1" style="width:10px; height:10px; vertical-align: middle; background-color: ${cssColorForBucket(color)};"></span>
-                Level ${l}: <strong>${c.toLocaleString()}</strong>
-            </span>`;
+    const portfolioChartHtml = portfolioTotal === 0
+        ? '<p class="text-muted small mb-0">No depth data available.</p>'
+        : renderChartCanvas({
+            height: 110,
+            factory: () => buildDepthStackedBarConfig(portfolioBuckets, portfolioTotal)
         });
-        if (unknownTotal) {
-            parts.push(`<span class="me-3 small">
-                <span class="d-inline-block me-1" style="width:10px; height:10px; vertical-align: middle; background-color: ${cssColorForBucket('secondary')};"></span>
-                Unknown: <strong>${unknownTotal.toLocaleString()}</strong>
-            </span>`);
-        }
-        return parts.join('');
-    })();
+
+    const legend = portfolioBuckets.map(b => `
+        <span class="me-3 small">
+            <span class="d-inline-block me-1" style="width:10px; height:10px; vertical-align: middle; background-color: ${b.color};"></span>
+            ${escapeHtml(b.label)}: <strong>${b.count.toLocaleString()}</strong>
+        </span>
+    `).join('');
 
     // Depth-cap warning: with our labelling scheme, Level (configuredMaxDepth + 1) is the
     // deepest the resolver can reach. Hitting it means we stopped resolving children of
@@ -1176,53 +1658,64 @@ function renderDepthSection(ins) {
     const repos = Array.from(ds.perRepo.values())
         .filter(r => r.total > 0)
         .sort((a, b) => b.total - a.total);
-    const maxRepoTotal = Math.max(1, ...repos.map(r => r.total));
 
     const colHeader = levels.map(l => `<th class="text-end small">L${l}</th>`).join('');
-    const repoRows = repos.map(r => {
-        const segParts = levels.map(l => {
-            const c = r.byLevel.get(l) || 0;
-            if (c === 0) return '';
-            const pct = (c / r.total) * 100;
-            const color = colorForLevel(l);
-            return `<div class="progress-bar ${segmentClass(color)}"
-                style="${segmentStyle(color, pct)}"
-                title="Level ${l}: ${c}"></div>`;
-        });
+
+    const depthRowFormatter = (r) => {
+        const datasets = levels.map(l => ({
+            label: `Level ${l}`,
+            data: [r.byLevel.get(l) || 0],
+            backgroundColor: cssColorForBucket(colorForLevel(l)),
+            borderWidth: 0,
+            stack: 'depth'
+        }));
         const u = r.byLevel.get('unknown') || 0;
         if (u) {
-            const pct = (u / r.total) * 100;
-            segParts.push(`<div class="progress-bar bg-secondary"
-                style="width: ${pct}%;"
-                title="Unknown: ${u}"></div>`);
+            datasets.push({
+                label: 'Unknown',
+                data: [u],
+                backgroundColor: cssColorForBucket('secondary'),
+                borderWidth: 0,
+                stack: 'depth'
+            });
         }
-        const segs = segParts.join('');
-        const widthPct = (r.total / maxRepoTotal) * 100;
-
+        const miniCanvas = renderInlineMiniBarCanvas({
+            datasets,
+            width: 220,
+            height: 16,
+            totalForDataset: r.total
+        });
         const levelCells = levels.map(l => {
             const c = r.byLevel.get(l) || 0;
             return `<td class="text-end small">${c ? c.toLocaleString() : '<span class="text-muted">—</span>'}</td>`;
         }).join('');
-
         const deepestCnt = r.deepestCount || 0;
         const deepestShare = r.total ? deepestCnt / r.total : 0;
         const deepestStrong = (deepestCnt > 0 && deepestShare >= 0.25);
         const deepestLabel = r.deepest === null
             ? '<span class="text-muted">—</span>'
             : `${deepestCnt.toLocaleString()} <span class="text-muted small">@ L${r.deepest}</span>`;
-
         return `
             <tr>
                 <td><a href="repos.html?repo=${encodeURIComponent(r.repoKey)}">${escapeHtml(r.repoKey)}</a></td>
-                <td style="min-width: 220px;">
-                    <div class="progress" style="height: 14px; width: ${widthPct}%; min-width: 40px;">${segs}</div>
-                </td>
+                <td style="min-width: 230px;">${miniCanvas}</td>
                 ${levelCells}
                 <td class="text-end small fw-semibold">${r.total.toLocaleString()}</td>
                 <td class="text-end small ${deepestStrong ? 'text-danger fw-bold' : ''}">${deepestLabel}</td>
             </tr>
         `;
-    }).join('');
+    };
+
+    const depthTable = renderExpandableTable({
+        rows: repos,
+        capCount: 50,
+        rowFormatter: depthRowFormatter,
+        headerHtml: `<thead><tr><th>Repository</th><th>Distribution</th>${colHeader}<th class="text-end small">Total</th><th class="text-end small">Deepest</th></tr></thead>`,
+        tableClass: 'table table-sm table-striped align-middle',
+        wrapperStyle: 'max-height: 520px;',
+        emptyHtml: '<p class="text-muted small mb-0">No dependency data available.</p>',
+        rowsLabel: 'repos'
+    });
 
     const headerBadge = ds.observedMaxLevel !== null
         ? `<span class="badge bg-secondary">Observed max: Level ${ds.observedMaxLevel} · Configured maxDepth: ${ds.configuredMaxDepth}</span>`
@@ -1238,58 +1731,74 @@ function renderDepthSection(ins) {
                 ${truncationAlert}
                 <h6 class="text-muted text-uppercase small mb-2">Portfolio-wide depth distribution</h6>
                 <p class="small text-muted mb-2">Each (dependency × repository) occurrence is bucketed by how deep it sits below the repo's direct deps. Level 1 = direct, Level 2 = first-level transitive, …, Level N+1 = N-th level transitive.</p>
-                <div class="progress mb-2" style="height: 24px;">${portfolioSegments || '<div class="progress-bar bg-light" role="progressbar" style="width: 100%;"></div>'}</div>
-                <div class="mb-4">${legend || '<span class="text-muted small">No depth data available.</span>'}</div>
+                ${portfolioChartHtml}
+                <div class="mb-4 mt-2">${legend || '<span class="text-muted small">No depth data available.</span>'}</div>
                 <h6 class="text-muted text-uppercase small mb-3">Per-repository depth breakdown <span class="text-muted small">(${repos.length} ${repos.length === 1 ? 'repository' : 'repositories'})</span></h6>
-                ${repos.length === 0 ? '<p class="text-muted small mb-0">No dependency data available.</p>' : `
-                    <div class="table-responsive" style="max-height: 480px;">
-                        <table class="table table-sm table-striped align-middle">
-                            <thead><tr><th>Repository</th><th>Distribution</th>${colHeader}<th class="text-end small">Total</th><th class="text-end small">Deepest</th></tr></thead>
-                            <tbody>${repoRows}</tbody>
-                        </table>
-                    </div>
-                `}
+                ${depthTable}
                 <p class="small text-muted mt-2 mb-0"><i class="fas fa-info-circle me-1"></i>Depth is the global per-ecosystem resolver depth — a package reached via different direct dependencies in different repos can therefore show the same level across repos.</p>
             </div>
         </section>
     `;
 }
 
+function buildDepthStackedBarConfig(buckets, total) {
+    const colors = getInsightsThemeColors();
+    return {
+        type: 'bar',
+        data: {
+            labels: ['Portfolio'],
+            datasets: buckets.map(b => ({
+                label: b.label,
+                data: [b.count],
+                backgroundColor: b.color,
+                borderWidth: 0,
+                stack: 'depth'
+            }))
+        },
+        options: {
+            indexAxis: 'y',
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                legend: { display: false },
+                tooltip: {
+                    callbacks: {
+                        label: (ctx) => {
+                            const v = ctx.parsed.x || 0;
+                            const pct = total ? ` (${((v / total) * 100).toFixed(1)}%)` : '';
+                            return `${ctx.dataset.label}: ${v.toLocaleString()}${pct}`;
+                        }
+                    }
+                }
+            },
+            scales: {
+                x: {
+                    stacked: true,
+                    beginAtZero: true,
+                    ticks: { color: colors.textMuted },
+                    grid: { color: colors.border }
+                },
+                y: {
+                    stacked: true,
+                    display: false
+                }
+            }
+        }
+    };
+}
+
 function renderVulnAgeSection(ins) {
-    const buckets = ['<30d', '30-90d', '90d-1y', '1-2y', '>2y'];
-    let maxBucketTotal = 1;
-    for (const b of buckets) {
-        const v = ins.vulnAgeStats.buckets[b];
-        const t = (v.critical || 0) + (v.high || 0) + (v.medium || 0) + (v.low || 0);
-        if (t > maxBucketTotal) maxBucketTotal = t;
-    }
+    const ageBuckets = ['<30d', '30-90d', '90d-1y', '1-2y', '>2y'];
+    const totalCves = ins.vulnAgeStats.totalCves || 0;
 
-    const rows = buckets.map(b => {
-        const v = ins.vulnAgeStats.buckets[b];
-        const total = (v.critical || 0) + (v.high || 0) + (v.medium || 0) + (v.low || 0);
-        const widthPct = (total / maxBucketTotal) * 100;
-        const segPct = (n) => total ? (n / total) * 100 : 0;
-        return `
-            <tr>
-                <td class="small"><strong>${escapeHtml(b)}</strong></td>
-                <td style="min-width: 280px;">
-                    <div class="progress" style="height: 18px; width: ${widthPct}%; min-width: ${total ? '40px' : '0'};">
-                        <div class="progress-bar bg-danger" style="width: ${segPct(v.critical)}%;" title="Critical: ${v.critical}"></div>
-                        <div class="progress-bar bg-warning text-dark" style="width: ${segPct(v.high)}%;" title="High: ${v.high}"></div>
-                        <div class="progress-bar bg-info" style="width: ${segPct(v.medium)}%;" title="Medium: ${v.medium}"></div>
-                        <div class="progress-bar bg-secondary" style="width: ${segPct(v.low)}%;" title="Low: ${v.low}"></div>
-                    </div>
-                </td>
-                <td class="text-end small text-danger fw-bold">${v.critical}</td>
-                <td class="text-end small text-warning fw-bold">${v.high}</td>
-                <td class="text-end small text-info">${v.medium}</td>
-                <td class="text-end small text-muted">${v.low}</td>
-                <td class="text-end small fw-semibold">${total}</td>
-            </tr>
-        `;
-    }).join('');
+    const ageChartHtml = totalCves === 0
+        ? '<p class="text-muted small mb-0">No CVEs found.</p>'
+        : renderChartCanvas({
+            height: 280,
+            factory: () => buildVulnAgeStackedBarConfig(ins.vulnAgeStats, ageBuckets)
+        });
 
-    const tbRows = ins.vulnAgeStats.timeBombs.map(t => `
+    const tbRowFormatter = (t) => `
         <tr>
             <td>${escapeHtml(t.pkg)}@${escapeHtml(t.version)}</td>
             <td><span class="badge bg-secondary">${escapeHtml(t.ecosystem || '—')}</span></td>
@@ -1298,26 +1807,50 @@ function renderVulnAgeSection(ins) {
             <td class="text-end">${t.ageDays} d</td>
             <td><code class="small">${escapeHtml(t.fixVersion)}</code></td>
         </tr>
-    `).join('');
+    `;
+    const tbTable = renderExpandableTable({
+        rows: ins.vulnAgeStats.timeBombs || [],
+        capCount: 50,
+        rowFormatter: tbRowFormatter,
+        headerHtml: '<thead><tr><th>Package</th><th>Ecosystem</th><th>CVE</th><th>Severity</th><th class="text-end">Age</th><th>Fix</th></tr></thead>',
+        wrapperStyle: 'max-height: 480px;',
+        emptyHtml: '<p class="text-muted small mb-0">No time-bomb CVEs detected.</p>',
+        rowsLabel: 'CVEs'
+    });
 
     const repoCH = Array.from(ins.vulnAgeStats.perRepoCH.entries())
         .map(([repoKey, c]) => ({ repoKey, ...c, total: (c.critical || 0) + (c.high || 0) }))
-        .sort((a, b) => b.total - a.total)
-        .slice(0, 30);
-    const repoCHMax = Math.max(1, ...repoCH.map(r => r.total));
-    const repoCHRows = repoCH.map(r => `
-        <tr>
-            <td><a href="repos.html?repo=${encodeURIComponent(r.repoKey)}">${escapeHtml(r.repoKey)}</a></td>
-            <td style="min-width: 200px;">
-                <div class="progress" style="height: 14px; width: ${(r.total / repoCHMax) * 100}%;">
-                    <div class="progress-bar bg-danger" style="width: ${(r.critical / r.total) * 100}%;" title="Critical: ${r.critical}"></div>
-                    <div class="progress-bar bg-warning" style="width: ${(r.high / r.total) * 100}%;" title="High: ${r.high}"></div>
-                </div>
-            </td>
-            <td class="text-end small text-danger fw-bold">${r.critical}</td>
-            <td class="text-end small text-warning fw-bold">${r.high}</td>
-        </tr>
-    `).join('');
+        .sort((a, b) => b.total - a.total);
+
+    const repoCHRowFormatter = (r) => {
+        const datasets = [
+            { label: 'Critical', data: [r.critical], backgroundColor: cssColorForBucket('danger'), borderWidth: 0, stack: 'ch' },
+            { label: 'High', data: [r.high], backgroundColor: cssColorForBucket('warning'), borderWidth: 0, stack: 'ch' }
+        ];
+        const miniCanvas = renderInlineMiniBarCanvas({
+            datasets,
+            width: 200,
+            height: 14,
+            totalForDataset: r.total
+        });
+        return `
+            <tr>
+                <td><a href="repos.html?repo=${encodeURIComponent(r.repoKey)}">${escapeHtml(r.repoKey)}</a></td>
+                <td style="min-width: 210px;">${miniCanvas}</td>
+                <td class="text-end small text-danger fw-bold">${r.critical}</td>
+                <td class="text-end small text-warning fw-bold">${r.high}</td>
+            </tr>
+        `;
+    };
+    const repoCHTable = renderExpandableTable({
+        rows: repoCH,
+        capCount: 30,
+        rowFormatter: repoCHRowFormatter,
+        headerHtml: '<thead><tr><th>Repository</th><th>Distribution</th><th class="text-end">C</th><th class="text-end">H</th></tr></thead>',
+        wrapperStyle: 'max-height: 480px;',
+        emptyHtml: '<p class="text-muted small mb-0">No Critical/High CVEs by repository.</p>',
+        rowsLabel: 'repos'
+    });
 
     return `
         <section class="card mb-4">
@@ -1327,34 +1860,15 @@ function renderVulnAgeSection(ins) {
             </div>
             <div class="card-body">
                 <h6 class="text-muted text-uppercase small mb-3">CVE age × severity</h6>
-                <div class="table-responsive mb-4">
-                    <table class="table table-sm table-borderless align-middle">
-                        <thead class="small text-muted">
-                            <tr><th>Age</th><th>Distribution</th><th class="text-end">C</th><th class="text-end">H</th><th class="text-end">M</th><th class="text-end">L</th><th class="text-end">Total</th></tr>
-                        </thead>
-                        <tbody>${rows || '<tr><td colspan="7" class="text-muted">No CVEs found.</td></tr>'}</tbody>
-                    </table>
-                </div>
-                <div class="row g-4">
+                ${ageChartHtml}
+                <div class="row g-4 mt-1">
                     <div class="col-12">
                         <h6 class="text-muted text-uppercase small mb-3">Time-bomb CVEs <span class="text-muted small">(&ge; 90d old, fix available, C/H)</span></h6>
-                        ${tbRows ? `
-                            <div class="table-responsive" style="max-height: 380px;">
-                                <table class="table table-sm table-striped">
-                                    <thead><tr><th>Package</th><th>Ecosystem</th><th>CVE</th><th>Severity</th><th class="text-end">Age</th><th>Fix</th></tr></thead>
-                                    <tbody>${tbRows}</tbody>
-                                </table>
-                            </div>` : '<p class="text-muted small mb-0">No time-bomb CVEs detected.</p>'}
+                        ${tbTable}
                     </div>
                     <div class="col-12">
                         <h6 class="text-muted text-uppercase small mb-3">Critical+High by repository</h6>
-                        ${repoCHRows ? `
-                            <div class="table-responsive" style="max-height: 380px;">
-                                <table class="table table-sm table-striped">
-                                    <thead><tr><th>Repository</th><th>Distribution</th><th class="text-end">C</th><th class="text-end">H</th></tr></thead>
-                                    <tbody>${repoCHRows}</tbody>
-                                </table>
-                            </div>` : '<p class="text-muted small mb-0">No Critical/High CVEs by repository.</p>'}
+                        ${repoCHTable}
                     </div>
                 </div>
             </div>
@@ -1362,38 +1876,88 @@ function renderVulnAgeSection(ins) {
     `;
 }
 
+function buildVulnAgeStackedBarConfig(vulnAgeStats, ageBuckets) {
+    const colors = getInsightsThemeColors();
+    const series = [
+        { key: 'critical', label: 'Critical', color: cssColorForBucket('danger') },
+        { key: 'high', label: 'High', color: cssColorForBucket('warning') },
+        { key: 'medium', label: 'Medium', color: cssColorForBucket('info') },
+        { key: 'low', label: 'Low', color: cssColorForBucket('secondary') }
+    ];
+    return {
+        type: 'bar',
+        data: {
+            labels: ageBuckets,
+            datasets: series.map(s => ({
+                label: s.label,
+                data: ageBuckets.map(b => vulnAgeStats.buckets[b]?.[s.key] || 0),
+                backgroundColor: s.color,
+                borderWidth: 0,
+                stack: 'sev'
+            }))
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                legend: {
+                    display: true,
+                    position: 'bottom',
+                    labels: { color: colors.text, boxWidth: 12, boxHeight: 12 }
+                },
+                tooltip: {
+                    callbacks: {
+                        label: (ctx) => {
+                            const v = ctx.parsed.y || 0;
+                            return `${ctx.dataset.label}: ${v.toLocaleString()}`;
+                        }
+                    }
+                }
+            },
+            scales: {
+                x: {
+                    stacked: true,
+                    title: { display: true, text: 'CVE age', color: colors.text },
+                    ticks: { color: colors.textMuted },
+                    grid: { display: false }
+                },
+                y: {
+                    stacked: true,
+                    beginAtZero: true,
+                    title: { display: true, text: 'CVE count', color: colors.text },
+                    ticks: { color: colors.textMuted, precision: 0 },
+                    grid: { color: colors.border }
+                }
+            }
+        }
+    };
+}
+
 function renderHygieneSection(ins) {
     const grades = ins.repoHygiene.grades;
-    const total = Object.values(grades).reduce((a, b) => a + b, 0) || 1;
     const slices = [
-        { key: 'A', color: '#198754', count: grades.A },
-        { key: 'B', color: '#20c997', count: grades.B },
-        { key: 'C', color: '#0dcaf0', count: grades.C },
-        { key: 'D', color: '#ffc107', count: grades.D },
-        { key: 'F', color: '#dc3545', count: grades.F },
-        { key: 'N/A', color: '#adb5bd', count: grades['N/A'] }
+        { key: 'A', color: paletteHex('success'), count: grades.A },
+        { key: 'B', color: paletteHex('teal'), count: grades.B },
+        { key: 'C', color: paletteHex('info'), count: grades.C },
+        { key: 'D', color: paletteHex('warning'), count: grades.D },
+        { key: 'F', color: paletteHex('danger'), count: grades.F },
+        { key: 'N/A', color: paletteHex('light'), count: grades['N/A'] }
     ];
-    const donut = renderConicDonut(slices);
+    const gradeDonut = renderDoughnutBlock(slices, 'repos', { size: 200 });
 
     const activity = ins.repoHygiene.activityBuckets;
-    const activityTotal = Object.values(activity).reduce((a, b) => a + b, 0) || 1;
-    const activityBars = [
-        { label: '<30d', count: activity['<30d'], color: 'success' },
-        { label: '<90d', count: activity['<90d'], color: 'info' },
-        { label: '<1y', count: activity['<1y'], color: 'primary' },
-        { label: '>1y', count: activity['>1y'], color: 'warning' },
-        { label: 'archived', count: activity.archived, color: 'secondary' },
-        { label: 'unknown', count: activity.unknown, color: 'light' }
-    ].map(a => `
-        <div class="mb-2">
-            <div class="d-flex justify-content-between small">
-                <span>${escapeHtml(a.label)}</span><span class="text-muted">${a.count}</span>
-            </div>
-            <div class="progress" style="height: 8px;">
-                <div class="progress-bar bg-${a.color}" style="width: ${(a.count / activityTotal) * 100}%;"></div>
-            </div>
-        </div>
-    `).join('');
+    const activityBuckets = [
+        { label: '<30d', count: activity['<30d'], color: cssColorForBucket('success') },
+        { label: '<90d', count: activity['<90d'], color: cssColorForBucket('info') },
+        { label: '<1y', count: activity['<1y'], color: cssColorForBucket('primary') },
+        { label: '>1y', count: activity['>1y'], color: cssColorForBucket('warning') },
+        { label: 'archived', count: activity.archived, color: cssColorForBucket('secondary') },
+        { label: 'unknown', count: activity.unknown, color: '#ced4da' }
+    ];
+    const activityChartHtml = renderChartCanvas({
+        height: 220,
+        factory: () => buildRepoActivityBarConfig(activityBuckets)
+    });
 
     return `
         <section class="card mb-4">
@@ -1402,14 +1966,11 @@ function renderHygieneSection(ins) {
                 <div class="row g-4">
                     <div class="col-md-4 text-center">
                         <h6 class="text-muted text-uppercase small mb-3">SBOM grade distribution</h6>
-                        ${donut}
-                        <div class="d-flex flex-wrap justify-content-center mt-3 small">
-                            ${slices.map(s => `<span class="me-3"><span class="d-inline-block me-1" style="width:10px; height:10px; vertical-align: middle; background-color: ${s.color};"></span>${escapeHtml(s.key)}: <strong>${s.count}</strong></span>`).join('')}
-                        </div>
+                        ${gradeDonut}
                     </div>
                     <div class="col-md-4">
                         <h6 class="text-muted text-uppercase small mb-3">Repo activity (push-time)</h6>
-                        ${activityBars}
+                        ${activityChartHtml}
                     </div>
                     <div class="col-md-4">
                         <h6 class="text-muted text-uppercase small mb-3">Visibility debt</h6>
@@ -1426,43 +1987,56 @@ function renderHygieneSection(ins) {
     `;
 }
 
-function renderConicDonut(slices, centerLabel = 'repos') {
-    const total = slices.reduce((a, b) => a + b.count, 0);
-    if (total <= 0) {
-        return '<div class="text-muted small">No data</div>';
-    }
-    let acc = 0;
-    const stops = [];
-    for (const s of slices) {
-        if (!s.count) continue;
-        const start = (acc / total) * 360;
-        acc += s.count;
-        const end = (acc / total) * 360;
-        stops.push(`${s.color} ${start}deg ${end}deg`);
-    }
-    const gradient = stops.join(', ');
-    return `
-        <div class="d-inline-block position-relative" style="width: 180px; height: 180px;">
-            <div style="width: 100%; height: 100%; border-radius: 50%; background: conic-gradient(${gradient});"></div>
-            <div class="position-absolute top-50 start-50 translate-middle bg-white text-dark rounded-circle d-flex align-items-center justify-content-center" style="width: 110px; height: 110px;">
-                <div class="text-center">
-                    <div class="fw-bold fs-4">${total}</div>
-                    <div class="small text-muted">${escapeHtml(centerLabel)}</div>
-                </div>
-            </div>
-        </div>
-    `;
+function buildRepoActivityBarConfig(buckets) {
+    const colors = getInsightsThemeColors();
+    return {
+        type: 'bar',
+        data: {
+            labels: buckets.map(b => b.label),
+            datasets: [{
+                label: 'Repos',
+                data: buckets.map(b => b.count),
+                backgroundColor: buckets.map(b => b.color),
+                borderWidth: 0
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                legend: { display: false },
+                tooltip: {
+                    callbacks: {
+                        label: (ctx) => `${ctx.label}: ${ctx.parsed.y.toLocaleString()} repos`
+                    }
+                }
+            },
+            scales: {
+                x: {
+                    ticks: { color: colors.textMuted },
+                    grid: { display: false }
+                },
+                y: {
+                    beginAtZero: true,
+                    ticks: { color: colors.textMuted, precision: 0 },
+                    grid: { color: colors.border }
+                }
+            }
+        }
+    };
 }
 
 function renderRedFlagsSection(ins) {
     const ls = ins.licenseStats;
     const licTotal = ls.high + ls.medium + ls.low;
     const licSlices = [
-        { key: 'High', color: '#dc3545', count: ls.high },
-        { key: 'Medium', color: '#ffc107', count: ls.medium },
-        { key: 'Low', color: '#198754', count: ls.low }
+        { key: 'High', color: paletteHex('danger'), count: ls.high },
+        { key: 'Medium', color: paletteHex('warning'), count: ls.medium },
+        { key: 'Low', color: paletteHex('success'), count: ls.low }
     ];
-    const licDonut = renderConicDonut(licSlices, 'deps');
+    const licDonut = licTotal > 0
+        ? renderDoughnutBlock(licSlices, 'deps', { size: 200 })
+        : '<div class="text-muted small">No license data</div>';
 
     const sc = ins.supplyChain;
     // Each slice = a discrete supply-chain red-flag bucket; sizing the donut by raw
@@ -1473,33 +2047,39 @@ function renderRedFlagsSection(ins) {
     // EOL = purple/info) so users transitioning from the v1 layout don't have to relearn
     // semantics.
     const scSlices = [
-        { key: 'Malware', color: '#dc3545', count: sc.malwareCount,
-          tooltip: 'Malicious-package matches (OSV.dev MAL-* / OpenSSF malicious-packages)' },
-        { key: 'Dep-confusion', color: '#fd7e14', count: sc.depConfusion,
-          tooltip: 'Dependency-confusion candidates (registry / namespace not found)' },
-        { key: 'Unpinned actions', color: '#ffc107', count: sc.unpinnedActions,
-          tooltip: `Unpinned / mutable-tag GitHub Actions (${sc.unpinnedActions} of ${sc.totalActions} action references)` },
-        { key: 'EOL', color: '#6f42c1', count: ins.eolStats.eolCount,
-          tooltip: 'End-of-life components per endoflife.date' },
-        { key: 'EOS', color: '#0dcaf0', count: ins.eolStats.eosCount,
-          tooltip: 'End-of-support components per endoflife.date' }
+        { key: 'Malware', color: paletteHex('danger'), count: sc.malwareCount },
+        { key: 'Dep-confusion', color: paletteHex('orange'), count: sc.depConfusion },
+        { key: 'Unpinned actions', color: paletteHex('warning'), count: sc.unpinnedActions },
+        { key: 'EOL', color: paletteHex('purple'), count: ins.eolStats.eolCount },
+        { key: 'EOS', color: paletteHex('info'), count: ins.eolStats.eosCount }
     ];
     const scTotal = scSlices.reduce((a, b) => a + b.count, 0);
-    const scDonut = renderConicDonut(scSlices, 'findings');
+    const scDonut = scTotal > 0
+        ? renderDoughnutBlock(scSlices, 'findings', { size: 200 })
+        : '<div class="text-muted small">No supply-chain findings</div>';
     const scSubtitle = sc.totalActions
         ? `${scTotal} red-flag findings · ${sc.totalActions} Actions scanned`
         : `${scTotal} red-flag findings`;
 
-    const directRows = ls.directHighRisk.map(r => `
+    const directRowFormatter = (r) => `
         <tr>
             <td>${escapeHtml(r.name)}@${escapeHtml(r.version)}</td>
             <td><span class="badge bg-secondary">${escapeHtml(r.ecosystem || '—')}</span></td>
             <td><code class="small">${escapeHtml(r.license)}</code></td>
             <td class="text-end">${r.repoCount}</td>
         </tr>
-    `).join('');
+    `;
+    const directTable = renderExpandableTable({
+        rows: ls.directHighRisk || [],
+        capCount: 25,
+        rowFormatter: directRowFormatter,
+        headerHtml: '<thead><tr><th>Package</th><th>Ecosystem</th><th>License</th><th class="text-end">Repos</th></tr></thead>',
+        wrapperStyle: 'max-height: 480px;',
+        emptyHtml: '<p class="text-muted small mb-0">No copyleft licenses found on direct dependencies.</p>',
+        rowsLabel: 'packages'
+    });
 
-    const eolRows = ins.eolStats.eolItems.slice(0, 25).map(e => `
+    const eolRowFormatter = (e) => `
         <tr>
             <td>${escapeHtml(e.name)}@${escapeHtml(e.version)}</td>
             <td><span class="badge bg-secondary">${escapeHtml(e.ecosystem || '—')}</span></td>
@@ -1507,7 +2087,16 @@ function renderRedFlagsSection(ins) {
             <td class="small text-muted">${escapeHtml(e.eolDate || '')}</td>
             <td class="text-end">${e.repoCount}</td>
         </tr>
-    `).join('');
+    `;
+    const eolTable = renderExpandableTable({
+        rows: ins.eolStats.eolItems || [],
+        capCount: 25,
+        rowFormatter: eolRowFormatter,
+        headerHtml: '<thead><tr><th>Package</th><th>Ecosystem</th><th>Product</th><th>EOL date</th><th class="text-end">Repos</th></tr></thead>',
+        wrapperStyle: 'max-height: 480px;',
+        emptyHtml: '<p class="text-muted small mb-0">No EOL components detected.</p>',
+        rowsLabel: 'packages'
+    });
 
     const conflicts = ls.conflicts.length ? `
         <div class="alert alert-danger small mb-0">
@@ -1526,9 +2115,6 @@ function renderRedFlagsSection(ins) {
                     <div class="col-md-4 text-center">
                         <h6 class="text-muted text-uppercase small mb-3">License risk</h6>
                         ${licDonut}
-                        <div class="d-flex flex-wrap justify-content-center mt-3 small">
-                            ${licSlices.map(s => `<span class="me-3"><span class="d-inline-block me-1" style="width:10px; height:10px; vertical-align: middle; background-color: ${s.color};"></span>${escapeHtml(s.key)}: <strong>${s.count}</strong></span>`).join('')}
-                        </div>
                         <div class="text-muted small mt-2">${licTotal} licensed deps</div>
                     </div>
                     <div class="col-md-4">
@@ -1538,9 +2124,6 @@ function renderRedFlagsSection(ins) {
                     <div class="col-md-4 text-center">
                         <h6 class="text-muted text-uppercase small mb-3">Supply-chain hygiene</h6>
                         ${scDonut}
-                        <div class="d-flex flex-wrap justify-content-center mt-3 small">
-                            ${scSlices.map(s => `<span class="me-3" title="${escapeHtml(s.tooltip)}"><span class="d-inline-block me-1" style="width:10px; height:10px; vertical-align: middle; background-color: ${s.color};"></span>${escapeHtml(s.key)}: <strong>${s.count}</strong></span>`).join('')}
-                        </div>
                         <div class="text-muted small mt-2">${scSubtitle}</div>
                     </div>
                 </div>
@@ -1548,23 +2131,11 @@ function renderRedFlagsSection(ins) {
                 <div class="row g-4">
                     <div class="col-12">
                         <h6 class="text-muted text-uppercase small mb-3">Copyleft licenses on direct dependencies <span class="text-muted small">(GPL/AGPL/LGPL/MPL/EPL/CDDL/OSL/EUPL)</span></h6>
-                        ${directRows ? `
-                            <div class="table-responsive" style="max-height: 360px;">
-                                <table class="table table-sm table-striped">
-                                    <thead><tr><th>Package</th><th>Ecosystem</th><th>License</th><th class="text-end">Repos</th></tr></thead>
-                                    <tbody>${directRows}</tbody>
-                                </table>
-                            </div>` : '<p class="text-muted small mb-0">No copyleft licenses found on direct dependencies.</p>'}
+                        ${directTable}
                     </div>
                     <div class="col-12">
-                        <h6 class="text-muted text-uppercase small mb-3">EOL components <span class="text-muted small">(top 25)</span></h6>
-                        ${eolRows ? `
-                            <div class="table-responsive" style="max-height: 360px;">
-                                <table class="table table-sm table-striped">
-                                    <thead><tr><th>Package</th><th>Ecosystem</th><th>Product</th><th>EOL date</th><th class="text-end">Repos</th></tr></thead>
-                                    <tbody>${eolRows}</tbody>
-                                </table>
-                            </div>` : '<p class="text-muted small mb-0">No EOL components detected.</p>'}
+                        <h6 class="text-muted text-uppercase small mb-3">EOL components</h6>
+                        ${eolTable}
                     </div>
                 </div>
             </div>
@@ -1574,30 +2145,27 @@ function renderRedFlagsSection(ins) {
 
 function renderTechDebtSection(ins) {
     const td = ins.techDebt;
-    const compRows = td.components.map(c => {
-        const widthPct = c.score * 100;
-        const barColor = c.score < 0.2 ? 'success' : (c.score < 0.5 ? 'warning' : 'danger');
-        return `
-            <tr>
-                <td>${escapeHtml(c.label)}</td>
-                <td class="text-end small text-muted">${(c.weight * 100).toFixed(0)}%</td>
-                <td style="min-width: 220px;">
-                    <div class="progress" style="height: 14px;">
-                        <div class="progress-bar bg-${barColor === 'warning' ? 'warning text-dark' : barColor}" role="progressbar" style="width: ${widthPct}%;" title="Debt contribution: ${(c.score * 100).toFixed(1)}%"></div>
-                    </div>
-                </td>
-                <td class="text-end small">${(c.score * 100).toFixed(1)}</td>
-                <td class="text-end small text-muted">${(c.weight * c.score * 100).toFixed(1)}</td>
-            </tr>
-        `;
-    }).join('');
+
+    const componentChartHtml = renderChartCanvas({
+        height: Math.max(220, 28 * td.components.length + 40),
+        factory: () => buildTechDebtComponentBarConfig(td.components)
+    });
+
+    const compTableRows = td.components.map(c => `
+        <tr>
+            <td>${escapeHtml(c.label)}</td>
+            <td class="text-end small text-muted">${(c.weight * 100).toFixed(0)}%</td>
+            <td class="text-end small">${(c.score * 100).toFixed(1)}</td>
+            <td class="text-end small text-muted">${(c.weight * c.score * 100).toFixed(1)}</td>
+        </tr>
+    `).join('');
 
     const perRepoSorted = ins.perRepo.slice(0).map(r => ({
         ...r,
         repoTechDebt: computeRepoTechDebt(r)
     })).sort((a, b) => b.repoTechDebt.debt100 - a.repoTechDebt.debt100);
 
-    const repoRows = perRepoSorted.slice(0, 50).map(r => {
+    const repoRowFormatter = (r) => {
         const dc = r.driftCounts;
         const grade = scoreToGrade(r.repoTechDebt.score100);
         return `
@@ -1613,7 +2181,16 @@ function renderTechDebtSection(ins) {
                 <td class="text-end small text-muted">${escapeHtml(r.activity)}</td>
             </tr>
         `;
-    }).join('');
+    };
+    const repoTable = renderExpandableTable({
+        rows: perRepoSorted,
+        capCount: 50,
+        rowFormatter: repoRowFormatter,
+        headerHtml: '<thead><tr><th>Repository</th><th>Grade</th><th class="text-end">Score</th><th class="text-end">Deps</th><th class="text-end">Crit</th><th class="text-end">High</th><th class="text-end">Major drift</th><th class="text-end">Minor drift</th><th class="text-end">Activity</th></tr></thead>',
+        wrapperStyle: 'max-height: 520px;',
+        emptyHtml: '<p class="text-muted small mb-0">No per-repo data.</p>',
+        rowsLabel: 'repos'
+    });
 
     return `
         <section class="card mb-4" id="tech-debt-section">
@@ -1633,24 +2210,75 @@ function renderTechDebtSection(ins) {
                     </div>
                     <div class="col-md-9">
                         <h6 class="text-muted text-uppercase small mb-2">Component breakdown</h6>
-                        <p class="small text-muted mb-3">Each row shows what fraction of that component's worst-case debt the portfolio currently carries (0 = perfect, 100 = maximum debt). The "Contribution" column is that debt level multiplied by the component's weight — sum the column and you get the overall debt index above.</p>
-                        <table class="table table-sm align-middle mb-0">
-                            <thead class="small text-muted"><tr><th>Component</th><th class="text-end">Weight</th><th>Debt level (lower = healthier)</th><th class="text-end">Debt</th><th class="text-end">Contribution</th></tr></thead>
-                            <tbody>${compRows}</tbody>
-                        </table>
+                        <p class="small text-muted mb-3">Each bar shows what fraction of that component's worst-case debt the portfolio currently carries (0 = perfect, 100 = maximum debt). Bars are tinted from green (healthy) → yellow → red as the debt level rises. The contribution column below each bar's tooltip multiplies the level by the component's weight; summing them yields the overall debt index above.</p>
+                        ${componentChartHtml}
+                        <div class="table-responsive mt-3">
+                            <table class="table table-sm align-middle mb-0">
+                                <thead class="small text-muted"><tr><th>Component</th><th class="text-end">Weight</th><th class="text-end">Debt</th><th class="text-end">Contribution</th></tr></thead>
+                                <tbody>${compTableRows}</tbody>
+                            </table>
+                        </div>
                     </div>
                 </div>
                 <h6 class="text-muted text-uppercase small mb-3">Per-repository tech-debt ranking</h6>
-                ${repoRows ? `
-                    <div class="table-responsive">
-                        <table class="table table-sm table-striped">
-                            <thead><tr><th>Repository</th><th>Grade</th><th class="text-end">Score</th><th class="text-end">Deps</th><th class="text-end">Crit</th><th class="text-end">High</th><th class="text-end">Major drift</th><th class="text-end">Minor drift</th><th class="text-end">Activity</th></tr></thead>
-                            <tbody>${repoRows}</tbody>
-                        </table>
-                    </div>` : '<p class="text-muted small mb-0">No per-repo data.</p>'}
+                ${repoTable}
             </div>
         </section>
     `;
+}
+
+function buildTechDebtComponentBarConfig(components) {
+    const colors = getInsightsThemeColors();
+    const colorFor = (score) => score < 0.2
+        ? cssColorForBucket('success')
+        : (score < 0.5 ? cssColorForBucket('warning') : cssColorForBucket('danger'));
+    return {
+        type: 'bar',
+        data: {
+            labels: components.map(c => c.label),
+            datasets: [{
+                label: 'Debt level',
+                data: components.map(c => +(c.score * 100).toFixed(1)),
+                backgroundColor: components.map(c => colorFor(c.score)),
+                borderWidth: 0
+            }]
+        },
+        options: {
+            indexAxis: 'y',
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                legend: { display: false },
+                tooltip: {
+                    callbacks: {
+                        label: (ctx) => {
+                            const c = components[ctx.dataIndex];
+                            const debt = (c.score * 100).toFixed(1);
+                            const contribution = (c.weight * c.score * 100).toFixed(1);
+                            return [
+                                `Debt: ${debt}/100`,
+                                `Weight: ${(c.weight * 100).toFixed(0)}%`,
+                                `Contribution: ${contribution}`
+                            ];
+                        }
+                    }
+                }
+            },
+            scales: {
+                x: {
+                    beginAtZero: true,
+                    max: 100,
+                    title: { display: true, text: 'Debt level (lower = healthier)', color: colors.text },
+                    ticks: { color: colors.textMuted },
+                    grid: { color: colors.border }
+                },
+                y: {
+                    ticks: { color: colors.text },
+                    grid: { display: false }
+                }
+            }
+        }
+    };
 }
 
 function gradeColor(grade) {

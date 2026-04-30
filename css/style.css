@@ -3779,4 +3779,53 @@ body {
 /* Rate limit status alert icon alignment */
 #rateLimitStatusAlert .fa-info-circle {
     opacity: 0.8;
+}
+
+/* =============================================================================
+   Insights page - Chart.js wrappers + expand toggles
+   ============================================================================= */
+
+/* Section-level chart container. Chart.js needs an explicit height because
+   `responsive: true` only stretches to the parent, not the viewport. */
+.insights-chart-wrap {
+    position: relative;
+    width: 100%;
+    height: 220px;
+}
+
+.insights-chart-wrap > canvas {
+    width: 100% !important;
+    height: 100% !important;
+}
+
+/* Doughnut sits inside its own square wrapper so the legend below it stays
+   aligned with the centered text. */
+.insights-doughnut-wrap {
+    position: relative;
+    margin: 0 auto;
+    width: 100%;
+    max-width: 220px;
+    aspect-ratio: 1 / 1;
+}
+
+.insights-doughnut-wrap > canvas {
+    width: 100% !important;
+    height: 100% !important;
+}
+
+/* Mini canvases live inside table rows (drift, depth, Critical+High). They
+   intentionally use fixed pixel dimensions because Chart.js's `responsive: true`
+   adds layout overhead that becomes visible at 50+ instances per page. */
+.insights-mini-canvas {
+    display: block;
+    flex: 0 0 auto;
+}
+
+/* Expand-to-show-all toggle button placed under capped Insights tables. */
+.insights-expand-btn {
+    align-self: flex-start;
+}
+
+.insights-expand-btn .insights-expand-label {
+    margin-left: 0.25rem;
 } 
