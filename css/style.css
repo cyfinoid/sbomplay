@@ -3821,6 +3821,44 @@ body {
     flex: 0 0 auto;
 }
 
+/* External (DOM) tooltip used by inline mini-bar canvases. Chart.js's default
+   in-canvas tooltip gets clipped by the 14-16px tall canvas, so we render a
+   floating element instead. Positioned via `left`/`top` from the tooltip
+   handler; pointer-events disabled so the tooltip never intercepts hover. */
+.insights-mini-tooltip {
+    position: absolute;
+    z-index: 1080;
+    pointer-events: none;
+    background: rgba(0, 0, 0, 0.85);
+    color: #fff;
+    font-size: 0.75rem;
+    line-height: 1.2;
+    padding: 6px 8px;
+    border-radius: 4px;
+    white-space: nowrap;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2);
+    opacity: 0;
+    transition: opacity 0.1s ease;
+}
+
+.insights-mini-tooltip.is-visible {
+    opacity: 1;
+}
+
+.insights-mini-tooltip .insights-mini-tooltip-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.insights-mini-tooltip .insights-mini-tooltip-swatch {
+    display: inline-block;
+    width: 10px;
+    height: 10px;
+    border-radius: 2px;
+    flex: 0 0 auto;
+}
+
 /* Expand-to-show-all toggle button placed under capped Insights tables. */
 .insights-expand-btn {
     align-self: flex-start;

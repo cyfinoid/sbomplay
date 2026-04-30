@@ -1067,6 +1067,59 @@ function renderInlineMiniBarCanvas({ datasets, labels = [''], width = 220, heigh
     return `<canvas id="${canvasId}" class="insights-mini-canvas" width="${width}" height="${height}" style="width: ${width}px; height: ${height}px; display: block;"></canvas>`;
 }
 
+// Shared singleton DOM node used as the floating tooltip for every inline
+// mini-bar canvas. Chart.js draws its built-in tooltip inside the canvas, which
+// gets clipped to the 14-16px row height, so we render an absolutely-positioned
+// element body-rooted instead. Created lazily on first hover.
+let __insightsMiniTooltipEl = null;
+function getInsightsMiniTooltipEl() {
+    if (__insightsMiniTooltipEl && document.body.contains(__insightsMiniTooltipEl)) {
+        return __insightsMiniTooltipEl;
+    }
+    const el = document.createElement('div');
+    el.className = 'insights-mini-tooltip';
+    el.setAttribute('role', 'tooltip');
+    document.body.appendChild(el);
+    __insightsMiniTooltipEl = el;
+    return el;
+}
+
+function inlineMiniBarExternalTooltipHandler(context) {
+    const { chart, tooltip } = context;
+    const el = getInsightsMiniTooltipEl();
+
+    if (!tooltip || tooltip.opacity === 0) {
+        el.classList.remove('is-visible');
+        return;
+    }
+
+    if (tooltip.body && tooltip.body.length > 0) {
+        const lines = tooltip.body.flatMap(b => b.lines || []);
+        const colors = tooltip.labelColors || [];
+        const rowsHtml = lines.map((line, i) => {
+            const swatch = colors[i] && colors[i].backgroundColor
+                ? `<span class="insights-mini-tooltip-swatch" style="background:${escapeHtml(colors[i].backgroundColor)}"></span>`
+                : '';
+            return `<div class="insights-mini-tooltip-row">${swatch}<span>${escapeHtml(line)}</span></div>`;
+        }).join('');
+        safeSetHTML(el, rowsHtml);
+    }
+
+    const canvasRect = chart.canvas.getBoundingClientRect();
+    el.classList.add('is-visible');
+    const tipWidth = el.offsetWidth;
+    const tipHeight = el.offsetHeight;
+    const scrollX = window.scrollX || window.pageXOffset || 0;
+    const scrollY = window.scrollY || window.pageYOffset || 0;
+    const desiredLeft = canvasRect.left + scrollX + tooltip.caretX - tipWidth / 2;
+    const minLeft = scrollX + 4;
+    const maxLeft = scrollX + document.documentElement.clientWidth - tipWidth - 4;
+    const left = Math.max(minLeft, Math.min(desiredLeft, maxLeft));
+    const top = canvasRect.top + scrollY - tipHeight - 6;
+    el.style.left = `${left}px`;
+    el.style.top = `${top}px`;
+}
+
 function buildInlineMiniBarConfig({ datasets, labels, tooltipLabelFormatter, totalForDataset }) {
     return {
         type: 'bar',
@@ -1080,7 +1133,8 @@ function buildInlineMiniBarConfig({ datasets, labels, tooltipLabelFormatter, tot
             plugins: {
                 legend: { display: false },
                 tooltip: {
-                    enabled: true,
+                    enabled: false,
+                    external: inlineMiniBarExternalTooltipHandler,
                     displayColors: true,
                     callbacks: {
                         title: () => '',
