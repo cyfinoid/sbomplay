@@ -1094,13 +1094,20 @@ flowchart LR
 - `malwareAnalysis`, `githubActionsAnalysis`, `categoryStats`, `languageStats`
 
 **Tech-Debt composite weights** (mirrored on the page so the score is never opaque):
-- 25% drift (major-behind weighted 3× minor)
-- 25% vulnerability density (CVEs/dep, severity-weighted Critical=10, High=4, Medium=1)
+- 30% drift (major-behind weighted 3× minor)
+- 30% vulnerability density (CVEs/dep, severity-weighted Critical=10, High=4, Medium=1)
 - 15% stale / aged packages (>2y or probable-EOL share of dated deps)
 - 10% license risk (high-risk share + conflicts penalty)
-- 10% SBOM grade (1 − averageScore/100)
 - 10% EOL runtime exposure (`eolCount + 0.5 * eosCount` over total deps)
 - 5% supply-chain hygiene (unpinned actions + dep-confusion + malware presence)
+
+**SBOM quality is intentionally excluded from the composite.** When GitHub
+generates the SBOM (the typical case for this tool) the user has no control
+over its NTIA / completeness fields, so charging tech-debt for it would
+surface signal nobody can act on. The SBOM-grade A–F donut on the *Repository
+hygiene* section and the `sbom_grade` column in the per-repo CSV export keep
+the signal visible separately for users who want it. The per-repo composite
+applies the same exclusion (formerly weighted 0.15 via `repo.grade`).
 
 **Backwards compatibility for legacy analyses:**
 The page renders gracefully on stored analyses produced before this release.

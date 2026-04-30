@@ -968,7 +968,51 @@ class SBOMProcessor {
             console.log('✅ Dependency tree resolution complete');
             this.dependencyTreesResolved = true;
             this.resolvedDependencyTrees = resolvedTrees;
-            
+
+            // Authoritative attribution: a dep belongs to repo R iff R's SBOM listed it.
+            //
+            // The per-ecosystem resolver above runs in parallel and uses two over-broad
+            // fallbacks when wiring transitives back to repos: (1) when a parent isn't yet
+            // in `this.dependencies` because its own ecosystem batch hasn't completed, the
+            // dep falls back to `reposWithDirectDeps` — every repo with any direct dep in
+            // the ecosystem; (2) when the dep ends up with zero repos via parent-trace, it
+            // inherits its first parent's `repositories` wholesale. Both fallbacks bleed
+            // transitives across repos that don't actually contain them — measurably ~87%
+            // of cross-repo (dep, repo) pairs in real exports were spurious.
+            //
+            // Rebuilding `dep.directIn` / `dep.transitiveIn` / `dep.repositories` here
+            // from `repo.dependencies` / `repo.directDependencies` (populated only at SBOM
+            // parse time, untouched by the resolver) makes attribution authoritative
+            // regardless of resolver race conditions. The resolver's `dep.parents` /
+            // `dep.children` / `dep.depth` (registry tree shape, used by vuln/license
+            // enrichment) are intentionally left intact.
+            //
+            // Resolver-discovered transitives that no SBOM listed end up with empty
+            // `repositories` — they remain in `this.dependencies` so vuln/license
+            // enrichment still works on them, but they correctly stop appearing in any
+            // per-repo aggregation.
+            for (const dep of this.dependencies.values()) {
+                dep.directIn = new Set();
+                dep.transitiveIn = new Set();
+                dep.repositories = new Set();
+            }
+            for (const [repoKey, repo] of this.repositories) {
+                if (!repo.dependencies) continue;
+                for (const depKey of repo.dependencies) {
+                    const dep = this.dependencies.get(depKey);
+                    if (!dep) continue;
+                    dep.repositories.add(repoKey);
+                    if (repo.directDependencies && repo.directDependencies.has(depKey)) {
+                        dep.directIn.add(repoKey);
+                    } else {
+                        dep.transitiveIn.add(repoKey);
+                    }
+                }
+            }
+            for (const dep of this.dependencies.values()) {
+                dep.count = dep.repositories.size;
+            }
+
             // Proactively check all dependencies for confusion using their original PURLs
             // This catches cases where SBOM name != PURL package name (e.g., mislabeled dependencies)
             await this.checkDependencyConfusionFromPurls();

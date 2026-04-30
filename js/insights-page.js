@@ -247,7 +247,6 @@ function buildInsights(analysisData) {
     const vulnAnalysis = analysisData.vulnerabilityAnalysis || null;
     const malwareAnalysis = analysisData.malwareAnalysis || null;
     const licenseAnalysis = analysisData.licenseAnalysis || null;
-    const qualityAnalysis = analysisData.qualityAnalysis || null;
     const ghActions = analysisData.githubActionsAnalysis || null;
     const languageStats = analysisData.languageStats || [];
 
@@ -276,8 +275,14 @@ function buildInsights(analysisData) {
     const depthStats = computeDepthStats(allDeps, allRepos);
 
     const perRepo = computePerRepoStats(allRepos, allDeps, vulnAnalysis, ghActions);
+    // SBOM quality intentionally excluded from the tech-debt composite: when GitHub
+    // generates the SBOM (the typical case for this tool) the user has no control
+    // over its NTIA / completeness fields, so penalising the org/repo for it would
+    // surface debt that no one can act on. The SBOM-grade donut on the Repository
+    // Hygiene section and the `sbom_grade` column in the per-repo CSV export keep
+    // the signal visible separately for users who want it.
     const techDebt = computeTechDebt({
-        driftStats, vulnAgeStats, ageStats, licenseStats, qualityAnalysis,
+        driftStats, vulnAgeStats, ageStats, licenseStats,
         eolStats, supplyChain, totalDeps
     });
 
@@ -285,7 +290,7 @@ function buildInsights(analysisData) {
         totalRepos, reposWithSbom, reposWithoutSbom, reposArchived,
         totalDeps, directCount, transitiveCount,
         driftStats, ageStats, vulnAgeStats, eolStats, licenseStats,
-        repoHygiene, supplyChain, depthStats, qualityAnalysis,
+        repoHygiene, supplyChain, depthStats,
         languageStats: normalizedLanguageStats,
         perRepo, techDebt,
         analysisName: analysisData._analysisName || ''
@@ -624,6 +629,18 @@ function computeSupplyChainStats(allDeps, malwareAnalysis, ghActions) {
 /**
  * Build dependency-depth aggregates for the Insights "Dependency depth" section.
  *
+ * Scope (what we count):
+ *
+ *   We count each `(depKey, repoKey)` pair where `depKey` appears in that repo's flat
+ *   `repo.dependencies` SBOM list. That list is populated only at SBOM parse time
+ *   (`SBOMProcessor.processSBOMData` line ~377), so it is the authoritative truth for
+ *   "which deps does this repo actually have?" — independent of any registry-based
+ *   resolver attribution. We deliberately do NOT use `dep.repositories` /
+ *   `dep.directIn` / `dep.transitiveIn` as the scope because pre-SBOM-truth-fix
+ *   versions of the resolver and storage self-heal could inflate those sets with
+ *   transitives from unrelated repos in the same ecosystem (the result was the
+ *   chart being dominated by a giant, misleading "Unknown" bucket).
+ *
  * Why per-repo BFS instead of reading `dep.depth`:
  *
  *   The resolver writes ONE global tree per ecosystem and tags each tree entry with the
@@ -635,22 +652,33 @@ function computeSupplyChainStats(allDeps, malwareAnalysis, ghActions) {
  *        a direct dep), not "direct". Direct deps have `dep.depth === null` and are tracked
  *        only via SBOM parsing into `repo.directDependencies` and `dep.directIn`.
  *
- *     2. Pre-fix sbom-processor.js (lines 891-928) treated `dep.depth === 1` as direct and
- *        stamped every 1st-level transitive's `directIn` with every repo that had any direct
- *        dep in the ecosystem; the bug then cascaded down through the parent traces, so
- *        every Nth-level transitive ended up associated with every repo. Storage self-heal
- *        (`StorageManager._recomputeDirectAndTransitive`) corrects that on load, but the
- *        global `dep.depth` is still per-ecosystem-tree, not per-repo: a package reachable
+ *     2. The global `dep.depth` is per-ecosystem-tree, not per-repo: a package reachable
  *        via different direct deps in different repos has only one global depth, which may
  *        not match any specific repo's actual depth from its own direct deps.
  *
  *   Both problems vanish if we recompute depth per repo here. We BFS from each repo's
  *   `directDependencies` (the SBOM ground truth) through a children-by-parent reverse index
- *   built from each dep's `parents` array (which IS clean — the bug only mis-classified
- *   directIn / transitiveIn / repositories, not the parent edges). Each (dep, repo) pair
- *   then gets the dep's true depth in that repo's subtree.
+ *   built from each dep's `parents` array. Each (dep, repo) pair then gets the dep's true
+ *   depth in that repo's subtree.
  *
- * UI labelling: Level 1 = direct, Level N = (N-1)-th level transitive.
+ * Residual handling ("no relationship known"):
+ *
+ *   Sometimes a dep is in `repo.dependencies` but the BFS can't reach it because no
+ *   parent chain links back to one of the repo's direct deps. Common causes:
+ *     • The dep came from a CycloneDX/SPDX SBOM that lists it without `dependsOn` /
+ *       `DEPENDS_ON` edges (GitHub Dependency Graph SBOMs only emit edges from the main
+ *       repo node to direct deps; transitive→transitive edges are absent).
+ *     • Registry resolution at SBOM time used a slightly different version of the
+ *       parent than the SBOM listed, so the parent key in `dep.parents` doesn't match
+ *       any key in `repo.directDependencies`.
+ *     • The dep's children weren't enumerated because `maxDepth` was hit during
+ *       resolution.
+ *   For these, per the product UX, we treat the dep as **direct** (Level 1) and tally it
+ *   into a separate `imputedDirect` counter so the renderer can surface a "Includes N
+ *   deps with no traceable parent path" inline note.
+ *
+ * UI labelling: Level 1 = direct (declared in repo.directDependencies OR imputed),
+ *               Level N = (N-1)-th level transitive.
  */
 function computeDepthStats(allDeps, allRepos) {
     let configuredMaxDepth = 10;
@@ -660,20 +688,6 @@ function computeDepthStats(allDeps, allRepos) {
         if (Number.isFinite(parsed) && parsed > 0) configuredMaxDepth = parsed;
     } catch (_) {
         // localStorage may be unavailable in some embedded contexts; fall back to default.
-    }
-
-    // Build depByKey + childrenByParent reverse index once.
-    //
-    // depByKey is keyed by the same `${name}@${version}` shape that the SBOM processor uses
-    // for `repo.directDependencies` / `dep.parents` / `dep.children`. The exported `dep.version`
-    // is `dep.displayVersion || dep.version` (see SBOMProcessor.exportData), which is exactly
-    // the form depKey was built from at SBOM parse time, so no additional normalisation is
-    // needed here.
-    const depByKey = new Map();
-    for (const dep of allDeps) {
-        if (!dep || !dep.name) continue;
-        const key = `${dep.name}@${dep.version}`;
-        depByKey.set(key, dep);
     }
 
     // childrenByParent is the inverted edge set: for every dep D that lists P in its parents,
@@ -697,10 +711,11 @@ function computeDepthStats(allDeps, allRepos) {
     const globalBuckets = new Map();
     let observedMaxLevel = null;
     let hasDepthData = false;
+    let imputedDirectGlobal = 0;
 
     const bumpRepo = (repoKey, levelKey) => {
         if (!perRepo.has(repoKey)) {
-            perRepo.set(repoKey, { byLevel: new Map(), total: 0 });
+            perRepo.set(repoKey, { byLevel: new Map(), total: 0, imputedDirect: 0 });
         }
         const entry = perRepo.get(repoKey);
         entry.byLevel.set(levelKey, (entry.byLevel.get(levelKey) || 0) + 1);
@@ -710,14 +725,10 @@ function computeDepthStats(allDeps, allRepos) {
         globalBuckets.set(levelKey, (globalBuckets.get(levelKey) || 0) + 1);
     };
 
-    // Track which (depKey, repoKey) pairs the BFS visited so we can detect deps that are
-    // associated with a repo (via dep.repositories) but unreachable from its direct deps.
-    // Those land in the `unknown` bucket so SBOM-only / orphaned deps still show up.
-    const visitedByRepo = new Map(); // repoKey -> Set<depKey>
-
     for (const repo of allRepos) {
         const repoKey = `${repo.owner}/${repo.name}`;
         const directDeps = Array.isArray(repo.directDependencies) ? repo.directDependencies : [];
+        const flatDeps = Array.isArray(repo.dependencies) ? repo.dependencies : [];
 
         // BFS from this repo's direct deps. For each visited dep, record the *minimum* level
         // at which it appears — a dep reached by two paths is counted at its shallowest.
@@ -745,37 +756,29 @@ function computeDepthStats(allDeps, allRepos) {
             }
         }
 
-        const visited = new Set();
-        for (const [depKey, level] of levelByDep) {
-            visited.add(depKey);
+        // Walk the repo's flat SBOM dep list (the ground truth) and bucket each dep:
+        //   • level from BFS if available,
+        //   • else Level 1 (treated as direct, with imputedDirect counter incremented).
+        // Deps reached by BFS but not in the flat list are intentionally NOT counted —
+        // those would be cross-repo registry-tree spillover from unrelated repos in the
+        // same ecosystem.
+        if (!perRepo.has(repoKey)) {
+            perRepo.set(repoKey, { byLevel: new Map(), total: 0, imputedDirect: 0 });
+        }
+        const repoEntry = perRepo.get(repoKey);
+
+        for (const depKey of flatDeps) {
+            const level = levelByDep.has(depKey) ? levelByDep.get(depKey) : 1;
             bumpRepo(repoKey, level);
             bumpGlobal(level);
+            if (!levelByDep.has(depKey)) {
+                repoEntry.imputedDirect++;
+                imputedDirectGlobal++;
+            }
             if (level > 1) hasDepthData = true;
             if (observedMaxLevel === null || level > observedMaxLevel) {
                 observedMaxLevel = level;
             }
-        }
-        visitedByRepo.set(repoKey, visited);
-    }
-
-    // Capture (dep, repo) pairs that are listed on `dep.repositories` but were not reached by
-    // the repo's BFS. This is rare but happens for SBOM-only orphans or analyses where the
-    // dependency graph wasn't fully resolved (e.g. unresolved registry, max-depth cap hit
-    // before children were enumerated). Bucket them as `unknown` so they don't silently
-    // disappear from the totals.
-    for (const dep of allDeps) {
-        if (!dep || !dep.name) continue;
-        const depKey = `${dep.name}@${dep.version}`;
-        const repos = new Set([
-            ...(Array.isArray(dep.repositories) ? dep.repositories : []),
-            ...(Array.isArray(dep.directIn) ? dep.directIn : []),
-            ...(Array.isArray(dep.transitiveIn) ? dep.transitiveIn : [])
-        ]);
-        for (const repoKey of repos) {
-            const visited = visitedByRepo.get(repoKey);
-            if (visited && visited.has(depKey)) continue; // already counted above
-            bumpRepo(repoKey, 'unknown');
-            bumpGlobal('unknown');
         }
     }
 
@@ -783,7 +786,7 @@ function computeDepthStats(allDeps, allRepos) {
     for (const repo of allRepos) {
         const repoKey = `${repo.owner}/${repo.name}`;
         if (!perRepo.has(repoKey)) {
-            perRepo.set(repoKey, { byLevel: new Map(), total: 0 });
+            perRepo.set(repoKey, { byLevel: new Map(), total: 0, imputedDirect: 0 });
         }
         const entry = perRepo.get(repoKey);
         let deepest = null;
@@ -816,7 +819,8 @@ function computeDepthStats(allDeps, allRepos) {
         observedMaxLevel,
         configuredMaxDepth,
         truncationCandidates,
-        hasDepthData
+        hasDepthData,
+        imputedDirectGlobal
     };
 }
 
@@ -926,7 +930,7 @@ function computePerRepoStats(allRepos, allDeps, vulnAnalysis, ghActions) {
 }
 
 function computeTechDebt(parts) {
-    const { driftStats, vulnAgeStats, ageStats, licenseStats, qualityAnalysis,
+    const { driftStats, vulnAgeStats, ageStats, licenseStats,
         eolStats, supplyChain, totalDeps } = parts;
 
     const driftMajor = driftStats.withDrift ? driftStats.major / driftStats.withDrift : 0;
@@ -950,7 +954,6 @@ function computeTechDebt(parts) {
     })();
 
     const licenseScore = clamp01(licenseStats.highRiskShare * 1.5 + (licenseStats.conflicts.length ? 0.2 : 0));
-    const sbomScore = clamp01(qualityAnalysis ? 1 - (qualityAnalysis.averageScore || qualityAnalysis.overallScore || 0) / 100 : 0.5);
     const eolScore = totalDeps ? clamp01(((eolStats.eolCount + eolStats.eosCount * 0.5) / totalDeps) * 5) : 0;
     const hygiene = (() => {
         const a = supplyChain.totalActions || 0;
@@ -960,12 +963,16 @@ function computeTechDebt(parts) {
         return clamp01(u * 0.5 + dc * 5 + mw * 0.5);
     })();
 
+    // SBOM quality (formerly weight 0.10) is intentionally excluded — when GitHub
+    // generates the SBOM the user has no control over its NTIA / completeness
+    // fields, so charging tech-debt for it surfaces signal nobody can act on.
+    // The 0.10 weight is split evenly between drift and vulnerability density,
+    // the two most user-actionable signals (now 0.30 each).
     const components = [
-        { id: 'drift', label: 'Version drift', weight: 0.25, score: driftScore },
-        { id: 'vulns', label: 'Vulnerability density', weight: 0.25, score: vulnScore },
+        { id: 'drift', label: 'Version drift', weight: 0.30, score: driftScore },
+        { id: 'vulns', label: 'Vulnerability density', weight: 0.30, score: vulnScore },
         { id: 'age',   label: 'Stale / aged packages', weight: 0.15, score: ageStaleShare },
         { id: 'license', label: 'License risk', weight: 0.10, score: licenseScore },
-        { id: 'sbom', label: 'SBOM quality (inverse)', weight: 0.10, score: sbomScore },
         { id: 'eol',  label: 'EOL runtime exposure', weight: 0.10, score: eolScore },
         { id: 'hygiene', label: 'Supply-chain hygiene', weight: 0.05, score: hygiene }
     ];
@@ -1747,15 +1754,13 @@ function renderDepthSection(ins) {
     const levels = [];
     for (let l = 1; l <= observedMax; l++) levels.push(l);
 
-    const knownTotal = levels.reduce((acc, l) => acc + (ds.globalBuckets.get(l) || 0), 0);
-    const unknownTotal = ds.globalBuckets.get('unknown') || 0;
-    const portfolioTotal = knownTotal + unknownTotal;
+    const portfolioTotal = levels.reduce((acc, l) => acc + (ds.globalBuckets.get(l) || 0), 0);
+    const imputedDirect = ds.imputedDirectGlobal || 0;
 
     // Sequential palette: green for direct (Level 1), warming up to red as depth grows.
     // Reuses Bootstrap utility colors so it matches the rest of the page; the 'orange'
     // sentinel is mapped via inline style because Bootstrap 5.1 has no `bg-orange`.
     const colorForLevel = (level) => {
-        if (level === 'unknown') return 'secondary';
         if (level === 1) return 'success';
         if (level === 2) return 'info';
         if (level === 3) return 'primary';
@@ -1769,13 +1774,6 @@ function renderDepthSection(ins) {
         count: ds.globalBuckets.get(l) || 0,
         color: cssColorForBucket(colorForLevel(l))
     }));
-    if (unknownTotal) {
-        portfolioBuckets.push({
-            label: 'Unknown',
-            count: unknownTotal,
-            color: cssColorForBucket('secondary')
-        });
-    }
 
     const portfolioChartHtml = portfolioTotal === 0
         ? '<p class="text-muted small mb-0">No depth data available.</p>'
@@ -1790,6 +1788,12 @@ function renderDepthSection(ins) {
             ${escapeHtml(b.label)}: <strong>${b.count.toLocaleString()}</strong>
         </span>
     `).join('');
+
+    // Surface the imputed-direct count so users know how much of Level 1 came from
+    // residuals (deps without a traceable parent path) vs explicit direct declarations.
+    const imputedNote = imputedDirect > 0
+        ? `<p class="text-muted small mt-1 mb-0"><i class="fas fa-info-circle me-1"></i>Includes <strong>${imputedDirect.toLocaleString()}</strong> dependency occurrences with no traceable parent path; treated as direct.</p>`
+        : '';
 
     // Depth-cap warning: with our labelling scheme, Level (configuredMaxDepth + 1) is the
     // deepest the resolver can reach. Hitting it means we stopped resolving children of
@@ -1826,16 +1830,6 @@ function renderDepthSection(ins) {
             borderWidth: 0,
             stack: 'depth'
         }));
-        const u = r.byLevel.get('unknown') || 0;
-        if (u) {
-            datasets.push({
-                label: 'Unknown',
-                data: [u],
-                backgroundColor: cssColorForBucket('secondary'),
-                borderWidth: 0,
-                stack: 'depth'
-            });
-        }
         const miniCanvas = renderInlineMiniBarCanvas({
             datasets,
             width: 220,
@@ -1889,7 +1883,9 @@ function renderDepthSection(ins) {
                 <h6 class="text-muted text-uppercase small mb-2">Portfolio-wide depth distribution</h6>
                 <p class="small text-muted mb-2">Each (dependency × repository) occurrence is bucketed by how deep it sits below the repo's direct deps. Level 1 = direct, Level 2 = first-level transitive, …, Level N+1 = N-th level transitive.</p>
                 ${portfolioChartHtml}
-                <div class="mb-4 mt-2">${legend || '<span class="text-muted small">No depth data available.</span>'}</div>
+                <div class="mt-2">${legend || '<span class="text-muted small">No depth data available.</span>'}</div>
+                ${imputedNote}
+                <div class="mb-4"></div>
                 <h6 class="text-muted text-uppercase small mb-3">Per-repository depth breakdown <span class="text-muted small">(${repos.length} ${repos.length === 1 ? 'repository' : 'repositories'})</span></h6>
                 ${depthTable}
                 <p class="small text-muted mt-2 mb-0"><i class="fas fa-info-circle me-1"></i>Depth is the global per-ecosystem resolver depth — a package reached via different direct dependencies in different repos can therefore show the same level across repos.</p>
@@ -2455,6 +2451,13 @@ function gradeColor(grade) {
 
 /**
  * Per-repo composite — same weights, narrowed inputs.
+ *
+ * SBOM quality (formerly weight 0.15, derived from `repo.grade`) is intentionally
+ * excluded for the same reason as the org-level composite: the SBOM is usually
+ * generated by GitHub and the user has no lever to fix its NTIA / completeness
+ * fields. The 0.15 weight is split evenly across drift / vulns / age — the
+ * three signals a repo owner can actually move. `repo.grade` is still surfaced
+ * via the Repository Hygiene SBOM-grade donut and the per-repo CSV export.
  */
 function computeRepoTechDebt(repo) {
     const dc = repo.driftCounts;
@@ -2464,16 +2467,6 @@ function computeRepoTechDebt(repo) {
     const ageWithData = Object.values(repo.ageBuckets).reduce((a, b) => a + b, 0);
     const stale = (repo.ageBuckets['2-3y'] || 0) + (repo.ageBuckets['3-5y'] || 0) + (repo.ageBuckets['>5y'] || 0);
     const ageScore = ageWithData ? clamp01(stale / ageWithData) : 0;
-    const sbomScoreInverse = (() => {
-        switch (repo.grade) {
-            case 'A': return 0.0;
-            case 'B': return 0.2;
-            case 'C': return 0.5;
-            case 'D': return 0.7;
-            case 'F': return 1.0;
-            default: return 0.5;
-        }
-    })();
     const hygiene = (() => {
         let v = 0;
         if (repo.archived) v += 0.3;
@@ -2482,10 +2475,9 @@ function computeRepoTechDebt(repo) {
     })();
 
     const components = [
-        { id: 'drift', weight: 0.25, score: driftScore },
-        { id: 'vulns', weight: 0.25, score: vulnScore },
-        { id: 'age', weight: 0.15, score: ageScore },
-        { id: 'sbom', weight: 0.15, score: sbomScoreInverse },
+        { id: 'drift', weight: 0.30, score: driftScore },
+        { id: 'vulns', weight: 0.30, score: vulnScore },
+        { id: 'age', weight: 0.20, score: ageScore },
         { id: 'hygiene', weight: 0.20, score: hygiene }
     ];
     const debt = components.reduce((a, c) => a + c.weight * c.score, 0);
