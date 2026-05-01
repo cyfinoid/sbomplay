@@ -248,6 +248,16 @@ class SettingsApp {
         if (redoAuthorDetectionBtn) {
             redoAuthorDetectionBtn.addEventListener('click', () => this.redoAuthorDetection());
         }
+
+        // Debug page: re-fetch missing licenses
+        const refetchLicensesBtn = document.getElementById('refetchLicensesBtn');
+        if (refetchLicensesBtn) {
+            refetchLicensesBtn.addEventListener('click', () => this.refetchMissingLicenses());
+        }
+        const checkUnknownLicensesBtn = document.getElementById('checkUnknownLicensesBtn');
+        if (checkUnknownLicensesBtn) {
+            checkUnknownLicensesBtn.addEventListener('click', () => this.checkUnknownLicenseCount());
+        }
     }
 
     /**
@@ -458,6 +468,154 @@ class SettingsApp {
             if (debugUrlLoggingCheckbox) debugUrlLoggingCheckbox.checked = false;
             
             this.showAlert('API settings reset to defaults', 'success');
+        }
+    }
+
+    /**
+     * Debug page: count dependencies whose license is missing or NOASSERTION/Unknown
+     * across all stored analyses. Mirrors the filter `LicenseFetcher.fetchLicenses` uses.
+     */
+    async checkUnknownLicenseCount() {
+        const statusEl = document.getElementById('licenseRefetchStatus');
+        const setStatus = (html, cls = 'info') => {
+            if (statusEl) {
+                statusEl.innerHTML = `<div class="alert alert-${cls} mb-0">${html}</div>`;
+            }
+        };
+        try {
+            setStatus('<i class="fas fa-spinner fa-spin me-2"></i>Counting dependencies with missing licenses...');
+            const combined = await this.storageManager.getCombinedData();
+            const allDeps = combined?.data?.allDependencies || [];
+            let missing = 0;
+            let withVersion = 0;
+            for (const dep of allDeps) {
+                const hasLicense = dep.license &&
+                    dep.license !== 'Unknown' &&
+                    dep.license !== 'NOASSERTION' &&
+                    String(dep.license).trim() !== '';
+                const hasVersion = dep.version && dep.version !== 'unknown';
+                if (!hasLicense && dep.name) {
+                    missing++;
+                    if (hasVersion) withVersion++;
+                }
+            }
+            setStatus(
+                `<strong>${missing}</strong> dependencies are missing license info ` +
+                `(<strong>${withVersion}</strong> have a known version and are eligible for re-fetch).`,
+                missing === 0 ? 'success' : 'info'
+            );
+        } catch (err) {
+            console.error('checkUnknownLicenseCount failed:', err);
+            setStatus(`Failed to count unknown licenses: ${err.message}`, 'danger');
+        }
+    }
+
+    /**
+     * Debug page: re-fetch licenses for stored dependencies that are missing them.
+     * Uses the shared `window.licenseFetcher` (LicenseFetcher) and persists updates back
+     * to IndexedDB by re-saving each affected analysis entry.
+     */
+    async refetchMissingLicenses() {
+        const statusEl = document.getElementById('licenseRefetchStatus');
+        const progressWrap = document.getElementById('licenseRefetchProgress');
+        const progressBar = document.getElementById('licenseRefetchProgressBar');
+        const progressText = document.getElementById('licenseRefetchProgressText');
+        const detailsEl = document.getElementById('licenseRefetchDetails');
+        const btn = document.getElementById('refetchLicensesBtn');
+
+        const setStatus = (html, cls = 'info') => {
+            if (statusEl) {
+                statusEl.innerHTML = `<div class="alert alert-${cls} mb-0">${html}</div>`;
+            }
+        };
+        const setProgress = (current, total, message) => {
+            const pct = total > 0 ? Math.round((current / total) * 100) : 0;
+            if (progressBar) {
+                progressBar.style.setProperty('--progress-width', `${pct}%`);
+                progressBar.setAttribute('aria-valuenow', String(pct));
+            }
+            if (progressText) progressText.textContent = `${pct}%`;
+            if (detailsEl && message) detailsEl.textContent = message;
+        };
+
+        const fetcher = window.licenseFetcher
+            || (typeof LicenseFetcher !== 'undefined' ? new LicenseFetcher() : null);
+        if (!fetcher) {
+            setStatus('LicenseFetcher is not available on this page.', 'danger');
+            return;
+        }
+
+        try {
+            if (btn) btn.disabled = true;
+            setStatus('<i class="fas fa-spinner fa-spin me-2"></i>Loading stored analyses...');
+            if (progressWrap) progressWrap.classList.remove('d-none');
+            setProgress(0, 1, 'Initializing...');
+
+            const idb = window.indexedDBManager || this.storageManager.indexedDB;
+            const stored = await idb.getAllEntries();
+            if (!stored || stored.length === 0) {
+                setStatus('No stored analyses found. Nothing to update.', 'warning');
+                return;
+            }
+
+            // Collect all eligible deps across analyses, keeping back-references for save.
+            const eligible = [];
+            for (const entry of stored) {
+                const deps = entry?.data?.allDependencies || [];
+                for (const dep of deps) {
+                    const hasLicense = dep.license &&
+                        dep.license !== 'Unknown' &&
+                        dep.license !== 'NOASSERTION' &&
+                        String(dep.license).trim() !== '';
+                    const hasVersion = dep.version && dep.version !== 'unknown';
+                    if (!hasLicense && hasVersion && dep.name) {
+                        eligible.push({ entry, dep });
+                    }
+                }
+            }
+
+            if (eligible.length === 0) {
+                setStatus('All stored dependencies already have license information.', 'success');
+                setProgress(1, 1, 'Nothing to fetch.');
+                return;
+            }
+
+            setStatus(`<i class="fas fa-spinner fa-spin me-2"></i>Re-fetching licenses for <strong>${eligible.length}</strong> dependencies...`);
+
+            const onlyDeps = eligible.map(e => e.dep);
+            const result = await fetcher.fetchLicenses(onlyDeps, (current, total, message) => {
+                setProgress(current, total, message);
+            });
+
+            // Persist updates back to each affected analysis entry. The schema splits
+            // analyses across two stores (organizations + repositories) keyed by `type`.
+            const touchedEntries = new Set();
+            for (const { entry } of eligible) touchedEntries.add(entry);
+            for (const entry of touchedEntries) {
+                try {
+                    if (entry?.type === 'organization' && entry.name) {
+                        await idb.saveOrganization(entry.name, entry);
+                    } else if (entry?.type === 'repository' && entry.fullName) {
+                        await idb.saveRepository(entry.fullName, entry);
+                    } else {
+                        console.warn('Skipped re-saving entry with unknown type:', entry);
+                    }
+                } catch (err) {
+                    console.error('Failed to persist re-fetched licenses for', entry?.name || entry?.fullName, err);
+                }
+            }
+
+            setProgress(result.total, result.total, `Fetched ${result.fetched} of ${result.total}.`);
+            setStatus(
+                `Re-fetch complete: <strong>${result.fetched}</strong> of <strong>${result.total}</strong> licenses retrieved. ` +
+                `Updated <strong>${touchedEntries.size}</strong> stored analyses.`,
+                result.fetched > 0 ? 'success' : 'info'
+            );
+        } catch (err) {
+            console.error('refetchMissingLicenses failed:', err);
+            setStatus(`License re-fetch failed: ${err.message}`, 'danger');
+        } finally {
+            if (btn) btn.disabled = false;
         }
     }
 
@@ -963,7 +1121,7 @@ class SettingsApp {
         statusElement.innerHTML = `
             <div class="row">
                 <div class="col-md-6">
-                    <h6>Storage Usage</h6>
+                    <h6>Storage Usage <small class="text-muted ms-1" title="Reported by navigator.storage.estimate(). The number is origin-wide — it includes anything else stored in this browser origin (Cache API, other IndexedDB databases, service-worker caches), not just SBOM Play's own tables.">(origin-wide)</small></h6>
                     <div class="progress mb-2" style="height: 1.5rem;">
                         <div class="progress-bar bg-${statusClass} progress-bar-dynamic" role="progressbar" 
                              style="--progress-width: ${usagePercentage}%" 
@@ -976,14 +1134,15 @@ class SettingsApp {
                         <strong>${(storageInfo.maxStorageSize / 1024 / 1024).toFixed(2)}MB</strong> quota 
                         (${((storageInfo.totalSize / storageInfo.maxStorageSize) * 100).toFixed(3)}%)
                     </p>
+                    <p class="small text-muted mt-1 mb-0"><i class="fas fa-info-circle me-1"></i>Reported by the browser for the entire origin — includes other site data, not just SBOM Play.</p>
                     ${storageInfo.totalSize > 0 && storageInfo.totalEntries === 0 ? 
                         '<p class="small text-info mt-2 mb-0"><i class="fas fa-info-circle me-1"></i>Storage includes entity caches (authors, packages, vulnerabilities) that persist even when analysis data is cleared.</p>' : ''}
                 </div>
                 <div class="col-md-6">
-                    <h6>Data Summary</h6>
+                    <h6>Data Summary <small class="text-muted ms-1" title="Each row is one stored analysis snapshot. A repo or org analysed multiple times contributes multiple rows.">(stored snapshots)</small></h6>
                     <ul class="list-unstyled small">
-                        <li><strong>Organizations:</strong> ${storageInfo.organizationsCount}</li>
-                        <li><strong>Repositories:</strong> ${storageInfo.repositoriesCount}</li>
+                        <li><strong>Organization analyses:</strong> ${storageInfo.organizationsCount}</li>
+                        <li><strong>Repository analyses:</strong> ${storageInfo.repositoriesCount}</li>
                         <li><strong>Total Entries:</strong> ${storageInfo.totalEntries}</li>
                         <li><strong>Available Space:</strong> ${(storageInfo.availableSpace / 1024 / 1024).toFixed(2)}MB</li>
                     </ul>
@@ -1625,7 +1784,7 @@ class SettingsApp {
             statsElement.innerHTML = `
                 <div class="row">
                     <div class="col-md-6">
-                        <h6>Entity Caches</h6>
+                        <h6>Entity Caches <small class="text-muted ms-1" title="Raw row counts in each IndexedDB store. There is no TTL filter — older rows are still counted as 'present'.">(row counts, no TTL filter)</small></h6>
                         <ul class="list-unstyled small">
                             <li><i class="fas fa-users me-2"></i><strong>Authors:</strong> ${stats.authorEntities.toLocaleString()} entities</li>
                             <li><i class="fas fa-box me-2"></i><strong>Packages:</strong> ${stats.packages.toLocaleString()} packages</li>
@@ -1634,10 +1793,10 @@ class SettingsApp {
                         </ul>
                     </div>
                     <div class="col-md-6">
-                        <h6>Analysis Data</h6>
+                        <h6>Analysis Data <small class="text-muted ms-1" title="Each row is one stored analysis snapshot. The same org or repo analysed multiple times will appear multiple times.">(snapshot rows)</small></h6>
                         <ul class="list-unstyled small">
-                            <li><i class="fas fa-building me-2"></i><strong>Organizations:</strong> ${stats.organizations.toLocaleString()} analyses</li>
-                            <li><i class="fas fa-code-branch me-2"></i><strong>Repositories:</strong> ${stats.repositories.toLocaleString()} analyses</li>
+                            <li><i class="fas fa-building me-2"></i><strong>Organizations:</strong> ${stats.organizations.toLocaleString()} stored snapshots</li>
+                            <li><i class="fas fa-code-branch me-2"></i><strong>Repositories:</strong> ${stats.repositories.toLocaleString()} stored snapshots</li>
                         </ul>
                     </div>
                 </div>

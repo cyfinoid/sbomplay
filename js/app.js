@@ -2662,13 +2662,22 @@ class SBOMPlayApp {
         // Calculate high-level stats
         const totalRepos = data.data.allRepositories?.length || 0;
         const totalDeps = data.data.allDependencies?.length || 0;
-        
-        // Extract vulnerabilities from vulnerabilityAnalysis
+
+        // Canonical vulnerability count: unique advisory ids across the
+        // portfolio (alias-aware), excluding malware and withdrawn
+        // advisories. Falls back to the raw `(dep, vuln)` pair sum on
+        // pages that haven't loaded `osv-service.js` yet so the dashboard
+        // never reads as zero just because the helper isn't present.
         let totalVulns = 0;
-        if (data.data.vulnerabilityAnalysis && data.data.vulnerabilityAnalysis.vulnerableDependencies) {
-            totalVulns = data.data.vulnerabilityAnalysis.vulnerableDependencies.reduce((total, dep) => {
-                return total + (dep.vulnerabilities?.length || 0);
-            }, 0);
+        let canonicalCounts = null;
+        const vulnDeps = data.data.vulnerabilityAnalysis?.vulnerableDependencies;
+        if (Array.isArray(vulnDeps)) {
+            if (window.osvService && typeof window.osvService.countUniqueAdvisories === 'function') {
+                canonicalCounts = window.osvService.countUniqueAdvisories(vulnDeps);
+                totalVulns = canonicalCounts.total;
+            } else {
+                totalVulns = vulnDeps.reduce((sum, dep) => sum + (dep.vulnerabilities?.length || 0), 0);
+            }
         }
         
         // Extract licenses from licenseAnalysis
@@ -2722,7 +2731,7 @@ class SBOMPlayApp {
                 <div class="col-md-3">
                     <div class="text-center">
                         <h4 class="text-info">${totalLicenses}</h4>
-                        <small class="text-muted">Licenses</small>
+                        <small class="text-muted" title="Number of dependencies with a parsed license string. This is NOT the number of distinct license identifiers — see licenses.html for the distinct-license breakdown.">Licensed dependencies</small>
                     </div>
                 </div>
             </div>
@@ -2926,18 +2935,32 @@ class SBOMPlayApp {
     }
     
     /**
-     * Render vulnerability counts by severity
+     * Render vulnerability counts by severity.
+     *
+     * Uses the canonical `OSVService.countUniqueAdvisories` helper so the
+     * severity row is consistent with the headline and with `vuln.html` —
+     * unique advisory ids portfolio-wide, alias-aware, malware excluded,
+     * withdrawn excluded. Legacy stored fields (`criticalVulnerabilities`
+     * / etc.) are pre-summed across overlapping orgs at merge time and
+     * disagree with the deduped headline; we no longer read them.
      */
     renderVulnerabilityCounts(data) {
         const vulnAnalysis = data.data.vulnerabilityAnalysis || {};
-        
-        const counts = {
-            critical: vulnAnalysis.criticalVulnerabilities || 0,
-            high: vulnAnalysis.highVulnerabilities || 0,
-            medium: vulnAnalysis.mediumVulnerabilities || 0,
-            low: vulnAnalysis.lowVulnerabilities || 0
-        };
-        
+        const vulnDeps = Array.isArray(vulnAnalysis.vulnerableDependencies)
+            ? vulnAnalysis.vulnerableDependencies
+            : [];
+        let counts;
+        if (window.osvService && typeof window.osvService.countUniqueAdvisories === 'function') {
+            const c = window.osvService.countUniqueAdvisories(vulnDeps);
+            counts = { critical: c.critical, high: c.high, medium: c.medium, low: c.low };
+        } else {
+            counts = {
+                critical: vulnAnalysis.criticalVulnerabilities || 0,
+                high: vulnAnalysis.highVulnerabilities || 0,
+                medium: vulnAnalysis.mediumVulnerabilities || 0,
+                low: vulnAnalysis.lowVulnerabilities || 0
+            };
+        }
         const total = counts.critical + counts.high + counts.medium + counts.low;
         
         if (total === 0) {
@@ -3154,12 +3177,12 @@ class SBOMPlayApp {
                 </div>
             </div>
             
-            <h6 class="mb-3">Average Category Scores (6 categories):</h6>
+            <h6 class="mb-3">Average Category Scores (7 categories, sbomqs v2.0):</h6>
             <div class="row g-3 mb-4">
                 <div class="col-lg-4 col-md-6">
                     <div class="card">
                         <div class="card-body p-2">
-                            <p class="mb-1 small"><strong>Identification (25%)</strong></p>
+                            <p class="mb-1 small"><strong>Identification (12%)</strong></p>
                             <div class="progress" style="height: 25px;">
                                 <div class="progress-bar bg-${getScoreColor(qa.averageIdentification || 0)} progress-bar-dynamic" 
                                      role="progressbar" 
@@ -3172,7 +3195,7 @@ class SBOMPlayApp {
                 <div class="col-lg-4 col-md-6">
                     <div class="card">
                         <div class="card-body p-2">
-                            <p class="mb-1 small"><strong>Provenance (20%)</strong></p>
+                            <p class="mb-1 small"><strong>Provenance (15%)</strong></p>
                             <div class="progress" style="height: 25px;">
                                 <div class="progress-bar bg-${getScoreColor(qa.averageProvenance || 0)} progress-bar-dynamic" 
                                      role="progressbar" 
@@ -3185,33 +3208,33 @@ class SBOMPlayApp {
                 <div class="col-lg-4 col-md-6">
                     <div class="card">
                         <div class="card-body p-2">
-                            <p class="mb-1 small"><strong>Dependencies (10%)</strong></p>
+                            <p class="mb-1 small"><strong>Integrity (18%)</strong></p>
                             <div class="progress" style="height: 25px;">
-                                <div class="progress-bar bg-${getScoreColor(qa.averageDependencies || 0)} progress-bar-dynamic" 
+                                <div class="progress-bar bg-${getScoreColor(qa.averageIntegrity || 0)} progress-bar-dynamic" 
                                      role="progressbar" 
-                                     style="--progress-width: ${qa.averageDependencies || 0}%">${qa.averageDependencies || 0}/100</div>
+                                     style="--progress-width: ${qa.averageIntegrity || 0}%">${qa.averageIntegrity || 0}/100</div>
                             </div>
-                            <small class="text-muted">Relationship mapping</small>
+                            <small class="text-muted">Checksums, signatures</small>
                         </div>
                     </div>
                 </div>
                 <div class="col-lg-4 col-md-6">
                     <div class="card">
                         <div class="card-body p-2">
-                            <p class="mb-1 small"><strong>Metadata (10%)</strong></p>
+                            <p class="mb-1 small"><strong>Completeness (15%)</strong></p>
                             <div class="progress" style="height: 25px;">
-                                <div class="progress-bar bg-${getScoreColor(qa.averageMetadata || 0)} progress-bar-dynamic" 
+                                <div class="progress-bar bg-${getScoreColor(qa.averageCompleteness || 0)} progress-bar-dynamic" 
                                      role="progressbar" 
-                                     style="--progress-width: ${qa.averageMetadata || 0}%">${qa.averageMetadata || 0}/100</div>
+                                     style="--progress-width: ${qa.averageCompleteness || 0}%">${qa.averageCompleteness || 0}/100</div>
                             </div>
-                            <small class="text-muted">Copyright, download location</small>
+                            <small class="text-muted">Dependencies, supplier, source</small>
                         </div>
                     </div>
                 </div>
                 <div class="col-lg-4 col-md-6">
                     <div class="card">
                         <div class="card-body p-2">
-                            <p class="mb-1 small"><strong>Licensing (10%)</strong></p>
+                            <p class="mb-1 small"><strong>Licensing (18%)</strong></p>
                             <div class="progress" style="height: 25px;">
                                 <div class="progress-bar bg-${getScoreColor(qa.averageLicensing || 0)} progress-bar-dynamic" 
                                      role="progressbar" 
@@ -3224,13 +3247,26 @@ class SBOMPlayApp {
                 <div class="col-lg-4 col-md-6">
                     <div class="card">
                         <div class="card-body p-2">
-                            <p class="mb-1 small"><strong>Vulnerability (15%)</strong></p>
+                            <p class="mb-1 small"><strong>Vulnerability (12%)</strong></p>
                             <div class="progress" style="height: 25px;">
                                 <div class="progress-bar bg-${getScoreColor(qa.averageVulnerability || 0)} progress-bar-dynamic" 
                                      role="progressbar" 
                                      style="--progress-width: ${qa.averageVulnerability || 0}%">${qa.averageVulnerability || 0}/100</div>
                             </div>
                             <small class="text-muted">PURL, CPE identifiers</small>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-lg-4 col-md-6">
+                    <div class="card">
+                        <div class="card-body p-2">
+                            <p class="mb-1 small"><strong>Structural (10%)</strong></p>
+                            <div class="progress" style="height: 25px;">
+                                <div class="progress-bar bg-${getScoreColor(qa.averageStructural || 0)} progress-bar-dynamic" 
+                                     role="progressbar" 
+                                     style="--progress-width: ${qa.averageStructural || 0}%">${qa.averageStructural || 0}/100</div>
+                            </div>
+                            <small class="text-muted">Spec compliance, parseability</small>
                         </div>
                     </div>
                 </div>
@@ -3256,7 +3292,7 @@ class SBOMPlayApp {
             html += `
                 <div class="alert alert-warning">
                     <h6><i class="fas fa-exclamation-triangle me-2"></i>Repositories Needing Attention (showing top ${Math.min(qa.repositoriesNeedingAttention.length, 5)} of ${qa.repositoriesNeedingAttention.length})</h6>
-                    <p class="small mb-2">These repositories have SBOM quality scores below 70%:</p>
+                    <p class="small mb-2">These repositories have SBOM quality scores below 7.0/10 (grade C or lower):</p>
                     <div class="table-responsive">
                         <table class="table table-sm table-hover mb-0">
                             <thead>
@@ -3488,15 +3524,19 @@ class SBOMPlayApp {
     }
     
     /**
-     * Get top 5 most commonly used dependencies (by name@version)
+     * Get top 5 most commonly used dependencies (by name@version).
+     *
+     * Note: copies the array before sorting so the shared
+     * `data.data.allDependencies` reference is not mutated. Other consumers
+     * in the same render pass (license distribution, version sprawl, etc.)
+     * rely on the original ordering.
      */
     getTopCommonDependencies(data) {
         if (!data.data.allDependencies || !Array.isArray(data.data.allDependencies)) {
             return [];
         }
-        
-        // Sort by count (repository count) descending and take top 5
-        return data.data.allDependencies
+
+        return [...data.data.allDependencies]
             .sort((a, b) => (b.count || 0) - (a.count || 0))
             .slice(0, 5)
             .map(dep => ({
@@ -3508,38 +3548,48 @@ class SBOMPlayApp {
     }
     
     /**
-     * Get top 5 dependencies with version sprawl (multiple versions)
+     * Get top 5 dependencies with version sprawl (multiple versions).
+     *
+     * Groups by `ecosystem:name` rather than just `name`, so a package
+     * named `core` appearing in both npm and Maven does not collide and
+     * inflate the version-sprawl signal. Versions equal to "unknown"
+     * (or empty) are excluded from the unique-version Set so missing
+     * version data does not artificially raise the count.
      */
     getVersionSprawlDependencies(data) {
         if (!data.data.allDependencies || !Array.isArray(data.data.allDependencies)) {
             return [];
         }
         
-        // Group by dependency name (ignoring version)
         const nameMap = new Map();
         
         data.data.allDependencies.forEach(dep => {
-            const name = dep.name;
-            if (!nameMap.has(name)) {
-                nameMap.set(name, {
-                    name: name,
+            const ecosystem = (dep.ecosystem || dep.category?.ecosystem || 'unknown').toLowerCase();
+            const key = `${ecosystem}:${dep.name}`;
+            if (!nameMap.has(key)) {
+                nameMap.set(key, {
+                    name: dep.name,
+                    ecosystem,
                     versions: new Set(),
                     versionDetails: []
                 });
             }
-            const entry = nameMap.get(name);
-            entry.versions.add(dep.version);
-            entry.versionDetails.push({
-                version: dep.version,
-                count: dep.count || 0
-            });
+            const entry = nameMap.get(key);
+            const ver = (dep.version || '').trim();
+            if (ver && ver !== 'unknown') {
+                entry.versions.add(ver);
+                entry.versionDetails.push({
+                    version: ver,
+                    count: dep.count || 0
+                });
+            }
         });
         
-        // Filter to dependencies with > 1 version, sort by version count, take top 5
         return Array.from(nameMap.values())
             .filter(entry => entry.versions.size > 1)
             .map(entry => ({
                 name: entry.name,
+                ecosystem: entry.ecosystem,
                 versionCount: entry.versions.size,
                 versions: Array.from(entry.versions).sort(),
                 versionDetails: entry.versionDetails.sort((a, b) => (b.count || 0) - (a.count || 0))
@@ -3585,18 +3635,24 @@ class SBOMPlayApp {
             const versionsDisplay = dep.versions.length > 5 
                 ? dep.versions.slice(0, 5).join(', ') + ` ... and ${dep.versions.length - 5} more`
                 : dep.versions.join(', ');
+            const ecoBadge = dep.ecosystem
+                ? `<span class="badge bg-info text-dark">${this.escapeHtml(dep.ecosystem)}</span>`
+                : '';
+            const depsLink = `deps.html?search=${encodeURIComponent(dep.name)}`
+                + (dep.ecosystem && dep.ecosystem !== 'unknown' ? `&ecosystem=${encodeURIComponent(dep.ecosystem)}` : '');
             
             return `
                 <div class="d-flex justify-content-between align-items-start mb-3 p-2 border rounded ${dep.versionCount > 1 ? 'border-warning' : ''}">
                     <div class="flex-grow-1">
                         <div class="d-flex align-items-center gap-2 mb-1">
                             <strong><code>${this.escapeHtml(dep.name)}</code></strong>
+                            ${ecoBadge}
                             <span class="badge bg-${dep.versionCount > 1 ? 'warning' : 'secondary'}">${dep.versionCount} ${dep.versionCount === 1 ? 'version' : 'versions'}</span>
                             ${dep.versionCount > 1 ? '<span class="badge bg-danger">Version Sprawl</span>' : ''}
                         </div>
                         <small class="text-muted">Versions: ${this.escapeHtml(versionsDisplay)}</small>
                     </div>
-                    <a href="deps.html?search=${encodeURIComponent(dep.name)}" class="btn btn-sm btn-outline-primary">
+                    <a href="${depsLink}" class="btn btn-sm btn-outline-primary">
                         <i class="fas fa-external-link-alt me-1"></i>View
                     </a>
                 </div>

@@ -1531,7 +1531,10 @@ class SBOMQualityProcessor {
                 totals.completeness += Math.round((depScore + metaScore) / 2);
             }
 
-            gradeDistribution[assessment.grade]++;
+            const gradeKey = (assessment.grade && Object.prototype.hasOwnProperty.call(gradeDistribution, assessment.grade))
+                ? assessment.grade
+                : 'N/A';
+            gradeDistribution[gradeKey]++;
 
             // Flag repositories scoring below 70 (grade C or lower)
             if (assessment.overallScore > 0 && assessment.overallScore < 70) {

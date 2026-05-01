@@ -3207,11 +3207,22 @@ class ViewManager {
         if (!orgData || !orgData.data || !Array.isArray(orgData.data.allDependencies)) return buckets;
         const allRepos = orgData.data.allRepositories || [];
         const directMap = new Map();
+        const repoByKey = new Map();
         for (const repo of allRepos) {
             const repoKey = `${repo.owner}/${repo.name}`;
             const set = new Set(Array.isArray(repo.directDependencies) ? repo.directDependencies : []);
             directMap.set(repoKey, set);
+            repoByKey.set(repoKey, repo);
         }
+        // Reuse the same compatibility checker `calculateLicenseCounts`
+        // uses, so the headline "Copyleft" tile and the per-card reach
+        // sub-line bucket each (dep, repo) pair under the same rules. Without
+        // this, a portfolio whose host repos are GPL-compatible reads as
+        // e.g. headline `1` (only one copyleft dep is incompatible with at
+        // least one repo) but reach `30 direct / 0 transitive` (all 30
+        // copyleft (dep, repo) pairs counted regardless of compatibility),
+        // making it look like the headline number is wrong.
+        const licenseProcessor = new LicenseProcessor();
         const tally = (cat, dCount, tCount) => {
             if (!buckets[cat]) return;
             buckets[cat].direct += dCount;
@@ -3231,10 +3242,42 @@ class ViewManager {
                 tally('unlicensed', dCount, tCount);
                 continue;
             }
-            tally('total', dCount, tCount);
             const cat = licenseInfo.category;
-            if (cat === 'copyleft' || cat === 'lgpl') tally('copyleft', dCount, tCount);
-            else if (cat === 'proprietary') tally('proprietary', dCount, tCount);
+            // Copyleft: mirror the host-license compatibility check the
+            // headline tile uses. A copyleft dep that is compatible with
+            // every repo it shows up in is *not* a high-attention finding,
+            // so its (dep, repo) pairs must not be tallied into the
+            // copyleft reach line. They still count toward `total`.
+            if (cat === 'copyleft' || cat === 'lgpl') {
+                tally('total', dCount, tCount);
+                let isCompatibleWithAllRepos = true;
+                if (repos.length > 0 && allRepos.length > 0) {
+                    for (const repoKey of repos) {
+                        const repo = repoByKey.get(repoKey);
+                        if (repo && repo.license) {
+                            const compatibility = licenseProcessor.isDependencyCompatibleWithRepository(
+                                licenseInfo.license,
+                                repo.license
+                            );
+                            if (compatibility === false || compatibility === null) {
+                                isCompatibleWithAllRepos = false;
+                                break;
+                            }
+                        } else {
+                            // No host license available — treat as potentially
+                            // incompatible (same posture as `calculateLicenseCounts`).
+                            isCompatibleWithAllRepos = false;
+                            break;
+                        }
+                    }
+                }
+                if (!isCompatibleWithAllRepos) {
+                    tally('copyleft', dCount, tCount);
+                }
+                continue;
+            }
+            tally('total', dCount, tCount);
+            if (cat === 'proprietary') tally('proprietary', dCount, tCount);
             else if (cat === 'custom') tally('custom', dCount, tCount);
             else if (cat === 'unknown') tally('unknown', dCount, tCount);
         }
@@ -3448,21 +3491,53 @@ class ViewManager {
 
     /**
      * Generate license types table data - groups dependencies by unique license name
+     *
+     * `options.highAttentionOnly` (boolean, default false): when true and the
+     * effective category is `copyleft` / `lgpl`, drop deps that are compatible
+     * with every host repo they appear in. Mirrors the headline "Copyleft"
+     * card definition so the click-through list matches the tile number.
+     * Without this flag the click-through showed all 30+ copyleft deps over
+     * a headline that read `1`.
      */
-    generateLicenseTypesTableData(allDependencies, categoryFilter = null, orgData = null) {
+    generateLicenseTypesTableData(allDependencies, categoryFilter = null, orgData = null, options = {}) {
         if (!allDependencies || allDependencies.length === 0) {
             return [];
         }
+
+        const highAttentionOnly = !!options.highAttentionOnly;
 
         const licenseProcessor = new LicenseProcessor();
         const licenseMap = new Map(); // license name -> { category, risk, packages: Set, repositories: Set }
         // Reach lookup — same shape used by `_computeLicenseReachCounts`.
         const _allRepos = orgData?.data?.allRepositories || [];
         const _directMap = new Map();
+        const _repoByKey = new Map();
         for (const r of _allRepos) {
             const rk = `${r.owner}/${r.name}`;
             _directMap.set(rk, new Set(Array.isArray(r.directDependencies) ? r.directDependencies : []));
+            _repoByKey.set(rk, r);
         }
+
+        // Same compatibility check `calculateLicenseCounts` and
+        // `_computeLicenseReachCounts` use, hoisted into a single helper so
+        // the headline tile / reach sub-line / click-through table can never
+        // disagree on what counts as "high-attention copyleft". Mirrors the
+        // headline path exactly: a dep with no recorded repos (or no repos
+        // loaded at all) is NOT high-attention — it can't conflict with any
+        // host license if it isn't actually used in any repo. Without this,
+        // the click-through table showed orphan deps (10 packages, 0 repos,
+        // empty Reach) that the headline tile correctly excluded.
+        const isHighAttentionCopyleft = (dep, depLicense) => {
+            const repos = Array.isArray(dep.repositories) ? dep.repositories : [];
+            if (repos.length === 0 || _allRepos.length === 0) return false;
+            for (const repoKey of repos) {
+                const repo = _repoByKey.get(repoKey);
+                if (!repo || !repo.license) return true; // unknown host license = potentially incompatible
+                const compat = licenseProcessor.isDependencyCompatibleWithRepository(depLicense, repo.license);
+                if (compat === false || compat === null) return true;
+            }
+            return false;
+        };
 
         allDependencies.forEach(dep => {
             // Use unified method to get license info
@@ -3470,27 +3545,41 @@ class ViewManager {
             
             if (!licenseInfo) return;
             
-            const license = licenseInfo.license || 'Unknown';
+            // `rawLicense` is what the headline counter (`_computeLicenseReachCounts`)
+            // tests against — null/empty/'NOASSERTION' is the canonical
+            // "unlicensed" predicate. The Unknown card click-through used to
+            // map null → 'Unknown' string and then route deps with
+            // `licenseInfo.category === 'unknown'` (LicenseProcessor's category
+            // for missing licenses) into the click-through list, double-
+            // counting the unlicensed bucket and producing 83 rows behind a
+            // headline count of 30. Aligning the predicate here so the
+            // headline tile and the click-through can never disagree.
+            const rawLicense = licenseInfo.license;
+            const isUnlicensed = !rawLicense || rawLicense === 'NOASSERTION';
+            const license = rawLicense || 'Unknown';
             const category = licenseInfo.category || 'unknown';
             const risk = licenseInfo.risk || 'low';
 
-            // Apply category filter if active
+            // Apply category filter — exactly mirrors the headline routing:
+            //   'unlicensed' bucket: deps with null/NOASSERTION license.
+            //   Any other category:  must be licensed AND category match.
+            //   No filter / 'all':   skip unlicensed (they have their own card).
             if (categoryFilter && categoryFilter !== 'all') {
                 if (categoryFilter === 'unlicensed') {
-                    // Skip licensed dependencies when filtering unlicensed
-                    if (license && license !== 'Unknown' && license !== 'NOASSERTION') {
-                        return;
-                    }
-                } else if (category !== categoryFilter) {
-                    return;
+                    if (!isUnlicensed) return;
+                } else {
+                    if (isUnlicensed) return;
+                    if (category !== categoryFilter) return;
                 }
+            } else {
+                if (isUnlicensed) return;
             }
 
-            // Skip unlicensed when not filtering for unlicensed
-            if (!categoryFilter || categoryFilter === 'all') {
-                if (!license || license === 'Unknown' || license === 'NOASSERTION') {
-                    return;
-                }
+            // High-attention copyleft filter: when active, only include
+            // copyleft / lgpl deps that are incompatible with at least one
+            // of their host repos. Pass-through for every other category.
+            if (highAttentionOnly && (category === 'copyleft' || category === 'lgpl')) {
+                if (!isHighAttentionCopyleft(dep, license)) return;
             }
 
             if (!licenseMap.has(license)) {
@@ -4330,6 +4419,7 @@ class ViewManager {
             {
                 type: 'copyleft',
                 title: '⚠️ Copyleft',
+                titleTooltip: 'High-attention copyleft only: copyleft deps that are incompatible with at least one host repository license. Copyleft deps that are compatible with every repo they appear in (e.g. an LGPL dep used inside an Apache-2.0 repo where dynamic linking is permitted) are excluded from this number — but they still appear in Total. Reach below uses the same filter.',
                 count: counts.copyleft,
                 detail: 'high risk',
                 licenseType: 'copyleft',
@@ -4384,8 +4474,11 @@ class ViewManager {
             const reachSub = config.reach
                 ? `<div class="license-detail small text-muted" title="(dep, repo) pair counts">${escapeHtml(config.reach)}</div>`
                 : '';
+            const titleAttr = config.titleTooltip
+                ? ` title="${escapeHtml(config.titleTooltip)}"`
+                : '';
             const cardHTML = `<div class="license-stat-card ${config.type} license-card clickable-license-card" id="license-card-${config.type}" ${clickHandler}>
-    <h4>${escapeHtml(config.title)}</h4>
+    <h4${titleAttr}>${escapeHtml(config.title)}</h4>
     <div class="license-number" id="license-count-${config.type}">${config.count}</div>
     <div class="license-detail">${escapeHtml(config.detail)}</div>
     ${reachSub}
@@ -4775,6 +4868,11 @@ class ViewManager {
 
         // Determine which filter to apply
         let filterCategory = currentCategoryFilter;
+        // When the user clicks the headline Copyleft tile, narrow the
+        // click-through to "high-attention copyleft only" so the rendered
+        // list matches the headline number. Other category cards (and
+        // toggling the same card off) leave the dropdown semantics intact.
+        let highAttentionOnly = false;
         if (filterType === 'total' || isActive) {
             // Show all - use current category filter or none
             filterCategory = currentCategoryFilter;
@@ -4782,6 +4880,9 @@ class ViewManager {
             // Apply filter based on card type
             switch (filterType) {
                 case 'copyleft':
+                    filterCategory = filterType;
+                    highAttentionOnly = true;
+                    break;
                 case 'proprietary':
                 case 'custom':
                 case 'unknown':
@@ -4805,7 +4906,7 @@ class ViewManager {
         };
 
         // Generate License Types Table
-        const licenseTypesData = this.generateLicenseTypesTableData(allDeps, filterCategory, orgData);
+        const licenseTypesData = this.generateLicenseTypesTableData(allDeps, filterCategory, orgData, { highAttentionOnly });
         let licenseTypesHTML = '';
         if (licenseTypesData.length > 0) {
             const getRiskBadgeClass = (risk) => {
@@ -4864,9 +4965,13 @@ class ViewManager {
                 </tr>`;
             }).join('');
 
+            const highAttentionBanner = highAttentionOnly
+                ? `<div class="alert alert-warning small py-2 mb-2"><i class="fas fa-filter me-1"></i>Showing <strong>high-attention copyleft only</strong> — copyleft / LGPL deps that are incompatible with at least one host repo's license. Compatible-everywhere copyleft deps are excluded (they still appear under <strong>Total</strong>). Click <strong>Total</strong> above to see all licensed deps.</div>`
+                : '';
             licenseTypesHTML = `<div class="license-types-section mb-4" id="license-types-section">
     <h4>📋 License Types</h4>
     <p class="text-muted mb-3">All unique licenses found in dependencies. Reach counts (dep, repo) pairs.</p>
+    ${highAttentionBanner}
     <div class="table-responsive">
         <table class="table table-striped table-hover" id="license-types-table">
             <thead>

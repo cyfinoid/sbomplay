@@ -611,11 +611,36 @@ document.addEventListener('DOMContentLoaded', async function() {
     function updateStats(filtered) {
         const withSBOM = allRepositories.filter(r => r.sbomStatus === 'Available').length;
         const withVulns = allRepositories.filter(r => r.vulnCount > 0).length;
-        
+
         document.getElementById('statTotal').textContent = allRepositories.length;
         document.getElementById('statWithSBOM').textContent = withSBOM;
         document.getElementById('statVulnerable').textContent = withVulns;
         document.getElementById('statShowing').textContent = filtered.length;
+
+        // Surface the archived sub-count so users understand the headline
+        // "Total Repositories" is *all repos* (including archived) rather
+        // than "active repos".
+        const archivedCount = allRepositories.filter(r => r.archived).length;
+        const totalDetail = document.getElementById('statTotalDetail');
+        if (totalDetail) {
+            totalDetail.textContent = archivedCount > 0
+                ? `${archivedCount.toLocaleString()} archived included`
+                : 'archived & forks included';
+        }
+
+        // Communicate that the table is paginated — `Showing` is the
+        // post-filter total, but the table only renders one page worth.
+        const showingDetail = document.getElementById('statShowingDetail');
+        if (showingDetail) {
+            const rendered = Math.min(pageSize, filtered.length);
+            if (filtered.length === 0) {
+                showingDetail.textContent = '';
+            } else if (rendered >= filtered.length) {
+                showingDetail.textContent = `${rendered} shown in table`;
+            } else {
+                showingDetail.textContent = `${rendered} shown · page ${currentPage}`;
+            }
+        }
     }
     
     function renderTable(repos) {

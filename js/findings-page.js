@@ -1063,8 +1063,12 @@ document.addEventListener('DOMContentLoaded', async function() {
         </div>`;
         html += '</div>';
 
-        // Category breakdown (5 equal-width tiles, aligned with row above)
-        html += '<div class="row row-cols-2 row-cols-sm-3 row-cols-md-5 g-2">';
+        // Category breakdown — every category that contributes to `Total`
+        // gets its own visible tile, so the headline number is never "off"
+        // because of an unseen bucket. Lifecycle and maintainer-signal used
+        // to be rolled into `Total` without their own tiles, which read as
+        // a bug ("Total ≠ sum of category cards"). Now they're surfaced too.
+        html += '<div class="row row-cols-2 row-cols-sm-3 row-cols-md-4 g-2">';
         html += `<div class="col">
             <div class="card h-100 ${stats.malware > 0 ? 'bg-danger text-white' : 'bg-light'}">
                 <div class="card-body text-center py-2">
@@ -1102,6 +1106,22 @@ document.addEventListener('DOMContentLoaded', async function() {
                 <div class="card-body text-center py-2">
                     <h3 class="mb-0"><i class="fas fa-unlink me-1"></i>${stats.sourceRepo}</h3>
                     <small class="${stats.sourceRepo > 0 ? '' : 'text-muted'}">Dead Source Repos</small>
+                </div>
+            </div>
+        </div>`;
+        html += `<div class="col">
+            <div class="card h-100 ${stats.lifecycle > 0 ? 'bg-warning' : 'bg-light'}">
+                <div class="card-body text-center py-2">
+                    <h3 class="mb-0"><i class="fas fa-shield-alt me-1"></i>${stats.lifecycle}</h3>
+                    <small class="${stats.lifecycle > 0 ? '' : 'text-muted'}">Package Lifecycle</small>
+                </div>
+            </div>
+        </div>`;
+        html += `<div class="col">
+            <div class="card h-100 ${stats.maintainerSignal > 0 ? 'bg-warning' : 'bg-light'}">
+                <div class="card-body text-center py-2">
+                    <h3 class="mb-0"><i class="fas fa-user-shield me-1"></i>${stats.maintainerSignal}</h3>
+                    <small class="${stats.maintainerSignal > 0 ? '' : 'text-muted'}">Maintainer Signal</small>
                 </div>
             </div>
         </div>`;

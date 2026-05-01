@@ -867,66 +867,17 @@ class SBOMProcessor {
                         dep.depth = treeNode.depth;
                         dep.parents = Array.from(treeNode.parents);
                         dep.children = Array.from(treeNode.children);
-                        
-                        // All tree entries are transitives. The resolver only writes children of a
-                        // package into the tree (see DependencyTreeResolver.resolvePackageDependencies),
-                        // so a direct dep itself is never present here — direct deps live in
-                        // `repo.directDependencies` / `dep.directIn` from SBOM parsing only. Any value of
-                        // `treeNode.depth >= 1` therefore means "this dep was reached transitively from
-                        // some direct dep". The previous logic mistakenly treated `treeNode.depth === 1`
-                        // as direct and bloated `dep.directIn` with every repo that had any direct dep
-                        // in this ecosystem; that propagated to deeper levels via parent traces, so every
-                        // repo ended up with every transitive at every depth. Both arms are now collapsed
-                        // into a single "trace parents → transitiveIn" pass that:
-                        //   • never touches `dep.directIn` (SBOM parsing is the single source of truth
-                        //     for "this repo declared this dep directly"),
-                        //   • only marks a repo as `transitiveIn` if it isn't already `directIn` for the
-                        //     same dep (a repo can declare a dep AND reach it transitively; we keep it
-                        //     classified as direct in that case).
-                        const reposUsingTransitive = new Set();
-                        treeNode.parents.forEach(parentKey => {
-                            const parentDep = this.dependencies.get(parentKey);
-                            if (parentDep) {
-                                parentDep.directIn.forEach(repo => reposUsingTransitive.add(repo));
-                                parentDep.transitiveIn.forEach(repo => reposUsingTransitive.add(repo));
-                            } else {
-                                // Parent dep isn't tracked yet (tree-only entry encountered out of order
-                                // during parallel resolution). Fall back to the broad reposWithDirectDeps
-                                // set so the dep at least lands in this scan's repos rather than being
-                                // orphaned; the next dep in the iteration that DOES find a real parent
-                                // will narrow the set correctly.
-                                reposWithDirectDeps.forEach(repo => reposUsingTransitive.add(repo));
-                            }
-                        });
 
-                        reposUsingTransitive.forEach(repoKey => {
-                            dep.repositories.add(repoKey);
-                            if (!dep.directIn.has(repoKey)) {
-                                dep.transitiveIn.add(repoKey);
-                            }
-                        });
-                        dep.count = dep.repositories.size;
-
-                        // Fallback: dep was discovered during tree resolution and we couldn't trace any
-                        // repo via parents (e.g. parents not yet processed in a parallel batch). Inherit
-                        // from the first parent's existing repositories so the dep doesn't end up
-                        // orphaned in `this.dependencies`.
-                        if (dep.repositories.size === 0 && treeNode.parents && treeNode.parents.length > 0) {
-                            const firstParentKey = Array.from(treeNode.parents)[0];
-                            const parentDep = this.dependencies.get(firstParentKey);
-                            if (parentDep && parentDep.repositories.size > 0) {
-                                parentDep.repositories.forEach(repo => {
-                                    dep.repositories.add(repo);
-                                    if (!dep.directIn.has(repo)) {
-                                        dep.transitiveIn.add(repo);
-                                    }
-                                });
-                                dep.count = dep.repositories.size;
-                                console.log(`   📌 Inherited ${dep.repositories.size} repos from parent for ${packageKey}`);
-                            } else {
-                                console.warn(`   ⚠️  No repositories found for transitive dep ${packageKey}`);
-                            }
-                        }
+                        // Repo attribution for resolver-discovered transitives is
+                        // deferred to the per-repo BFS post-pass below (search for
+                        // "Two-pass attribution"). The previous in-loop parent-trace
+                        // had a cross-repo bleed bug: when a parent dep had not yet
+                        // been processed in a parallel ecosystem batch, it fell back
+                        // to `reposWithDirectDeps` (every repo with any direct dep
+                        // in this ecosystem), wiring transitives across repos that
+                        // didn't actually contain them. The post-pass replaces it
+                        // with a structurally-bleed-free per-repo BFS through
+                        // `dep.children`.
                     }
                     
                     const stats = resolver.getTreeStats(tree);
@@ -969,33 +920,49 @@ class SBOMProcessor {
             this.dependencyTreesResolved = true;
             this.resolvedDependencyTrees = resolvedTrees;
 
-            // Authoritative attribution: a dep belongs to repo R iff R's SBOM listed it.
+            // ─── Two-pass attribution ─────────────────────────────────────
             //
-            // The per-ecosystem resolver above runs in parallel and uses two over-broad
-            // fallbacks when wiring transitives back to repos: (1) when a parent isn't yet
-            // in `this.dependencies` because its own ecosystem batch hasn't completed, the
-            // dep falls back to `reposWithDirectDeps` — every repo with any direct dep in
-            // the ecosystem; (2) when the dep ends up with zero repos via parent-trace, it
-            // inherits its first parent's `repositories` wholesale. Both fallbacks bleed
-            // transitives across repos that don't actually contain them — measurably ~87%
-            // of cross-repo (dep, repo) pairs in real exports were spurious.
+            // History: the previous single-pass implementation rebuilt
+            // `dep.directIn` / `dep.transitiveIn` / `dep.repositories` purely
+            // from `repo.dependencies` / `repo.directDependencies` (SBOM
+            // truth), wiping every resolver-derived attribution to "fix" the
+            // ~87% cross-repo bleed introduced by the per-ecosystem resolver's
+            // over-broad fallbacks (commits b50fa97 + efb35de). That cure was
+            // worse than the disease: GitHub's dependency-graph SPDX SBOMs
+            // typically don't carry a registry-accurate dep tree — they emit
+            // `DEPENDS_ON main → X` for every package, so every SBOM-listed
+            // dep ends up in `repo.directDependencies` and the post-pass ran
+            // out of `transitiveIn` candidates. UI everywhere read
+            // `0 transitive`, which was a regression from v0.0.8 behaviour
+            // where the resolver tree (built from registry data — npm,
+            // PyPI, Maven, …) supplied real transitive depth.
             //
-            // Rebuilding `dep.directIn` / `dep.transitiveIn` / `dep.repositories` here
-            // from `repo.dependencies` / `repo.directDependencies` (populated only at SBOM
-            // parse time, untouched by the resolver) makes attribution authoritative
-            // regardless of resolver race conditions. The resolver's `dep.parents` /
-            // `dep.children` / `dep.depth` (registry tree shape, used by vuln/license
-            // enrichment) are intentionally left intact.
+            // Pass 1 — SBOM truth. For each (repo, dep) where repo's SBOM
+            // lists dep, attribute the dep to the repo. Direct iff the
+            // repo's SBOM marked it direct (i.e. `repo.directDependencies`
+            // contains it), else transitive.
             //
-            // Resolver-discovered transitives that no SBOM listed end up with empty
-            // `repositories` — they remain in `this.dependencies` so vuln/license
-            // enrichment still works on them, but they correctly stop appearing in any
-            // per-repo aggregation.
+            // Pass 2 — per-repo BFS through the registry-built resolver
+            // tree. For each repo, BFS from its SBOM-direct seed set
+            // through `dep.children`. Any dep reached by the walk gets
+            // attributed to that repo as transitive (unless already direct
+            // in that repo via Pass 1). This is structurally bleed-free:
+            // BFS only ever adds (dep, R) when dep is reachable from R's
+            // own direct deps, so the cross-ecosystem leak the old
+            // `reposWithDirectDeps` fallback caused cannot recur.
+            //
+            // Net effect: GitHub-graph SBOMs and uploaded CycloneDX/SPDX
+            // SBOMs both get accurate direct-vs-transitive splits, and
+            // resolver-discovered transitives (registry-only, never listed
+            // in any SBOM) land in the right repos instead of being
+            // orphaned.
             for (const dep of this.dependencies.values()) {
                 dep.directIn = new Set();
                 dep.transitiveIn = new Set();
                 dep.repositories = new Set();
             }
+
+            // Pass 1 — SBOM truth.
             for (const [repoKey, repo] of this.repositories) {
                 if (!repo.dependencies) continue;
                 for (const depKey of repo.dependencies) {
@@ -1009,8 +976,47 @@ class SBOMProcessor {
                     }
                 }
             }
+
+            // Pass 2 — per-repo BFS through resolver tree.
+            let bfsAttributions = 0;
+            for (const [repoKey, repo] of this.repositories) {
+                if (!repo.directDependencies || repo.directDependencies.size === 0) continue;
+                const visited = new Set();
+                const queue = [];
+                for (const seed of repo.directDependencies) {
+                    if (!visited.has(seed)) {
+                        visited.add(seed);
+                        queue.push(seed);
+                    }
+                }
+                while (queue.length > 0) {
+                    const currentKey = queue.shift();
+                    const current = this.dependencies.get(currentKey);
+                    if (!current) continue;
+                    const children = Array.isArray(current.children)
+                        ? current.children
+                        : (current.children instanceof Set ? Array.from(current.children) : []);
+                    for (const childKey of children) {
+                        if (visited.has(childKey)) continue;
+                        visited.add(childKey);
+                        queue.push(childKey);
+                        const childDep = this.dependencies.get(childKey);
+                        if (!childDep) continue;
+                        childDep.repositories.add(repoKey);
+                        if (!childDep.directIn.has(repoKey)) {
+                            childDep.transitiveIn.add(repoKey);
+                            bfsAttributions++;
+                        }
+                    }
+                }
+            }
+
             for (const dep of this.dependencies.values()) {
                 dep.count = dep.repositories.size;
+            }
+
+            if (bfsAttributions > 0) {
+                console.log(`🔗 Resolver BFS added ${bfsAttributions} transitive (dep, repo) attribution${bfsAttributions === 1 ? '' : 's'} from registry tree`);
             }
 
             // Proactively check all dependencies for confusion using their original PURLs

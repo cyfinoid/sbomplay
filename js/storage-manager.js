@@ -218,54 +218,50 @@ class StorageManager {
 
     /**
      * Recompute `dep.directIn` / `dep.transitiveIn` / `dep.repositories` / `dep.count` on
-     * every dep in a loaded analysis from the SBOM ground truth.
+     * every dep in a loaded analysis using a two-pass attribution strategy.
      *
-     * Source of truth:
+     * Sources of truth:
      *   - `repo.dependencies`         — every dep declared in the repo's SBOM (flat list).
-     *   - `repo.directDependencies`   — subset that the SBOM marked as direct from the
-     *                                   main repo node (via SPDX `DEPENDS_ON` with
-     *                                   `isDirectFromMain` or CycloneDX direct flag).
-     * Both are populated only at SBOM parse time (`SBOMProcessor.processSBOMData` line
-     * ~377 and ~385) and are not mutated by any later pipeline stage, so they faithfully
-     * reflect what the SBOM said about each repo.
+     *   - `repo.directDependencies`   — subset the SBOM marked as direct (SPDX
+     *                                   `DEPENDS_ON` with `isDirectFromMain` or
+     *                                   CycloneDX direct flag).
+     *   - `dep.children`              — registry-built resolver tree edges.
      *
-     * Why this exists: pre-fix `SBOMProcessor.computeDependencyTrees` had two over-broad
-     * fallbacks when wiring resolved transitives back to repos — falling back to "every
-     * repo with any direct dep in this ecosystem" when a parent wasn't yet processed,
-     * and inheriting the first parent's full repo set when the dep ended up with zero
-     * repos. Both bled cross-repo: in real exports ~87% of cross-repo (dep, repo) pairs
-     * were spurious. The earlier `BFS over dep.parents` self-heal that lived here only
-     * fixed the direct/transitive *labels* but unioned the recomputed sets with the
-     * pre-existing (bloated) `dep.repositories`, so the bloat persisted across loads
-     * and showed up downstream as a giant "Unknown" bucket on the Insights depth chart
-     * and inflated per-repo counts on the Deps / Vuln / Authors / Licenses pages.
+     * Algorithm (mirrors `SBOMProcessor.computeDependencyTrees` post-pass):
      *
-     * Algorithm (read-time only; persisted IndexedDB data is untouched, same posture as
-     * `_invalidateStaleEOXStatus` and `_hydrateDriftAndStaleness`):
-     *   1. Build `depByKey` once for O(1) lookup.
-     *   2. Reset `directIn` / `transitiveIn` / `repositories` on every dep — we are
-     *      replacing them, not merging, so the existing bloat is dropped.
-     *   3. For each repo, walk `repo.dependencies`. For each `depKey`:
-     *      - add `repoKey` to `dep.repositories`,
-     *      - add to `dep.directIn` if `repo.directDependencies` includes `depKey`,
-     *        otherwise to `dep.transitiveIn`.
-     *   4. Set `dep.count = dep.repositories.length` so existing UI counters stay
-     *      in sync with the new (smaller) repo sets.
-     *   5. Stamp `entry._directTransitiveHealed = true` so reload of the same in-memory
-     *      entry within a session is a no-op.
+     *   PASS 1 — SBOM truth. Reset attribution, then for each (repo, dep) where
+     *   `repo.dependencies` contains dep, attribute the dep to the repo. Direct
+     *   iff `repo.directDependencies` contains it, else transitive.
      *
-     * Note: resolver-discovered transitives that no SBOM listed (rare; populated only by
-     * the registry-based dep tree resolver for vuln/license enrichment) will end up with
-     * empty `repositories` after this pass. They stay in `allDependencies` so enrichment
-     * data on them isn't lost, but they correctly stop appearing in any per-repo view.
+     *   PASS 2 — per-repo BFS through resolver tree. For each repo, BFS from
+     *   `repo.directDependencies` through `dep.children`. Any dep reached by
+     *   the walk gets attributed to the repo as transitive (unless already
+     *   direct in that repo via Pass 1). This is structurally bleed-free —
+     *   BFS only adds (dep, R) when dep is reachable from R's own direct
+     *   deps via registry edges.
+     *
+     * Heal-version stamping (`_directTransitiveHealVersion`):
+     *   - Stored analyses healed by the broken v1 logic (single-pass SBOM-only
+     *     with no resolver BFS, which produced "0 transitive" everywhere on
+     *     GitHub-graph SBOMs) are stamped `_directTransitiveHealed = true`
+     *     but lack `_directTransitiveHealVersion`. Bumping the version stamp
+     *     forces v2 to re-run on those analyses on next load, restoring
+     *     transitive coverage from the resolver tree without requiring users
+     *     to re-scan.
+     *
+     * Read-time only — persisted IndexedDB rows are untouched. Same posture as
+     * `_invalidateStaleEOXStatus` and `_hydrateDriftAndStaleness`.
      *
      * @param {Object|null} entry - Loaded analysis entry (may be null).
      */
     _recomputeDirectAndTransitive(entry) {
-        if (!entry || !entry.data || entry._directTransitiveHealed) return;
+        if (!entry || !entry.data) return;
+        if (entry._directTransitiveHealVersion === 2) return;
+
         const allDeps = Array.isArray(entry.data.allDependencies) ? entry.data.allDependencies : null;
         const allRepos = Array.isArray(entry.data.allRepositories) ? entry.data.allRepositories : null;
         if (!allDeps || !allRepos || allDeps.length === 0 || allRepos.length === 0) {
+            entry._directTransitiveHealVersion = 2;
             entry._directTransitiveHealed = true;
             return;
         }
@@ -304,6 +300,7 @@ class StorageManager {
             map.get(depKey).add(repoKey);
         };
 
+        // PASS 1 — SBOM truth.
         let reposVisited = 0;
         for (const repo of allRepos) {
             const repoKey = `${repo.owner}/${repo.name}`;
@@ -320,6 +317,52 @@ class StorageManager {
                 }
             }
             reposVisited++;
+        }
+
+        // PASS 2 — per-repo BFS through resolver tree (`dep.children`).
+        // Restores transitive attribution for resolver-discovered deps —
+        // the v1 self-heal wiped these because they're not in
+        // `repo.dependencies` (registry-fetched only, never appeared in
+        // any SBOM). For GitHub-graph SBOMs that flatten the dep tree,
+        // this is also the only source of true transitive depth: the
+        // SBOM lists every dep as `DEPENDS_ON main → X` so Pass 1 marks
+        // them all direct, and the registry tree's `dep.children` is
+        // what tells us which of those are actually transitive.
+        let bfsAttributions = 0;
+        for (const repo of allRepos) {
+            const repoKey = `${repo.owner}/${repo.name}`;
+            const directSeeds = Array.isArray(repo.directDependencies) ? repo.directDependencies : [];
+            if (directSeeds.length === 0) continue;
+            const visited = new Set();
+            const queue = [];
+            for (const seed of directSeeds) {
+                if (!visited.has(seed)) {
+                    visited.add(seed);
+                    queue.push(seed);
+                }
+            }
+            while (queue.length > 0) {
+                const currentKey = queue.shift();
+                const current = depByKey.get(currentKey);
+                if (!current) continue;
+                const children = Array.isArray(current.children)
+                    ? current.children
+                    : (current.children && typeof current.children[Symbol.iterator] === 'function'
+                        ? Array.from(current.children)
+                        : []);
+                for (const childKey of children) {
+                    if (visited.has(childKey)) continue;
+                    visited.add(childKey);
+                    queue.push(childKey);
+                    if (!depByKey.has(childKey)) continue;
+                    addTo(reposByDep, childKey, repoKey);
+                    const directs = directInByDep.get(childKey);
+                    if (!directs || !directs.has(repoKey)) {
+                        addTo(transitiveInByDep, childKey, repoKey);
+                        bfsAttributions++;
+                    }
+                }
+            }
         }
 
         let depsChanged = 0;
@@ -347,10 +390,11 @@ class StorageManager {
             }
         }
 
-        entry._directTransitiveHealed = true;
+        entry._directTransitiveHealVersion = 2;
+        entry._directTransitiveHealed = true; // legacy compat for any code still reading the boolean
 
-        if (depsChanged > 0) {
-            console.log(`🧹 Direct/transitive recomputed from SBOM truth: ${depsChanged} dep${depsChanged === 1 ? '' : 's'} relabeled across ${reposVisited} repo${reposVisited === 1 ? '' : 's'}`);
+        if (depsChanged > 0 || bfsAttributions > 0) {
+            console.log(`🧹 Direct/transitive recomputed (v2 — SBOM + resolver BFS): ${depsChanged} dep${depsChanged === 1 ? '' : 's'} relabeled across ${reposVisited} repo${reposVisited === 1 ? '' : 's'}, ${bfsAttributions} resolver-discovered transitive attribution${bfsAttributions === 1 ? '' : 's'} added`);
         }
     }
 

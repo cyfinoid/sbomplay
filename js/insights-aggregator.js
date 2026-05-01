@@ -532,9 +532,22 @@ function computeVulnAgeStats(vulnAnalysis, allDeps, directMap, depthStats) {
         return b.ageDays - a.ageDays;
     });
 
+    // Canonical KPI values (alias-aware, unique advisory ids portfolio-wide,
+    // malware/withdrawn excluded). Used by the KPI strip so the
+    // "Open Critical+High" tile matches the home dashboard and `vuln.html`
+    // cards. Falls back to bucket sums on older browsers / pages where
+    // `osv-service.js` isn't loaded.
+    let canonicalCritHigh = null;
+    if (typeof window !== 'undefined' && window.osvService
+        && typeof window.osvService.countUniqueAdvisories === 'function'
+        && vulnAnalysis && Array.isArray(vulnAnalysis.vulnerableDependencies)) {
+        const c = window.osvService.countUniqueAdvisories(vulnAnalysis.vulnerableDependencies);
+        canonicalCritHigh = (c.critical || 0) + (c.high || 0);
+    }
+
     return {
         buckets, bucketSplits, byDepth,
-        totalCves: total, totalsBySev,
+        totalCves: total, totalsBySev, canonicalCritHigh,
         directCves, transitiveCves,
         medianAgeDays, medianAgeDirectDays, medianAgeTransitiveDays,
         directDwellMedian, directDwellCount: directDwellAges.length,
@@ -1257,6 +1270,14 @@ function scoreToGrade(score100) {
 // =============================================================================
 
 function countCritHigh(vulnAgeStats) {
+    // Prefer the canonical (alias-aware, unique CVE id, malware/withdrawn
+    // excluded) count populated by `computeVulnAgeStats` when osv-service
+    // is loaded. Falls back to age-bucket sums for backward compatibility
+    // on pages that don't ship osv-service (no insights loads without it,
+    // but the function stays defensive).
+    if (typeof vulnAgeStats.canonicalCritHigh === 'number') {
+        return vulnAgeStats.canonicalCritHigh;
+    }
     let c = 0;
     for (const b of Object.values(vulnAgeStats.buckets)) {
         c += (b.critical || 0) + (b.high || 0);

@@ -1524,6 +1524,25 @@ document.addEventListener('DOMContentLoaded', function() {
             document.getElementById('statDirect').textContent = directCount;
             document.getElementById('statTransitive').textContent = transitiveCount;
             document.getElementById('statShowing').textContent = filtered.length;
+
+            // Communicate the gap between "rows that match filters" and "rows
+            // currently rendered in the table". Prior label said "Showing
+            // (filtered)" which read as "rendered in the table" but really
+            // meant "post-filter total" — so a 25-row table with 1500 matches
+            // looked like 1500 rendered rows.
+            const detail = document.getElementById('statShowingDetail');
+            if (detail) {
+                const rendered = displayLimit === 'all'
+                    ? filtered.length
+                    : Math.min(displayLimit, filtered.length);
+                if (filtered.length === 0) {
+                    detail.textContent = '';
+                } else if (displayLimit === 'all' || rendered >= filtered.length) {
+                    detail.textContent = `${rendered} shown in table`;
+                } else {
+                    detail.textContent = `${rendered} shown in table (page size ${displayLimit})`;
+                }
+            }
         }
         
         // Load funding data for visible dependencies (lazy loading)

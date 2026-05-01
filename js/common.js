@@ -391,6 +391,32 @@ async function loadOrganizationData(name, storageManager, options = {}) {
         // Create a copy of data and filter vulnerable dependencies
         data = JSON.parse(JSON.stringify(data));
         data.data.vulnerabilityAnalysis.vulnerableDependencies = filteredVulnDeps;
+
+        // Recompute severity counters and `vulnerablePackages` so the stat
+        // cards on the vulnerability page (and any consumer that reads
+        // `criticalVulnerabilities` etc.) match the repo-scoped list. Without
+        // this, the cards keep the portfolio totals while the table only
+        // shows rows for the chosen repository.
+        const va = data.data.vulnerabilityAnalysis;
+        let critical = 0, high = 0, medium = 0, low = 0;
+        for (const dep of filteredVulnDeps) {
+            for (const v of dep.vulnerabilities || []) {
+                const sev = (window.osvService && typeof window.osvService.getHighestSeverity === 'function')
+                    ? window.osvService.getHighestSeverity(v)
+                    : (v.severity || 'UNKNOWN');
+                if (sev === 'CRITICAL') critical++;
+                else if (sev === 'HIGH') high++;
+                else if (sev === 'MEDIUM' || sev === 'MODERATE') medium++;
+                else if (sev === 'LOW') low++;
+            }
+        }
+        va.vulnerablePackages = filteredVulnDeps.length;
+        va.criticalVulnerabilities = critical;
+        va.highVulnerabilities = high;
+        va.mediumVulnerabilities = medium;
+        va.lowVulnerabilities = low;
+        // `totalVulnerabilities` (when used) is the sum of severity buckets.
+        va.totalVulnerabilities = critical + high + medium + low;
     }
     
     // Hide no data section if we have data

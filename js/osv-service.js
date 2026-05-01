@@ -897,7 +897,14 @@ class OSVService {
     }
 
     /**
-     * Get the highest severity level from a vulnerability
+     * Get the highest severity level from a vulnerability.
+     *
+     * Returns the special sentinel `'WITHDRAWN'` when the OSV record
+     * carries a `withdrawn` timestamp — callers that don't know about
+     * the sentinel will treat it the same as `UNKNOWN` (severity rank 0)
+     * so withdrawn advisories never bubble up as Critical/High in
+     * legacy renderers. Live KPI counters (`countUniqueAdvisories`)
+     * skip withdrawn advisories entirely.
      */
     getHighestSeverity(vulnerability) {
         // Sort by severity level (CRITICAL > HIGH > MEDIUM/MODERATE > LOW)
@@ -908,6 +915,7 @@ class OSVService {
             'MODERATE': 3, // OSV API sometimes uses MODERATE instead of MEDIUM
             'LOW': 2,
             'INFORMATIONAL': 1,
+            'WITHDRAWN': 0,
             'UNKNOWN': 0
         };
 
@@ -923,6 +931,13 @@ class OSVService {
         if (typeof vulnerability !== 'object') {
             console.warn('⚠️ OSV: Vulnerability is not an object:', vulnerability);
             return highestSeverity;
+        }
+
+        // Withdrawn advisories should not register as a live severity.
+        // This is the "skip withdrawn" half of the alias-aware audit fix
+        // (the alias-aware dedupe lives in `countUniqueAdvisories`).
+        if (this.isWithdrawn(vulnerability)) {
+            return 'WITHDRAWN';
         }
 
         console.log('🔍 OSV: Processing vulnerability:', {
@@ -1029,6 +1044,136 @@ class OSVService {
 
         console.log(`🔍 OSV: Final severity for ${vulnerability.id}: ${highestSeverity}`);
         return highestSeverity;
+    }
+
+    /**
+     * Returns true if the OSV advisory has been withdrawn upstream.
+     * OSV records carry a `withdrawn` ISO-8601 timestamp once revoked; any
+     * non-empty value means the advisory should not count toward live KPIs.
+     */
+    isWithdrawn(vulnerability) {
+        if (!vulnerability || typeof vulnerability !== 'object') return false;
+        const w = vulnerability.withdrawn;
+        return typeof w === 'string' && w.trim() !== '';
+    }
+
+    /**
+     * Returns true for malware-class advisories (OSV `MAL-*` ids or
+     * explicit `kind: 'malware'` tag added by Phase 1.5).
+     */
+    isMalwareAdvisory(vulnerability) {
+        if (!vulnerability) return false;
+        if (vulnerability.kind === 'malware') return true;
+        const id = typeof vulnerability.id === 'string' ? vulnerability.id : '';
+        return id.startsWith('MAL-');
+    }
+
+    /**
+     * Returns true if a VEX statement on the advisory marks it as
+     * suppressed (`not_affected` or `fixed`). Mirrors the suppression
+     * filter applied in `view-manager.js` so the canonical KPI helper and
+     * the rendered list always agree.
+     */
+    isVexSuppressed(vulnerability) {
+        const status = vulnerability && vulnerability.vex && vulnerability.vex.status;
+        return status === 'not_affected' || status === 'fixed';
+    }
+
+    /**
+     * Build a canonical advisory id by collapsing OSV `aliases[]` so that
+     * the same logical CVE surfaced under multiple ecosystems (`GHSA-*`,
+     * `CVE-*`, `PYSEC-*`, etc.) only counts once. We prefer the first
+     * `CVE-*` alias when available (matches what users will look up
+     * externally), otherwise fall back to the OSV id, otherwise the
+     * smallest alias by lexicographic order.
+     */
+    getCanonicalAdvisoryId(vulnerability) {
+        if (!vulnerability) return null;
+        const aliases = Array.isArray(vulnerability.aliases) ? vulnerability.aliases : [];
+        const all = new Set();
+        if (vulnerability.id) all.add(String(vulnerability.id));
+        for (const a of aliases) {
+            if (a && typeof a === 'string') all.add(a);
+        }
+        if (all.size === 0) return null;
+        const ids = Array.from(all);
+        const cve = ids.find(x => /^CVE-\d{4}-\d{4,}$/i.test(x));
+        if (cve) return cve.toUpperCase();
+        return vulnerability.id || ids.sort()[0];
+    }
+
+    /**
+     * Canonical "vulnerability count" used across all dashboards and KPI
+     * tiles. Walks every `(dep, advisory)` pair in
+     * `vulnerableDependencies`, dedupes by the canonical advisory id (so
+     * aliased CVEs only count once across the whole portfolio), and
+     * applies the standard exclusions:
+     *   - withdrawn advisories
+     *   - malware advisories (have their own dashboard)
+     *   - VEX-suppressed advisories (`not_affected` / `fixed`) when
+     *     `vexSuppressActive === true`
+     *
+     * Returns `{ total, critical, high, medium, low, unknown,
+     *            affectedPackages, dropped: {withdrawn, malware, vex} }`
+     * where `affectedPackages` is the count of unique `name@version`
+     * packages that still have at least one counted advisory after
+     * exclusions.
+     *
+     * @param {Array} vulnerableDeps - vulnerabilityAnalysis.vulnerableDependencies
+     * @param {Object} options
+     * @param {boolean} [options.vexSuppressActive=false] - apply VEX hide toggle
+     * @param {boolean} [options.dedupeAcrossPackages=true] - true = global
+     *        unique advisory count; false = (package, advisory) pair count
+     */
+    countUniqueAdvisories(vulnerableDeps, options = {}) {
+        const {
+            vexSuppressActive = false,
+            dedupeAcrossPackages = true
+        } = options;
+        const result = {
+            total: 0,
+            critical: 0,
+            high: 0,
+            medium: 0,
+            low: 0,
+            unknown: 0,
+            affectedPackages: 0,
+            dropped: { withdrawn: 0, malware: 0, vex: 0 }
+        };
+        if (!Array.isArray(vulnerableDeps) || vulnerableDeps.length === 0) {
+            return result;
+        }
+        const seenGlobal = new Set();
+        const affectedKeys = new Set();
+        for (const dep of vulnerableDeps) {
+            const depKey = `${dep.name || ''}@${dep.version || ''}`;
+            const seenForDep = new Set();
+            const vulns = Array.isArray(dep.vulnerabilities) ? dep.vulnerabilities : [];
+            for (const v of vulns) {
+                if (this.isMalwareAdvisory(v)) { result.dropped.malware++; continue; }
+                if (this.isWithdrawn(v)) { result.dropped.withdrawn++; continue; }
+                if (vexSuppressActive && this.isVexSuppressed(v)) { result.dropped.vex++; continue; }
+                const cid = this.getCanonicalAdvisoryId(v) || `${depKey}::anon::${result.total}`;
+                if (dedupeAcrossPackages) {
+                    if (seenGlobal.has(cid)) continue;
+                    seenGlobal.add(cid);
+                } else {
+                    const pairKey = `${depKey}::${cid}`;
+                    if (seenForDep.has(pairKey)) continue;
+                    seenForDep.add(pairKey);
+                }
+                const sev = this.getHighestSeverity(v);
+                result.total++;
+                affectedKeys.add(depKey);
+                if (sev === 'CRITICAL') result.critical++;
+                else if (sev === 'HIGH') result.high++;
+                else if (sev === 'MEDIUM' || sev === 'MODERATE') result.medium++;
+                else if (sev === 'LOW') result.low++;
+                else result.unknown++;
+            }
+        }
+        result.affectedPackages = affectedKeys.size;
+        return result;
     }
 
     /**

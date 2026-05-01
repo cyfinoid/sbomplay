@@ -1153,13 +1153,15 @@ class LicenseProcessor {
     }
 
     /**
-     * Group dependencies by license families
+     * Group dependencies by license families.
+     * Uses the same fallback chain as the cards / high-risk list so a dep
+     * enriched only on `dep.licenseFull` is grouped under the right family.
      */
     groupByLicenseFamily(dependencies) {
         const families = new Map();
 
         dependencies.forEach(dep => {
-            const licenseInfo = this.parseLicense(dep.originalPackage);
+            const licenseInfo = this.resolveDependencyLicense(dep);
             let family = 'Unknown';
 
             // Find the family for this license
@@ -1180,6 +1182,36 @@ class LicenseProcessor {
         });
 
         return families;
+    }
+
+    /**
+     * Resolve a dependency's license using the same fallback chain that the
+     * UI cards use (`ViewManager.getDependencyLicenseInfo`):
+     *   licenseFull > license > raw.licenseFull > raw.license > originalPackage
+     *
+     * This guarantees the high-risk list (built here) and the home/page
+     * cards (built in view-manager) classify each dep into the same
+     * risk/category bucket. Returns the same shape as `parseLicense`.
+     */
+    resolveDependencyLicense(dep) {
+        const isUsable = (val) => val
+            && val !== 'Unknown'
+            && val !== 'NOASSERTION'
+            && String(val).trim() !== '';
+
+        if (isUsable(dep.licenseFull)) {
+            return this.parseLicense({ licenseConcluded: dep.licenseFull, licenseDeclared: dep.licenseFull });
+        }
+        if (isUsable(dep.license)) {
+            return this.parseLicense({ licenseConcluded: dep.license, licenseDeclared: dep.license });
+        }
+        if (dep.raw && isUsable(dep.raw.licenseFull)) {
+            return this.parseLicense({ licenseConcluded: dep.raw.licenseFull, licenseDeclared: dep.raw.licenseFull });
+        }
+        if (dep.raw && isUsable(dep.raw.license)) {
+            return this.parseLicense({ licenseConcluded: dep.raw.license, licenseDeclared: dep.raw.license });
+        }
+        return this.parseLicense(dep.originalPackage);
     }
 
     /**
@@ -1211,9 +1243,15 @@ class LicenseProcessor {
             highRiskDependencies: []
         };
 
-        // Process each dependency
+        // Process each dependency. Use the same fallback chain that
+        // `ViewManager.getDependencyLicenseInfo` uses for the cards on
+        // licenses.html: licenseFull > license > raw.licenseFull >
+        // raw.license > originalPackage. Without this chain the high-risk
+        // list and the cards disagreed (e.g. an AGPL dep enriched only on
+        // `dep.licenseFull` would be flagged by the cards but missed by
+        // the high-risk list, which only read `originalPackage`).
         dependencies.forEach(dep => {
-            const licenseInfo = this.parseLicense(dep.originalPackage);
+            const licenseInfo = this.resolveDependencyLicense(dep);
             
             if (licenseInfo.license && licenseInfo.license !== 'NOASSERTION') {
                 report.summary.licensedDependencies++;

@@ -83,7 +83,7 @@ document.addEventListener('DOMContentLoaded', async function() {
                 if (window.malwareService && data?.data?.vulnerabilityAnalysis) {
                     await window.malwareService.hydrateAffectedFromCache(data.data.vulnerabilityAnalysis);
                 }
-                const { filteredData, malwareCount } = excludeMalwareFromVulnAnalysis(data);
+                const { filteredData, malwareCount, vexSuppressed } = excludeMalwareFromVulnAnalysis(data);
 
                 let bannerHtml = '';
                 if (malwareCount > 0) {
@@ -97,6 +97,17 @@ document.addEventListener('DOMContentLoaded', async function() {
                             <a href="malware.html" class="btn btn-sm btn-light">
                                 <i class="fas fa-arrow-right me-1"></i>Open Malware page
                             </a>
+                        </div>`;
+                }
+                if (vexSuppressed > 0) {
+                    bannerHtml += `
+                        <div class="alert alert-info d-flex align-items-center" role="alert">
+                            <i class="fas fa-shield-alt me-2"></i>
+                            <span>
+                                <strong>${vexSuppressed}</strong> finding${vexSuppressed === 1 ? '' : 's'} hidden by VEX suppression
+                                (<code>not_affected</code> or <code>fixed</code>). Stat cards below reflect the suppressed view.
+                                Toggle "Hide VEX-suppressed" off to include them.
+                            </span>
                         </div>`;
                 }
 
@@ -243,29 +254,35 @@ document.addEventListener('DOMContentLoaded', async function() {
 /**
  * Return a deep-cloned copy of the analysis data with malware advisories
  * (`kind: 'malware'` or `id` starting with `MAL-`) stripped from
- * `vulnerabilityAnalysis.vulnerableDependencies`. Packages that are left
- * with zero CVE-style vulns after stripping are removed entirely.
- * Counts (`vulnerablePackages`, severity buckets) are recomputed.
+ * `vulnerabilityAnalysis.vulnerableDependencies`. When the user has
+ * toggled VEX suppression on (`window.__vexSuppress === true`), advisories
+ * marked `vex.status === 'not_affected'` or `'fixed'` are also dropped so
+ * the headline stat cards stay in sync with the rendered list. Packages
+ * that are left with zero CVE-style vulns after stripping are removed
+ * entirely. Counts (`vulnerablePackages`, severity buckets) are recomputed.
  *
  * @param {Object} data - Loaded organization analysis data.
- * @returns {{ filteredData: Object, malwareCount: number }}
+ * @returns {{ filteredData: Object, malwareCount: number, vexSuppressed: number }}
  */
 function excludeMalwareFromVulnAnalysis(data) {
     if (!data || !data.data || !data.data.vulnerabilityAnalysis) {
-        return { filteredData: data, malwareCount: 0 };
+        return { filteredData: data, malwareCount: 0, vexSuppressed: 0 };
     }
     const cloned = JSON.parse(JSON.stringify(data));
     const va = cloned.data.vulnerabilityAnalysis;
     if (!Array.isArray(va.vulnerableDependencies)) {
-        return { filteredData: cloned, malwareCount: 0 };
+        return { filteredData: cloned, malwareCount: 0, vexSuppressed: 0 };
     }
 
     const isMalware = v => !!v && (
         v.kind === 'malware' ||
         (typeof v.id === 'string' && v.id.startsWith('MAL-'))
     );
+    const vexSuppressActive = !!window.__vexSuppress;
+    const isVexSuppressed = v => !!(v && v.vex && (v.vex.status === 'not_affected' || v.vex.status === 'fixed'));
 
     let malwareCount = 0;
+    let vexSuppressed = 0;
     const filteredDeps = [];
     for (const dep of va.vulnerableDependencies) {
         const vulns = Array.isArray(dep.vulnerabilities) ? dep.vulnerabilities : [];
@@ -282,6 +299,8 @@ function excludeMalwareFromVulnAnalysis(data) {
                     ? window.osvService.advisoryAppliesToVersion(v, dep.version, ecosystem)
                     : true;
                 if (applies) malwareCount++;
+            } else if (vexSuppressActive && isVexSuppressed(v)) {
+                vexSuppressed++;
             } else {
                 cveOnly.push(v);
             }
@@ -291,24 +310,23 @@ function excludeMalwareFromVulnAnalysis(data) {
         }
     }
     va.vulnerableDependencies = filteredDeps;
-    va.vulnerablePackages = filteredDeps.length;
 
-    // Recompute severity counters so the dashboard tiles stay accurate.
-    let critical = 0, high = 0, medium = 0, low = 0;
-    for (const dep of filteredDeps) {
-        for (const v of dep.vulnerabilities || []) {
-            const sev = window.osvService ? window.osvService.getHighestSeverity(v) : (v.severity || 'UNKNOWN');
-            if (sev === 'CRITICAL') critical++;
-            else if (sev === 'HIGH') high++;
-            else if (sev === 'MEDIUM' || sev === 'MODERATE') medium++;
-            else if (sev === 'LOW') low++;
-        }
-    }
-    va.criticalVulnerabilities = critical;
-    va.highVulnerabilities = high;
-    va.mediumVulnerabilities = medium;
-    va.lowVulnerabilities = low;
+    // Canonical KPI numbers. The unique-advisory helper (osv-service.js)
+    // dedupes by canonical advisory id across the whole portfolio and
+    // skips withdrawn advisories so the cards never report a CVE that has
+    // been revoked upstream. We've already stripped malware + VEX above,
+    // but pass the same flags so legacy data with un-stripped entries is
+    // handled defensively.
+    const counts = window.osvService
+        ? window.osvService.countUniqueAdvisories(filteredDeps, { vexSuppressActive })
+        : { critical: 0, high: 0, medium: 0, low: 0, total: 0, affectedPackages: filteredDeps.length };
+    va.vulnerablePackages = counts.affectedPackages;
+    va.criticalVulnerabilities = counts.critical;
+    va.highVulnerabilities = counts.high;
+    va.mediumVulnerabilities = counts.medium;
+    va.lowVulnerabilities = counts.low;
+    va.totalVulnerabilities = counts.total;
 
-    return { filteredData: cloned, malwareCount };
+    return { filteredData: cloned, malwareCount, vexSuppressed };
 }
 

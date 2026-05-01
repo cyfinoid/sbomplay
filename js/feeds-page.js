@@ -405,6 +405,22 @@ console.log('📡 feeds-page.js loaded');
         dom.statCovered.textContent = String(allStats.covered);
         dom.statUncovered.textContent = String(allStats.uncovered);
         dom.statShowing.textContent = String(filteredEntries.length);
+
+        // Mirror the deps/repos pages: communicate that the table is
+        // paginated so users don't read "Matches filter: 1500" as
+        // "1500 rows currently rendered below".
+        const showingDetail = document.getElementById('statShowingDetail');
+        if (showingDetail) {
+            const limit = displayLimit === 'all' ? filteredEntries.length : displayLimit;
+            const rendered = Math.min(limit, filteredEntries.length);
+            if (filteredEntries.length === 0) {
+                showingDetail.textContent = '';
+            } else if (displayLimit === 'all' || rendered >= filteredEntries.length) {
+                showingDetail.textContent = `${rendered} shown in table`;
+            } else {
+                showingDetail.textContent = `${rendered} shown in table (page size ${displayLimit})`;
+            }
+        }
     }
 
     function renderTable() {
