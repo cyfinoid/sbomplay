@@ -2295,6 +2295,14 @@ class SBOMPlayApp {
      * latest counters per bucket in `this.rateLimitByBucket` and render one
      * row per bucket so the panel doesn't flip between unrelated values.
      *
+     * To keep the panel focused, we only render buckets that have actually
+     * been *affected* by this session — i.e. where `remaining < limit` (at
+     * least one request was charged). The `/rate_limit` endpoint seeds
+     * every bucket GitHub knows about, but most of those (search,
+     * code_scanning_*, audit_log, scim, actions_runner_registration, …)
+     * are pools the app never touches, so they're hidden until they're
+     * actually consumed.
+     *
      * Accepts either a single per-bucket info object (live updates) or an
      * object without a `bucket` field (legacy callers that passed the core
      * summary directly), which we treat as the `core` bucket.
@@ -2315,11 +2323,6 @@ class SBOMPlayApp {
                 bucket
             };
             this.rateLimitByBucket.set(bucket, merged);
-        }
-
-        if (this.rateLimitByBucket.size === 0) {
-            rateLimitDiv.innerHTML = '';
-            return;
         }
 
         const bucketLabels = {
@@ -2350,22 +2353,38 @@ class SBOMPlayApp {
             return 2;
         };
 
-        const entries = Array.from(this.rateLimitByBucket.values()).sort((a, b) => {
-            const diff = bucketOrder(a.bucket) - bucketOrder(b.bucket);
-            if (diff !== 0) return diff;
-            return a.bucket.localeCompare(b.bucket);
-        });
+        // A bucket is "affected" when at least one request has been charged
+        // against it during this session (remaining < limit). Buckets that
+        // /rate_limit reported but we never actually used stay hidden.
+        const isAffected = (entry) => (
+            entry &&
+            typeof entry.limit === 'number' &&
+            typeof entry.remaining === 'number' &&
+            entry.remaining < entry.limit
+        );
 
-        const authenticated = entries.find((e) => e.authenticated)?.authenticated || 'No';
+        const entries = Array.from(this.rateLimitByBucket.values())
+            .filter(isAffected)
+            .sort((a, b) => {
+                const diff = bucketOrder(a.bucket) - bucketOrder(b.bucket);
+                if (diff !== 0) return diff;
+                return a.bucket.localeCompare(b.bucket);
+            });
+
+        if (entries.length === 0) {
+            rateLimitDiv.innerHTML = '';
+            return;
+        }
+
+        // Prefer the auth state from any cached bucket (even unaffected ones)
+        // so the header line is accurate even before the first request lands.
+        const allEntries = Array.from(this.rateLimitByBucket.values());
+        const authenticated = allEntries.find((e) => e.authenticated)?.authenticated || 'No';
 
         const rows = entries.map((entry) => {
             const label = bucketLabels[entry.bucket] || titleCase(entry.bucket);
-            const remaining = entry.remaining === null || entry.remaining === undefined
-                ? 'Unknown'
-                : entry.remaining.toLocaleString();
-            const limit = entry.limit === null || entry.limit === undefined
-                ? 'Unknown'
-                : entry.limit.toLocaleString();
+            const remaining = entry.remaining.toLocaleString();
+            const limit = entry.limit.toLocaleString();
             const reset = entry.reset
                 ? new Date(entry.reset * 1000).toLocaleTimeString()
                 : 'Unknown';
