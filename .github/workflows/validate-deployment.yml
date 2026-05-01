@@ -30,7 +30,6 @@ jobs:
             "index.html"
             "licenses.html"
             "vuln.html"
-            "malware.html"
             "audit.html"
             "deps.html"
             "settings.html"
@@ -40,6 +39,7 @@ jobs:
             "debug.html"
             "findings.html"
             "feeds.html"
+            "insights.html"
           )
           
           MISSING=0
@@ -106,7 +106,6 @@ jobs:
             "js/license-processor.js"
             "js/licenses-page.js"
             "js/location-service.js"
-            "js/malware-page.js"
             "js/malware-service.js"
             "js/opml-builder.js"
             "js/osv-service.js"
@@ -127,6 +126,8 @@ jobs:
             "js/sbom-parser.js"
             "js/findings-page.js"
             "js/upload-page.js"
+            "js/insights-aggregator.js"
+            "js/insights-page.js"
           )
           
           MISSING=0

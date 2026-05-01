@@ -2017,6 +2017,10 @@
                             const repoCount = a.repositoryCount || 0;
                             return uniquePackages.length === 1 && repoCount > 1;
                         }).length} with single package across multiple repos)` : ''}
+                        <div class="mt-2 small">
+                            <i class="fas fa-code-branch me-1 text-muted"></i>
+                            For packages whose source repository is on GitHub, the top 10 repository contributors are included as <em>tentative</em> authors (marked with <span class="badge bg-warning text-dark">⚠️</span> in the location column). When several packages share the same repository (e.g. monorepos like <code>spring-projects/spring-boot</code> or <code>babel/babel</code>), all of those packages will list the same contributors — that's the intended behaviour: a compromise of the shared repo affects every package that ships from it. Automated bots (Dependabot, Renovate, GitHub Actions, …) are routed to the <strong>Active Bots in the Environments</strong> section below instead of the human authors list.
+                        </div>
                         ${visibleAuthors.length < allVisibleHumanAuthors.length ? `
                             <br><a href="#" class="btn btn-sm btn-primary mt-2" id="showAllAuthorsBtn">
                                 <i class="fas fa-list me-1"></i>Show All ${allVisibleHumanAuthors.length} Authors

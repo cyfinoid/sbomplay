@@ -20,6 +20,7 @@ class SettingsApp {
         this.loadRateLimitInfo();
         this.setupEventListeners();
         this.displaySanctionsStatus();  // Load and display sanctions status
+        await this.initLocationEnrichmentCard();
     }
 
     /**
@@ -204,14 +205,6 @@ class SettingsApp {
             });
         }
 
-        // Per-package GitHub contributor correlation toggle (T3.2). Default off so a
-        // fresh install / cleared localStorage avoids the extra GitHub API traffic.
-        const contributorCorrelationCheckbox = document.getElementById('enableContributorCorrelation');
-        if (contributorCorrelationCheckbox) {
-            contributorCorrelationCheckbox.checked =
-                localStorage.getItem('enableContributorCorrelation') === 'true';
-        }
-
         const saveAnalysisSettingsBtn = document.getElementById('saveAnalysisSettingsBtn');
         if (saveAnalysisSettingsBtn) {
             saveAnalysisSettingsBtn.addEventListener('click', () => this.saveAnalysisSettings());
@@ -331,16 +324,6 @@ class SettingsApp {
             }
         }
 
-        // Persist contributor-correlation toggle (T3.2). AuthorService reads
-        // localStorage at fetch time, so no module-level wiring is needed here.
-        const contributorCorrelationCheckbox = document.getElementById('enableContributorCorrelation');
-        if (contributorCorrelationCheckbox) {
-            localStorage.setItem(
-                'enableContributorCorrelation',
-                contributorCorrelationCheckbox.checked ? 'true' : 'false'
-            );
-        }
-
         // Update dependency tree resolver if available
         if (window.dependencyTreeResolver) {
             window.dependencyTreeResolver.maxDepth = depth;
@@ -382,10 +365,11 @@ class SettingsApp {
             if (parallelBatchSizeInput) parallelBatchSizeInput.value = '10';
             if (currentParallelBatchSizeEl) currentParallelBatchSizeEl.textContent = '10';
 
-            // Reset contributor correlation toggle (default off, T3.2)
+            // Stale: a previous build (T3.2) gated the always-on GitHub
+            // contributor enrichment behind `enableContributorCorrelation`. The
+            // setting was removed; clear it from any user's localStorage on the
+            // next "Reset to Defaults" so it doesn't accumulate.
             localStorage.removeItem('enableContributorCorrelation');
-            const contributorCorrelationCheckbox = document.getElementById('enableContributorCorrelation');
-            if (contributorCorrelationCheckbox) contributorCorrelationCheckbox.checked = false;
 
             if (window.dependencyTreeResolver) {
                 window.dependencyTreeResolver.maxDepth = 10;
@@ -807,12 +791,24 @@ class SettingsApp {
     }
 
     /**
-     * Extract package name from PURL
+     * Extract package name from PURL.
+     *
+     * Maven PURLs use slash-separated `<groupId>/<artifactId>` per the spec,
+     * but every Maven-aware lookup we issue downstream (ecosyste.ms package
+     * endpoint, deps.dev, the `dep.name` field) expects the canonical
+     * `groupId:artifactId` colon-form, so we normalise here. Other ecosystems
+     * are returned unchanged. Mirrors `SBOMPlayApp.getPackageNameFromPurl`.
      */
     getPackageNameFromPurl(purl) {
         if (!purl) return null;
-        const match = purl.match(/^pkg:[^/]+\/([^@?]+)/);
-        return match ? match[1] : null;
+        const match = purl.match(/^pkg:([^/]+)\/([^@?]+)/);
+        if (!match) return null;
+        const ecosystem = (match[1] || '').toLowerCase();
+        const rawName = match[2];
+        if (ecosystem === 'maven' && rawName.includes('/')) {
+            return rawName.replace(/\//g, ':');
+        }
+        return rawName;
     }
 
     /**
@@ -1832,6 +1828,190 @@ class SettingsApp {
                 alertDiv.remove();
             }
         }, 5000);
+    }
+
+    /**
+     * Initialize the Author Location Enrichment card.
+     * Checks stored analyses for locationSkippedCount and counts
+     * author entities still missing location data.
+     */
+    async initLocationEnrichmentCard() {
+        const btn = document.getElementById('fetchRemainingLocationsBtn');
+        const statusDiv = document.getElementById('locationEnrichmentStatus');
+        const alertDiv = document.getElementById('locationEnrichmentAlert');
+        const progressSpan = document.getElementById('locationFetchProgress');
+        if (!btn || !statusDiv || !alertDiv) return;
+
+        // Count authors that still need location fetching
+        const missing = await this._countMissingLocationAuthors();
+
+        statusDiv.classList.remove('d-none');
+        if (missing > 0) {
+            alertDiv.className = 'alert alert-warning mb-0';
+            alertDiv.textContent = `${missing.toLocaleString()} author(s) have a GitHub login but no location data yet. Click below to fetch their profiles (up to ~4,900 per run).`;
+            btn.disabled = false;
+        } else {
+            alertDiv.className = 'alert alert-success mb-0';
+            alertDiv.textContent = 'All authors with GitHub logins already have location data (or were checked and had none).';
+            btn.disabled = true;
+        }
+
+        btn.addEventListener('click', async () => {
+            await this._fetchRemainingLocations(btn, progressSpan, alertDiv, statusDiv);
+        });
+    }
+
+    async _countMissingLocationAuthors() {
+        if (!window.cacheManager || !window.indexedDBManager?.db) return 0;
+        try {
+            const db = window.indexedDBManager.db;
+            const tx = db.transaction(['authorEntities'], 'readonly');
+            const store = tx.objectStore('authorEntities');
+            const all = await new Promise((resolve, reject) => {
+                const req = store.getAll();
+                req.onsuccess = () => resolve(req.result);
+                req.onerror = () => reject(req.error);
+            });
+            let count = 0;
+            for (const entity of all) {
+                const meta = entity.metadata || entity.data?.metadata;
+                if (!meta?.github) continue;
+                if (/\[bot\]$/i.test(meta.github)) continue;
+                if (meta.location || meta.company || meta.countryCode) continue;
+                count++;
+            }
+            return count;
+        } catch (e) {
+            console.warn('Failed to count missing-location authors:', e);
+            return 0;
+        }
+    }
+
+    async _fetchRemainingLocations(btn, progressSpan, alertDiv, statusDiv) {
+        const progressContainer = document.getElementById('locationFetchProgressContainer');
+        const progressBar = document.getElementById('locationFetchProgressBar');
+        const progressText = document.getElementById('locationFetchProgressText');
+
+        const showProgressBar = () => {
+            if (progressContainer) progressContainer.classList.remove('d-none');
+        };
+        const hideProgressBar = () => {
+            if (progressContainer) progressContainer.classList.add('d-none');
+        };
+        const setBarPercent = (percent, label) => {
+            if (!progressBar) return;
+            const clamped = Math.max(0, Math.min(100, percent));
+            const display = Math.round(clamped);
+            progressBar.style.setProperty('--progress-width', `${clamped}%`);
+            progressBar.setAttribute('aria-valuenow', String(display));
+            progressBar.textContent = `${display}%`;
+            if (progressText) {
+                progressText.textContent = label || '';
+            }
+        };
+
+        const token = sessionStorage.getItem('github_token');
+        if (!token) {
+            alertDiv.className = 'alert alert-danger mb-0';
+            alertDiv.textContent = 'A GitHub token is required for GraphQL requests. Please set one above.';
+            statusDiv.classList.remove('d-none');
+            return;
+        }
+
+        btn.disabled = true;
+        statusDiv.classList.remove('d-none');
+        showProgressBar();
+        setBarPercent(0, 'Loading author entities...');
+        progressSpan.textContent = 'Loading author entities...';
+
+        try {
+            const db = window.indexedDBManager.db;
+            const tx = db.transaction(['authorEntities'], 'readonly');
+            const store = tx.objectStore('authorEntities');
+            const all = await new Promise((resolve, reject) => {
+                const req = store.getAll();
+                req.onsuccess = () => resolve(req.result);
+                req.onerror = () => reject(req.error);
+            });
+
+            const needsFetch = [];
+            for (const entity of all) {
+                const meta = entity.metadata || entity.data?.metadata;
+                const authorKey = entity.authorKey || entity.key;
+                if (!meta?.github || !authorKey) continue;
+                if (/\[bot\]$/i.test(meta.github)) continue;
+                if (meta.location || meta.company || meta.countryCode) continue;
+                needsFetch.push({ authorKey, authorEntity: entity.data || entity, githubUsername: meta.github });
+            }
+
+            if (needsFetch.length === 0) {
+                alertDiv.className = 'alert alert-success mb-0';
+                alertDiv.textContent = 'All authors already have location data.';
+                progressSpan.textContent = '';
+                hideProgressBar();
+                return;
+            }
+
+            const initialMsg = `Found ${needsFetch.length.toLocaleString()} authors missing location. Starting GraphQL fetch...`;
+            progressSpan.textContent = initialMsg;
+            setBarPercent(0, initialMsg);
+
+            // Phase weights: github-fetch dominates, persist-results is fast,
+            // geocode-existing typically runs only when re-enriching authors that
+            // already had a `location` string but no countryCode.
+            const PHASE_WEIGHTS = {
+                'geocode-existing': { start: 0, span: 10 },
+                'github-fetch':     { start: 10, span: 75 },
+                'persist-results':  { start: 85, span: 15 }
+            };
+
+            const authorService = new window.AuthorService();
+            const batchResult = await authorService.fetchAuthorLocationsBatch(
+                needsFetch,
+                ({ phase, processed, total, message }) => {
+                    const weight = PHASE_WEIGHTS[phase];
+                    if (!weight || !total) {
+                        if (message) {
+                            progressSpan.textContent = message;
+                            if (progressText) progressText.textContent = message;
+                        }
+                        return;
+                    }
+                    const phasePct = Math.min(processed / total, 1);
+                    const overall = weight.start + (phasePct * weight.span);
+                    setBarPercent(overall, message || '');
+                    progressSpan.textContent = message || '';
+                }
+            );
+
+            setBarPercent(100, 'Done');
+
+            const fetched = [...batchResult.results.values()].filter(v => v !== null).length;
+            const skipped = batchResult.skippedCount || 0;
+
+            alertDiv.className = 'alert alert-success mb-0';
+            let msg = `Fetched location data for ${fetched.toLocaleString()} author(s).`;
+            if (skipped > 0) {
+                msg += ` ${skipped.toLocaleString()} still remaining (rate limit). Wait ~1 hour and click again.`;
+                alertDiv.className = 'alert alert-warning mb-0';
+            }
+            alertDiv.textContent = msg;
+            progressSpan.textContent = '';
+
+            // Briefly leave the bar at 100% so users see completion before it disappears.
+            setTimeout(() => hideProgressBar(), 1500);
+
+            // Re-count to update the button state
+            const stillMissing = await this._countMissingLocationAuthors();
+            btn.disabled = stillMissing === 0;
+        } catch (error) {
+            console.error('Failed to fetch remaining locations:', error);
+            alertDiv.className = 'alert alert-danger mb-0';
+            alertDiv.textContent = `Error: ${error.message}`;
+            progressSpan.textContent = '';
+            hideProgressBar();
+            btn.disabled = false;
+        }
     }
 }
 

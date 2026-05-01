@@ -94,6 +94,28 @@ Update `flowchart.md` when:
 - New decision points or conditional logic
 - Storage operations modified
 
+### About page (MANDATORY when adding new logic)
+**`about.html` is the user-facing methodology reference. Whenever new logic, scoring, detection,
+or enrichment is added to the codebase, `about.html` MUST be updated in the same change/PR.**
+
+This applies to (non-exhaustive):
+- New detection rules or classifiers (vuln / malware / EOL / EOX / license / lifecycle / VEX / …)
+- New scoring or grading formulas (Tech-Debt composite, severity weighting, …)
+- New enrichment phases in `enrichment-pipeline.js`
+- New external data sources (registries, advisory DBs, GraphQL fields, …)
+- New aggregation methodologies (per-page or cross-page)
+- Changes to existing methodologies that alter the user-visible result
+
+Rules:
+- Add or update a methodology card in `about.html` matching the depth and structure of existing
+  cards (intro paragraph, sub-headers, comparison tables where useful, definition alerts,
+  References list with external spec links).
+- Bump cache-busters on `about.html`'s versioned `<link>` and `<script>` tags.
+- Same-PR rule applies: never defer "I'll document it later". If the logic ships, the about-page
+  card ships with it.
+- If the logic is internal-only (no user-visible behaviour change, e.g. a refactor), an about-page
+  update is not required — but the CHANGELOG entry still is.
+
 ## File Organization
 
 - Markdown docs → `mdfiles/` folder
@@ -129,10 +151,12 @@ Update `flowchart.md` when:
 | License not persisting | Update both sources, re-export |
 | Inline styles/scripts | Extract to CSS/JS files |
 | Forgot CHANGELOG entry | Add an entry for **every** change, in the same PR |
+| New logic shipped without about-page card | Update `about.html` in the same PR (see "About page" above) |
 
 ## Pre-Commit Checklist
 
 - [ ] **CHANGELOG.md updated for this change (REQUIRED — every update, no exceptions)**
+- [ ] **about.html updated (REQUIRED if new detection / scoring / enrichment / methodology logic)**
 - [ ] No inline CSS/JS
 - [ ] User data escaped
 - [ ] Workflows updated (if files added/removed)

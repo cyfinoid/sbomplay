@@ -3779,4 +3779,55 @@ body {
 /* Rate limit status alert icon alignment */
 #rateLimitStatusAlert .fa-info-circle {
     opacity: 0.8;
+}
+
+/* Insights page — mini-tooltip (body-rooted, used alongside mini-bars) */
+.insights-mini-tooltip {
+    position: fixed;
+    z-index: 9999;
+    padding: 6px 10px;
+    font-size: 0.75rem;
+    line-height: 1.4;
+    color: var(--text-primary, #c9d1d9);
+    background: var(--bg-tertiary, #2a2a2a);
+    border: 1px solid var(--border-color, #333);
+    border-radius: 4px;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 0.15s ease;
+    max-width: 280px;
+    white-space: nowrap;
+}
+.insights-mini-tooltip.show { opacity: 1; }
+
+/* Insights — scrollable table containers */
+.insights-scroll-container {
+    max-height: 360px;
+    overflow-y: auto;
+}
+.insights-scroll-container.expanded { max-height: none; }
+
+/* Insights — chart canvas container */
+.insights-chart-wrap {
+    position: relative;
+    width: 100%;
+    max-width: 100%;
+}
+.insights-chart-wrap canvas {
+    max-height: 320px;
+}
+
+/* Insights — tech-debt component bar */
+.insights-component-bar {
+    height: 18px;
+    border-radius: 3px;
+    transition: width 0.4s ease;
+}
+
+/* Insights — per-repo mini bar */
+.insights-mini-bar {
+    display: inline-block;
+    height: 14px;
+    border-radius: 2px;
+    min-width: 2px;
 } 

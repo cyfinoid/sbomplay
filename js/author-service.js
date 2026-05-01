@@ -177,11 +177,16 @@ class AuthorService {
         let funding = null;
         let packageWarnings = null;
         let ecosystemsAuthors = []; // Keep track of ecosyste.ms authors for correlation
-        let nativeRepositoryUrl = null; // Captured from fetchFromNativeRegistry, reused for GitHub correlation + fallback
-        
+        let nativeRepositoryUrl = null; // From fetchFromNativeRegistry (npm/PyPI/Cargo/RubyGems)
+        let ecosystemsRepositoryUrl = null; // From ecosyste.ms (covers Maven/NuGet/Go/etc. that have no native fetch)
+        let ecosystemsHomepage = null;
+        let ecosystemsRegistryUrl = null;
+        let ecosystemsDescription = null;
+        let ecosystemsLicenses = null;
+
         // Try native registry and ecosyste.ms in parallel (race condition - use first successful response)
         const apiPromises = [];
-        
+
         // Try native registry if available
         if (this.registryUrls[ecosystem]) {
             apiPromises.push(
@@ -190,23 +195,21 @@ class AuthorService {
                     .catch(() => ({ source: 'native', result: null }))
             );
         }
-        
+
         // Try ecosyste.ms in parallel
         apiPromises.push(
             this.fetchFromEcosystems(ecosystem, packageName)
-                .then(result => ({ source: 'ecosystems', result: Array.isArray(result) ? { authors: result } : { authors: result } }))
+                .then(result => ({ source: 'ecosystems', result }))
                 .catch(() => ({ source: 'ecosystems', result: null }))
         );
-        
-        // Wait for all API calls to complete
+
         const apiResults = await Promise.allSettled(apiPromises);
-        
-        // Collect results from both sources for correlation
+
         let nativeAuthors = [];
         for (const apiResult of apiResults) {
             if (apiResult.status === 'fulfilled' && apiResult.value.result) {
                 const { source, result } = apiResult.value;
-                
+
                 if (source === 'native') {
                     // Handle both old format (array) and new format (object with authors/packageFunding/packageWarnings)
                     if (Array.isArray(result)) {
@@ -219,10 +222,20 @@ class AuthorService {
                     }
                 } else if (source === 'ecosystems') {
                     ecosystemsAuthors = result.authors || [];
+                    ecosystemsRepositoryUrl = result.repositoryUrl || null;
+                    ecosystemsHomepage = result.homepage || null;
+                    ecosystemsRegistryUrl = result.registryUrl || null;
+                    ecosystemsDescription = result.description || null;
+                    ecosystemsLicenses = result.licenses || null;
+                    // NOTE: We deliberately do NOT promote ecosyste.ms `funding_links` (array
+                    // of URLs) into the native-shaped `packageFunding` slot (object with
+                    // {type, url} entries) — the two shapes don't unify and downstream
+                    // consumers expect the native shape. ecosyste.ms funding_links remain
+                    // discoverable via the package cache when needed.
                 }
             }
         }
-        
+
         // Use native authors if available, otherwise use ecosyste.ms authors
         if (nativeAuthors.length > 0) {
             authors = nativeAuthors;
@@ -234,27 +247,36 @@ class AuthorService {
             console.log(`✅ Found ${authors.length} authors for ${packageKey} from ecosyste.ms`);
         }
         
-        // Try to fetch GitHub contributors if we have a GitHub repository URL.
-        // This provides tentative correlation (same GitHub user ID = same person), but
-        // costs a GitHub API call per unique repo and the resulting author entries are
-        // tentative (login-based, no email/name authority). Gate behind a setting that
-        // defaults to off (T3.2).
-        const enableContributorCorrelation =
-            (typeof localStorage !== 'undefined' &&
-                localStorage.getItem('enableContributorCorrelation') === 'true');
-        if (authors.length > 0 && enableContributorCorrelation) {
-            // Reuse the repository URL captured from fetchFromNativeRegistry to avoid a duplicate registry GET.
-            // Fall back to getRepositoryUrl only if the native fetch did not yield one (e.g. ecosystems-only result).
-            const repoUrl = nativeRepositoryUrl || await this.getRepositoryUrl(ecosystem, packageName);
+        // Always fetch the top 10 GitHub contributors when we have a GitHub source
+        // repository URL — they're the most authoritative "this code is mine" signal
+        // available for ecosystems whose registries publish only a single
+        // maintainer-of-record (Maven / NuGet / Go) or no author info at all. Cost
+        // model: ONE `/repos/{owner}/{repo}/contributors` REST call per unique repo
+        // (deduped via `_contributorsRequestCache` for the run, so 159 packages all
+        // pointing at `spring-projects/spring-boot` issue exactly one call); profile
+        // fields (`location`, `company`) are filled in afterwards by
+        // `fetchAuthorLocationsBatch` via batched GraphQL, not per-user REST.
+        //
+        // Repo URL precedence: native registry first (closest to source-of-truth for
+        // npm/PyPI/Cargo/RubyGems), then ecosyste.ms (the only path for Maven /
+        // NuGet / Go), then a last-resort `getRepositoryUrl` lookup (avoided when
+        // either of the first two succeeded — see "make each API call once" rule).
+        //
+        // Bot accounts (`dependabot[bot]`, `github-actions[bot]`, `renovate[bot]`,
+        // …) are intentionally NOT filtered here. `js/authors-page.js` segregates
+        // them into a dedicated "Active Bots in the Environments" section so the
+        // human authors table stays clean while the bot inventory remains visible.
+        if (authors.length > 0) {
+            const repoUrl = nativeRepositoryUrl
+                || ecosystemsRepositoryUrl
+                || ecosystemsHomepage
+                || await this.getRepositoryUrl(ecosystem, packageName);
             if (repoUrl) {
                 const githubMatch = repoUrl.match(/github\.com[\/:]([^\/]+)\/([^\/]+)/i);
                 if (githubMatch) {
                     const [, owner, repo] = githubMatch;
-                    // Clean up repo name (remove .git suffix, etc.)
                     const cleanRepo = repo.replace(/\.git$/, '').replace(/\/$/, '');
                     try {
-                        // Skip per-contributor /users/{login} REST calls here — the post-pipeline
-                        // fetchAuthorLocationsBatch fills user profiles via batched GraphQL.
                         const contributors = await this.fetchContributorsFromGitHub(owner, cleanRepo, false);
                         if (contributors.length > 0) {
                             authors = this.correlateWithContributors(authors, contributors);
@@ -276,26 +298,41 @@ class AuthorService {
                     authors = gaAuthors;
                 }
             } else {
-                // Reuse the repository URL captured from fetchFromNativeRegistry to avoid a third registry GET.
-                const repoAuthors = await this.fetchAuthorsFromRepository(ecosystem, packageName, nativeRepositoryUrl);
+                // Reuse any repository URL we already discovered (native first, then ecosyste.ms)
+                // to avoid a third registry GET inside fetchAuthorsFromRepository.
+                const prefetchedRepoUrl = nativeRepositoryUrl || ecosystemsRepositoryUrl || ecosystemsHomepage;
+                const repoAuthors = await this.fetchAuthorsFromRepository(ecosystem, packageName, prefetchedRepoUrl);
                 if (repoAuthors.length > 0) {
                     console.log(`✅ Found ${repoAuthors.length} repository owners for ${packageKey}`);
                     authors = repoAuthors;
                 }
             }
         }
-        
+
+        // Build the package metadata blob persisted alongside authors.
+        // Prefer native registry over ecosyste.ms for fields where both can answer
+        // (native is closer to source-of-truth for npm/PyPI/Cargo/RubyGems);
+        // ecosyste.ms uniquely supplies repo/homepage for ecosystems that have no
+        // native fetch (Maven, NuGet, Go, …), so it always fills gaps.
+        const packageMetadata = {
+            repositoryUrl: nativeRepositoryUrl || ecosystemsRepositoryUrl || null,
+            homepage: ecosystemsHomepage || null,
+            registryUrl: ecosystemsRegistryUrl || null,
+            description: ecosystemsDescription || null,
+            licenses: ecosystemsLicenses || null
+        };
+
         // Save to new cache architecture (packageFunding stored separately in package cache)
         // ALWAYS save package to cache, even if no authors found
         // This ensures incremental storage during analysis
         if (authors.length === 0) {
             console.warn(`⚠️ No authors found for ${packageKey} - saving package metadata only`);
         }
-        
+
         // Save package and authors to cache immediately (incremental save)
         // This happens for EVERY package discovered, regardless of whether authors were found
-        await this.saveAuthorsToCache(packageKey, ecosystem, authors, funding, packageWarnings);
-        console.log(`💾 Author: Saved package ${packageKey} to cache immediately (${authors.length} authors)`);
+        await this.saveAuthorsToCache(packageKey, ecosystem, authors, funding, packageWarnings, packageMetadata);
+        console.log(`💾 Author: Saved package ${packageKey} to cache immediately (${authors.length} authors${packageMetadata.repositoryUrl ? ', repo URL captured' : ''})`);
         
         // Also save to legacy cache for backward compatibility
         // Note: In legacy cache, we still use "funding" key for compatibility
@@ -326,26 +363,55 @@ class AuthorService {
      * @param {Object} packageFunding - Package-level funding (from package.json) - stored in package cache, NOT author entity
      * @param {Object} packageWarnings - Package warnings (maintenance and deprecation) - stored in package cache
      */
-    async saveAuthorsToCache(packageKey, ecosystem, authors, packageFunding = null, packageWarnings = null) {
+    async saveAuthorsToCache(packageKey, ecosystem, authors, packageFunding = null, packageWarnings = null, packageMetadata = null) {
         if (!window.cacheManager) return;
 
         // ALWAYS save package metadata to package cache (even if no funding or no authors)
-        // This ensures all packages are tracked in the normalized cache
+        // This ensures all packages are tracked in the normalized cache.
+        //
+        // packageKey format is `${ecosystem}:${name}` — but Maven names are
+        // themselves colon-separated (`groupId:artifactId`), so a naive
+        // `split(':')[1]` would truncate the artifactId off and store the
+        // groupId alone. Strip only the leading ecosystem segment instead.
         const existingPackage = await window.cacheManager.getPackage(packageKey);
+        const _firstColon = packageKey.indexOf(':');
+        const _nameSegment = _firstColon >= 0 ? packageKey.slice(_firstColon + 1) : packageKey;
         const packageData = existingPackage || {
             packageKey: packageKey,
             ecosystem: ecosystem,
-            name: packageKey.split(':')[1] || packageKey
+            name: _nameSegment || packageKey
         };
-        
+
         // Add or update funding if available
         if (packageFunding) {
             packageData.funding = packageFunding;  // Package-level funding
         }
-        
+
         // Add or update package warnings if available
         if (packageWarnings) {
             packageData.warnings = packageWarnings;  // Package warnings (maintenance and deprecation)
+        }
+
+        // Add or update enrichment metadata captured during the same author fetch
+        // (repository_url / homepage / registry_url / description / licenses).
+        // Only overwrite existing values when we actually have something new — this
+        // keeps the merge non-destructive across re-enrichment runs.
+        if (packageMetadata) {
+            if (packageMetadata.repositoryUrl && !packageData.repositoryUrl) {
+                packageData.repositoryUrl = packageMetadata.repositoryUrl;
+            }
+            if (packageMetadata.homepage && !packageData.homepage) {
+                packageData.homepage = packageMetadata.homepage;
+            }
+            if (packageMetadata.registryUrl && !packageData.registryUrl) {
+                packageData.registryUrl = packageMetadata.registryUrl;
+            }
+            if (packageMetadata.description && !packageData.description) {
+                packageData.description = packageMetadata.description;
+            }
+            if (packageMetadata.licenses && !packageData.licenses) {
+                packageData.licenses = packageMetadata.licenses;
+            }
         }
 
         // Bundle accumulator for the single per-package transaction (T3.3).
@@ -1188,16 +1254,29 @@ class AuthorService {
      * Batch fetch author locations from GitHub API using a single GraphQL query
      * Much more efficient than individual fetches when processing many authors
      * @param {Array<{authorKey: string, authorEntity: Object}>} authors - Array of author key/entity pairs
-     * @returns {Promise<Map<string, Object|null>>} - Map of authorKey -> location data
+     * @param {Function} [onProgress] - Optional callback invoked with
+     *   `{ phase, processed, total, message }` where `phase` is one of
+     *   `"geocode-existing"`, `"github-fetch"`, or `"persist-results"`,
+     *   `processed`/`total` are counts within that phase, and `message` is a
+     *   human-readable status string.
+     * @returns {Promise<{results: Map<string, Object|null>, skippedCount: number}>}
      */
-    async fetchAuthorLocationsBatch(authors) {
+    async fetchAuthorLocationsBatch(authors, onProgress) {
         const results = new Map();
-        
+
+        const emitProgress = (phase, processed, total, message) => {
+            if (typeof onProgress !== 'function') return;
+            try {
+                onProgress({ phase, processed, total, message });
+            } catch (cbError) {
+                console.warn('⚠️ fetchAuthorLocationsBatch progress callback threw:', cbError);
+            }
+        };
+
         if (!authors || authors.length === 0) {
-            return results;
+            return { results, skippedCount: 0 };
         }
 
-        // Separate authors into those needing GitHub fetch vs those that already have data
         const needsGitHubFetch = [];
         const needsGeocodeOnly = [];
         
@@ -1209,28 +1288,59 @@ class AuthorService {
             const githubUsername = authorEntity.metadata?.github;
             
             if (hasLocation && hasGeocoding) {
-                // Already complete - return cached data
                 results.set(authorKey, {
                     location: authorEntity.metadata.location || null,
                     company: authorEntity.metadata.company || null
                 });
             } else if (hasLocation && !hasGeocoding) {
-                // Has location but needs geocoding
                 needsGeocodeOnly.push({ authorKey, authorEntity });
             } else if (githubUsername) {
-                // Needs GitHub fetch
+                // Skip bot accounts — they have no location/company and their
+                // login syntax (e.g. "dependabot[bot]") causes GraphQL errors.
+                if (/\[bot\]$/i.test(githubUsername)) {
+                    results.set(authorKey, null);
+                    continue;
+                }
                 needsGitHubFetch.push({ authorKey, authorEntity, githubUsername });
             } else {
-                // No GitHub username - can't fetch
                 results.set(authorKey, null);
             }
+        }
+
+        // Budget cap: each login costs ~1 GraphQL point (repositoryOwner union
+        // query). GitHub allows 5,000 points/hr. Reserve 100 for other queries
+        // during the same scan. Sort by contributions descending so the most
+        // active authors get location data first; registry maintainers (no
+        // contributions field) sort to the top as they're the primary signal.
+        const GRAPHQL_BUDGET = 4900;
+        let skippedCount = 0;
+
+        if (needsGitHubFetch.length > GRAPHQL_BUDGET) {
+            needsGitHubFetch.sort((a, b) => {
+                const contribA = a.authorEntity.metadata?.contributions;
+                const contribB = b.authorEntity.metadata?.contributions;
+                // Registry maintainers (no contributions) first, then by contributions desc
+                const scoreA = typeof contribA === 'number' ? contribA : Infinity;
+                const scoreB = typeof contribB === 'number' ? contribB : Infinity;
+                return scoreB - scoreA;
+            });
+            skippedCount = needsGitHubFetch.length - GRAPHQL_BUDGET;
+            console.warn(`⚠️ Batch: ${needsGitHubFetch.length} authors need GraphQL fetch but budget is ${GRAPHQL_BUDGET}. Skipping ${skippedCount} lowest-contribution authors. Use Settings → "Fetch Remaining Author Locations" to fetch them later.`);
+            // Mark skipped entries so callers know they weren't fetched
+            for (let s = GRAPHQL_BUDGET; s < needsGitHubFetch.length; s++) {
+                results.set(needsGitHubFetch[s].authorKey, null);
+            }
+            needsGitHubFetch.length = GRAPHQL_BUDGET;
         }
 
         // Geocode locations that just need geocoding (no GitHub fetch)
         if (needsGeocodeOnly.length > 0 && window.LocationService) {
             console.log(`📍 Batch: Geocoding ${needsGeocodeOnly.length} existing locations...`);
+            emitProgress('geocode-existing', 0, needsGeocodeOnly.length,
+                `Geocoding ${needsGeocodeOnly.length} existing locations...`);
             const locationService = new window.LocationService();
-            
+            let geocodedDone = 0;
+
             await Promise.all(needsGeocodeOnly.map(async ({ authorKey, authorEntity }) => {
                 try {
                     const location = authorEntity.metadata.location;
@@ -1252,6 +1362,12 @@ class AuthorService {
                         location: authorEntity.metadata.location || null,
                         company: authorEntity.metadata.company || null
                     });
+                } finally {
+                    geocodedDone++;
+                    if (geocodedDone === needsGeocodeOnly.length || geocodedDone % 25 === 0) {
+                        emitProgress('geocode-existing', geocodedDone, needsGeocodeOnly.length,
+                            `Geocoded ${geocodedDone}/${needsGeocodeOnly.length} existing locations`);
+                    }
                 }
             }));
         }
@@ -1259,7 +1375,9 @@ class AuthorService {
         // Batch fetch from GitHub using single GraphQL query
         if (needsGitHubFetch.length > 0 && window.GitHubClient) {
             console.log(`📍 Batch: Fetching ${needsGitHubFetch.length} authors from GitHub via GraphQL...`);
-            
+            emitProgress('github-fetch', 0, needsGitHubFetch.length,
+                `Fetching ${needsGitHubFetch.length} authors from GitHub via GraphQL...`);
+
             const githubClient = new window.GitHubClient();
             const token = sessionStorage.getItem('github_token') || null;
             if (token) {
@@ -1274,65 +1392,84 @@ class AuthorService {
             });
 
             try {
-                const userDataMap = await githubClient.getUsersBatchGraphQL(usernames);
+                const userDataMap = await githubClient.getUsersBatchGraphQL(
+                    usernames,
+                    ({ fetched, total, cached }) => {
+                        const note = cached > 0 ? ` (${cached} from cache)` : '';
+                        emitProgress('github-fetch', fetched, total,
+                            `Fetched ${fetched}/${total} authors from GitHub${note}`);
+                    }
+                );
 
                 // Process results and update entities
                 const locationService = window.LocationService ? new window.LocationService() : null;
-                
+                const persistTotal = userDataMap.size;
+                let persistDone = 0;
+                emitProgress('persist-results', 0, persistTotal,
+                    `Saving ${persistTotal} author records...`);
+
                 for (const [username, userData] of userDataMap) {
-                    const authorInfo = usernameToAuthor.get(username);
-                    if (!authorInfo) continue;
-                    
-                    const { authorKey, authorEntity } = authorInfo;
+                    try {
+                        const authorInfo = usernameToAuthor.get(username);
+                        if (!authorInfo) continue;
 
-                    // Skip organizations
-                    if (userData && userData.type === 'Organization') {
-                        console.warn(`⚠️ Batch: Skipping org "${username}" for ${authorKey}`);
-                        if (authorEntity.metadata?.github === authorInfo.githubUsername) {
-                            const updatedMetadata = { ...authorEntity.metadata };
-                            delete updatedMetadata.github;
-                            authorEntity.metadata = Object.keys(updatedMetadata).length > 0 ? updatedMetadata : null;
-                            await window.cacheManager.saveAuthorEntity(authorKey, authorEntity);
-                        }
-                        results.set(authorKey, null);
-                        continue;
-                    }
+                        const { authorKey, authorEntity } = authorInfo;
 
-                    if (userData && (userData.location || userData.company)) {
-                        // Geocode location
-                        let countryCode = null;
-                        let country = null;
-                        if (userData.location && locationService) {
-                            try {
-                                const geocoded = await locationService.geocode(userData.location);
-                                if (geocoded && geocoded.countryCode) {
-                                    countryCode = geocoded.countryCode;
-                                    country = geocoded.country;
-                                }
-                            } catch (e) {
-                                // Geocoding failed - continue without it
+                        // Skip organizations
+                        if (userData && userData.type === 'Organization') {
+                            console.warn(`⚠️ Batch: Skipping org "${username}" for ${authorKey}`);
+                            if (authorEntity.metadata?.github === authorInfo.githubUsername) {
+                                const updatedMetadata = { ...authorEntity.metadata };
+                                delete updatedMetadata.github;
+                                authorEntity.metadata = Object.keys(updatedMetadata).length > 0 ? updatedMetadata : null;
+                                await window.cacheManager.saveAuthorEntity(authorKey, authorEntity);
                             }
+                            results.set(authorKey, null);
+                            continue;
                         }
 
-                        // Update author entity
-                        const existingMetadata = authorEntity.metadata || {};
-                        authorEntity.metadata = {
-                            ...existingMetadata,
-                            ...(userData.location && { location: userData.location }),
-                            ...(userData.company && { company: userData.company }),
-                            ...(countryCode && { countryCode }),
-                            ...(country && { country })
-                        };
-                        await window.cacheManager.saveAuthorEntity(authorKey, authorEntity);
+                        if (userData && (userData.location || userData.company)) {
+                            // Geocode location
+                            let countryCode = null;
+                            let country = null;
+                            if (userData.location && locationService) {
+                                try {
+                                    const geocoded = await locationService.geocode(userData.location);
+                                    if (geocoded && geocoded.countryCode) {
+                                        countryCode = geocoded.countryCode;
+                                        country = geocoded.country;
+                                    }
+                                } catch (e) {
+                                    // Geocoding failed - continue without it
+                                }
+                            }
 
-                        results.set(authorKey, {
-                            location: userData.location || null,
-                            company: userData.company || null,
-                            countryCode,
-                            country
-                        });
-                    } else {
-                        results.set(authorKey, null);
+                            // Update author entity
+                            const existingMetadata = authorEntity.metadata || {};
+                            authorEntity.metadata = {
+                                ...existingMetadata,
+                                ...(userData.location && { location: userData.location }),
+                                ...(userData.company && { company: userData.company }),
+                                ...(countryCode && { countryCode }),
+                                ...(country && { country })
+                            };
+                            await window.cacheManager.saveAuthorEntity(authorKey, authorEntity);
+
+                            results.set(authorKey, {
+                                location: userData.location || null,
+                                company: userData.company || null,
+                                countryCode,
+                                country
+                            });
+                        } else {
+                            results.set(authorKey, null);
+                        }
+                    } finally {
+                        persistDone++;
+                        if (persistDone === persistTotal || persistDone % 25 === 0) {
+                            emitProgress('persist-results', persistDone, persistTotal,
+                                `Saved ${persistDone}/${persistTotal} author records`);
+                        }
                     }
                 }
             } catch (error) {
@@ -1345,62 +1482,77 @@ class AuthorService {
         }
 
         const found = [...results.values()].filter(v => v !== null).length;
-        console.log(`✅ Batch: Processed ${results.size} authors, ${found} with location data`);
-        return results;
+        console.log(`✅ Batch: Processed ${results.size} authors, ${found} with location data${skippedCount > 0 ? `, ${skippedCount} skipped (budget cap)` : ''}`);
+        return { results, skippedCount };
     }
 
     /**
      * Fetch authors from ecosyste.ms
      */
     async fetchFromEcosystems(ecosystem, packageName) {
+        const empty = {
+            authors: [],
+            repositoryUrl: null,
+            homepage: null,
+            registryUrl: null,
+            description: null,
+            licenses: null,
+            fundingLinks: null
+        };
         try {
-            // Ensure registries are loaded
             if (window.registryManager) {
                 await window.registryManager.initializeRegistries();
             }
-            
-            // Find the registry object by purl type (ecosystem matches purl_type field)
+
             const registry = this.findRegistryByPurl(ecosystem);
-            
             if (!registry) {
                 console.warn(`⚠️ No registry found for purl type: ${ecosystem}`);
-                return [];
+                return empty;
             }
-            
-            // Construct package URL using registry's packages_url
-            // IMPORTANT: Use full package endpoint, NOT version-specific endpoint
-            // Full package endpoint: "https://packages.ecosyste.ms/api/v1/registries/{registry.name}/packages/{package}"
-            // This provides maintainers array at top level (NOT in issue_metadata)
-            // Version endpoint would be: .../packages/{package}/versions/{version} - DO NOT USE for author extraction
+
+            // Maven on ecosyste.ms requires the "groupId:artifactId" coordinate as a
+            // single URL-encoded path segment. encodeURIComponent escapes the colon
+            // to %3A automatically; do NOT split on ":" and rejoin with "/", that
+            // path returns 404 for every Maven package.
             const url = `${registry.packages_url}/${encodeURIComponent(packageName)}`;
-            
+
             console.log(`🔍 Fetching from ecosyste.ms (full package): ${ecosystem} → ${registry.name} (${url})`);
             debugLogUrl(`🌐 [DEBUG] Fetching URL: ${url}`);
-            debugLogUrl(`   Reason: Fetching ecosyste.ms package metadata for ${packageName} (${ecosystem}/${registry.name}) to extract maintainers/authors`);
-            
+            debugLogUrl(`   Reason: Fetching ecosyste.ms package metadata for ${packageName} (${ecosystem}/${registry.name}) to extract maintainers/authors and repository metadata`);
+
             const response = await this._queuedFetch('ecosystems', url);
             if (!response.ok) {
                 console.warn(`ecosyste.ms returned ${response.status} for ${registry.name}/${packageName}`);
                 console.log(`   ❌ Response: Status ${response.status} ${response.statusText}`);
-                return [];
+                return empty;
             }
-            
+
             const data = await response.json();
-            
-            // Debug: Log extracted information
             const authors = this.extractEcosystemsAuthors(data);
             const hasMaintainers = !!(data.maintainers || data.owners || data.author);
-            console.log(`   ✅ Response: Status ${response.status}, Extracted: ${authors.length} author(s), has maintainers/owners/author fields: ${hasMaintainers}`);
-            
-            // Verify we have the expected structure (top-level maintainers array)
-            if (!data.maintainers && !data.owners && !data.author) {
+
+            const result = {
+                authors,
+                repositoryUrl: data.repository_url || null,
+                homepage: data.homepage || null,
+                registryUrl: data.registry_url || null,
+                description: data.description || null,
+                licenses: data.licenses || data.normalized_licenses || null,
+                fundingLinks: Array.isArray(data.funding_links) && data.funding_links.length > 0
+                    ? data.funding_links
+                    : null
+            };
+
+            console.log(`   ✅ Response: Status ${response.status}, Extracted: ${authors.length} author(s), has maintainers/owners/author fields: ${hasMaintainers}, repo: ${result.repositoryUrl ? 'yes' : 'no'}, homepage: ${result.homepage ? 'yes' : 'no'}`);
+
+            if (!hasMaintainers) {
                 console.warn(`⚠️ ecosyste.ms response for ${packageName} has no maintainers/owners/author fields`);
             }
-            
-            return this.extractEcosystemsAuthors(data);
+
+            return result;
         } catch (error) {
             console.warn(`Error fetching from ecosyste.ms:`, error.message);
-            return [];
+            return empty;
         }
     }
 
@@ -1522,8 +1674,37 @@ class AuthorService {
                         return gemRepo;
                     }
                     break;
+
+                case 'maven': {
+                    // Maven Central blocks browser CORS, so we route through ecosyste.ms
+                    // which exposes repository_url + homepage on the same package endpoint.
+                    // The coordinate is "groupId:artifactId" URL-encoded as a single segment.
+                    if (!window.registryManager) return null;
+                    const registryName = await window.registryManager.getRegistryName('maven');
+                    if (!registryName) return null;
+                    const coordinate = packageName.includes(':') ? packageName : null;
+                    if (!coordinate) {
+                        console.log(`   ⚠️ Skipping Maven repo lookup, expected "groupId:artifactId": ${packageName}`);
+                        return null;
+                    }
+                    url = `https://packages.ecosyste.ms/api/v1/registries/${registryName}/packages/${encodeURIComponent(coordinate)}`;
+                    debugLogUrl(`🌐 [DEBUG] Fetching URL: ${url}`);
+                    debugLogUrl(`   Reason: Fetching ecosyste.ms package metadata for ${packageName} (maven) to extract repository URL`);
+                    const mvnResponse = await this._queuedFetch('ecosystems', url);
+                    if (!mvnResponse.ok) {
+                        console.log(`   ❌ Response: Status ${mvnResponse.status} ${mvnResponse.statusText}`);
+                        return null;
+                    }
+                    data = await mvnResponse.json();
+                    const mvnRepo = data.repository_url || data.homepage || null;
+                    console.log(`   ✅ Response: Status ${mvnResponse.status}, Extracted: Repository URL: ${mvnRepo || 'none'}`);
+                    if (mvnRepo) {
+                        return mvnRepo;
+                    }
+                    break;
+                }
             }
-            
+
             return null;
         } catch (error) {
             return null;

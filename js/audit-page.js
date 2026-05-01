@@ -49,51 +49,56 @@ document.addEventListener('DOMContentLoaded', async function() {
     await loadAnalysesList('analysisSelector', storageManager, document.getElementById('noDataSection'));
     
     async function loadAuditData() {
-        const analysisSelector = document.getElementById('analysisSelector');
-        const severityFilterEl = document.getElementById('severityFilter');
-        const sectionFilterEl = document.getElementById('sectionFilter');
-        const repoFilterEl = document.getElementById('repoFilter');
-        
-        if (!analysisSelector) {
-            const container = document.getElementById('audit-analysis-page');
-            if (container) {
-                container.innerHTML = '<div class="alert alert-info">Please select an analysis to view audit findings.</div>';
-            }
-            return;
-        }
-        
-        // Allow empty analysisSelector.value - it means "All Analyses (aggregated)"
-        
-        // Use filters from form or URL
-        const severityFilter = severityFilterEl ? severityFilterEl.value : (urlParamsObj.severity || 'all');
-        const sectionFilter = sectionFilterEl ? sectionFilterEl.value : (urlParamsObj.section || 'all');
-        const repoFilter = repoFilterEl ? repoFilterEl.value : (urlParamsObj.repo || 'all');
-        
-        await loadOrganizationData(analysisSelector.value, storageManager, {
-            severityFilter: severityFilter === 'all' ? null : severityFilter,
-            sectionFilter: sectionFilter === 'all' ? null : sectionFilter,
-            repoFilter: repoFilter === 'all' ? null : repoFilter,
-            containerId: 'audit-analysis-page',
-            noDataSection: document.getElementById('noDataSection'),
-            renderFunction: async (data, severityFilter, sectionFilter, repoFilter, categoryFilter) => {
-                // Populate repository filter dropdown
-                populateRepoFilter(data);
-                
-                // Set repo filter from URL if present (after populating dropdown)
-                // Use the repoFilter passed from loadOrganizationData which already handles URL params
-                if (repoFilter && repoFilterEl) {
-                    const option = repoFilterEl.querySelector(`option[value="${repoFilter}"]`);
-                    if (option) {
-                        repoFilterEl.value = repoFilter;
-                    }
-                }
-                
+        showFilterLoading('audit-analysis-page');
+        try {
+            const analysisSelector = document.getElementById('analysisSelector');
+            const severityFilterEl = document.getElementById('severityFilter');
+            const sectionFilterEl = document.getElementById('sectionFilter');
+            const repoFilterEl = document.getElementById('repoFilter');
+
+            if (!analysisSelector) {
                 const container = document.getElementById('audit-analysis-page');
-                // Render audit findings with all sections
-                const html = await generateAllAuditSectionsHTML(data, severityFilter || 'all', sectionFilter || 'all', repoFilter || 'all');
-                safeSetHTML(container, html);
+                if (container) {
+                    container.innerHTML = '<div class="alert alert-info">Please select an analysis to view audit findings.</div>';
+                }
+                return;
             }
-        });
+
+            // Allow empty analysisSelector.value - it means "All Analyses (aggregated)"
+
+            // Use filters from form or URL
+            const severityFilter = severityFilterEl ? severityFilterEl.value : (urlParamsObj.severity || 'all');
+            const sectionFilter = sectionFilterEl ? sectionFilterEl.value : (urlParamsObj.section || 'all');
+            const repoFilter = repoFilterEl ? repoFilterEl.value : (urlParamsObj.repo || 'all');
+
+            await loadOrganizationData(analysisSelector.value, storageManager, {
+                severityFilter: severityFilter === 'all' ? null : severityFilter,
+                sectionFilter: sectionFilter === 'all' ? null : sectionFilter,
+                repoFilter: repoFilter === 'all' ? null : repoFilter,
+                containerId: 'audit-analysis-page',
+                noDataSection: document.getElementById('noDataSection'),
+                renderFunction: async (data, severityFilter, sectionFilter, repoFilter, categoryFilter) => {
+                    // Populate repository filter dropdown
+                    populateRepoFilter(data);
+
+                    // Set repo filter from URL if present (after populating dropdown)
+                    // Use the repoFilter passed from loadOrganizationData which already handles URL params
+                    if (repoFilter && repoFilterEl) {
+                        const option = repoFilterEl.querySelector(`option[value="${repoFilter}"]`);
+                        if (option) {
+                            repoFilterEl.value = repoFilter;
+                        }
+                    }
+
+                    const container = document.getElementById('audit-analysis-page');
+                    // Render audit findings with all sections
+                    const html = await generateAllAuditSectionsHTML(data, severityFilter || 'all', sectionFilter || 'all', repoFilter || 'all');
+                    safeSetHTML(container, html);
+                }
+            });
+        } finally {
+            hideFilterLoading('audit-analysis-page');
+        }
     }
     
     /**

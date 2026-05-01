@@ -18,6 +18,7 @@ This document provides comprehensive flowcharts documenting how SBOM Play perfor
 11. [View Rendering Flow](#view-rendering-flow)
 12. [Rate Limit Handling Flow](#rate-limit-handling-flow)
 13. [Feed Export Flow (OPML)](#feed-export-flow-opml)
+14. [Insights Analysis Flow](#insights-analysis-flow)
 
 ---
 
@@ -286,7 +287,8 @@ flowchart TD
     CC -->|Yes| H
     CC -->|No| DD[Assess SBOM quality]
     DD --> EE[Store repository data]
-    EE --> FF[Return success]
+    EE --> EF[computeDirectAndTransitive: Pass 1 SBOM truth + Pass 2 per-repo BFS]
+    EF --> FF[Return success]
     
     C --> GG[End]
     FF --> GG
@@ -295,6 +297,7 @@ flowchart TD
     style FF fill:#c8e6c9
     style C fill:#ffcdd2
     style DD fill:#e1bee7
+    style EF fill:#fff3cd
 ```
 
 **Key Operations:**
@@ -302,6 +305,7 @@ flowchart TD
 - **Dependency Categorization**: Classifies as code, workflow, or infrastructure
 - **Relationship Tracking**: Identifies direct vs transitive dependencies
 - **Quality Assessment**: Evaluates SBOM completeness and quality
+- **Two-pass attribution (`computeDirectAndTransitive`)**: After every `processSBOM` and after every full resolver run, repository attribution is rebuilt centrally — Pass 1 walks each repo's SBOM-declared dependencies and classifies direct vs transitive from the repo's `directDependencies` set; Pass 2 BFSes from each repo's direct seed set through `dep.children` registry edges so resolver-discovered transitives that the SBOM never enumerated also get attributed. Pass 1 always wins on direct classification — Pass 2 never overwrites a direct mark. BFS scope is naturally per-ecosystem because `dep.children` only contains same-ecosystem children, so cross-ecosystem leak is impossible. The same logic is mirrored in `StorageManager._recomputeDirectAndTransitive` so legacy stored analyses self-heal on load (stamped via `_directTransitiveHealVersion = 2`).
 
 ---
 
@@ -613,6 +617,7 @@ flowchart TD
 - **Caching**: 7-day cache in IndexedDB to minimize API calls
 - **Severity Levels**: EOL = High, EOS = Medium, Upcoming = Low
 - **Notable Dependencies**: Focuses on runtimes, frameworks, databases (not every npm package)
+- **Enrichment persistence**: After every enrichment phase (`fetchVersionDrift`, `fetchEOXStatus`, `validateSourceRepos`), `EnrichmentPipeline` mirrors the per-dep enrichment fields back into `sbomProcessor.dependencies` via three sync helpers (`syncDriftToProcessor`, `syncEOXToProcessor`, `syncSourceRepoStatusToProcessor`) — modeled after `LicenseFetcher.syncToProcessor`. `SBOMProcessor.exportData()` and `exportPartialData()` then emit `versionDrift` / `staleness` / `eoxStatus` / `sourceRepoStatus` per dep, so the deps page, findings page, and feeds page keep their enrichment across page reloads instead of silently losing it on every save/load cycle.
 
 **Data Sources:**
 - **Primary**: endoflife.date API (https://endoflife.date/api/)
@@ -815,6 +820,7 @@ flowchart TD
     B -->|licenses.html| F[Load license view]
     B -->|audit.html| G[Load audit view]
     B -->|authors.html| H[Load author view]
+    B -->|insights.html| I2[Load insights view]
     B -->|settings.html| I[Load settings view]
     
     C --> J[Get all entries]
@@ -849,6 +855,10 @@ flowchart TD
     AG --> AH[Show funding opportunities]
     AH --> AI[Display package associations]
     
+    I2 --> I2A[InsightsAggregator.buildInsights]
+    I2A --> I2B[Render KPI strip + 10 chart sections]
+    I2B --> AN
+
     I --> AJ[Get storage info]
     AJ --> AK[Show storage usage]
     AK --> AL[Render export/import]
@@ -1014,6 +1024,55 @@ flowchart TD
 **Out of Scope (intentional):**
 - No background polling inside the app — the user's feed reader handles delivery
 - No per-version pinning — feed readers don't support "notify only if newer than X"
+
+---
+
+## Insights Analysis Flow
+
+The Insights page computes aggregate metrics from stored analysis data and presents them as charts and KPI tiles.
+
+```mermaid
+flowchart TD
+    A[User opens insights.html] --> B[Load analysis from StorageManager]
+    B --> C{Data available?}
+    C -->|No| D[Show no-data message]
+    C -->|Yes| E[InsightsAggregator.buildInsights]
+    E --> F[buildDirectMap from allRepositories]
+    F --> G[computeDriftStats]
+    F --> H[computeAgeStats]
+    F --> I[computeDepthStats]
+    F --> J[computeVulnAgeStats]
+    F --> K[computeEolStats]
+    F --> L[computeLicenseStats]
+    F --> M[computeRepoHygiene]
+    F --> N[computeSupplyChainStats]
+    F --> O[computePerRepoStats]
+    G --> P[computeTechDebt composite]
+    H --> P
+    I --> P
+    J --> P
+    K --> P
+    L --> P
+    M --> P
+    N --> Q[Return ins object]
+    O --> Q
+    P --> Q
+    Q --> R[renderKpiStrip — 8 KPI tiles]
+    Q --> S[10 section renderers with Chart.js]
+    R --> T[Page rendered]
+    S --> T
+    
+    style A fill:#e1f5ff
+    style T fill:#c8e6c9
+    style E fill:#e1bee7
+    style P fill:#fff9c4
+```
+
+**Key Components:**
+- **InsightsAggregator** (`insights-aggregator.js`): Pure-function module — no DOM dependency, reusable from `index.html` KPI strip
+- **InsightsPage** (`insights-page.js`): Page bootstrap + 10 section renderers + Chart.js integration
+- **Tech-Debt Composite**: 6 weighted sub-components (drift 30%, vulns 30%, age 15%, license 10%, EOL 10%, hygiene 5%), with 3× direct weighting
+- **Chart.js**: CDN-loaded (4.4.4), theme-aware via `--chart-text-color` / `--chart-grid-color` CSS variables
 
 ---
 

@@ -43,6 +43,17 @@ docs-tonotshare/
 projects/
 
 # Analysis and testing documentation
-mdfiles/
+mdfiles/*
 testhtmlfiles/
 test-results/
+
+# Tracked exceptions inside mdfiles/ (rebuild reference for the
+# 0ab213a → defcon-sg-3 rollback; see mdfiles/rebuild-from-0ab213a.md)
+!mdfiles/rebuild-from-0ab213a.md
+!mdfiles/appendix-unreleased-changelog.md
+plans/
+
+
+sbom-no-author-location.json
+sbomplay-demo-data.json
+sbom-author-data-added.json

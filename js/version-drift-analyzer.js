@@ -8,14 +8,17 @@ class VersionDriftAnalyzer {
         this.cacheExpiry = 24 * 60 * 60 * 1000; // 24 hours cache
         this.requestTimeout = 10000; // 10 seconds timeout
         
-        // Registry URLs for fetching latest versions
+        // Registry URLs for fetching publish dates of specific versions.
+        // Latest-version lookups go through window.registryManager (which uses
+        // ecosyste.ms and is browser/CORS-safe for every ecosystem); only the
+        // direct date-fetch helpers below (npm/PyPI/Cargo) hit native registries
+        // for the per-version `time` / `upload_time` / `created_at` fields.
+        // Maven / RubyGems / NuGet date fetches are not implemented here — the
+        // search.maven.org Solr API in particular blocks browser CORS.
         this.registryUrls = {
             npm: 'https://registry.npmjs.org',
             pypi: 'https://pypi.org/pypi',
-            cargo: 'https://crates.io/api/v1/crates',
-            rubygems: 'https://rubygems.org/api/v1/gems',
-            maven: 'https://search.maven.org/solrsearch/select',
-            nuget: 'https://api.nuget.org/v3-flatcontainer'
+            cargo: 'https://crates.io/api/v1/crates'
         };
     }
 
@@ -154,11 +157,19 @@ class VersionDriftAnalyzer {
         if (!window.cacheManager) return;
         
         try {
-            // Get existing package data
+            // Get existing package data.
+            // packageKey format is `${ecosystem}:${name}` — but Maven names are
+            // themselves colon-separated (`groupId:artifactId`), so a plain
+            // `split(':')[1]` truncates the artifactId off and stores the
+            // groupId alone (which is then displayed everywhere as the package
+            // name). Strip only the leading ecosystem segment instead.
+            const _firstColon = packageKey.indexOf(':');
+            const _ecosystemSegment = _firstColon >= 0 ? packageKey.slice(0, _firstColon) : 'unknown';
+            const _nameSegment = _firstColon >= 0 ? packageKey.slice(_firstColon + 1) : packageKey;
             const packageData = await window.cacheManager.getPackage(packageKey) || {
                 packageKey: packageKey,
-                name: packageKey.split(':')[1] || packageKey,
-                ecosystem: packageKey.split(':')[0] || 'unknown'
+                name: _nameSegment || packageKey,
+                ecosystem: _ecosystemSegment || 'unknown'
             };
             
             // Initialize versionDrift object if needed
@@ -370,11 +381,19 @@ class VersionDriftAnalyzer {
         if (!window.cacheManager) return;
         
         try {
-            // Get existing package data
+            // Get existing package data.
+            // packageKey format is `${ecosystem}:${name}` — but Maven names are
+            // themselves colon-separated (`groupId:artifactId`), so a plain
+            // `split(':')[1]` truncates the artifactId off and stores the
+            // groupId alone (which is then displayed everywhere as the package
+            // name). Strip only the leading ecosystem segment instead.
+            const _firstColon = packageKey.indexOf(':');
+            const _ecosystemSegment = _firstColon >= 0 ? packageKey.slice(0, _firstColon) : 'unknown';
+            const _nameSegment = _firstColon >= 0 ? packageKey.slice(_firstColon + 1) : packageKey;
             const packageData = await window.cacheManager.getPackage(packageKey) || {
                 packageKey: packageKey,
-                name: packageKey.split(':')[1] || packageKey,
-                ecosystem: packageKey.split(':')[0] || 'unknown'
+                name: _nameSegment || packageKey,
+                ecosystem: _ecosystemSegment || 'unknown'
             };
             
             // Initialize versionDrift object if needed
@@ -404,30 +423,122 @@ class VersionDriftAnalyzer {
     }
 
     /**
-     * Fetch publish date for a specific version
+     * Fetch publish date for a specific version, with cross-process caching.
+     *
+     * Coverage extended in Phase C from npm / PyPI / Cargo to also include
+     * Maven, Go, NuGet, RubyGems, and Composer. Maven / NuGet / Go are routed
+     * through deps.dev's `publishedAt` field (Go versions need the `v` prefix);
+     * Gem hits the rubygems.org `versions` API; Composer hits the Packagist p2
+     * metadata endpoint. Each new fetch is wrapped in `requestQueueManager` so
+     * the global concurrency / 429-backoff posture is unified with the rest of
+     * the app, and results are cached per `(ecosystem, name, version)` in
+     * `cacheManager` (publish dates are version-pinned and never change, so a
+     * single fetch per unique version is enough no matter how many repos use it).
+     *
      * @param {string} packageName - Package name
      * @param {string} version - Version
      * @param {string} ecosystem - Ecosystem
      * @returns {Promise<string|null>} - ISO date string or null
      */
     async fetchVersionPublishDate(packageName, version, ecosystem) {
-        const normalizedEcosystem = ecosystem.toLowerCase();
+        const normalizedEcosystem = (ecosystem || '').toLowerCase();
+        if (!packageName || !version || !normalizedEcosystem) return null;
         
+        // Per-(ecosystem, name, version) cache: publish dates are version-pinned
+        // and never change, so we can store them indefinitely under the same
+        // package row that already holds versionDrift / staleness.
+        const packageKey = `${normalizedEcosystem}:${packageName}`;
+        if (window.cacheManager) {
+            try {
+                const cached = await window.cacheManager.getPackage(packageKey);
+                const cachedDate = cached?.publishDates?.[version];
+                if (cachedDate !== undefined) {
+                    return cachedDate;
+                }
+            } catch (error) {
+                console.debug('Publish-date cache read failed (continuing to fetch):', error);
+            }
+        }
+        
+        let publishDate = null;
         try {
             switch (normalizedEcosystem) {
                 case 'npm':
-                    return await this.fetchNpmVersionDate(packageName, version);
+                    publishDate = await this.fetchNpmVersionDate(packageName, version);
+                    break;
                 case 'pypi':
-                    return await this.fetchPyPiVersionDate(packageName, version);
+                    publishDate = await this.fetchPyPiVersionDate(packageName, version);
+                    break;
                 case 'cargo':
-                    return await this.fetchCargoVersionDate(packageName, version);
+                    publishDate = await this.fetchCargoVersionDate(packageName, version);
+                    break;
+                case 'maven':
+                case 'nuget':
+                case 'go':
+                case 'golang':
+                    publishDate = await this.fetchDepsDevVersionDate(packageName, version, normalizedEcosystem);
+                    break;
+                case 'gem':
+                case 'rubygems':
+                    publishDate = await this.fetchRubyGemsVersionDate(packageName, version);
+                    break;
+                case 'composer':
+                case 'packagist':
+                    publishDate = await this.fetchPackagistVersionDate(packageName, version);
+                    break;
                 default:
-                    return null;
+                    publishDate = null;
             }
         } catch (error) {
             console.warn(`⚠️ Failed to fetch publish date for ${ecosystem}:${packageName}@${version}:`, error);
-            return null;
+            publishDate = null;
         }
+        
+        // Cache both successful hits and explicit nulls so a single registry
+        // hiccup doesn't keep re-firing for the same (name, version) pair.
+        if (window.cacheManager) {
+            try {
+                await this._savePublishDateToCache(packageKey, version, publishDate);
+            } catch (error) {
+                console.debug('Publish-date cache write failed:', error);
+            }
+        }
+        
+        return publishDate;
+    }
+    
+    /**
+     * Persist a fetched publish date under the existing package row so the
+     * next analysis run for the same (ecosystem, name, version) skips the fetch.
+     */
+    async _savePublishDateToCache(packageKey, version, publishDate) {
+        const packageData = (await window.cacheManager.getPackage(packageKey)) || {
+            ecosystem: packageKey.split(':')[0],
+            name: packageKey.slice(packageKey.indexOf(':') + 1)
+        };
+        if (!packageData.publishDates || typeof packageData.publishDates !== 'object') {
+            packageData.publishDates = {};
+        }
+        packageData.publishDates[version] = publishDate;
+        await window.cacheManager.savePackage(packageKey, packageData);
+    }
+    
+    /**
+     * Run an HTTP request through requestQueueManager so all version-drift
+     * fetches share the global concurrency / rate-limit policy. Mirrors the
+     * `_queuedFetch` helper in `author-service.js`. Falls back to a direct
+     * `fetchWithTimeout` when requestQueueManager isn't loaded (e.g. tests).
+     *
+     * @param {string} lane - queue lane: 'npm'|'pypi'|'cargo'|'gem'|'ecosystems'|...
+     * @param {string} url - request URL
+     * @returns {Promise<Response>} fetch response
+     */
+    _queuedFetch(lane, url) {
+        const queue = (typeof window !== 'undefined') ? window.requestQueueManager : null;
+        if (!queue) {
+            return this.fetchWithTimeout(url, {}, this.requestTimeout);
+        }
+        return queue.execute(lane, () => this.fetchWithTimeout(url, {}, this.requestTimeout));
     }
 
     /**
@@ -489,6 +600,93 @@ class VersionDriftAnalyzer {
         // Find the specific version in versions array
         const versionData = data.versions?.find(v => v.num === version);
         return versionData?.created_at || null;
+    }
+
+    /**
+     * Fetch publish date from Google's deps.dev for Maven / NuGet / Go.
+     * deps.dev's per-version response carries a `publishedAt` field that is the
+     * authoritative upstream timestamp for these ecosystems. CORS-safe (deps.dev
+     * is already part of the airgapped allowlist). Go module versions need the
+     * `v` prefix (`v1.2.3`) — same convention `LicenseFetcher._depsDevVersion`
+     * uses, copied here to avoid a cross-module dependency.
+     *
+     * @param {string} packageName - Package name (Maven coords are colon-form `groupId:artifactId`)
+     * @param {string} version - Package version
+     * @param {string} normalizedEcosystem - 'maven' | 'nuget' | 'go' | 'golang'
+     * @returns {Promise<string|null>} ISO date string or null
+     */
+    async fetchDepsDevVersionDate(packageName, version, normalizedEcosystem) {
+        const ecosystemToSystem = {
+            maven: 'maven',
+            nuget: 'nuget',
+            go: 'go',
+            golang: 'go'
+        };
+        const system = ecosystemToSystem[normalizedEcosystem];
+        if (!system) return null;
+        
+        // Go versions in deps.dev require the `v` prefix even when the SBOM
+        // ships them bare (e.g. `1.2.3` vs `v1.2.3`). Maven/NuGet pass through.
+        const depsDevVersion = (system === 'go' && version && !version.startsWith('v'))
+            ? `v${version}`
+            : version;
+        
+        const url = `https://api.deps.dev/v3alpha/systems/${system}/packages/${encodeURIComponent(packageName)}/versions/${encodeURIComponent(depsDevVersion)}`;
+        const response = await this._queuedFetch('ecosystems', url);
+        
+        if (!response.ok) {
+            return null;
+        }
+        
+        const data = await response.json();
+        return data?.publishedAt || null;
+    }
+    
+    /**
+     * Fetch publish date from rubygems.org `versions` API. The `/api/v1/versions/{name}.json`
+     * endpoint returns every version for a gem with `created_at` timestamps;
+     * we walk the array to find the matching version's date. CORS-safe.
+     */
+    async fetchRubyGemsVersionDate(packageName, version) {
+        const url = `https://rubygems.org/api/v1/versions/${encodeURIComponent(packageName)}.json`;
+        const response = await this._queuedFetch('gem', url);
+        
+        if (!response.ok) {
+            return null;
+        }
+        
+        const data = await response.json();
+        if (!Array.isArray(data)) return null;
+        const match = data.find(v => v.number === version);
+        return match?.created_at || null;
+    }
+    
+    /**
+     * Fetch publish date from Packagist's p2 metadata endpoint. The
+     * `repo.packagist.org/p2/{vendor}/{package}.json` payload lists every
+     * version under `packages[name]` as objects with a `time` field
+     * (ISO-8601). CORS-safe; this is Packagist's own static-metadata
+     * endpoint designed for direct browser consumption.
+     */
+    async fetchPackagistVersionDate(packageName, version) {
+        // Composer package names are vendor/package — Packagist's p2 endpoint
+        // expects them as a path segment, not URL-encoded as a single piece.
+        // If the SBOM ships a non-vendor name, we can't form a valid URL.
+        if (!packageName.includes('/')) {
+            return null;
+        }
+        const url = `https://repo.packagist.org/p2/${packageName}.json`;
+        const response = await this._queuedFetch('ecosystems', url);
+        
+        if (!response.ok) {
+            return null;
+        }
+        
+        const data = await response.json();
+        const versions = data?.packages?.[packageName];
+        if (!Array.isArray(versions)) return null;
+        const match = versions.find(v => v.version === version);
+        return match?.time || null;
     }
 
     /**
