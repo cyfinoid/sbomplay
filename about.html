@@ -6,10 +6,10 @@
     <title>SBOM Play - About</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
-    <link href="css/style.css?v=0.0.9" rel="stylesheet">
-    <link href="css/themes.css?v=0.0.9" rel="stylesheet">
-    <script src="js/theme-manager.js?v=0.0.9&cb=1777494400000"></script>
-    <script src="js/depconfuse-service.js?v=0.0.9&cb=1777494400000"></script>
+    <link href="css/style.css?v=0.0.9&cb=1777996800000" rel="stylesheet">
+    <link href="css/themes.css?v=0.0.9&cb=1777996800000" rel="stylesheet">
+    <script src="js/theme-manager.js?v=0.0.9&cb=1777996800000"></script>
+    <script src="js/depconfuse-service.js?v=0.0.9&cb=1777996800000"></script>
 </head>
 <body>
     <!-- Navigation -->
@@ -604,6 +604,718 @@
                     <span class="badge bg-danger">D</span> 60-69% | 
                     <span class="badge bg-dark">F</span> Below 60%
                 </div>
+            </div>
+        </div>
+
+        <!-- Package Lifecycle Status Detection -->
+        <div class="card mb-4">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="fas fa-heart-pulse me-2"></i>Package Lifecycle Status Detection (Official Signals)</h5>
+            </div>
+            <div class="card-body">
+                <p>
+                    Beyond the staleness heuristic covered in the EOX section above, SBOM Play also reads
+                    <strong>authoritative lifecycle signals</strong> directly from each ecosystem's native registry.
+                    When a package (or its publisher) has explicitly marked a release as deprecated, yanked,
+                    archived, or quarantined, that signal is treated as ground truth and surfaced separately from
+                    the heuristic so reviewers can tell first-party declarations from inferences.
+                </p>
+
+                <h6 class="mt-4"><i class="fas fa-database me-2 text-primary"></i>Per-Ecosystem Signals</h6>
+                <table class="table table-sm table-bordered">
+                    <thead class="table-light">
+                        <tr><th>Ecosystem</th><th>Signal Read</th><th>Maps To</th></tr>
+                    </thead>
+                    <tbody>
+                        <tr><td><strong>npm</strong></td><td><code>versions[ver].deprecated</code> for the exact version, with fallback to the <code>latest</code> tag's deprecation string</td><td><code>deprecated</code></td></tr>
+                        <tr><td><strong>PyPI</strong></td><td><code>info.status</code> field on the project</td><td><code>archived</code> or <code>quarantined</code></td></tr>
+                        <tr><td><strong>NuGet</strong></td><td>Catalog entry's <code>deprecation</code> block for the exact version, with the alternate package id captured as a replacement hint</td><td><code>deprecated</code></td></tr>
+                        <tr><td><strong>Cargo</strong></td><td><code>version.yanked</code> on the exact crate version, plus <code>yank_message</code></td><td><code>yanked</code></td></tr>
+                        <tr><td><strong>GitHub fallback</strong></td><td><code>repos/{owner}/{repo}.archived === true</code> for any package whose <code>sourceRepoUrl</code> resolves to GitHub</td><td><code>archived</code></td></tr>
+                    </tbody>
+                </table>
+
+                <div class="alert alert-light border">
+                    <strong>Official vs Heuristic:</strong> The Audit page renders <strong>Official</strong> lifecycle
+                    findings (badge naming the source registry) side-by-side with older <strong>Heuristic</strong>
+                    text-scan findings (description / README phrases like "deprecated", "abandoned",
+                    "no longer maintained"). Heuristics are still useful for ecosystems without a native
+                    deprecation channel, but Official signals always win when both fire on the same package.
+                </div>
+
+                <h6 class="mt-4"><i class="fas fa-flag me-2 text-danger"></i>Severity Mapping in Findings</h6>
+                <table class="table table-sm table-bordered">
+                    <thead class="table-light">
+                        <tr><th>Status</th><th>Severity</th><th>Why</th></tr>
+                    </thead>
+                    <tbody>
+                        <tr><td><code>archived</code></td><td><span class="badge bg-danger">High</span></td><td>The maintainer has explicitly stopped work; no future patches expected.</td></tr>
+                        <tr><td><code>yanked</code></td><td><span class="badge bg-danger">High</span></td><td>The publisher actively pulled this version, often after a security or correctness defect.</td></tr>
+                        <tr><td><code>deprecated</code></td><td><span class="badge bg-warning text-dark">Medium</span></td><td>A replacement is usually available, but the package may still ship critical fixes for a while.</td></tr>
+                        <tr><td><code>quarantined</code></td><td><span class="badge bg-warning text-dark">Medium</span></td><td>The registry has restricted the package pending review &mdash; often after a malware report.</td></tr>
+                    </tbody>
+                </table>
+
+                <h6 class="mt-4"><i class="fas fa-arrow-right me-2 text-success"></i>Replacement-Hint Extraction</h6>
+                <p>
+                    When a deprecation message names a successor (npm in particular often writes free-text
+                    deprecation strings), SBOM Play extracts the replacement package id with the following
+                    patterns and surfaces it in the package-details modal:
+                </p>
+                <ul class="small">
+                    <li><code>use X instead</code>, <code>migrate to X</code>, <code>switch to X</code>, <code>moved to X</code></li>
+                    <li><code>superseded by X</code></li>
+                    <li>NuGet's structured <code>alternatePackage.id</code> field</li>
+                </ul>
+
+                <div class="alert alert-warning mt-3">
+                    <i class="fas fa-exclamation-circle me-2"></i>
+                    <strong>Limitations:</strong>
+                    <ul class="mb-0 mt-2">
+                        <li>Lifecycle results are cached for 7 days per package to avoid hammering registries.</li>
+                        <li>"Latest tag deprecated" on npm is a softer signal than "this exact version deprecated" and is labelled accordingly.</li>
+                        <li>Ecosystems without a native deprecation channel rely on the GitHub <code>archived</code> fallback, which only fires when <code>sourceRepoUrl</code> resolves to a GitHub repository.</li>
+                        <li>Some packages are intentionally feature-complete and never updated &mdash; manual review is recommended for borderline cases.</li>
+                    </ul>
+                </div>
+
+                <h6 class="mt-4"><i class="fas fa-book me-2"></i>References</h6>
+                <ul>
+                    <li><a href="https://docs.npmjs.com/cli/v10/commands/npm-deprecate" target="_blank" rel="noreferrer noopener">npm deprecate command</a></li>
+                    <li><a href="https://docs.pypi.org/project_metadata/" target="_blank" rel="noreferrer noopener">PyPI project metadata (status field)</a></li>
+                    <li><a href="https://learn.microsoft.com/en-us/nuget/nuget-org/deprecate-packages" target="_blank" rel="noreferrer noopener">NuGet package deprecation</a></li>
+                    <li><a href="https://doc.rust-lang.org/cargo/reference/publishing.html#cargo-yank" target="_blank" rel="noreferrer noopener">Cargo yank</a></li>
+                </ul>
+            </div>
+        </div>
+
+        <!-- Maintainer Signal Methodology -->
+        <div class="card mb-4">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="fas fa-user-shield me-2"></i>Maintainer Signal Methodology</h5>
+            </div>
+            <div class="card-body">
+                <p>
+                    Even when a package isn't formally deprecated, structural signals can reveal that it has
+                    effectively stopped receiving attention. SBOM Play's <strong>Maintainer Signal</strong>
+                    combines three independent inputs &mdash; the official lifecycle status, GitHub repository
+                    metadata, and textual heuristics &mdash; into a single composite label per dependency.
+                </p>
+
+                <h6 class="mt-4"><i class="fab fa-github me-2 text-dark"></i>Repository Metadata Inputs (GitHub)</h6>
+                <table class="table table-sm table-bordered">
+                    <thead class="table-light">
+                        <tr><th>Field</th><th>Source</th><th>Used For</th></tr>
+                    </thead>
+                    <tbody>
+                        <tr><td><code>stargazerCount</code></td><td>GraphQL <code>repository.stargazerCount</code></td><td>Project popularity / community size</td></tr>
+                        <tr><td><code>openIssues</code> / <code>closedIssues</code></td><td><code>issues.totalCount</code> by state</td><td>Issue close ratio (backlog health)</td></tr>
+                        <tr><td><code>latestReleaseAt</code></td><td><code>releases(first: 1, orderBy: { field: CREATED_AT, direction: DESC })</code></td><td>Time since last published release</td></tr>
+                        <tr><td><code>lastCommitAt</code></td><td><code>repository.pushedAt</code> (last push to <em>any</em> branch, not strictly last commit on default)</td><td>Time since the repo last received changes</td></tr>
+                        <tr><td><code>mentionableUsers.totalCount</code></td><td>GraphQL <code>mentionableUsers.totalCount</code></td><td>Active contributor breadth</td></tr>
+                    </tbody>
+                </table>
+
+                <h6 class="mt-4"><i class="fas fa-search me-2 text-info"></i>Textual Heuristic Patterns</h6>
+                <p>
+                    The package's <strong>description</strong> (and, for npm, its <strong>README</strong>) is
+                    scanned for the following 11 phrase categories. Each match contributes a structured signal
+                    with phrase, category, weight, and source:
+                </p>
+                <div class="row">
+                    <div class="col-md-4">
+                        <ul class="small">
+                            <li><code>deprecated</code></li>
+                            <li><code>archived</code></li>
+                            <li><code>abandoned</code></li>
+                            <li><code>no longer maintained</code></li>
+                        </ul>
+                    </div>
+                    <div class="col-md-4">
+                        <ul class="small">
+                            <li><code>unmaintained</code></li>
+                            <li><code>out of support</code></li>
+                            <li><code>end of life</code> / <code>EOL</code></li>
+                            <li><code>security fixes only</code></li>
+                        </ul>
+                    </div>
+                    <div class="col-md-4">
+                        <ul class="small">
+                            <li><code>superseded by X</code></li>
+                            <li><code>moved to X</code></li>
+                            <li><code>looking for maintainers / contributors</code> / <code>help wanted</code></li>
+                        </ul>
+                    </div>
+                </div>
+
+                <h6 class="mt-4"><i class="fas fa-traffic-light me-2 text-warning"></i>Composite Levels</h6>
+                <table class="table table-sm table-bordered">
+                    <thead class="table-light">
+                        <tr><th>Level</th><th>Triggering Rule</th><th>Becomes a Finding?</th></tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td><span class="badge bg-danger">critical</span></td>
+                            <td>Lifecycle is <code>archived</code> <strong>and</strong> the dependency has at least one active CVE.</td>
+                            <td><span class="badge bg-danger">High severity</span></td>
+                        </tr>
+                        <tr>
+                            <td><span class="badge bg-warning text-dark">risk</span></td>
+                            <td>Heuristic match for "looking for contributors / maintainers" <strong>and</strong> at least one structural staleness signal: archived, latest release &gt; <strong>18 months</strong> ago, last push &gt; <strong>12 months</strong> ago, or open-issue backlog &gt; <strong>100</strong> with close ratio &lt; <strong>0.3</strong>.</td>
+                            <td><span class="badge bg-warning text-dark">Medium severity</span></td>
+                        </tr>
+                        <tr>
+                            <td><span class="badge bg-secondary">watch</span></td>
+                            <td>Latest release &gt; <strong>24 months</strong> ago <strong>and</strong> last push &gt; <strong>12 months</strong> ago.</td>
+                            <td>No (informational only)</td>
+                        </tr>
+                        <tr>
+                            <td><span class="badge bg-success">healthy</span></td>
+                            <td>Everything else, including a bare "looking for contributors" with no staleness (treated as community growth, not abandonment).</td>
+                            <td>No</td>
+                        </tr>
+                    </tbody>
+                </table>
+
+                <div class="alert alert-warning mt-3">
+                    <i class="fas fa-exclamation-circle me-2"></i>
+                    <strong>Limitations:</strong>
+                    <ul class="mb-0 mt-2">
+                        <li>Regex scanning of free-text descriptions can produce false positives (e.g. a README that documents how the project deprecated <em>another</em> package).</li>
+                        <li>For packages associated with multiple repositories, the first repo with available metadata is used.</li>
+                        <li>The issue close-ratio threshold is intentionally coarse and biased toward catching obvious backlog blow-outs, not nuanced project health.</li>
+                        <li><code>lastCommitAt</code> uses GitHub's <code>pushedAt</code>, which updates on any push (including non-default branches), not strictly the last commit on default.</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+
+        <!-- Malicious Package Detection -->
+        <div class="card mb-4">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="fas fa-virus me-2"></i>Malicious Package Detection Methodology</h5>
+            </div>
+            <div class="card-body">
+                <p>
+                    <strong>Malicious packages</strong> &mdash; intentionally hostile code published under
+                    typosquatted names, hijacked maintainer accounts, or hidden behind dependency confusion
+                    &mdash; are a different class of supply-chain risk from accidental CVEs in legitimate packages.
+                    SBOM Play splits these into their own <strong>Malware</strong> page and Findings category so
+                    the headline vulnerability counts elsewhere don't conflate "this library has a CVE" with
+                    "this library is the attack".
+                </p>
+
+                <div class="alert alert-danger">
+                    <i class="fas fa-exclamation-triangle me-2"></i>
+                    <strong>Treated as Critical:</strong> Every malware finding is assigned <strong>Critical</strong>
+                    severity by the Findings page &mdash; there is no "low-severity malicious package".
+                </div>
+
+                <h6 class="mt-4"><i class="fas fa-database me-2 text-danger"></i>Detection Source</h6>
+                <p>
+                    Malware advisories are pulled from <a href="https://osv.dev" target="_blank" rel="noreferrer noopener">OSV.dev</a>,
+                    which mirrors the <a href="https://github.com/ossf/malicious-packages" target="_blank" rel="noreferrer noopener">OpenSSF Malicious Packages</a>
+                    dataset alongside regular CVE/GHSA advisories. The same OSV query that drives the
+                    Vulnerabilities page also surfaces <code>MAL-*</code> entries; SBOM Play then routes those
+                    into a separate <code>malwareAnalysis</code> bucket.
+                </p>
+
+                <h6 class="mt-4"><i class="fas fa-filter me-2 text-warning"></i>Classifier Rules</h6>
+                <p>An OSV advisory is classified as malware if <strong>any</strong> of the following hold:</p>
+                <table class="table table-sm table-bordered">
+                    <thead class="table-light">
+                        <tr><th>Signal</th><th>Field</th></tr>
+                    </thead>
+                    <tbody>
+                        <tr><td>Explicit kind field</td><td><code>vuln.kind === 'malware'</code></td></tr>
+                        <tr><td>Advisory id prefix</td><td><code>id</code> starts with <code>MAL-</code></td></tr>
+                        <tr><td>OpenSSF origin metadata</td><td><code>affected[].database_specific['malicious-packages-origins']</code> present</td></tr>
+                        <tr><td>Database-specific flag</td><td><code>database_specific.malicious === true</code></td></tr>
+                    </tbody>
+                </table>
+
+                <h6 class="mt-4"><i class="fas fa-shield-alt me-2 text-success"></i>False-Positive Mitigation: <code>introduced: 0</code> Filter</h6>
+                <p>
+                    The OpenSSF Malicious Packages dataset frequently emits an <code>affected[].ranges[]</code>
+                    entry of <code>{ introduced: "0" }</code> with no matching <code>fixed</code> or
+                    <code>last_affected</code> bound &mdash; effectively "all versions ever published". When the
+                    same advisory <em>also</em> includes a specific <code>versions[]</code> list, the trivial
+                    range is treated as a placeholder and ignored. Without this filter, a malicious-version
+                    advisory would over-flag every other version of the same package (including legitimate
+                    predecessors).
+                </p>
+
+                <h6 class="mt-4"><i class="fas fa-search me-2 text-info"></i>Version Applicability</h6>
+                <p>
+                    For each candidate advisory, <code>advisoryAppliesToVersion</code> matches the dependency's
+                    version against the OSV <code>affected[]</code> disjunction:
+                </p>
+                <ul>
+                    <li>If <code>versions[]</code> is non-empty &mdash; exact-match required.</li>
+                    <li>If only <code>ranges[]</code> is present &mdash; SemVer-style comparison (excluding the trivial <code>introduced: 0</code> case above).</li>
+                    <li>If <code>affected[]</code> is empty &mdash; <strong>conservatively kept</strong> as a match unless the cache has hydrated a more specific rule.</li>
+                    <li>If the dependency version is <code>unknown</code> &mdash; advisory is kept (the user is shown an "unverified version" caveat).</li>
+                </ul>
+
+                <h6 class="mt-4"><i class="fas fa-balance-scale me-2"></i>Why Malware Is Excluded From Vulnerability Counters</h6>
+                <p>
+                    The canonical <code>OSVService.countUniqueAdvisories(...)</code> helper used by every
+                    "Open Critical+High" tile, severity row, and headline number explicitly skips
+                    <code>kind === 'malware'</code> and <code>MAL-*</code> ids (along with withdrawn and
+                    VEX-suppressed advisories). This is what keeps the headline total equal to
+                    <em>Critical + High + Medium + Low</em> on the Vulnerabilities page.
+                </p>
+
+                <div class="alert alert-warning mt-3">
+                    <i class="fas fa-exclamation-circle me-2"></i>
+                    <strong>Limitations:</strong>
+                    <ul class="mb-0 mt-2">
+                        <li>The full OpenSSF index is not fetched live in-browser; only OSV-mirrored advisories are seen by default.</li>
+                        <li>Conservative match for empty <code>affected[]</code> can produce false positives until the OSV cache hydrates a stricter rule.</li>
+                        <li>Version comparison is pragmatic SemVer-style and not a complete ecosystem-specific resolver (e.g. PyPI PEP 440 epochs are best-effort).</li>
+                    </ul>
+                </div>
+
+                <h6 class="mt-4"><i class="fas fa-book me-2"></i>References</h6>
+                <ul>
+                    <li><a href="https://github.com/ossf/malicious-packages" target="_blank" rel="noreferrer noopener">OpenSSF Malicious Packages dataset</a></li>
+                    <li><a href="https://google.github.io/osv-schema/" target="_blank" rel="noreferrer noopener">OSV Schema documentation</a></li>
+                    <li><a href="https://osv.dev" target="_blank" rel="noreferrer noopener">OSV.dev vulnerability database</a></li>
+                </ul>
+            </div>
+        </div>
+
+        <!-- VEX / VDR Consumption -->
+        <div class="card mb-4">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="fas fa-file-shield me-2"></i>VEX / VDR Consumption Methodology</h5>
+            </div>
+            <div class="card-body">
+                <p>
+                    <strong>VEX</strong> (Vulnerability Exploitability eXchange) and <strong>VDR</strong>
+                    (Vulnerability Disclosure Report) documents let downstream operators record their own
+                    exploitability decisions: "we ship CVE-YYYY-NNNN, but we're not affected because the
+                    vulnerable code path isn't reachable in our build." SBOM Play accepts uploaded VEX documents
+                    and uses them to <strong>annotate</strong> existing OSV findings with status, justification,
+                    and provenance.
+                </p>
+
+                <div class="alert alert-info">
+                    <i class="fas fa-info-circle me-2"></i>
+                    <strong>Annotate, never delete:</strong> A VEX statement never causes an underlying CVE row
+                    to disappear from storage. The vulnerability remains in the dataset; the VEX label tells the
+                    user what the operator decided about it. Hiding suppressed findings in the UI is opt-in via
+                    a toggle.
+                </div>
+
+                <h6 class="mt-4"><i class="fas fa-file-code me-2 text-primary"></i>Supported Formats</h6>
+                <table class="table table-sm table-bordered">
+                    <thead class="table-light">
+                        <tr><th>Format</th><th>Detection Heuristic</th><th>Notes</th></tr>
+                    </thead>
+                    <tbody>
+                        <tr><td><strong>CycloneDX VEX</strong></td><td><code>bomFormat === 'CycloneDX'</code> with a <code>vulnerabilities[]</code> block</td><td>Most common format; covers full CycloneDX VDR with analysis blocks</td></tr>
+                        <tr><td><strong>OpenVEX</strong></td><td><code>@context</code> contains <code>openvex</code>, or top-level <code>statements[]</code> with a <code>vulnerability</code> field</td><td>Lightweight, statement-oriented format</td></tr>
+                        <tr><td><strong>CSAF 2.0</strong></td><td><code>document.csaf_version</code> or <code>product_tree</code> patterns</td><td>JSON only &mdash; XML CSAF is rejected in-browser</td></tr>
+                    </tbody>
+                </table>
+
+                <h6 class="mt-4"><i class="fas fa-tags me-2 text-warning"></i>Canonical Status Values</h6>
+                <p>Every parsed statement is normalised into one of four canonical statuses (plus an <code>unknown</code> fallback):</p>
+                <div class="alert alert-light border">
+                    <span class="badge bg-danger">affected</span> &mdash; The product is exploitable via this vulnerability.<br>
+                    <span class="badge bg-secondary">not_affected</span> &mdash; The vulnerable code is present but not exploitable in this build / configuration.<br>
+                    <span class="badge bg-success">fixed</span> &mdash; The vulnerability has been remediated in this product version.<br>
+                    <span class="badge bg-warning text-dark">under_investigation</span> &mdash; Triage is still in progress; status will be updated.
+                </div>
+                <p class="small">
+                    CycloneDX vendor-specific values are mapped automatically: <code>resolved</code> /
+                    <code>resolved_with_pedigree</code> &rarr; <code>fixed</code>,
+                    <code>false_positive</code> &rarr; <code>not_affected</code>,
+                    <code>in_triage</code> &rarr; <code>under_investigation</code>,
+                    <code>exploitable</code> &rarr; <code>affected</code>.
+                </p>
+
+                <h6 class="mt-4"><i class="fas fa-link me-2 text-info"></i>Matching Precedence</h6>
+                <p>
+                    Each VEX statement is matched against the analysis's vulnerable dependencies using the
+                    following identifier order &mdash; the first match wins, preventing weaker signals
+                    (PURL aliasing, hash collisions) from over-applying:
+                </p>
+                <ol>
+                    <li><strong><code>bom-ref</code></strong> &mdash; If both the SBOM and the VEX statement reference the same internal id, that's an exact pairing.</li>
+                    <li><strong><code>purl</code></strong> &mdash; PURL match is lenient on the SBOM side: type and name must match; namespace and version are compared only when present on <em>both</em> sides; PURL qualifiers (<code>?type=...</code>) are ignored.</li>
+                    <li><strong>Hash</strong> &mdash; Algorithm name is case-insensitive; hash value is compared strictly.</li>
+                </ol>
+                <p>
+                    Vulnerability ids are matched against the union of <code>vuln.id</code> and
+                    <code>vuln.aliases[]</code>, so a CSAF document referencing a CVE id will correctly attach
+                    to an OSV finding whose canonical id is the corresponding GHSA.
+                </p>
+
+                <h6 class="mt-4"><i class="fas fa-eye-slash me-2 text-secondary"></i>UI Suppression Rules</h6>
+                <p>
+                    On the Vulnerabilities page, an opt-in toggle hides only findings whose VEX status is
+                    <code>not_affected</code> or <code>fixed</code>. Findings labelled <code>affected</code> or
+                    <code>under_investigation</code> remain visible regardless of the toggle &mdash; both still
+                    demand attention. Statements that don't match any dependency surface on the Findings page
+                    so the user can spot broken PURLs or typo'd CVE ids without inspecting each upload manually.
+                </p>
+
+                <div class="alert alert-warning mt-3">
+                    <i class="fas fa-exclamation-circle me-2"></i>
+                    <strong>Limitations:</strong>
+                    <ul class="mb-0 mt-2">
+                        <li>If multiple statements match the same finding, the most recently parsed one wins on <code>vuln.vex</code>; full history is preserved under <code>vex.history</code>.</li>
+                        <li>Conflicting statements are not arbitrated automatically beyond last-write-wins.</li>
+                        <li>XML CSAF documents are not supported; convert to JSON CSAF first.</li>
+                        <li>The <code>unknown</code> fallback status is never treated as authoritative suppression.</li>
+                    </ul>
+                </div>
+
+                <h6 class="mt-4"><i class="fas fa-book me-2"></i>References</h6>
+                <ul>
+                    <li><a href="https://cyclonedx.org/capabilities/vex/" target="_blank" rel="noreferrer noopener">CycloneDX VEX capability</a></li>
+                    <li><a href="https://github.com/openvex/spec" target="_blank" rel="noreferrer noopener">OpenVEX specification</a></li>
+                    <li><a href="https://docs.oasis-open.org/csaf/csaf/v2.0/os/csaf-v2.0-os.html" target="_blank" rel="noreferrer noopener">CSAF 2.0 (OASIS)</a></li>
+                    <li><a href="https://www.cisa.gov/sites/default/files/2023-04/minimum-requirements-for-vex-508c.pdf" target="_blank" rel="noreferrer noopener">CISA Minimum Requirements for VEX</a></li>
+                </ul>
+            </div>
+        </div>
+
+        <!-- Direct vs Transitive + Dependency Depth -->
+        <div class="card mb-4">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="fas fa-sitemap me-2"></i>Direct vs Transitive Classification &amp; Dependency Depth</h5>
+            </div>
+            <div class="card-body">
+                <p>
+                    A direct dependency can be moved by a single line in the consumer repository's manifest
+                    (<code>package.json</code>, <code>requirements.txt</code>, <code>pom.xml</code>, etc.).
+                    A transitive dependency requires the maintainer of the depending package to ship a new
+                    version <em>first</em>. Treating both the same way overstates how actionable a finding is,
+                    so SBOM Play classifies every dependency on a per-(dep, repo) basis.
+                </p>
+
+                <div class="alert alert-info">
+                    <i class="fas fa-info-circle me-2"></i>
+                    <strong>Per-pair classification:</strong> The same <code>name@version</code> can be
+                    <em>direct</em> in repository A (declared in its manifest) and <em>transitive</em> in
+                    repository B (pulled in by some other dep). Classification is always relative to the
+                    consuming repo, never global.
+                </div>
+
+                <h6 class="mt-4"><i class="fas fa-database me-2 text-primary"></i>Ground-Truth Source</h6>
+                <p>
+                    <code>repo.directDependencies</code> is populated <strong>only at SBOM parse time</strong>
+                    from the actual manifest entries the SBOM advertises &mdash; it is never overwritten by the
+                    registry resolver that builds out the transitive tree. The <code>buildDirectMap</code>
+                    helper produces a <code>repoKey &rarr; Set(direct dep keys)</code> lookup that every
+                    aggregator, table, and chart consults to assign the Direct or Transitive badge consistently.
+                </p>
+
+                <h6 class="mt-4"><i class="fas fa-code-branch me-2 text-info"></i>Depth Computation (BFS)</h6>
+                <p>
+                    For each repository, breadth-first search starts from the keys in
+                    <code>directDependencies</code> (Level 1) and walks outward through the inverted
+                    <code>parents[]</code> edges (built into a <code>childrenByParent</code> map). When multiple
+                    paths reach the same dependency, the <strong>shortest</strong> one wins.
+                </p>
+
+                <h6 class="mt-4"><i class="fas fa-arrows-down-to-line me-2 text-warning"></i>Level-1 Imputation Rule</h6>
+                <p>
+                    Real-world SBOMs &mdash; especially those produced by GitHub's Dependency Graph &mdash;
+                    routinely omit the <code>dependsOn</code> / <code>DEPENDS_ON</code> edges that BFS needs.
+                    When a dependency is present in <code>repo.dependencies</code> but unreachable via any
+                    parent chain (because the SBOM has no edges, the version mismatched the resolver-discovered
+                    parent, or the resolver hit <code>maxDepth</code>), it's bucketed at <strong>Level 1</strong>
+                    &mdash; treated as direct &mdash; and counted under an <code>imputedDirectGlobal</code> tally.
+                </p>
+                <p>
+                    The Insights "Portfolio-wide depth distribution" chart surfaces this count under the bars as
+                    <em>"Includes N dependency occurrences with no traceable parent path; treated as direct"</em>,
+                    so the count is never silently hidden. (The previous "Unknown" bucket was removed because it
+                    conflated unreachable-real-deps with cross-repo spillover from an old resolver bug.)
+                </p>
+
+                <h6 class="mt-4"><i class="fas fa-eye me-2 text-success"></i>Where The Split Surfaces</h6>
+                <p>The Direct / Transitive split is visible across every finding view, so reviewers always know which side of the tree they're looking at:</p>
+                <ul>
+                    <li><strong>Vulnerabilities page</strong> &mdash; "Filter by Reach" dropdown plus per-row "Direct in N / Transitive in M" badges; severity tiles show split values.</li>
+                    <li><strong>Licenses page</strong> &mdash; same Reach filter, plus per-card direct/transitive sub-counts on risk cards.</li>
+                    <li><strong>Insights page</strong> &mdash; dedicated "Vulnerabilities &times; dependency depth" stacked chart, "Direct-dep CVE dwell" KPI tile, and per-repo Critical+High mini-bars rendered as 4-segment stacks.</li>
+                    <li><strong>Findings, Malware, Audit, Repos pages</strong> &mdash; reach badges next to each affected package.</li>
+                    <li><strong>Per-repo CSV export</strong> &mdash; ships <code>critical_direct</code>, <code>critical_transitive</code>, <code>high_direct</code>, <code>high_transitive</code>, <code>major_drift_direct</code>, <code>major_drift_transitive</code>, <code>direct_deps</code>, and <code>transitive_deps</code> columns.</li>
+                </ul>
+
+                <div class="alert alert-warning mt-3">
+                    <i class="fas fa-exclamation-circle me-2"></i>
+                    <strong>Limitations:</strong>
+                    <ul class="mb-0 mt-2">
+                        <li>SBOMs without <code>dependsOn</code> edges produce many Level-1-imputed deps; the imputation count is the honest signal, not the precise tree.</li>
+                        <li>Insights uses <code>repo.dependencies</code> as the per-repo scope (not <code>dep.repositories</code>) to avoid cross-repo spillover.</li>
+                        <li>Resolver-discovered transitives that no SBOM listed (registry-only orphans) end up with empty <code>repositories</code> and correctly stop appearing in per-repo aggregations.</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+
+        <!-- Tech-Debt Composite Scoring -->
+        <div class="card mb-4">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="fas fa-balance-scale me-2"></i>Tech-Debt Composite Scoring (Insights)</h5>
+            </div>
+            <div class="card-body">
+                <p>
+                    The Insights page produces a single portfolio-level <strong>health score</strong> on a
+                    0&ndash;100 scale (higher = healthier) plus an A&ndash;F <strong>letter grade</strong>,
+                    designed for engineering managers, CTOs, and M&amp;A reviewers who need a one-glance answer
+                    to "how much accumulated supply-chain debt does this codebase carry?"
+                </p>
+
+                <h6 class="mt-4"><i class="fas fa-calculator me-2 text-primary"></i>Vulnerability Density Formula</h6>
+                <p>Severities are weighted, with direct-dep findings counted at 3&times; the transitive rate:</p>
+                <pre class="bg-light p-2 small mb-2"><code>weighted   = (critDirect * 30 + highDirect * 12 + medDirect * 3)
+           + (critTrans  * 10 + highTrans  *  4 + medTrans  * 1)
+vulnScore  = clamp01(weighted / max(1, totalDeps))</code></pre>
+
+                <h6 class="mt-4"><i class="fas fa-calculator me-2 text-primary"></i>Drift Formula</h6>
+                <pre class="bg-light p-2 small mb-2"><code>majorWeighted = (major.direct * 3) + major.transitive
+minorWeighted = (minor.direct * 3) + minor.transitive
+driftScore    = clamp01(driftMajorRatio * 0.75 + (driftMinorRatio * 0.25 / 3))</code></pre>
+
+                <div class="alert alert-info">
+                    <i class="fas fa-info-circle me-2"></i>
+                    <strong>Why 3&times; for direct deps?</strong> A direct-dep CVE is fixable today with a single
+                    bump in the consuming repo's manifest. A transitive-dep CVE typically requires the depending
+                    package's maintainer to release first. Two portfolios with identical headline counts can
+                    have very different actionability profiles &mdash; the 3&times; multiplier surfaces that.
+                </div>
+
+                <h6 class="mt-4"><i class="fas fa-weight-hanging me-2 text-warning"></i>Component Weights (Org-Level)</h6>
+                <table class="table table-sm table-bordered">
+                    <thead class="table-light">
+                        <tr><th>Component</th><th>Weight</th><th>What It Measures</th></tr>
+                    </thead>
+                    <tbody>
+                        <tr><td><strong>Drift</strong></td><td>30%</td><td>Major / minor versions behind latest, weighted toward direct deps</td></tr>
+                        <tr><td><strong>Vulnerabilities</strong></td><td>30%</td><td>Critical / High / Medium density, weighted toward direct deps</td></tr>
+                        <tr><td><strong>Age</strong></td><td>15%</td><td>Stale-dependency share (2&ndash;3y, 3&ndash;5y, &gt;5y buckets) plus EOL count</td></tr>
+                        <tr><td><strong>License</strong></td><td>10%</td><td>High-risk license share &times; 1.5, plus 0.2 if conflicts present</td></tr>
+                        <tr><td><strong>EOL</strong></td><td>10%</td><td>Confirmed EOL + half-weight EOS components per total deps</td></tr>
+                        <tr><td><strong>Hygiene</strong></td><td>5%</td><td>Unpinned GitHub Actions ratio, dep-confusion density, malware presence</td></tr>
+                    </tbody>
+                </table>
+                <p class="text-muted small">
+                    <i class="fas fa-info-circle me-1"></i>
+                    <strong>SBOM NTIA quality is deliberately excluded</strong> from the composite &mdash; it
+                    measures documentation quality, not real risk. It still has its own grade in the SBOM Quality
+                    dashboard.
+                </p>
+
+                <h6 class="mt-4"><i class="fas fa-trophy me-2 text-success"></i>Final Score &amp; Grade</h6>
+                <pre class="bg-light p-2 small mb-2"><code>debtScore = sum(weight_i * componentScore_i)
+score100  = round((1 - debtScore) * 100)</code></pre>
+                <div class="alert alert-light border">
+                    <strong>Grading scale:</strong><br>
+                    <span class="badge bg-success">A</span> 90&ndash;100 |
+                    <span class="badge bg-info">B</span> 80&ndash;89 |
+                    <span class="badge bg-primary">C</span> 70&ndash;79 |
+                    <span class="badge bg-warning text-dark">D</span> 60&ndash;69 |
+                    <span class="badge bg-danger">F</span> Below 60
+                </div>
+
+                <h6 class="mt-4"><i class="fas fa-th me-2 text-info"></i>The 8-Tile KPI Strip</h6>
+                <p>The same eight tiles render on the Insights page <em>and</em> on the home dashboard, with click-through to the relevant detail page:</p>
+                <ol class="small">
+                    <li><strong>Repos analysed</strong> &mdash; with SBOM coverage % sub-line</li>
+                    <li><strong>Total dependencies</strong> &mdash; with direct / transitive split</li>
+                    <li><strong>Open Critical+High</strong> &mdash; via canonical OSV counter, with direct / transitive C+H sub-counts</li>
+                    <li><strong>Direct-dep CVE dwell</strong> &mdash; median age (days) of unfixed Critical+High on direct deps</li>
+                    <li><strong>EOL components</strong> &mdash; with EOS sub-line</li>
+                    <li><strong>High-risk licenses</strong> &mdash; with conflict count</li>
+                    <li><strong>Major drift %</strong> &mdash; share of deps at least one major version behind</li>
+                    <li><strong>Tech-debt grade</strong> &mdash; A&ndash;F badge plus the underlying <code>score100</code></li>
+                </ol>
+
+                <h6 class="mt-4"><i class="fas fa-cube me-2 text-secondary"></i>Per-Repo Variant</h6>
+                <p>
+                    <code>computeRepoTechDebt</code> (used by the per-repo ranking table and CSV export) uses a
+                    slimmer weighting profile suited to single-repo scoring:
+                    <strong>Drift 30% / Vulns 30% / Age 20% / Hygiene 20%</strong> (no separate License / EOL
+                    split because per-repo license risk and EOL pop out under their own columns).
+                </p>
+
+                <div class="alert alert-warning mt-3">
+                    <i class="fas fa-exclamation-circle me-2"></i>
+                    <strong>Limitations:</strong>
+                    <ul class="mb-0 mt-2">
+                        <li>Vulnerability age stats skip <code>kind === 'malware'</code>; malware presence still bumps the Hygiene component as a binary signal.</li>
+                        <li>Direct/transitive splits use the SBOM-truth <code>directMap</code>, so portfolios with poor SBOM edge fidelity will see imputed-direct skew.</li>
+                        <li>The composite is opinionated &mdash; weights are tuned for a "supply-chain reviewer" perspective, not a generic "code quality" view.</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+
+        <!-- Unified Findings Aggregation -->
+        <div class="card mb-4">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="fas fa-clipboard-list me-2"></i>Unified Findings Aggregation</h5>
+            </div>
+            <div class="card-body">
+                <p>
+                    The <strong>Findings</strong> page composes a flat <code>allFindings</code> list from
+                    disjoint collectors so a single reviewer sees every discrete supply-chain alert in one
+                    place, severity-bucketed and filterable. It is intentionally narrower than the per-page
+                    detail views &mdash; it surfaces <em>discrete actionable findings</em>, not raw advisory rows.
+                </p>
+
+                <h6 class="mt-4"><i class="fas fa-list-check me-2 text-success"></i>Categories Aggregated</h6>
+                <table class="table table-sm table-bordered">
+                    <thead class="table-light">
+                        <tr><th>Category</th><th>Source Service</th><th>Severity Buckets Produced</th></tr>
+                    </thead>
+                    <tbody>
+                        <tr><td><strong>Malware</strong></td><td><code>malware-service.js</code></td><td><span class="badge bg-danger">Critical</span> (always)</td></tr>
+                        <tr><td><strong>GitHub Actions</strong></td><td><code>github-actions-analyzer.js</code></td><td><span class="badge bg-danger">High</span> / <span class="badge bg-warning text-dark">Medium</span> (with mutable-tag dedup)</td></tr>
+                        <tr><td><strong>Dependency Confusion</strong></td><td><code>depconfuse-service.js</code></td><td>Per <code>confusionSeverity</code>, default <span class="badge bg-danger">High</span> (Namespace / Registry Not Found)</td></tr>
+                        <tr><td><strong>EOX (EOL/EOS)</strong></td><td><code>eox-service.js</code></td><td><span class="badge bg-danger">High</span> for confirmed EOL or staleness &ge; 36 mo; <span class="badge bg-warning text-dark">Medium</span> for EOS or 24&ndash;36 mo staleness</td></tr>
+                        <tr><td><strong>Package Lifecycle (Official)</strong></td><td><code>package-lifecycle-service.js</code></td><td><span class="badge bg-danger">High</span> for <code>archived</code> / <code>yanked</code>; <span class="badge bg-warning text-dark">Medium</span> for <code>deprecated</code> / <code>quarantined</code></td></tr>
+                        <tr><td><strong>Maintainer Signal</strong></td><td><code>package-lifecycle-service.js</code> (composite)</td><td><span class="badge bg-danger">High</span> for <code>critical</code>; <span class="badge bg-warning text-dark">Medium</span> for <code>risk</code> (<code>watch</code> / <code>healthy</code> never become findings)</td></tr>
+                        <tr><td><strong>Source-Repo (Dead Source)</strong></td><td><code>findings-page.js</code> direct check</td><td><span class="badge bg-warning text-dark">Medium</span> &mdash; SOURCE-CONTROL URL returns 404</td></tr>
+                    </tbody>
+                </table>
+
+                <div class="alert alert-info">
+                    <i class="fas fa-info-circle me-2"></i>
+                    <strong>Explicitly out of scope on this page:</strong>
+                    <ul class="mb-0 mt-2">
+                        <li><strong>Generic CVE / OSV vulnerability rows</strong> &mdash; live on the <a href="vuln.html">Vulnerabilities</a> page.</li>
+                        <li><strong>License risk</strong> &mdash; lives on the <a href="licenses.html">Licenses</a> page.</li>
+                        <li><strong>SBOM quality findings</strong> &mdash; live on the <a href="audit.html">Audit</a> page (sbomqs v2.0 categories).</li>
+                        <li><strong>VEX statements as rows</strong> &mdash; only <em>unmatched</em> VEX statements surface here as a diagnostic panel; matched statements annotate the underlying vulns on the Vulnerabilities page.</li>
+                    </ul>
+                </div>
+
+                <h6 class="mt-4"><i class="fas fa-chart-pie me-2 text-warning"></i>Severity Bucketing</h6>
+                <p>The summary tiles at the top of the page bucket every finding instance:</p>
+                <ul>
+                    <li><strong>Total</strong> &mdash; raw row count (every (finding, repo) pair).</li>
+                    <li><strong>Critical</strong> &mdash; <code>severity === 'critical'</code> (malware always lands here).</li>
+                    <li><strong>High</strong> &mdash; <code>severity === 'high'</code> or <code>'error'</code>.</li>
+                    <li><strong>Medium</strong> &mdash; <code>severity === 'medium'</code>.</li>
+                    <li><strong>Warning</strong> &mdash; <code>severity === 'warning'</code>.</li>
+                </ul>
+                <p>
+                    Per-category tiles in the second row sum instances, so the <strong>Total</strong> tile
+                    equals the sum of the visible per-category tiles by construction. Type groups within each
+                    category are sorted by severity order, then by instance count.
+                </p>
+
+                <h6 class="mt-4"><i class="fas fa-eye me-2 text-info"></i>Direct / Transitive Reach Badges</h6>
+                <p>
+                    Every applicable row picks up a Direct or Transitive badge derived from the same
+                    <code>directMap</code> the rest of the app uses, so a package can correctly show as
+                    <em>Direct</em> in one repo's row and <em>Transitive</em> in another repo's row of the same
+                    category.
+                </p>
+            </div>
+        </div>
+
+        <!-- OPML Feed Export -->
+        <div class="card mb-4">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="fas fa-rss me-2"></i>OPML Feed Export Methodology</h5>
+            </div>
+            <div class="card-body">
+                <p>
+                    The <strong>Feeds</strong> page resolves a release-notification feed URL for every
+                    dependency in your portfolio, then exports the lot as an <strong>OPML 2.0</strong> outline
+                    you can drop into any RSS/Atom reader (Feedly, NetNewsWire, FreshRSS, Inoreader, etc.).
+                    This lets you find out about new releases &mdash; including the security-fix releases you
+                    actually care about &mdash; without polling registries by hand.
+                </p>
+
+                <h6 class="mt-4"><i class="fas fa-rss-square me-2 text-warning"></i>Feed Types</h6>
+                <table class="table table-sm table-bordered">
+                    <thead class="table-light">
+                        <tr><th>Type</th><th>URL Pattern</th><th>Used For</th></tr>
+                    </thead>
+                    <tbody>
+                        <tr><td><strong>Native</strong> &mdash; PyPI</td><td><code>https://pypi.org/rss/project/&lt;pkg&gt;/releases.xml</code></td><td>PyPI releases</td></tr>
+                        <tr><td><strong>Native</strong> &mdash; RubyGems</td><td><code>https://rubygems.org/gems/&lt;gem&gt;/versions.atom</code></td><td>RubyGems versions</td></tr>
+                        <tr><td><strong>Native</strong> &mdash; Packagist</td><td><code>https://packagist.org/feeds/package.&lt;vendor&gt;.&lt;pkg&gt;.rss</code></td><td>PHP / Composer packages (vendor + name required)</td></tr>
+                        <tr><td><strong>GitHub Releases Atom</strong></td><td><code>https://github.com/&lt;owner&gt;/&lt;repo&gt;/releases.atom</code></td><td>Universal fallback for npm, Maven, NuGet, Cargo, Hex, Pub, CocoaPods, GitHub Actions, and Go modules hosted on github.com</td></tr>
+                        <tr><td><strong>Uncovered</strong></td><td>&mdash;</td><td>No native feed format and no GitHub repo discovered &mdash; omitted from OPML, surfaced in the Feeds page table with a reason</td></tr>
+                    </tbody>
+                </table>
+
+                <h6 class="mt-4"><i class="fas fa-route me-2 text-info"></i>URL Resolution Chain</h6>
+                <p>
+                    <code>_extractGitHubRepoFromDep</code> walks the following sources in order to locate the
+                    repo that backs each dependency. The first hit wins; later sources are ignored.
+                </p>
+                <ol>
+                    <li><strong>SBOM <code>externalRefs</code></strong> &mdash; <code>vcs</code>, <code>repository</code>, <code>website</code>, <code>documentation</code>, plus URLs embedded in the <code>purl</code> qualifiers.</li>
+                    <li><strong><code>dep.repositoryUrl</code></strong> / <strong><code>dep.raw.repositoryUrl</code></strong> &mdash; whatever the SBOM parser captured directly.</li>
+                    <li><strong><code>dep.sourceRepoUrl</code></strong> &mdash; populated by the deps.dev enrichment phase from <code>links[].label === 'SOURCE_REPO' / 'ORIGIN' / 'HOMEPAGE'</code>.</li>
+                    <li><strong><code>cacheManager.getPackageSync(ecosystem:name).repositoryUrl</code></strong> &mdash; whatever the native registry record (npm <code>repository.url</code>, PyPI <code>source_code_uri</code>, Cargo / RubyGems <code>repository.url</code>) had stored on a previous run.</li>
+                </ol>
+
+                <h6 class="mt-4"><i class="fas fa-magic me-2 text-success"></i>deps.dev Backfill For Legacy Analyses</h6>
+                <p>
+                    Older analyses captured before the <code>sourceRepoUrl</code> field existed will frequently
+                    come up as Uncovered. The Feeds page exposes a <strong>"Resolve missing source repos"</strong>
+                    button that issues a deduped batch of deps.dev <code>links[]</code> lookups (queued through
+                    the shared rate-limit lanes), persists the results to the package cache, and re-runs feed
+                    resolution in place. After a single backfill pass, the GitHub Releases fallback typically
+                    lights up for the majority of npm / Maven / NuGet / Cargo / Hex / Pub / CocoaPods packages
+                    whose registry record has a <code>repository.url</code> but whose SBOM didn't include an
+                    externalRef.
+                </p>
+
+                <h6 class="mt-4"><i class="fas fa-file-code me-2 text-primary"></i>OPML 2.0 Output Shape</h6>
+                <p>The exported OPML is grouped by reach (direct vs transitive), then sub-grouped by ecosystem:</p>
+                <pre class="bg-light p-2 small mb-2"><code>&lt;?xml version="1.0" encoding="UTF-8"?&gt;
+&lt;opml version="2.0"&gt;
+  &lt;head&gt;
+    &lt;title&gt;SBOM Play &mdash; org / repo&lt;/title&gt;
+    &lt;dateCreated&gt;...&lt;/dateCreated&gt;
+    &lt;ownerName&gt;...&lt;/ownerName&gt;
+    &lt;docs&gt;http://opml.org/spec2.opml&lt;/docs&gt;
+  &lt;/head&gt;
+  &lt;body&gt;
+    &lt;outline text="Direct dependencies"&gt;
+      &lt;outline text="npm"&gt;
+        &lt;outline type="rss" xmlUrl="..." htmlUrl="..." title="..." text="..." category="..."/&gt;
+      &lt;/outline&gt;
+    &lt;/outline&gt;
+    &lt;outline text="Transitive dependencies"&gt; ... &lt;/outline&gt;
+  &lt;/body&gt;
+&lt;/opml&gt;</code></pre>
+                <p>
+                    Dedupe is performed by <code>xmlUrl</code>; when the same URL backs both a direct and a
+                    transitive dep, the direct entry wins. Uncovered packages are omitted entirely from the
+                    OPML; the page surfaces a <code>skipped</code> count so the export size is auditable.
+                </p>
+
+                <div class="alert alert-warning mt-3">
+                    <i class="fas fa-exclamation-circle me-2"></i>
+                    <strong>Limitations:</strong>
+                    <ul class="mb-0 mt-2">
+                        <li>Uncovered packages are silently omitted from the exported OPML &mdash; check the page table for the actual coverage rate.</li>
+                        <li>Packagist requires a parseable <code>vendor/name</code> pair; packages with malformed PURL components fall through to the GitHub fallback.</li>
+                        <li>The GitHub Releases atom feed only emits when the upstream maintainer publishes a GitHub Release object &mdash; tag-only repositories produce no entries.</li>
+                    </ul>
+                </div>
+
+                <h6 class="mt-4"><i class="fas fa-book me-2"></i>References</h6>
+                <ul>
+                    <li><a href="http://opml.org/spec2.opml" target="_blank" rel="noreferrer noopener">OPML 2.0 Specification</a></li>
+                    <li><a href="https://docs.github.com/en/repositories/releasing-projects-on-github/about-releases" target="_blank" rel="noreferrer noopener">GitHub Releases (Atom feed available at <code>/releases.atom</code>)</a></li>
+                    <li><a href="https://docs.pypi.org/api/feeds/" target="_blank" rel="noreferrer noopener">PyPI RSS feeds</a></li>
+                </ul>
             </div>
         </div>
 
