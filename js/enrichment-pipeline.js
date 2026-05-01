@@ -74,19 +74,51 @@ class EnrichmentPipeline {
         });
         await saveProgress('Enrichment Phase 1.5: Malware');
 
-        // Phase 2: License fetching (68-76%)
+        // Phase 1.7: VEX/VDR statement application (no network — pure
+        // annotation pass over the OSV findings). Slotted between Malware
+        // (1.5) and Licenses (2) per the plan so suppression badges land
+        // before any license-driven UI runs. The phase is a no-op when no
+        // VEX documents have been uploaded for this analysis.
+        onProgress('vex', 67.5, 'Applying VEX/VDR statements...');
+        await this.applyVexStatements(identifier);
+        await saveProgress('Enrichment Phase 1.7: VEX Statements');
+
+        // Phase 2: License fetching (68-75%)
         onProgress('licenses', 68, 'Fetching license information...');
         await this.fetchAllLicenses(deps, identifier, (pct, msg) => {
-            onProgress('licenses', 68 + pct * 0.08, msg);
+            onProgress('licenses', 68 + pct * 0.07, msg);
         });
         await saveProgress('Enrichment Phase 2: Licenses');
 
-        // Phase 3: Version drift and staleness (76-84%)
+        // Phase 2.5: Source-repo license fallback (75-76%)
+        // Phase 1.7 removed the host-repo license misattribution. The honest
+        // replacement: for any dep still without a license but with a
+        // dep.sourceRepoUrl pointing at GitHub (captured during Phase 2 from
+        // deps.dev SOURCE_REPO links, or earlier from native registries via
+        // author-service), ask the GitHub API for the repo's actual license.
+        onProgress('source-repo-license', 75, 'Fetching source repository licenses...');
+        await this.fetchSourceRepoLicenses(deps, (pct, msg) => {
+            onProgress('source-repo-license', 75 + pct * 0.01, msg);
+        });
+        await saveProgress('Enrichment Phase 2.5: Source-repo licenses');
+
+        // Phase 3: Version drift and staleness (76-83%)
         onProgress('version-drift', 76, 'Checking version drift and staleness...');
         await this.fetchVersionDrift(deps, (pct, msg) => {
-            onProgress('version-drift', 76 + pct * 0.08, msg);
+            onProgress('version-drift', 76 + pct * 0.07, msg);
         });
         await saveProgress('Enrichment Phase 3: Version Drift');
+
+        // Phase 3.5: Latest-version license lookup (83-84%)
+        // Phase 1.4 — for each dep where the registry's latest version differs
+        // from the installed version, fetch the latest version's license so
+        // licenses.html can surface upstream license drift even when no
+        // in-environment transition exists yet.
+        onProgress('latest-license', 83, 'Fetching latest-version licenses...');
+        await this.fetchLatestVersionLicenses(deps, (pct, msg) => {
+            onProgress('latest-license', 83 + pct * 0.01, msg);
+        });
+        await saveProgress('Enrichment Phase 3.5: Latest-version Licenses');
 
         // Phase 4: Author information (84-90%)
         onProgress('authors', 84, 'Fetching author information...');
@@ -102,12 +134,34 @@ class EnrichmentPipeline {
         });
         await saveProgress('Enrichment Phase 5: EOX Status');
 
-        // Phase 6: Source repository validation (95-98%)
+        // Phase 6: Source repository validation (95-97%)
         onProgress('source-repos', 95, 'Validating source repositories...');
         await this.validateSourceRepos(deps, (pct, msg) => {
-            onProgress('source-repos', 95 + pct * 0.03, msg);
+            onProgress('source-repos', 95 + pct * 0.02, msg);
         });
         await saveProgress('Enrichment Phase 6: Source Repos');
+
+        // Phase 7: Official package lifecycle status (97-99%)
+        // Per Phase 4 of the lifecycle plan: ask each ecosystem's native
+        // registry (and GitHub for the source repo) for authoritative
+        // deprecation / archival / yank signals. Result lands on
+        // `dep.lifecycle = { status, reason, replacement, source }`.
+        // Heuristic signals (Phase 5) live separately and never overwrite
+        // this field.
+        onProgress('lifecycle', 97, 'Checking package lifecycle status...');
+        await this.fetchPackageLifecycle(deps, (pct, msg) => {
+            onProgress('lifecycle', 97 + pct * 0.015, msg);
+        });
+        await saveProgress('Enrichment Phase 7: Lifecycle');
+
+        // Phase 7.5: Maintainer signal composite (99-100%)
+        // Combines the official lifecycle + repo metadata (Phase 5.2) +
+        // textual heuristic signals (Phase 5.1) into a single 4-level
+        // status. This is a pure synchronous pass — no network — so the
+        // progress wedge stays small.
+        onProgress('maintainer-signal', 98.5, 'Computing maintainer signals...');
+        await this.computeMaintainerSignals(deps);
+        await saveProgress('Enrichment Phase 7.5: Maintainer Signal');
 
         // Re-export to include enriched data
         const enrichedResults = this.sbomProcessor.exportData();
@@ -163,6 +217,148 @@ class EnrichmentPipeline {
         } catch (e) {
             console.warn(`⚠️ Malware analysis failed: ${e.message}`);
         }
+    }
+
+    /**
+     * Apply VEX/VDR statements to the OSV vulnerability findings on the
+     * current sbomProcessor. This is purely additive — we never delete
+     * findings, only attach `vex: { status, justification, source, vexId,
+     * matchedBy }` so the UI can decide what to render and the user can
+     * always inspect the underlying CVE.
+     *
+     * Statements come from `IndexedDBManager.getAllVexDocuments()` and are
+     * filtered to those whose `analysisIdentifier` matches the current
+     * analysis OR whose `analysisIdentifier == null` (treat null as
+     * "applies portfolio-wide" so a single VEX document can cover multiple
+     * analyses without re-upload).
+     *
+     * Unmatched statements are recorded on the analysis blob so the
+     * findings page can flag broken PURLs.
+     */
+    async applyVexStatements(identifier) {
+        if (!window.vexService) {
+            // Service is loaded by every page that exposes vulnerabilities;
+            // a missing service is a code-loading bug, not a user error.
+            console.warn('⚠️ VEX service not available — skipping VEX phase');
+            return;
+        }
+        const idb = this.storageManager && this.storageManager.indexedDB;
+        if (!idb || !idb.getAllVexDocuments) {
+            console.log('ℹ️ VEX storage not initialized — skipping VEX phase');
+            return;
+        }
+
+        const docs = await idb.getAllVexDocuments();
+        if (!docs || docs.length === 0) {
+            return; // No VEX uploads, nothing to do
+        }
+        const applicableDocs = docs.filter(d =>
+            !d.analysisIdentifier || d.analysisIdentifier === identifier
+        );
+        if (applicableDocs.length === 0) return;
+
+        const allStatements = [];
+        for (const d of applicableDocs) {
+            if (!Array.isArray(d.statements)) continue;
+            for (const s of d.statements) {
+                allStatements.push({ ...s, vexId: d.vexId, filename: d.filename || null });
+            }
+        }
+        if (allStatements.length === 0) return;
+
+        // Build a quick index by vulnId so we don't iterate the full
+        // statement list per finding.
+        const byVulnId = new Map();
+        for (const s of allStatements) {
+            if (!s.vulnId) continue;
+            if (!byVulnId.has(s.vulnId)) byVulnId.set(s.vulnId, []);
+            byVulnId.get(s.vulnId).push(s);
+        }
+
+        const va = this.sbomProcessor && this.sbomProcessor.vulnerabilityAnalysis;
+        const vulnerableDeps = va && Array.isArray(va.vulnerableDependencies)
+            ? va.vulnerableDependencies
+            : [];
+
+        const matchedStatementIds = new Set();
+        let annotated = 0;
+
+        for (const vd of vulnerableDeps) {
+            const dep = vd.dependency;
+            if (!dep || !Array.isArray(vd.vulnerabilities)) continue;
+            for (const vuln of vd.vulnerabilities) {
+                // OSV vulnerability ids are stored on `id` and aliases under
+                // `aliases[]`. CSAF/OpenVEX usually reference the CVE id, so
+                // we check both before giving up.
+                const candidateIds = new Set();
+                if (vuln.id) candidateIds.add(vuln.id);
+                if (Array.isArray(vuln.aliases)) {
+                    vuln.aliases.forEach(a => candidateIds.add(a));
+                }
+                for (const cid of candidateIds) {
+                    const stmts = byVulnId.get(cid);
+                    if (!stmts) continue;
+                    for (const stmt of stmts) {
+                        const matchedBy = window.vexService.matchStatementToDep(stmt, dep);
+                        if (!matchedBy) continue;
+                        // Last-write-wins on conflicting statements is fine;
+                        // the UI surfaces all of them via vex.history.
+                        if (!vuln.vex) vuln.vex = { history: [] };
+                        vuln.vex.status = stmt.status;
+                        vuln.vex.justification = stmt.justification;
+                        vuln.vex.actionStatement = stmt.actionStatement;
+                        vuln.vex.source = stmt.source;
+                        vuln.vex.vexId = stmt.vexId;
+                        vuln.vex.matchedBy = matchedBy;
+                        vuln.vex.filename = stmt.filename;
+                        vuln.vex.history.push({
+                            status: stmt.status,
+                            vexId: stmt.vexId,
+                            matchedBy,
+                            filename: stmt.filename
+                        });
+                        matchedStatementIds.add(`${stmt.vexId}::${stmt.vulnId}::${matchedBy}`);
+                        annotated++;
+                    }
+                }
+            }
+        }
+
+        // Record unmatched statements so the findings/settings UI can warn
+        // the user about broken PURLs without re-parsing the documents.
+        const unmatched = allStatements.filter(s =>
+            !matchedStatementIds.has(`${s.vexId}::${s.vulnId}::bom-ref`)
+            && !matchedStatementIds.has(`${s.vexId}::${s.vulnId}::purl`)
+            && !matchedStatementIds.has(`${s.vexId}::${s.vulnId}::hash`)
+        );
+
+        if (va) {
+            va.vexSummary = {
+                documentCount: applicableDocs.length,
+                statementCount: allStatements.length,
+                annotatedFindings: annotated,
+                unmatchedStatements: unmatched.map(u => ({
+                    vexId: u.vexId,
+                    vulnId: u.vulnId,
+                    status: u.status,
+                    identifiers: u.identifiers,
+                    source: u.source,
+                    filename: u.filename
+                }))
+            };
+        }
+
+        // Persist by reusing the same storage path as OSV results so the
+        // annotations survive a page reload without a separate write path.
+        if (this.storageManager && this.storageManager.updateAnalysisWithVulnerabilities) {
+            try {
+                await this.storageManager.updateAnalysisWithVulnerabilities(identifier, va);
+            } catch (e) {
+                console.warn('⚠️ Failed to persist VEX annotations:', e.message);
+            }
+        }
+
+        console.log(`🛡️ VEX: annotated ${annotated} finding(s); ${unmatched.length} statement(s) unmatched.`);
     }
 
     /**
@@ -234,6 +430,10 @@ class EnrichmentPipeline {
             
             if (response.ok) {
                 const data = await response.json();
+                // Always capture SOURCE_REPO from links[] — even when the
+                // deps.dev record has no license, the link is gold for
+                // feeds.html and the source-repo license fallback (Phase 1.6).
+                this._captureSourceRepoFromLinks(dep, data && data.links);
                 if (data.licenses && data.licenses.length > 0) {
                     const licenseStr = data.licenses.map(l => l.license || l).filter(Boolean).join(' AND ');
                     dep.license = licenseStr;
@@ -252,6 +452,24 @@ class EnrichmentPipeline {
             return false;
         } catch (e) {
             return false;
+        }
+    }
+
+    /**
+     * Walk a deps.dev `links[]` array looking for a usable source-repo URL.
+     * Mirrors LicenseFetcher._captureSourceRepoFromLinks; kept here to avoid
+     * cross-class coupling for a tiny utility. Don't overwrite a value already
+     * captured by a higher-precedence source (SBOM externalRef, etc.).
+     */
+    _captureSourceRepoFromLinks(dep, links) {
+        if (!dep || dep.sourceRepoUrl || !Array.isArray(links) || links.length === 0) return;
+        const priorities = ['SOURCE_REPO', 'ORIGIN', 'HOMEPAGE'];
+        for (const label of priorities) {
+            const hit = links.find(l => l && l.label === label && l.url);
+            if (hit) {
+                dep.sourceRepoUrl = hit.url;
+                return;
+            }
         }
     }
 
@@ -283,6 +501,98 @@ class EnrichmentPipeline {
     }
 
     /**
+     * Phase 2.5 — for each dep that ended Phase 2 without a license but with
+     * a `dep.sourceRepoUrl` pointing at GitHub, fetch the source repository's
+     * own license via the GitHub API. Replaces (with correct semantics) the
+     * removed "host repo license" fallback.
+     *
+     * Caps at GitHub-only repos to avoid heuristic guessing on arbitrary VCS
+     * hosts. Dedupes by `owner/repo` so a monorepo's many sub-packages cost
+     * one GitHub call, not N. Persists `licenseSource = 'source-repo'` so the
+     * UI can render a "Inferred from source repo" badge when relevant.
+     */
+    async fetchSourceRepoLicenses(dependencies, onProgress = () => {}) {
+        const candidates = dependencies.filter(dep => {
+            const has = dep.licenseFull && dep.licenseFull !== 'Unknown' && dep.licenseFull !== 'NOASSERTION' && String(dep.licenseFull).trim() !== '';
+            return !has && dep.sourceRepoUrl;
+        });
+        if (candidates.length === 0) return;
+
+        // Group deps by owner/repo so one GitHub call serves all.
+        const repoMap = new Map(); // "owner/repo" -> { owner, repo, deps: [] }
+        for (const dep of candidates) {
+            const parsed = this._parseGitHubRepoFromUrl(dep.sourceRepoUrl);
+            if (!parsed) continue;
+            const key = `${parsed.owner}/${parsed.repo}`;
+            if (!repoMap.has(key)) repoMap.set(key, { owner: parsed.owner, repo: parsed.repo, deps: [] });
+            repoMap.get(key).deps.push(dep);
+        }
+        if (repoMap.size === 0) return;
+
+        console.log(`📄 Source-repo license fallback: ${repoMap.size} unique repos for ${candidates.length} deps`);
+
+        const repos = Array.from(repoMap.values());
+        let resolved = 0;
+        const concurrency = 4;
+        let cursor = 0;
+        const worker = async () => {
+            while (cursor < repos.length) {
+                const idx = cursor++;
+                const { owner, repo, deps: targetDeps } = repos[idx];
+                try {
+                    const url = `https://api.github.com/repos/${owner}/${repo}`;
+                    const response = await fetch(url);
+                    if (response.ok) {
+                        const data = await response.json();
+                        const spdx = data && data.license && (data.license.spdx_id || (data.license.key ? data.license.key.toUpperCase() : null));
+                        if (spdx && spdx !== 'NOASSERTION') {
+                            for (const dep of targetDeps) {
+                                dep.license = spdx;
+                                dep.licenseFull = spdx;
+                                dep.licenseAugmented = true;
+                                dep.licenseSource = 'source-repo';
+                                resolved++;
+                            }
+                        }
+                    }
+                } catch (e) {
+                    // Best-effort — swallow per-repo failures.
+                }
+                onProgress(((idx + 1) / repos.length) * 100, `Source-repo licenses: ${idx + 1}/${repos.length}`);
+            }
+        };
+        await Promise.all(Array.from({ length: concurrency }, worker));
+
+        if (resolved > 0) {
+            this.syncLicensesToProcessor(dependencies);
+            console.log(`✅ Source-repo license fallback resolved ${resolved} deps from ${repoMap.size} repos`);
+        }
+    }
+
+    /**
+     * Parse "https://github.com/owner/repo[.git]" into {owner, repo}. Tolerates
+     * git+ prefixes, .git suffix, and GitHub Enterprise subdomains. Returns
+     * null for non-GitHub or malformed URLs so callers can fall through.
+     */
+    _parseGitHubRepoFromUrl(url) {
+        if (!url || typeof url !== 'string') return null;
+        let cleaned = url.trim().replace(/^git\+/, '').replace(/^ssh:\/\/git@/, 'https://');
+        const scpMatch = cleaned.match(/^git@([^:]+):(.+)$/);
+        if (scpMatch) cleaned = `https://${scpMatch[1]}/${scpMatch[2]}`;
+        if (!/^https?:\/\//i.test(cleaned)) cleaned = 'https://' + cleaned;
+        try {
+            const u = new URL(cleaned);
+            const host = u.hostname.toLowerCase();
+            if (host !== 'github.com' && !host.endsWith('.github.com')) return null;
+            const segments = u.pathname.split('/').filter(Boolean);
+            if (segments.length < 2) return null;
+            return { owner: segments[0], repo: segments[1].replace(/\.git$/, '') };
+        } catch (_) {
+            return null;
+        }
+    }
+
+    /**
      * Sync fetched licenses back to sbomProcessor
      */
     syncLicensesToProcessor(dependencies) {
@@ -304,6 +614,72 @@ class EnrichmentPipeline {
         }
         if (synced > 0) {
             console.log(`📄 Synced ${synced} licenses to processor`);
+        }
+    }
+
+    /**
+     * Phase 1.4 — for every dep where the registry's latest version differs
+     * from the installed version, look up the latest version's license via
+     * the same deps.dev endpoint already used by `fetchLicenseForPackage`.
+     * Result is stored on `dep.versionDrift.latestLicense{,Full}` so
+     * licenses.html can render a third row type "current → latest".
+     *
+     * Skipped silently when:
+     *   - LicenseFetcher isn't loaded (older pages without enrichment).
+     *   - The dep has no versionDrift (Phase 3 didn't run or returned null).
+     *   - latestVersion === current version (no upstream drift to investigate).
+     */
+    async fetchLatestVersionLicenses(dependencies, onProgress = () => {}) {
+        const fetcher = window.licenseFetcher || (window.LicenseFetcher ? new window.LicenseFetcher() : null);
+        if (!fetcher) return;
+
+        const candidates = dependencies.filter(dep =>
+            dep.versionDrift &&
+            dep.versionDrift.latestVersion &&
+            dep.versionDrift.latestVersion !== dep.version &&
+            !dep.versionDrift.latestLicense
+        );
+        if (candidates.length === 0) return;
+
+        console.log(`📄 Fetching latest-version licenses for ${candidates.length} packages...`);
+
+        const batchSize = 8;
+        let processed = 0;
+        for (let i = 0; i < candidates.length; i += batchSize) {
+            const batch = candidates.slice(i, i + batchSize);
+            await Promise.all(batch.map(async (dep) => {
+                // fetchLicenseForPackage mutates the dep argument; pass a
+                // throwaway object so we don't overwrite the *current* version's
+                // license fields with the latest version's license.
+                const probe = {
+                    name: dep.name,
+                    version: dep.versionDrift.latestVersion,
+                    category: dep.category,
+                    ecosystem: dep.category?.ecosystem || dep.ecosystem || ''
+                };
+                const ok = await fetcher.fetchLicenseForPackage(probe);
+                if (ok && probe.licenseFull) {
+                    dep.versionDrift.latestLicense = probe.license || probe.licenseFull;
+                    dep.versionDrift.latestLicenseFull = probe.licenseFull || probe.license;
+                }
+            }));
+            processed += batch.length;
+            onProgress((processed / candidates.length) * 100, `Latest licenses: ${processed}/${candidates.length}`);
+            if (i + batchSize < candidates.length) {
+                await new Promise(r => setTimeout(r, 80));
+            }
+        }
+
+        // Mirror onto sbomProcessor so the next exportData carries the field.
+        if (this.sbomProcessor && this.sbomProcessor.dependencies) {
+            for (const dep of candidates) {
+                if (!dep.versionDrift?.latestLicense) continue;
+                const procDep = this.sbomProcessor.dependencies.get(`${dep.name}@${dep.version}`);
+                if (procDep && procDep.versionDrift) {
+                    procDep.versionDrift.latestLicense = dep.versionDrift.latestLicense;
+                    procDep.versionDrift.latestLicenseFull = dep.versionDrift.latestLicenseFull;
+                }
+            }
         }
     }
 
@@ -539,6 +915,108 @@ class EnrichmentPipeline {
 
         const eoxCount = depsToCheck.filter(d => d.eoxStatus).length;
         console.log(`✅ EOX status complete: ${eoxCount} packages have EOX data`);
+    }
+
+    /**
+     * Phase 7 — fetch official lifecycle status (deprecated/yanked/archived/
+     * quarantined) per dep using `package-lifecycle-service`. Heuristics
+     * (Phase 5) are computed in a separate pass and never overwrite this
+     * field. Cache hits short-circuit so repeat enrichments are cheap.
+     */
+    async fetchPackageLifecycle(dependencies, onProgress = () => {}) {
+        if (!window.packageLifecycleService) {
+            console.warn('⚠️ PackageLifecycleService not loaded — skipping Phase 7');
+            return;
+        }
+        // Only ecosystems with an official deprecation channel today; other
+        // ecosystems still get a GitHub-archived check via sourceRepoUrl.
+        const supportedEcosystems = new Set(['npm', 'pypi', 'nuget', 'cargo']);
+        const candidates = dependencies.filter(dep => {
+            const eco = (dep.category && dep.category.ecosystem || dep.ecosystem || '').toLowerCase();
+            return supportedEcosystems.has(eco) || !!dep.sourceRepoUrl;
+        });
+        if (candidates.length === 0) {
+            console.log('ℹ️ No lifecycle candidates to check');
+            return;
+        }
+
+        const total = candidates.length;
+        let processed = 0;
+        const batchSize = 10;
+        for (let i = 0; i < candidates.length; i += batchSize) {
+            const batch = candidates.slice(i, i + batchSize);
+            await Promise.all(batch.map(async (dep) => {
+                try {
+                    const lifecycle = await window.packageLifecycleService.fetchLifecycle(dep);
+                    if (lifecycle && lifecycle.status && lifecycle.status !== 'unknown') {
+                        dep.lifecycle = lifecycle;
+                        // Mirror onto the in-memory dependency map so
+                        // downstream UI (which reads from `sbomProcessor`)
+                        // sees the new field without a re-export round-trip.
+                        const key = `${dep.name}@${dep.version}`;
+                        if (this.sbomProcessor && this.sbomProcessor.dependencies && this.sbomProcessor.dependencies.has(key)) {
+                            const stored = this.sbomProcessor.dependencies.get(key);
+                            stored.lifecycle = lifecycle;
+                        }
+                    } else if (lifecycle) {
+                        // Even an "unknown" result is informative — record
+                        // when we last looked so the UI can label "Checked
+                        // 2 days ago, no signal" rather than "Unknown".
+                        dep.lifecycle = lifecycle;
+                    }
+                } catch (err) {
+                    console.warn(`⚠️ Lifecycle fetch failed for ${dep.name}@${dep.version}:`, err.message);
+                }
+            }));
+            processed += batch.length;
+            const pct = Math.min(100, (processed / total) * 100);
+            onProgress(pct, `Lifecycle: ${processed}/${total}`);
+        }
+    }
+
+    /**
+     * Phase 7.5 — fold the lifecycle status, repo metadata, and textual
+     * heuristic signals into a single `dep.maintainerSignal` so the UI can
+     * surface one unambiguous level (`healthy|watch|risk|critical`) per
+     * package without re-running the rule logic in every renderer.
+     *
+     * Repo metadata is sourced from `sbomProcessor.repositories[firstRepo]`
+     * (set in app.js Phase 5.2) and falls back to {} when none of the
+     * dep's repos carry it. We do NOT make new GitHub calls here — the
+     * lifecycle phase already touched github.com/repos for archived
+     * checks.
+     */
+    async computeMaintainerSignals(dependencies) {
+        if (!window.packageLifecycleService || !window.packageLifecycleService.computeMaintainerSignal) {
+            return;
+        }
+        const repoMetaCache = new Map();
+        const findRepoMeta = (dep) => {
+            const repos = Array.isArray(dep.repositories) ? dep.repositories : [];
+            for (const key of repos) {
+                if (repoMetaCache.has(key)) return repoMetaCache.get(key);
+                const repoData = this.sbomProcessor && this.sbomProcessor.repositories && this.sbomProcessor.repositories.get
+                    ? this.sbomProcessor.repositories.get(key)
+                    : null;
+                const meta = repoData && repoData.repoMeta ? repoData.repoMeta : null;
+                repoMetaCache.set(key, meta);
+                if (meta) return meta;
+            }
+            return null;
+        };
+
+        for (const dep of dependencies) {
+            try {
+                const repoMeta = findRepoMeta(dep) || {};
+                const heuristicSignals = (dep.warnings && Array.isArray(dep.warnings.heuristicSignals))
+                    ? dep.warnings.heuristicSignals
+                    : [];
+                const signal = window.packageLifecycleService.computeMaintainerSignal(dep, repoMeta, heuristicSignals);
+                if (signal) dep.maintainerSignal = signal;
+            } catch (err) {
+                console.warn(`⚠️ computeMaintainerSignal failed for ${dep.name}:`, err.message);
+            }
+        }
     }
 
     /**

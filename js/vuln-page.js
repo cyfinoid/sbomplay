@@ -108,7 +108,123 @@ document.addEventListener('DOMContentLoaded', async function() {
     // Setup event listeners
     document.getElementById('analysisSelector').addEventListener('change', loadVulnerabilityData);
     document.getElementById('severityFilter').addEventListener('change', loadVulnerabilityData);
-    
+
+    // ---------- Phase 3 (VEX) wiring ----------
+    // Upload, suppression toggle, and management modal. Upload triggers a
+    // re-run of `applyVexStatements` for the current analysis so the page
+    // re-renders without requiring a full enrichment cycle.
+    const vexInput = document.getElementById('vexUploadInput');
+    const vexSuppressToggle = document.getElementById('vexSuppressToggle');
+    const vexUploadStatus = document.getElementById('vexUploadStatus');
+    const vexManageBtn = document.getElementById('vexManageBtn');
+    const vexSummary = document.getElementById('vexSummary');
+
+    // Suppression preference is per-browser (machine-local) so it does not
+    // mutate the analysis blob. Stored in localStorage with a sensible
+    // default of "off" — users should opt into suppression deliberately.
+    if (vexSuppressToggle) {
+        vexSuppressToggle.checked = localStorage.getItem('sbomplay_vex_suppress') === '1';
+        window.__vexSuppress = vexSuppressToggle.checked;
+        vexSuppressToggle.addEventListener('change', async () => {
+            window.__vexSuppress = vexSuppressToggle.checked;
+            localStorage.setItem('sbomplay_vex_suppress', vexSuppressToggle.checked ? '1' : '0');
+            await loadVulnerabilityData();
+        });
+    }
+
+    if (vexInput) {
+        vexInput.addEventListener('change', async (event) => {
+            const file = event.target.files[0];
+            if (!file) return;
+            if (!window.vexService) {
+                vexUploadStatus.textContent = 'VEX service not loaded.';
+                return;
+            }
+            try {
+                vexUploadStatus.textContent = 'Parsing VEX document...';
+                const text = await file.text();
+                const parsed = window.vexService.parseDocument(text, { filename: file.name });
+                const analysisName = document.getElementById('analysisSelector').value || null;
+                await storageManager.indexedDB.saveVexDocument(parsed.vexId, {
+                    ...parsed,
+                    analysisIdentifier: analysisName // null = applies to all
+                });
+                vexUploadStatus.innerHTML = `<span class="text-success"><i class="fas fa-check me-1"></i>${parsed.format}: ${parsed.statementCount} statement(s) saved.</span>`;
+
+                // Re-run the VEX phase against the active analysis so the
+                // page re-renders annotations without a full enrichment cycle.
+                await reapplyVexForCurrentAnalysis();
+                await loadVulnerabilityData();
+            } catch (err) {
+                console.error('VEX upload failed:', err);
+                vexUploadStatus.innerHTML = `<span class="text-danger">${err.message}</span>`;
+            } finally {
+                event.target.value = '';
+            }
+        });
+    }
+
+    if (vexManageBtn) {
+        vexManageBtn.addEventListener('click', async () => {
+            await openVexManageDialog();
+        });
+    }
+
+    // Render VEX summary line under the toggle so the user sees the impact
+    // of any uploaded documents without opening another page.
+    async function refreshVexSummary() {
+        try {
+            const docs = await storageManager.indexedDB.getAllVexDocuments();
+            if (!docs || docs.length === 0) {
+                vexSummary.textContent = 'No VEX/VDR documents uploaded.';
+                return;
+            }
+            const totalStmts = docs.reduce((sum, d) => sum + (d.statementCount || 0), 0);
+            vexSummary.innerHTML = `<i class="fas fa-shield-alt me-1"></i>${docs.length} document(s), ${totalStmts} statement(s) on file.`;
+        } catch {
+            vexSummary.textContent = '';
+        }
+    }
+    await refreshVexSummary();
+
+    async function reapplyVexForCurrentAnalysis() {
+        const analysisName = document.getElementById('analysisSelector').value;
+        if (!analysisName) return; // No-op for "All Analyses" aggregate view.
+        try {
+            // Lightweight re-application: load the analysis, run the VEX
+            // phase against an in-memory sbomProcessor surrogate, and write
+            // back via updateAnalysisWithVulnerabilities.
+            const data = await storageManager.loadAnalysisDataForOrganization(analysisName);
+            if (!data || !data.vulnerabilityAnalysis) return;
+            const surrogate = { vulnerabilityAnalysis: data.vulnerabilityAnalysis };
+            const pipeline = new EnrichmentPipeline(surrogate, storageManager);
+            await pipeline.applyVexStatements(analysisName);
+        } catch (err) {
+            console.warn('VEX re-application failed:', err.message);
+        }
+        await refreshVexSummary();
+    }
+
+    async function openVexManageDialog() {
+        const docs = await storageManager.indexedDB.getAllVexDocuments();
+        if (!docs || docs.length === 0) {
+            alert('No VEX documents have been uploaded yet.');
+            return;
+        }
+        const lines = docs.map(d =>
+            `${d.format}\t${d.filename || '(no filename)'}\t${d.statementCount || 0} stmts\tscope: ${d.analysisIdentifier || 'all analyses'}`
+        ).join('\n');
+        const choice = prompt(
+            `Uploaded VEX documents:\n\n${lines}\n\nEnter a vexId to delete, or leave blank to cancel.\n\nIDs:\n${docs.map(d => d.vexId).join('\n')}`
+        );
+        if (choice && choice.trim()) {
+            await storageManager.indexedDB.deleteVexDocument(choice.trim());
+            await reapplyVexForCurrentAnalysis();
+            await loadVulnerabilityData();
+            await refreshVexSummary();
+        }
+    }
+
     // Load initial data
     await loadVulnerabilityData();
 });

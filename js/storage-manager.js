@@ -127,6 +127,7 @@ class StorageManager {
                 : await this.indexedDB.getOrganization(name);
             this._invalidateStaleEOXStatus(entry);
             this._recomputeDirectAndTransitive(entry);
+            this._migrateLegacyRepositoryLicense(entry);
             await this._hydrateDriftAndStaleness(entry);
             return entry;
         } catch (error) {
@@ -168,6 +169,50 @@ class StorageManager {
         }
         if (dropped > 0) {
             console.log(`🧹 EOX: dropped ${dropped} stale eoxStatus entr${dropped === 1 ? 'y' : 'ies'} (older matcher logic)`);
+        }
+    }
+
+    /**
+     * Phase 1.7 backward-compat shim. Pre-fix exports (schema 1.0) named the
+     * "first consuming repo's license" field `dep.repositoryLicense`. The same
+     * field was misread by view-manager and deps-page as a "dep license fallback",
+     * silently attributing host-project licenses to license-less third-party deps.
+     *
+     * The new code:
+     *   - writes the field as `consumerRepoLicense` (clearer intent)
+     *   - never reads it as a dep license fallback (only as compat-checker input)
+     *
+     * Legacy stored data still has `repositoryLicense`. We copy it over to the
+     * new name so the (correct, post-fix) compatibility checker can still consult
+     * it. We DO NOT delete the legacy field this release — Phase 1.8 export
+     * schema bumps to 1.1; deletion is scheduled for 1.2.
+     *
+     * Read-time only; persisted IndexedDB rows are untouched. Same posture as
+     * `_invalidateStaleEOXStatus` and `_recomputeDirectAndTransitive`.
+     *
+     * @param {Object|null} entry
+     */
+    _migrateLegacyRepositoryLicense(entry) {
+        if (!entry || !entry.data || entry._legacyRepositoryLicenseMigrated) return;
+        const collections = [];
+        if (Array.isArray(entry.data.allDependencies)) collections.push(entry.data.allDependencies);
+        if (Array.isArray(entry.data.topDependencies)) collections.push(entry.data.topDependencies);
+        if (Array.isArray(entry.data.vulnerableDependencies)) collections.push(entry.data.vulnerableDependencies);
+        if (Array.isArray(entry.data.highRiskDependencies)) collections.push(entry.data.highRiskDependencies);
+        let migrated = 0;
+        for (const list of collections) {
+            for (const dep of list) {
+                if (!dep) continue;
+                if (dep.consumerRepoLicense) continue;
+                if (dep.repositoryLicense) {
+                    dep.consumerRepoLicense = dep.repositoryLicense;
+                    migrated++;
+                }
+            }
+        }
+        entry._legacyRepositoryLicenseMigrated = true;
+        if (migrated > 0) {
+            console.log(`🔁 License mapping: copied ${migrated} legacy dep.repositoryLicense → consumerRepoLicense (schema <1.1)`);
         }
     }
 
@@ -659,19 +704,31 @@ class StorageManager {
      */
     async _exportDataByType(type, filename) {
         try {
+            // Phase 1.8: schema bumped 1.0 → 1.1 to include `locations`, `eoxData`,
+            // and `legacyAuthors`. These were previously persisted on every analysis
+            // run but never made it into any export, so a "round-trip" via Export
+            // All / Import All silently dropped them. localStorage user preferences
+            // are intentionally NOT exported (treated as machine-local, per the
+            // Phase 1.8 plan decision).
             const dataGetters = {
                 'all': async () => ({
                     entries: await this.indexedDB.getAllEntries(),
                     vulnerabilities: await this.indexedDB.getAllVulnerabilities(),
                     authorEntities: await this.indexedDB.getAllAuthorEntities(),
                     packageAuthors: await this.indexedDB.getAllPackageAuthors(),
-                    packages: await this.indexedDB.getAllPackages()
+                    packages: await this.indexedDB.getAllPackages(),
+                    locations: await this.indexedDB.getAllLocations(),
+                    eoxData: await this.indexedDB.getAllEoxData(),
+                    legacyAuthors: await this.indexedDB.getAllLegacyAuthors()
                 }),
                 'cached': async () => ({
                     authorEntities: await this.indexedDB.getAllAuthorEntities(),
                     packageAuthors: await this.indexedDB.getAllPackageAuthors(),
                     packages: await this.indexedDB.getAllPackages(),
-                    vulnerabilities: await this.indexedDB.getAllVulnerabilities()
+                    vulnerabilities: await this.indexedDB.getAllVulnerabilities(),
+                    locations: await this.indexedDB.getAllLocations(),
+                    eoxData: await this.indexedDB.getAllEoxData(),
+                    legacyAuthors: await this.indexedDB.getAllLegacyAuthors()
                 }),
                 'authors': async () => ({
                     authorEntities: await this.indexedDB.getAllAuthorEntities(),
@@ -685,6 +742,15 @@ class StorageManager {
                 }),
                 'analysis': async () => ({
                     entries: await this.indexedDB.getAllEntries()
+                }),
+                'locations': async () => ({
+                    locations: await this.indexedDB.getAllLocations()
+                }),
+                'eox': async () => ({
+                    eoxData: await this.indexedDB.getAllEoxData()
+                }),
+                'legacy-authors': async () => ({
+                    legacyAuthors: await this.indexedDB.getAllLegacyAuthors()
                 })
             };
             
@@ -695,7 +761,7 @@ class StorageManager {
             
             const data = await getData();
             const exportData = {
-                version: '1.0',
+                version: '1.1',
                 type: type,
                 ...data,
                 exportTimestamp: new Date().toISOString()
@@ -783,9 +849,15 @@ class StorageManager {
     }
 
     /**
-     * Import all data from JSON file
+     * Import all data from JSON file.
+     *
+     * @param {Object} jsonData - Parsed import payload.
+     * @param {Object} [opts]
+     * @param {('merge'|'replace')} [opts.mode='merge'] - Conflict strategy.
+     *   `merge` (default) overwrites by key; existing rows not in the file stay.
+     *   `replace` clears the affected stores in one transaction first, then puts.
      */
-    async importAllData(jsonData) {
+    async importAllData(jsonData, opts = {}) {
         try {
             // Validate data structure
             if (!jsonData || typeof jsonData !== 'object') {
@@ -802,20 +874,26 @@ class StorageManager {
 
             // Handle different import types
             if (jsonData.type === 'all') {
-                return await this._importAllData(jsonData);
+                return await this._importAllData(jsonData, opts);
             } else if (jsonData.type === 'cached') {
-                return await this._importCachedDatabases(jsonData);
+                return await this._importCachedDatabases(jsonData, opts);
             } else if (jsonData.type === 'authors') {
-                return await this._importAuthorsCache(jsonData);
+                return await this._importAuthorsCache(jsonData, opts);
             } else if (jsonData.type === 'packages') {
-                return await this._importPackagesCache(jsonData);
+                return await this._importPackagesCache(jsonData, opts);
             } else if (jsonData.type === 'vulnerabilities') {
-                return await this._importVulnerabilitiesCache(jsonData);
+                return await this._importVulnerabilitiesCache(jsonData, opts);
             } else if (jsonData.type === 'analysis') {
-                return await this._importAnalysisData(jsonData);
+                return await this._importAnalysisData(jsonData, opts);
+            } else if (jsonData.type === 'locations') {
+                return await this._importDataByType('locations', jsonData, opts);
+            } else if (jsonData.type === 'eox') {
+                return await this._importDataByType('eox', jsonData, opts);
+            } else if (jsonData.type === 'legacy-authors') {
+                return await this._importDataByType('legacy-authors', jsonData, opts);
             } else {
                 // Legacy format - try to import as all data
-                return await this._importAllData(jsonData);
+                return await this._importAllData(jsonData, opts);
             }
         } catch (error) {
             console.error('❌ Failed to import data:', error);
@@ -827,12 +905,24 @@ class StorageManager {
     }
 
     /**
-     * Generic import handler for different data types
+     * Generic import handler for different data types.
+     *
+     * Phase 1.8 additions:
+     *   - `mode`: 'merge' (default — overwrite by key only) or 'replace'
+     *     (clear the affected stores in one atomic transaction first, then put).
+     *   - `locations`, `eoxData`, `legacyAuthors` handlers.
+     *   - `packageAuthors` now passes `isMaintainer` through to savePackageAuthor
+     *     so the maintainer flag isn't silently dropped on import.
+     *   - Schema migration shim (`_migrateImportPayload`) so 1.0 files keep
+     *     working as the schema bumps to 1.1+.
+     *
      * @param {string} type - Import type
      * @param {Object} jsonData - Data to import
+     * @param {Object} [opts]
+     * @param {('merge'|'replace')} [opts.mode='merge'] - Conflict strategy.
      * @returns {Promise<Object>} - Import result
      */
-    async _importDataByType(type, jsonData) {
+    async _importDataByType(type, jsonData, opts = {}) {
         // Verify checksum if present
         if (jsonData.checksum) {
             const checksumResult = await this.verifyChecksum(jsonData);
@@ -841,8 +931,24 @@ class StorageManager {
             }
         }
 
+        // Schema migration runs in-place. 1.0 → 1.1 just back-fills missing
+        // arrays so downstream handlers can treat them uniformly.
+        this._migrateImportPayload(jsonData);
+
+        const mode = opts.mode === 'replace' ? 'replace' : 'merge';
+        // In replace mode, atomically clear all stores this `type` writes to
+        // so a smaller snapshot doesn't leave orphaned rows behind. We do this
+        // BEFORE any handlers run so the operation is one transaction.
+        if (mode === 'replace') {
+            const stores = this._storesForType(type);
+            if (stores.length > 0 && typeof this.indexedDB.clearStores === 'function') {
+                await this.indexedDB.clearStores(stores);
+            }
+        }
+
         const result = {
             success: true,
+            mode,
             errors: []
         };
 
@@ -912,7 +1018,14 @@ class StorageManager {
                 for (const rel of relationships) {
                     try {
                         if (!rel.packageAuthorKey) continue;
-                        const success = await this.indexedDB.savePackageAuthor(rel.packageKey, rel.authorKey);
+                        // Phase 1.8 fix — pass isMaintainer through; legacy
+                        // import code dropped this flag, silently flattening
+                        // every author into a non-maintainer.
+                        const success = await this.indexedDB.savePackageAuthor(
+                            rel.packageKey,
+                            rel.authorKey,
+                            rel.isMaintainer === true
+                        );
                         if (success) count++;
                     } catch (error) {
                         result.errors.push(`Error importing package-author relationship: ${error.message}`);
@@ -937,6 +1050,48 @@ class StorageManager {
                     }
                 }
                 result.importedPackages = (result.importedPackages || 0) + count;
+            },
+            locations: async (locations) => {
+                if (!Array.isArray(locations) || typeof this.indexedDB.saveLocation !== 'function') return;
+                let count = 0;
+                for (const loc of locations) {
+                    try {
+                        if (!loc || !loc.locationString) continue;
+                        const success = await this.indexedDB.saveLocation(loc.locationString, loc);
+                        if (success) count++;
+                    } catch (error) {
+                        result.errors.push(`Error importing location ${loc.locationString}: ${error.message}`);
+                    }
+                }
+                result.importedLocations = count;
+            },
+            eoxData: async (rows) => {
+                if (!Array.isArray(rows) || typeof this.indexedDB.saveEoxData !== 'function') return;
+                let count = 0;
+                for (const row of rows) {
+                    try {
+                        if (!row || !row.key) continue;
+                        const success = await this.indexedDB.saveEoxData(row.key, row);
+                        if (success) count++;
+                    } catch (error) {
+                        result.errors.push(`Error importing EOX row ${row.key}: ${error.message}`);
+                    }
+                }
+                result.importedEoxData = count;
+            },
+            legacyAuthors: async (rows) => {
+                if (!Array.isArray(rows) || typeof this.indexedDB.saveLegacyAuthor !== 'function') return;
+                let count = 0;
+                for (const row of rows) {
+                    try {
+                        if (!row || !row.packageKey) continue;
+                        const success = await this.indexedDB.saveLegacyAuthor(row.packageKey, row);
+                        if (success) count++;
+                    } catch (error) {
+                        result.errors.push(`Error importing legacy author ${row.packageKey}: ${error.message}`);
+                    }
+                }
+                result.importedLegacyAuthors = count;
             }
         };
 
@@ -947,11 +1102,17 @@ class StorageManager {
             await importHandlers.authorEntities(jsonData.authorEntities);
             await importHandlers.packageAuthors(jsonData.packageAuthors);
             await importHandlers.packages(jsonData.packages);
+            await importHandlers.locations(jsonData.locations);
+            await importHandlers.eoxData(jsonData.eoxData);
+            await importHandlers.legacyAuthors(jsonData.legacyAuthors);
         } else if (type === 'cached') {
             await importHandlers.authorEntities(jsonData.authorEntities);
             await importHandlers.packageAuthors(jsonData.packageAuthors);
             await importHandlers.packages(jsonData.packages);
             await importHandlers.vulnerabilities(jsonData.vulnerabilities);
+            await importHandlers.locations(jsonData.locations);
+            await importHandlers.eoxData(jsonData.eoxData);
+            await importHandlers.legacyAuthors(jsonData.legacyAuthors);
         } else if (type === 'authors') {
             await importHandlers.authorEntities(jsonData.authorEntities);
             await importHandlers.packageAuthors(jsonData.packageAuthors);
@@ -961,6 +1122,12 @@ class StorageManager {
             await importHandlers.vulnerabilities(jsonData.vulnerabilities);
         } else if (type === 'analysis') {
             await importHandlers.entries(jsonData.entries);
+        } else if (type === 'locations') {
+            await importHandlers.locations(jsonData.locations);
+        } else if (type === 'eox') {
+            await importHandlers.eoxData(jsonData.eoxData);
+        } else if (type === 'legacy-authors') {
+            await importHandlers.legacyAuthors(jsonData.legacyAuthors);
         }
 
         result.errors = result.errors.length > 0 ? result.errors : null;
@@ -968,45 +1135,98 @@ class StorageManager {
     }
 
     /**
+     * Phase 1.8 — return the IndexedDB stores written to by an import of
+     * `type`. Used by Replace mode so we know which stores to clear before
+     * re-inserting. Keep in sync with the per-type branches above.
+     *
+     * @param {string} type
+     * @returns {string[]}
+     */
+    _storesForType(type) {
+        switch (type) {
+            case 'all':
+                return ['organizations', 'repositories', 'vulnerabilities', 'authorEntities',
+                        'packageAuthors', 'packages', 'locations', 'eoxData', 'authors'];
+            case 'cached':
+                return ['vulnerabilities', 'authorEntities', 'packageAuthors', 'packages',
+                        'locations', 'eoxData', 'authors'];
+            case 'authors':       return ['authorEntities', 'packageAuthors'];
+            case 'packages':      return ['packages'];
+            case 'vulnerabilities': return ['vulnerabilities'];
+            case 'analysis':      return ['organizations', 'repositories'];
+            case 'locations':     return ['locations'];
+            case 'eox':           return ['eoxData'];
+            case 'legacy-authors': return ['authors'];
+            default: return [];
+        }
+    }
+
+    /**
+     * Phase 1.8 — schema migration shim. Called from the top of
+     * `_importDataByType`; mutates `jsonData` in place to bring it up to the
+     * current schema. Each step is a no-op when the data is already current,
+     * so it's safe to run on every import.
+     *
+     * Versioning:
+     *   1.0 — pre-Phase-1.8 exports. Missing locations/eoxData/legacyAuthors.
+     *   1.1 — Phase 1.8: covers all IndexedDB stores. (Future) 1.2 will add
+     *         `vexDocuments` for Phase 3.
+     */
+    _migrateImportPayload(jsonData) {
+        if (!jsonData) return;
+        const v = String(jsonData.version || '1.0');
+        // 1.0 → 1.1: back-fill new arrays so downstream handlers see []
+        // instead of `undefined`. No data is lost; the user's snapshot just
+        // didn't have these stores.
+        if (v.startsWith('1.0') || v === '1') {
+            if (!('locations' in jsonData)) jsonData.locations = [];
+            if (!('eoxData' in jsonData)) jsonData.eoxData = [];
+            if (!('legacyAuthors' in jsonData)) jsonData.legacyAuthors = [];
+            jsonData.version = '1.1';
+        }
+        // Future: 1.1 → 1.2 will populate vexDocuments=[] when Phase 3 lands.
+    }
+
+    /**
      * Import all data (legacy and new format)
      */
-    async _importAllData(jsonData) {
-        return this._importDataByType('all', jsonData);
+    async _importAllData(jsonData, opts = {}) {
+        return this._importDataByType('all', jsonData, opts);
     }
 
     /**
      * Import cached databases (authors, packages, vulnerabilities)
      */
-    async _importCachedDatabases(jsonData) {
-        return this._importDataByType('cached', jsonData);
+    async _importCachedDatabases(jsonData, opts = {}) {
+        return this._importDataByType('cached', jsonData, opts);
     }
 
     /**
      * Import authors cache
      */
-    async _importAuthorsCache(jsonData) {
-        return this._importDataByType('authors', jsonData);
+    async _importAuthorsCache(jsonData, opts = {}) {
+        return this._importDataByType('authors', jsonData, opts);
     }
 
     /**
      * Import packages cache
      */
-    async _importPackagesCache(jsonData) {
-        return this._importDataByType('packages', jsonData);
+    async _importPackagesCache(jsonData, opts = {}) {
+        return this._importDataByType('packages', jsonData, opts);
     }
 
     /**
      * Import vulnerabilities cache
      */
-    async _importVulnerabilitiesCache(jsonData) {
-        return this._importDataByType('vulnerabilities', jsonData);
+    async _importVulnerabilitiesCache(jsonData, opts = {}) {
+        return this._importDataByType('vulnerabilities', jsonData, opts);
     }
 
     /**
      * Import analysis data only
      */
-    async _importAnalysisData(jsonData) {
-        return this._importDataByType('analysis', jsonData);
+    async _importAnalysisData(jsonData, opts = {}) {
+        return this._importDataByType('analysis', jsonData, opts);
     }
 
     /**
@@ -1222,6 +1442,7 @@ class StorageManager {
             for (const entry of allData) {
                 this._invalidateStaleEOXStatus(entry);
                 this._recomputeDirectAndTransitive(entry);
+                this._migrateLegacyRepositoryLicense(entry);
                 await this._hydrateDriftAndStaleness(entry, pkgMap);
             }
 
@@ -1493,6 +1714,7 @@ class StorageManager {
             copyleft: 0,
             lgpl: 0,
             proprietary: 0,
+            custom: 0,
             unknown: 0
         };
         const riskBreakdown = {
@@ -1516,13 +1738,12 @@ class StorageManager {
                     totalLicensedDeps += summary.licensedDependencies || 0;
                     totalUnlicensedDeps += summary.unlicensedDependencies || 0;
                     
-                    // Combine category breakdown
+                    // Combine category breakdown — used as a fallback if we cannot
+                    // recompute from deduped allDependencies below.
                     if (summary.categoryBreakdown) {
-                        categoryBreakdown.permissive += summary.categoryBreakdown.permissive || 0;
-                        categoryBreakdown.copyleft += summary.categoryBreakdown.copyleft || 0;
-                        categoryBreakdown.lgpl += summary.categoryBreakdown.lgpl || 0;
-                        categoryBreakdown.proprietary += summary.categoryBreakdown.proprietary || 0;
-                        categoryBreakdown.unknown += summary.categoryBreakdown.unknown || 0;
+                        for (const k of Object.keys(categoryBreakdown)) {
+                            categoryBreakdown[k] += summary.categoryBreakdown[k] || 0;
+                        }
                     }
                     
                     // Combine risk breakdown
@@ -1640,16 +1861,56 @@ class StorageManager {
             };
         }
 
+        // Recompute the canonical breakdown from the deduped allDependencies so the
+        // pie-chart center matches the dependency table. Summing per-analysis numbers
+        // double-counts the same dep across analyses; this pass classifies each unique
+        // (name@version) once. Falls back to the summed numbers when LicenseProcessor
+        // is unavailable (e.g. older HTML pages that don't load it).
+        let canonicalSummary = {
+            totalDependencies: totalDeps,
+            licensedDependencies: totalLicensedDeps,
+            unlicensedDependencies: totalUnlicensedDeps,
+            categoryBreakdown: categoryBreakdown,
+            riskBreakdown: riskBreakdown
+        };
+        if (typeof window !== 'undefined' && window.LicenseProcessor && Array.isArray(combined.allDependencies) && combined.allDependencies.length > 0) {
+            try {
+                const lp = new window.LicenseProcessor();
+                const reBreakdown = { permissive: 0, copyleft: 0, lgpl: 0, proprietary: 0, custom: 0, unknown: 0 };
+                const reRisk = { low: 0, medium: 0, high: 0 };
+                let reLicensed = 0;
+                let reUnlicensed = 0;
+                for (const dep of combined.allDependencies) {
+                    // Prefer enriched license fields (deps.dev / registry) over the raw SBOM.
+                    const enriched = dep.licenseFull || dep.license;
+                    const synth = (enriched && enriched !== 'NOASSERTION' && String(enriched).trim() !== '')
+                        ? { licenseConcluded: enriched, licenseDeclared: enriched }
+                        : (dep.originalPackage || {});
+                    const info = lp.parseLicense(synth);
+                    if (info && info.license && info.license !== 'NOASSERTION') {
+                        reLicensed++;
+                        reRisk[info.risk] = (reRisk[info.risk] || 0) + 1;
+                        reBreakdown[info.category] = (reBreakdown[info.category] || 0) + 1;
+                    } else {
+                        reUnlicensed++;
+                    }
+                }
+                canonicalSummary = {
+                    totalDependencies: combined.allDependencies.length,
+                    licensedDependencies: reLicensed,
+                    unlicensedDependencies: reUnlicensed,
+                    categoryBreakdown: reBreakdown,
+                    riskBreakdown: reRisk
+                };
+            } catch (e) {
+                console.warn('Combined license recompute failed; falling back to summed breakdown:', e);
+            }
+        }
+
         // Create combined license analysis
-        if (totalDeps > 0) {
+        if (canonicalSummary.totalDependencies > 0) {
             combined.licenseAnalysis = {
-                summary: {
-                    totalDependencies: totalDeps,
-                    licensedDependencies: totalLicensedDeps,
-                    unlicensedDependencies: totalUnlicensedDeps,
-                    categoryBreakdown: categoryBreakdown,
-                    riskBreakdown: riskBreakdown
-                },
+                summary: canonicalSummary,
                 conflicts: allConflicts,
                 recommendations: allRecommendations,
                 licenseFamilies: licenseFamiliesMap,

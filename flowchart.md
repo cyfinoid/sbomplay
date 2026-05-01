@@ -10,15 +10,18 @@ This document provides comprehensive flowcharts documenting how SBOM Play perfor
 4. [SBOM Processing Flow](#sbom-processing-flow)
 5. [Vulnerability Analysis Flow](#vulnerability-analysis-flow)
 6. [Malware Check Flow](#malware-check-flow)
-7. [Author Analysis Flow](#author-analysis-flow)
-7. [License Compliance Analysis Flow](#license-compliance-analysis-flow)
-8. [EOX (End-of-Life) Analysis Flow](#eox-end-of-life-analysis-flow)
-9. [SBOM Audit Flow](#sbom-audit-flow)
-10. [Storage Operations Flow](#storage-operations-flow)
-11. [View Rendering Flow](#view-rendering-flow)
-12. [Rate Limit Handling Flow](#rate-limit-handling-flow)
-13. [Feed Export Flow (OPML)](#feed-export-flow-opml)
-14. [Insights Aggregation Flow](#insights-aggregation-flow)
+7. [VEX / VDR Application Flow](#vex--vdr-application-flow)
+8. [Package Lifecycle Status Flow](#package-lifecycle-status-flow)
+9. [Maintainer Signal Composite Flow](#maintainer-signal-composite-flow)
+10. [Author Analysis Flow](#author-analysis-flow)
+11. [License Compliance Analysis Flow](#license-compliance-analysis-flow)
+12. [EOX (End-of-Life) Analysis Flow](#eox-end-of-life-analysis-flow)
+13. [SBOM Audit Flow](#sbom-audit-flow)
+14. [Storage Operations Flow](#storage-operations-flow)
+15. [View Rendering Flow](#view-rendering-flow)
+16. [Rate Limit Handling Flow](#rate-limit-handling-flow)
+17. [Feed Export Flow (OPML)](#feed-export-flow-opml)
+18. [Insights Aggregation Flow](#insights-aggregation-flow)
 
 ---
 
@@ -418,6 +421,185 @@ flowchart TD
 
 ---
 
+## VEX / VDR Application Flow
+
+VEX (Vulnerability Exploitability eXchange) and VDR (Vulnerability Disclosure
+Report) documents let downstream consumers communicate exploitability /
+applicability decisions for specific vulnerabilities. SBOM Play accepts
+uploaded VEX documents (CycloneDX VEX, OpenVEX, CSAF) and **annotates** —
+never deletes — vulnerability findings with a per-finding `vex` block so
+users can see why a CVE was filtered, who said so, and what justification
+was supplied.
+
+```mermaid
+flowchart TD
+    A[User uploads VEX file on vuln.html] --> B[VexService.parseDocument]
+    B --> C{Detect format}
+    C -->|CycloneDX VEX| D1[_parseCycloneDxVex]
+    C -->|OpenVEX| D2[_parseOpenVex]
+    C -->|CSAF| D3[_parseCsaf]
+    D1 --> E[Normalize to uniform statements<br/>status / vulnId / justification / impact / identifiers]
+    D2 --> E
+    D3 --> E
+    E --> F[Compute vexId from content hash]
+    F --> G[indexedDBManager.saveVexDocument<br/>vexDocuments store]
+    G --> H[Trigger pipeline phase 1.7 applyVexStatements]
+    H --> I[For each vulnerableDep × statement]
+    I --> J{Match by bom-ref → purl → hash?}
+    J -->|Yes| K[Annotate vuln.vex with status/source/filename]
+    J -->|No| L[Push to vexSummary.unmatchedStatements]
+    K --> M[storageManager.updateAnalysisWithVulnerabilities]
+    L --> M
+    M --> N[Re-render vuln table + findings.html unmatched panel]
+
+    style A fill:#e1f5ff
+    style N fill:#c8e6c9
+    style J fill:#fff3e0
+    style L fill:#fff9c4
+    style G fill:#e1bee7
+```
+
+**Key Properties:**
+- **Annotate, never delete**: VEX status is added as `vuln.vex = { status, justification, source, filename, history[] }`; the underlying CVE finding remains queryable. The vuln page offers a user-controlled "Hide VEX-suppressed" toggle (`not_affected` + `fixed`) — default off.
+- **Idempotent ingestion**: `vexId` is derived from the document content (sha-256 of normalized statements), so re-uploading the same file simply updates `uploadedAt` instead of producing a duplicate.
+- **Per-analysis scope**: Each VEX document is keyed by `analysisIdentifier` so org-A VEX doesn't bleed into org-B findings.
+- **Unmatched statements surfaced**: The Findings page shows VEX statements that didn't match any dependency, so users can spot broken PURLs / typo'd CVE ids without having to inspect each upload manually.
+
+**Statement Status Vocabulary (uniform across formats):**
+- `affected` — the dep IS affected; renders as red badge
+- `not_affected` — explicitly not exploitable; renders as muted, eligible for suppression
+- `fixed` — already patched in this build; renders as green, eligible for suppression
+- `under_investigation` — awaiting determination; renders as amber
+
+---
+
+## Package Lifecycle Status Flow
+
+Phase 7 of the enrichment pipeline asks each ecosystem's native registry
+(plus GitHub for the source repo) for **authoritative** signals about a
+package's deprecation / yank / archive / quarantine status. This is
+distinct from the **textual heuristics** (Phase 5.1) which read the
+description / readme — official signals trump heuristics in the UI.
+
+```mermaid
+flowchart TD
+    A[Phase 7: fetchPackageLifecycle] --> B[For each dep]
+    B --> C[Cache hit?<br/>cacheManager.packages.lifecycle within 7d TTL]
+    C -->|Yes| D[Use cached lifecycle]
+    C -->|No| E{Ecosystem?}
+    E -->|npm| F1[GET registry.npmjs.org/<pkg><br/>versions[ver].deprecated]
+    E -->|PyPI| F2[GET pypi.org/pypi/<pkg>/json<br/>info.status: active/archived/quarantined]
+    E -->|NuGet| F3[GET registration5-gz-semver2/<pkg>/index.json<br/>walk catalog for deprecation block]
+    E -->|Cargo| F4[GET crates.io/api/v1/crates/<pkg>/<ver><br/>version.yanked]
+    E -->|Other| G[Skip ecosystem-specific check]
+    F1 --> H{Source repo on GitHub?}
+    F2 --> H
+    F3 --> H
+    F4 --> H
+    G --> H
+    H -->|Yes & no status yet| I[GET api.github.com/repos/<o>/<r><br/>archived flag]
+    H -->|No| J[Status remains unknown]
+    I --> K[Build dep.lifecycle = { status, reason, replacement, source, fetchedAt }]
+    J --> K
+    K --> L[cacheManager.savePackage with lifecycle field]
+    L --> M[Mirror onto sbomProcessor.dependencies Map<br/>so next exportData() carries it]
+    D --> N[Done]
+    M --> N
+    N --> O{More deps?}
+    O -->|Yes| B
+    O -->|No| P[Phase 7 complete → Phase 7.5 maintainer signal]
+
+    style A fill:#e1f5ff
+    style P fill:#c8e6c9
+    style C fill:#fff9c4
+    style I fill:#e1bee7
+```
+
+**Status Values** (ecosystem-specific; not all values valid for all ecosystems):
+- `deprecated` — npm `versions[ver].deprecated` string, or `info.status === 'deprecated'`
+- `yanked` — Cargo `version.yanked: true`
+- `archived` — GitHub repo `archived: true`
+- `quarantined` — PyPI Trove `info.status: 'quarantined'`
+- `unmaintained-suspected` — reserved for Phase 5 composite (not emitted by Phase 7 directly)
+- `unknown` — no ecosystem fetcher applies, or fetcher returned no signal
+
+**Key Properties:**
+- **All requests funnel through `requestQueueManager`** (`npm`, `pypi`, `nuget`, `cargo`, `github` lanes) so we share rate-limit budget and 429/403 backoff with vulnerability / license enrichment.
+- **7-day TTL** per package — lifecycle changes infrequently; refetch is cheap when it does.
+- **Cached deduplication** for GitHub archived check via `_githubInflight` map so multiple deps pointing at the same repo don't make duplicate requests.
+- **Replacement hint extraction**: `_extractReplacementHint` parses `Use X instead`, `please upgrade to X`, `superseded by X`, etc. from the deprecation reason so the UI can surface a clear migration target.
+
+**UI surfaces** (Phase 5.4 plumbing):
+- `audit.html` "Package Deprecation" — official rows are tagged with an `Official` badge naming the source registry; heuristic-only rows get a `Heuristic` badge.
+- `deps.html` — dedicated `Lifecycle` filter dropdown + inline status badge in the package-name cell.
+- `findings.html` — auto-generated finding when `lifecycle.status ∈ {deprecated, yanked, archived, quarantined}`; severity high for yanked/archived, medium for deprecated/quarantined.
+- `package-details-modal` — prominent alert with reason, source, and (when available) replacement.
+
+---
+
+## Maintainer Signal Composite Flow
+
+Phase 7.5 is a **pure synchronous pass** that combines the three weak
+signals — official lifecycle, repo metadata, and textual heuristics — into a
+single 4-level `dep.maintainerSignal = { level, factors[] }` so every UI
+surface can render one unambiguous indicator without re-running the rule
+logic.
+
+```mermaid
+flowchart LR
+    A[Phase 7 lifecycle complete] --> B[Phase 7.5 computeMaintainerSignals]
+    B --> C[For each dep]
+    C --> D[Resolve repoMeta from sbomProcessor.repositories<br/>stargazerCount, openIssues, latestReleaseAt, lastCommitAt]
+    C --> E[Read dep.lifecycle from Phase 7]
+    C --> F[Read dep.warnings.heuristicSignals from author-service Phase 5.1]
+    D --> G[packageLifecycleService.computeMaintainerSignal]
+    E --> G
+    F --> G
+    G --> H{Apply rules}
+    H -->|archived + active CVEs| I[critical]
+    H -->|looking-for-contributors AND<br/>archived OR release > 18mo OR<br/>commit > 12mo OR open-issues > 100<br/>with low close ratio| J[risk]
+    H -->|release > 24mo + commit > 12mo| K[watch]
+    H -->|otherwise| L[healthy]
+    I --> M[dep.maintainerSignal = level + factors]
+    J --> M
+    K --> M
+    L --> M
+    M --> N{More deps?}
+    N -->|Yes| C
+    N -->|No| O[Phase 7.5 complete → exportData persists field]
+
+    style A fill:#e1f5ff
+    style O fill:#c8e6c9
+    style I fill:#ffcdd2
+    style J fill:#fff9c4
+    style L fill:#c8e6c9
+```
+
+**Levels (documented contract, mirrored on the page so the score is never opaque):**
+- `critical` — archived repo + active CVEs; demands immediate replacement
+- `risk` — community-growth signal alone is healthy, but combined with structural staleness (archived OR release > 18mo OR commit > 12mo OR open-issue backlog > 100 with close ratio < 0.3) it indicates the project may not absorb security fixes in time
+- `watch` — last release > 24mo and last commit > 12mo; informational, not yet a finding
+- `healthy` — none of the above; includes the case where "looking for contributors" is the only signal (community growth, not abandonment)
+
+**Six-badge UI surface (Phase 5.4):**
+| Label | Source | Surfaces |
+|-------|--------|----------|
+| Official deprecation | `lifecycle.status === 'deprecated'` | modal, audit |
+| Registry status | `lifecycle.status` for yanked / quarantined | modal, audit |
+| Repository status | `lifecycle.status === 'archived'` from GitHub | modal, audit |
+| Maintainer signal | `dep.maintainerSignal.level` | modal, findings (risk + critical) |
+| Textual heuristic | count of `dep.warnings.heuristicSignals` | modal |
+| Needs manual review | weak signals fired but no official lifecycle confirms | modal |
+
+**Repo metadata sourcing**: GraphQL user-repo query fetches
+`stargazerCount`, `openIssues / closedIssues totalCount`,
+`releases.first(1).createdAt`, and `mentionableUsers.totalCount`. The values
+land on `repoMeta` in `app.js`, then on `allRepositories[].repoMeta`, and
+the lifecycle pass reads them via `sbomProcessor.repositories.get(key).repoMeta`
+without any additional GitHub calls.
+
+---
+
 ## Author Analysis Flow
 
 The author analysis fetches package author information from multiple sources and identifies funding opportunities.
@@ -801,10 +983,15 @@ flowchart TD
 **Object Stores:**
 - **organizations**: Organization/user analysis data
 - **repositories**: Individual repository data
-- **packages**: Package metadata and relationships
-- **authors**: Author entities with deduplication
-- **vulnerabilities**: Vulnerability scan results
+- **packages**: Package metadata and relationships (also carries per-package `lifecycle` cache from Phase 7)
+- **authors**: Legacy author table (still written by `cacheAuthors`; covered by the export-all schema 1.1)
+- **authorEntities**: Deduped author entities
+- **vulnerabilities**: Vulnerability scan results (per-package OSV cache)
 - **packageAuthors**: Package-author relationships
+- **locations**: Geocode cache for the authors map
+- **eoxData**: End-of-Life product cache (endoflife.date)
+- **vexDocuments**: Uploaded VEX/VDR documents keyed by `vexId` (DB schema version 7+)
+- **metadata**: Reserved (declared but unused — present for forward-compat)
 
 **Key Features:**
 - **Incremental Saving**: Supports partial data saves during analysis

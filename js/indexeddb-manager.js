@@ -4,7 +4,11 @@
 class IndexedDBManager {
     constructor() {
         this.dbName = 'sbomplay_db';
-        this.version = 6; // Current database version - v6 adds eoxData store
+        // Phase 2.1 (VEX) bumped this to 7 in order to add the `vexDocuments`
+        // store. The store is created in onupgradeneeded with `if (!contains)`
+        // guards, so existing v6 databases upgrade in place without losing
+        // analyses, vulnerabilities, or other caches.
+        this.version = 7;
         this.db = null;
     }
 
@@ -133,6 +137,19 @@ class IndexedDBManager {
                     const eoxStore = db.createObjectStore('eoxData', { keyPath: 'key' });
                     eoxStore.createIndex('fetchedAt', 'fetchedAt', { unique: false });
                     console.log('✅ Created eoxData object store');
+                }
+
+                // Phase 2.1 — VEX/VDR documents the user has uploaded.
+                // keyPath is `vexId`, a stable, content-derived id that the
+                // VEX service computes (sha256 prefix of the document body)
+                // so re-uploads of the same file collapse into one row.
+                // We index by source format and uploadedAt so the settings
+                // UI can list documents in upload order without scanning.
+                if (!db.objectStoreNames.contains('vexDocuments')) {
+                    const vexStore = db.createObjectStore('vexDocuments', { keyPath: 'vexId' });
+                    vexStore.createIndex('format', 'format', { unique: false });
+                    vexStore.createIndex('uploadedAt', 'uploadedAt', { unique: false });
+                    console.log('✅ Created vexDocuments object store');
                 }
             };
         });
@@ -377,7 +394,9 @@ class IndexedDBManager {
     }
 
     /**
-     * Clear all data
+     * Clear all data. Phase 1.8: now also clears `locations` and `eoxData` so
+     * "Clear All Data" actually leaves no traces. Stores that don't exist on
+     * older databases are skipped gracefully via `objectStoreNames.contains`.
      */
     async clearAll() {
         try {
@@ -385,27 +404,154 @@ class IndexedDBManager {
                 console.warn('⚠️ IndexedDB not initialized yet');
                 return false;
             }
-            const transaction = this.db.transaction(
-                ['organizations', 'repositories', 'vulnerabilities', 'metadata', 'authors', 
-                 'packages', 'packageAuthors', 'authorEntities'], 
-                'readwrite'
-            );
-            
-            await Promise.all([
-                this._promisifyRequest(transaction.objectStore('organizations').clear()),
-                this._promisifyRequest(transaction.objectStore('repositories').clear()),
-                this._promisifyRequest(transaction.objectStore('vulnerabilities').clear()),
-                this._promisifyRequest(transaction.objectStore('metadata').clear()),
-                this._promisifyRequest(transaction.objectStore('authors').clear()),
-                this._promisifyRequest(transaction.objectStore('packages').clear()),
-                this._promisifyRequest(transaction.objectStore('packageAuthors').clear()),
-                this._promisifyRequest(transaction.objectStore('authorEntities').clear())
-            ]);
-            
-            console.log('✅ Cleared all IndexedDB data');
+            const allStores = [
+                'organizations', 'repositories', 'vulnerabilities', 'metadata', 'authors',
+                'packages', 'packageAuthors', 'authorEntities', 'locations', 'eoxData',
+                // Phase 2.1 — VEX documents must also be wiped by "Clear All Data"
+                // or stale suppression statements from a prior tenant could
+                // continue to mute findings on a newly imported analysis.
+                'vexDocuments'
+            ];
+            const presentStores = allStores.filter(name => this.db.objectStoreNames.contains(name));
+            if (presentStores.length === 0) return true;
+
+            const transaction = this.db.transaction(presentStores, 'readwrite');
+            await Promise.all(presentStores.map(name =>
+                this._promisifyRequest(transaction.objectStore(name).clear())
+            ));
+
+            console.log(`✅ Cleared all IndexedDB data (${presentStores.join(', ')})`);
             return true;
         } catch (error) {
             console.error('❌ Failed to clear all data:', error);
+            return false;
+        }
+    }
+
+    /**
+     * Clear a specific subset of object stores in a single atomic transaction.
+     * Used by Phase 1.8 import "Replace" mode so a restore wipes the affected
+     * stores before re-inserting, preventing orphaned rows from a smaller
+     * snapshot. Stores not present on this DB version are silently skipped.
+     *
+     * @param {string[]} storeNames
+     * @returns {Promise<boolean>}
+     */
+    async clearStores(storeNames) {
+        try {
+            if (!this.db) return false;
+            if (!Array.isArray(storeNames) || storeNames.length === 0) return true;
+            const present = storeNames.filter(name => this.db.objectStoreNames.contains(name));
+            if (present.length === 0) return true;
+            const tx = this.db.transaction(present, 'readwrite');
+            await Promise.all(present.map(name =>
+                this._promisifyRequest(tx.objectStore(name).clear())
+            ));
+            console.log(`✅ Cleared stores: ${present.join(', ')}`);
+            return true;
+        } catch (error) {
+            console.error('❌ Failed to clear stores:', error);
+            return false;
+        }
+    }
+
+    /**
+     * Save a single EOX cache row (Phase 1.8 import support).
+     * Schema mirrors what `cacheManager.saveEOXProduct` writes via the
+     * existing `eoxData` store: `{ key, ...payload }`.
+     */
+    async saveEoxData(key, payload) {
+        try {
+            if (!this.db || !this.db.objectStoreNames.contains('eoxData')) return false;
+            const transaction = this.db.transaction(['eoxData'], 'readwrite');
+            const store = transaction.objectStore('eoxData');
+            await this._promisifyRequest(store.put({ ...payload, key }));
+            return true;
+        } catch (error) {
+            console.error('❌ Failed to save EOX data:', error);
+            return false;
+        }
+    }
+
+    /**
+     * Save a single legacy `authors` cache row (Phase 1.8 import support).
+     */
+    async saveLegacyAuthor(packageKey, payload) {
+        try {
+            if (!this.db || !this.db.objectStoreNames.contains('authors')) return false;
+            const transaction = this.db.transaction(['authors'], 'readwrite');
+            const store = transaction.objectStore('authors');
+            await this._promisifyRequest(store.put({ ...payload, packageKey }));
+            return true;
+        } catch (error) {
+            console.error('❌ Failed to save legacy author:', error);
+            return false;
+        }
+    }
+
+    /**
+     * ============================================
+     * VEX/VDR DOCUMENT STORAGE (Phase 2)
+     * ============================================
+     * VEX documents are user-supplied and never auto-fetched. They are stored
+     * verbatim alongside the parsed statements so we can reuse them across
+     * future analyses and so the user can always re-export their original
+     * upload from settings without losing fidelity.
+     */
+
+    async saveVexDocument(vexId, payload) {
+        try {
+            if (!this.db || !this.db.objectStoreNames.contains('vexDocuments')) return false;
+            const transaction = this.db.transaction(['vexDocuments'], 'readwrite');
+            const store = transaction.objectStore('vexDocuments');
+            const entry = {
+                vexId,
+                ...payload,
+                uploadedAt: payload && payload.uploadedAt ? payload.uploadedAt : new Date().toISOString()
+            };
+            await this._promisifyRequest(store.put(entry));
+            return true;
+        } catch (error) {
+            console.error('❌ Failed to save VEX document:', error);
+            return false;
+        }
+    }
+
+    async getVexDocument(vexId) {
+        try {
+            if (!this.db || !this.db.objectStoreNames.contains('vexDocuments')) return null;
+            const transaction = this.db.transaction(['vexDocuments'], 'readonly');
+            const store = transaction.objectStore('vexDocuments');
+            const result = await this._promisifyRequest(store.get(vexId));
+            return result || null;
+        } catch (error) {
+            console.error('❌ Failed to get VEX document:', error);
+            return null;
+        }
+    }
+
+    async getAllVexDocuments() {
+        try {
+            if (!this.db || !this.db.objectStoreNames.contains('vexDocuments')) return [];
+            const transaction = this.db.transaction(['vexDocuments'], 'readonly');
+            const store = transaction.objectStore('vexDocuments');
+            const result = await this._promisifyRequest(store.getAll());
+            return result || [];
+        } catch (error) {
+            console.error('❌ Failed to get all VEX documents:', error);
+            return [];
+        }
+    }
+
+    async deleteVexDocument(vexId) {
+        try {
+            if (!this.db || !this.db.objectStoreNames.contains('vexDocuments')) return false;
+            const transaction = this.db.transaction(['vexDocuments'], 'readwrite');
+            const store = transaction.objectStore('vexDocuments');
+            await this._promisifyRequest(store.delete(vexId));
+            return true;
+        } catch (error) {
+            console.error('❌ Failed to delete VEX document:', error);
             return false;
         }
     }
@@ -1031,6 +1177,58 @@ class IndexedDBManager {
             return result || [];
         } catch (error) {
             console.error('❌ Failed to get all packages:', error);
+            return [];
+        }
+    }
+
+    /**
+     * Get all geocoded location records (for export coverage in Phase 1.8).
+     * Safe when the store is missing on older databases — returns [].
+     */
+    async getAllLocations() {
+        try {
+            if (!this.db || !this.db.objectStoreNames.contains('locations')) return [];
+            const transaction = this.db.transaction(['locations'], 'readonly');
+            const store = transaction.objectStore('locations');
+            const result = await this._promisifyRequest(store.getAll());
+            return result || [];
+        } catch (error) {
+            console.error('❌ Failed to get all locations:', error);
+            return [];
+        }
+    }
+
+    /**
+     * Get all End-of-Life/Support cache records (Phase 1.8 export coverage).
+     */
+    async getAllEoxData() {
+        try {
+            if (!this.db || !this.db.objectStoreNames.contains('eoxData')) return [];
+            const transaction = this.db.transaction(['eoxData'], 'readonly');
+            const store = transaction.objectStore('eoxData');
+            const result = await this._promisifyRequest(store.getAll());
+            return result || [];
+        } catch (error) {
+            console.error('❌ Failed to get all EOX data:', error);
+            return [];
+        }
+    }
+
+    /**
+     * Get all legacy `authors` cache rows. The post-migration cache lives in
+     * `authorEntities` + `packageAuthors`, but author-service still writes to
+     * the legacy store for backward compatibility (see js/author-service.js
+     * cacheAuthors). Phase 1.8 export covers both so a restore is faithful.
+     */
+    async getAllLegacyAuthors() {
+        try {
+            if (!this.db || !this.db.objectStoreNames.contains('authors')) return [];
+            const transaction = this.db.transaction(['authors'], 'readonly');
+            const store = transaction.objectStore('authors');
+            const result = await this._promisifyRequest(store.getAll());
+            return result || [];
+        } catch (error) {
+            console.error('❌ Failed to get all legacy authors:', error);
             return [];
         }
     }

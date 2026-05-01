@@ -35,8 +35,18 @@ console.log('📡 feeds-page.js loaded');
         displayInfo: document.getElementById('displayInfo'),
         displayLimitSelect: document.getElementById('displayLimitSelect'),
         exportOpmlBtn: document.getElementById('exportOpmlBtn'),
-        copyAllUrlsBtn: document.getElementById('copyAllUrlsBtn')
+        copyAllUrlsBtn: document.getElementById('copyAllUrlsBtn'),
+        resolveSourceReposBtn: document.getElementById('resolveSourceReposBtn')
     };
+
+    // Ecosystems where deps.dev exposes a SOURCE_REPO link AND we can sensibly
+    // build a GitHub-Releases fallback feed once the URL is known. Maven/Pypi
+    // omitted because they have native feeds; GitHub Actions / Go already
+    // resolve their owner/repo from the package name.
+    const SOURCE_REPO_ECOSYSTEMS = new Set([
+        'npm', 'cargo', 'nuget', 'hex', 'pub', 'cocoapods', 'composer', 'rubygems'
+    ]);
+    const RESOLVE_BACKFILL_CAP = 200;
 
     // Page state
     let allEntries = [];        // Array<{ dep, feed }>
@@ -125,6 +135,20 @@ console.log('📡 feeds-page.js loaded');
 
         const allDeps = (data.data.allDependencies || []).map(toCanonicalDep);
 
+        // Pull every persisted package row into memory so FeedUrlBuilder's sync
+        // lookup of `cacheManager.getPackageSync(...)` can see registry-derived
+        // repository URLs (the discovery added in Phase 1.6). Without this the
+        // sync getter returns null and minimal SBOMs (no externalRefs) stay
+        // "Uncovered" even when the package's GitHub URL is already cached.
+        if (window.cacheManager && typeof window.cacheManager.primePackagesCache === 'function') {
+            try {
+                const primed = await window.cacheManager.primePackagesCache();
+                if (primed > 0) console.log(`📡 Feeds: primed ${primed} packages from cache`);
+            } catch (e) {
+                console.warn('📡 Feeds: failed to prime packages cache:', e.message);
+            }
+        }
+
         const resolved = feedUrlBuilder.resolveAll(allDeps);
         allEntries = resolved.entries;
         allStats = resolved.stats;
@@ -145,8 +169,131 @@ console.log('📡 feeds-page.js loaded');
 
         populateEcosystemFilter(allEntries);
         applyFilters();
+        updateResolveButtonVisibility();
 
         dom.loadingOverlay.classList.add('d-none');
+    }
+
+    /**
+     * Show the "Resolve missing source repos" button when there's at least
+     * one uncovered dep in an ecosystem the deps.dev backfill can help with.
+     * Hidden otherwise so it doesn't add noise on covered/empty analyses.
+     */
+    function updateResolveButtonVisibility() {
+        if (!dom.resolveSourceReposBtn) return;
+        const candidates = collectBackfillCandidates();
+        if (candidates.length === 0) {
+            dom.resolveSourceReposBtn.classList.add('d-none');
+            return;
+        }
+        dom.resolveSourceReposBtn.classList.remove('d-none');
+        const shown = Math.min(candidates.length, RESOLVE_BACKFILL_CAP);
+        dom.resolveSourceReposBtn.title = `Look up GitHub source repository URLs from deps.dev for ${shown}${candidates.length > shown ? ' of ' + candidates.length : ''} uncovered package${candidates.length === 1 ? '' : 's'}`;
+    }
+
+    function collectBackfillCandidates() {
+        if (!Array.isArray(allEntries)) return [];
+        const seen = new Set();
+        const out = [];
+        for (const entry of allEntries) {
+            const dep = entry && entry.dep;
+            const feed = entry && entry.feed;
+            if (!dep || !feed) continue;
+            if (feed.status !== 'uncovered') continue;
+            const eco = (dep.ecosystem || '').toLowerCase();
+            if (!SOURCE_REPO_ECOSYSTEMS.has(eco)) continue;
+            if (!dep.name || !dep.version || dep.version === 'unknown') continue;
+            const key = `${eco}:${dep.name}@${dep.version}`;
+            if (seen.has(key)) continue;
+            seen.add(key);
+            out.push({ key, dep });
+        }
+        return out;
+    }
+
+    /**
+     * Opt-in backfill: ask deps.dev for `links[]` on each uncovered package and
+     * persist any SOURCE_REPO URL via LicenseFetcher (which already mutates the
+     * dep AND writes through to the packages cache via savePackage). Once done
+     * we re-run resolveAll so previously-uncovered rows pick up the new URL.
+     */
+    async function resolveMissingSourceRepos() {
+        if (!window.LicenseFetcher && !window.licenseFetcher) {
+            alert('License fetcher not loaded; cannot backfill source repos.');
+            return;
+        }
+        const fetcher = window.licenseFetcher || new window.LicenseFetcher();
+
+        const candidates = collectBackfillCandidates().slice(0, RESOLVE_BACKFILL_CAP);
+        if (candidates.length === 0) {
+            updateResolveButtonVisibility();
+            return;
+        }
+
+        const btn = dom.resolveSourceReposBtn;
+        const originalHtml = btn.innerHTML;
+        btn.disabled = true;
+        let resolved = 0;
+
+        // Small parallelism cap — deps.dev tolerates concurrency but we don't want
+        // to hammer it from a single browser tab. 5-wide is in line with the rest
+        // of the enrichment pipeline's batch sizes.
+        const concurrency = 5;
+        let cursor = 0;
+        async function worker() {
+            while (cursor < candidates.length) {
+                const idx = cursor++;
+                const { dep } = candidates[idx];
+                try {
+                    // Pass the canonical dep object directly so fetchLicenseForPackage
+                    // (which mutates its argument) writes `sourceRepoUrl` onto the
+                    // same record FeedUrlBuilder will re-inspect below. Mirror
+                    // onto dep.raw and persist into cacheManager so the URL
+                    // survives a page reload.
+                    await fetcher.fetchLicenseForPackage(dep);
+                    if (dep.sourceRepoUrl) {
+                        if (dep.raw && !dep.raw.sourceRepoUrl) {
+                            dep.raw.sourceRepoUrl = dep.sourceRepoUrl;
+                        }
+                        if (window.cacheManager && typeof window.cacheManager.savePackage === 'function') {
+                            const eco = (dep.ecosystem || '').toLowerCase();
+                            if (eco) {
+                                const packageKey = `${eco}:${dep.name}`;
+                                const existing = (typeof window.cacheManager.getPackageSync === 'function')
+                                    ? window.cacheManager.getPackageSync(packageKey)
+                                    : null;
+                                const merged = Object.assign({
+                                    packageKey,
+                                    ecosystem: eco,
+                                    name: dep.name
+                                }, existing || {}, { repositoryUrl: dep.sourceRepoUrl });
+                                // Fire-and-forget — UI already advances on the
+                                // next loop iteration; persistence error doesn't
+                                // block the in-memory update.
+                                window.cacheManager.savePackage(packageKey, merged).catch(() => {});
+                            }
+                        }
+                        resolved++;
+                    }
+                } catch (e) {
+                    console.debug('Source-repo backfill failed for', dep.name, e.message);
+                }
+                btn.innerHTML = `<span class="spinner-border spinner-border-sm me-1"></span>Resolving... (${idx + 1}/${candidates.length})`;
+            }
+        }
+        await Promise.all(Array.from({ length: concurrency }, worker));
+
+        // Re-resolve in place — pick up newly-populated dep.sourceRepoUrl.
+        const allDeps = allEntries.map(e => e.dep);
+        const re = feedUrlBuilder.resolveAll(allDeps);
+        allEntries = re.entries;
+        allStats = re.stats;
+        applyFilters();
+        updateResolveButtonVisibility();
+
+        btn.disabled = false;
+        btn.innerHTML = originalHtml;
+        console.log(`📡 Source-repo backfill: resolved ${resolved}/${candidates.length} packages`);
     }
 
     /**
@@ -202,6 +349,11 @@ console.log('📡 feeds-page.js loaded');
             directIn: rawDep.directIn || [],
             transitiveIn: rawDep.transitiveIn || [],
             repositories: rawDep.repositories || [],
+            // Forward enrichment-derived source repo URL (Phase 1.6) so
+            // FeedUrlBuilder can resolve "minimal" SBOM dependencies whose
+            // SBOM entry lacks externalRefs but whose registry/deps.dev
+            // record exposes a GitHub URL.
+            sourceRepoUrl: rawDep.sourceRepoUrl || rawDep.raw?.sourceRepoUrl || null,
             raw: rawDep
         };
     }
@@ -362,5 +514,8 @@ console.log('📡 feeds-page.js loaded');
         });
         dom.exportOpmlBtn.addEventListener('click', exportOpml);
         dom.copyAllUrlsBtn.addEventListener('click', copyAllUrls);
+        if (dom.resolveSourceReposBtn) {
+            dom.resolveSourceReposBtn.addEventListener('click', resolveMissingSourceRepos);
+        }
     }
 })();

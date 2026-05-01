@@ -307,6 +307,9 @@ document.addEventListener('DOMContentLoaded', function() {
         document.getElementById('typeFilter').addEventListener('change', () => filterTable());
         document.getElementById('ecosystemFilter').addEventListener('change', () => filterTable());
         document.getElementById('repoFilter').addEventListener('change', () => filterTable());
+        // Phase 4 (lifecycle) — bind the new lifecycle filter dropdown.
+        const lifecycleFilterEl = document.getElementById('lifecycleFilter');
+        if (lifecycleFilterEl) lifecycleFilterEl.addEventListener('change', () => filterTable());
         document.getElementById('vulnerableFilter').addEventListener('change', () => filterTable());
         document.getElementById('sponsorshipFilter').addEventListener('change', () => filterTable());
         document.getElementById('statusFilter').addEventListener('change', () => filterTable());
@@ -986,21 +989,13 @@ document.addEventListener('DOMContentLoaded', function() {
                 }
             }
             
-            // 7. Final fallback: Use repository license if available
-            if (licenseFull === 'Unknown' && window.currentData && dep.repositories && dep.repositories.length > 0) {
-                // Get license from first repository (most dependencies come from one repo)
-                const repoName = dep.repositories[0];
-                const allRepos = window.currentData.allRepositories || [];
-                const repo = allRepos.find(r => `${r.owner}/${r.name}` === repoName);
-                
-                if (repo && (repo.repositoryLicense || repo.license)) {
-                    const repoLicense = repo.repositoryLicense || repo.license;
-                    if (repoLicense && repoLicense !== 'NOASSERTION' && String(repoLicense).trim() !== '') {
-                        licenseFull = repoLicense;
-                        isEnriched = true;
-                    }
-                }
-            }
+            // 7. Host-repo license fallback REMOVED (Phase 1.7).
+            // Previously this attributed the *consuming* project's license
+            // (e.g. Apache-2.0) to license-less third-party deps, which mis-
+            // classified them across licenses.html, audit.html, and the
+            // compatibility checker. The honest answer is `Unknown`. A correct
+            // source-repo license fallback (using dep.sourceRepoUrl from
+            // Phase 1.6) lives in the enrichment pipeline so it's persisted.
             
             // Generate abbreviated license text for display
             if (licenseFull !== 'Unknown') {
@@ -1228,7 +1223,11 @@ document.addEventListener('DOMContentLoaded', function() {
             const eoxFilter = document.getElementById('eoxFilter').checked;
             const majorDriftFilter = document.getElementById('majorDriftFilter').checked;
             const minorDriftFilter = document.getElementById('minorDriftFilter').checked;
-            
+            // Phase 4 (lifecycle) — pull the chosen lifecycle status; defaults
+            // to 'all' which is a no-op pass-through. Element may not exist on
+            // older HTML if cache-busting hasn't ticked yet, so defend with `?.`.
+            const lifecycleFilter = document.getElementById('lifecycleFilter')?.value || 'all';
+
             let filtered = allDependencies;
             
             // Apply vulnerable filter first (fast check)
@@ -1474,6 +1473,13 @@ document.addEventListener('DOMContentLoaded', function() {
                 if (typeFilter !== 'all' && dep.type !== typeFilter) return false;
                 if (ecosystemFilter !== 'all' && dep.ecosystem !== ecosystemFilter) return false;
                 if (repoFilter !== 'all' && !dep.repositories.includes(repoFilter)) return false;
+                // Phase 4 (lifecycle) — filter by official status. The
+                // 'unmaintained-suspected' value is a Phase 5 heuristic and
+                // never written by the official lifecycle service.
+                if (lifecycleFilter !== 'all') {
+                    const lc = dep.lifecycle && dep.lifecycle.status;
+                    if (lc !== lifecycleFilter) return false;
+                }
                 // Apply license filter if license parameter is present
                 if (licenseParam) {
                     const licenseInfo = getLicenseInfo(dep);
@@ -1997,6 +2003,27 @@ document.addEventListener('DOMContentLoaded', function() {
                 const driftBadgeId = `drift-${idx}`;
                 // Ecosystem-Type badge: blue (bg-primary) for direct, grey (bg-secondary) for transitive
                 const ecosystemBadgeClass = dep.type === 'direct' ? 'bg-primary' : 'bg-secondary';
+                // Phase 4 (lifecycle) — inline badge next to package name so
+                // deprecated/yanked/archived rows are visible at a glance even
+                // before the user opens the package details modal. Heuristic
+                // signals (Phase 5) get a different color in the modal; this
+                // badge only shows official lifecycle state.
+                let lifecycleBadge = '';
+                if (dep.lifecycle && dep.lifecycle.status && dep.lifecycle.status !== 'unknown') {
+                    const lcMap = {
+                        'deprecated':  { cls: 'bg-warning text-dark', label: 'Deprecated' },
+                        'yanked':      { cls: 'bg-danger',            label: 'Yanked' },
+                        'archived':    { cls: 'bg-danger',            label: 'Archived' },
+                        'quarantined': { cls: 'bg-warning text-dark', label: 'Quarantined' }
+                    };
+                    const meta = lcMap[dep.lifecycle.status];
+                    if (meta) {
+                        const tooltip = [meta.label, dep.lifecycle.reason, dep.lifecycle.replacement && `Replacement: ${dep.lifecycle.replacement}`]
+                            .filter(Boolean).join('\n');
+                        lifecycleBadge = `<span class="badge ${meta.cls} ms-2" title="${escapeHtml(tooltip)}">${escapeHtml(meta.label)}</span>`;
+                    }
+                }
+
                 tr.innerHTML = `
                     <td>
                         <a href="#" class="package-link text-primary text-decoration-none" 
@@ -2009,6 +2036,7 @@ document.addEventListener('DOMContentLoaded', function() {
                             <strong>${packageLink}</strong>
                         </a>
                         <span id="${driftBadgeId}" class="ms-2"></span>
+                        ${lifecycleBadge}
                     </td>
                     <td><span class="badge ${ecosystemBadgeClass} text-white">${escapeHtml(dep.ecosystem)}</span></td>
                     <td>

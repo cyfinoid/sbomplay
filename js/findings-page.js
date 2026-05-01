@@ -145,6 +145,12 @@ document.addEventListener('DOMContentLoaded', async function() {
                     
                     // Attach click handlers for package details links
                     attachPackageDetailsHandlers(data, analysisSelector.value);
+
+                    // Phase 3 (VEX) — render the unmatched-statements panel
+                    // immediately below the findings list. The data is
+                    // populated by `EnrichmentPipeline.applyVexStatements`
+                    // and lives on `vulnerabilityAnalysis.vexSummary`.
+                    renderVexUnmatchedPanel(data);
                 }
             });
         } finally {
@@ -152,6 +158,58 @@ document.addEventListener('DOMContentLoaded', async function() {
         }
     }
     
+    /**
+     * Phase 3 (VEX) — render unmatched-statements card. Hidden when no VEX
+     * documents have been uploaded or when every statement matched a dep.
+     */
+    function renderVexUnmatchedPanel(data) {
+        const card = document.getElementById('vexUnmatchedCard');
+        const tbody = document.querySelector('#vexUnmatchedTable tbody');
+        const countBadge = document.getElementById('vexUnmatchedCount');
+        if (!card || !tbody) return;
+
+        const summary = data && data.data && data.data.vulnerabilityAnalysis
+            && data.data.vulnerabilityAnalysis.vexSummary;
+        const unmatched = (summary && Array.isArray(summary.unmatchedStatements))
+            ? summary.unmatchedStatements
+            : [];
+
+        if (unmatched.length === 0) {
+            card.classList.add('d-none');
+            return;
+        }
+
+        card.classList.remove('d-none');
+        if (countBadge) countBadge.textContent = String(unmatched.length);
+
+        const rows = unmatched.map(u => {
+            const ident = u.identifiers || {};
+            const identString = ident.purl || ident.cpe || ident.bomRef
+                || (Array.isArray(ident.hashes) ? ident.hashes.map(h => `${h.alg || h.algorithm || '?'}:${h.content || h.value || ''}`).join(', ') : null)
+                || '(no identifier)';
+            const statusBadge = renderVexStatusBadge(u.status);
+            return `<tr>
+                <td><code>${escapeHtml(u.vulnId || '')}</code></td>
+                <td>${statusBadge}</td>
+                <td><code class="small">${escapeHtml(identString)}</code></td>
+                <td><span class="badge bg-light text-dark">${escapeHtml(u.source || '')}</span></td>
+                <td class="small text-muted">${escapeHtml(u.filename || u.vexId || '')}</td>
+            </tr>`;
+        }).join('');
+        tbody.innerHTML = rows;
+    }
+
+    function renderVexStatusBadge(status) {
+        const map = {
+            'not_affected': 'bg-secondary',
+            'fixed': 'bg-success',
+            'affected': 'bg-danger',
+            'under_investigation': 'bg-warning text-dark'
+        };
+        const cls = map[status] || 'bg-light text-dark';
+        return `<span class="badge ${cls}">${escapeHtml(status || 'unknown')}</span>`;
+    }
+
     /**
      * Populate repository filter dropdown
      */
@@ -731,6 +789,103 @@ document.addEventListener('DOMContentLoaded', async function() {
             }
         }
         
+        // === Collect Package Lifecycle findings (Phase 4) ===
+        // Officially-deprecated/yanked/archived/quarantined packages from
+        // `dep.lifecycle.status`. These complement EOX (EOX is product
+        // version EOL; lifecycle is per-package upstream status).
+        if (findingTypeFilter === 'all' || findingTypeFilter === 'lifecycle') {
+            const allDependencies = orgData?.data?.allDependencies || [];
+            for (const dep of allDependencies) {
+                const repos = dep.repositories || [];
+                if (repoFilter && repoFilter !== 'all' && !repos.includes(repoFilter)) continue;
+
+                const lifecycle = dep.lifecycle;
+                if (!lifecycle || !lifecycle.status) continue;
+                if (!['deprecated', 'yanked', 'archived', 'quarantined'].includes(lifecycle.status)) continue;
+
+                // Severity: yanked/archived = high (security-relevant),
+                // deprecated/quarantined = medium (action recommended).
+                const severity = (lifecycle.status === 'yanked' || lifecycle.status === 'archived') ? 'high' : 'medium';
+                if (severityFilter && severityFilter !== 'all' && severityFilter !== severity) continue;
+
+                const ecosystem = dep.category?.ecosystem || dep.ecosystem || 'unknown';
+                allFindings.push({
+                    category: 'lifecycle',
+                    type: lifecycle.status.toUpperCase(),
+                    typeName: `Package ${lifecycle.status}`,
+                    description: `Package is officially marked ${lifecycle.status} by ${lifecycle.source || 'the registry'}.`,
+                    severity,
+                    package: `${dep.name}@${dep.version || 'unknown'}`,
+                    packageName: dep.name,
+                    packageVersion: dep.version || 'unknown',
+                    ecosystem,
+                    repository: repos.length > 0 ? repos[0] : null,
+                    repositories: repos,
+                    sourceUrl: null,
+                    sourceName: lifecycle.source || 'registry',
+                    message: lifecycle.reason || `${dep.name} is ${lifecycle.status} per ${lifecycle.source || 'the registry'}.${lifecycle.replacement ? ` Replacement: ${lifecycle.replacement}.` : ''}`,
+                    depInfo: {
+                        name: dep.name,
+                        version: dep.version,
+                        type: dep.type || 'direct',
+                        license: dep.license,
+                        lifecycle,
+                        parentsByRepo: dep.parentsByRepo
+                    }
+                });
+            }
+        }
+
+        // === Collect Maintainer Signal findings (Phase 5.4) ===
+        // Composite signal from text + repo metadata + lifecycle. Only
+        // `risk` and `critical` levels surface here; `watch` stays
+        // informational (the modal still shows it). `healthy` is never a
+        // finding.
+        if (findingTypeFilter === 'all' || findingTypeFilter === 'maintainer-signal') {
+            const allDependencies = orgData?.data?.allDependencies || [];
+            for (const dep of allDependencies) {
+                const repos = dep.repositories || [];
+                if (repoFilter && repoFilter !== 'all' && !repos.includes(repoFilter)) continue;
+
+                const ms = dep.maintainerSignal;
+                if (!ms || !ms.level) continue;
+                if (ms.level !== 'risk' && ms.level !== 'critical') continue;
+
+                const severity = ms.level === 'critical' ? 'high' : 'medium';
+                if (severityFilter && severityFilter !== 'all' && severityFilter !== severity) continue;
+
+                const ecosystem = dep.category?.ecosystem || dep.ecosystem || 'unknown';
+                const factorList = Array.isArray(ms.factors)
+                    ? ms.factors.map(f => f.value !== undefined ? `${f.key}=${f.value}` : f.key).join(', ')
+                    : '';
+                allFindings.push({
+                    category: 'maintainer-signal',
+                    type: `MAINTAINER_${ms.level.toUpperCase()}`,
+                    typeName: `Maintainer signal: ${ms.level}`,
+                    description: `Composite weak-signal heuristic: ${ms.level}.`,
+                    severity,
+                    package: `${dep.name}@${dep.version || 'unknown'}`,
+                    packageName: dep.name,
+                    packageVersion: dep.version || 'unknown',
+                    ecosystem,
+                    repository: repos.length > 0 ? repos[0] : null,
+                    repositories: repos,
+                    sourceUrl: null,
+                    sourceName: 'composite-heuristic',
+                    message: factorList ? `Factors: ${factorList}` : 'Composite maintainer signal flagged this package.',
+                    depInfo: {
+                        name: dep.name,
+                        version: dep.version,
+                        type: dep.type || 'direct',
+                        license: dep.license,
+                        lifecycle: dep.lifecycle,
+                        maintainerSignal: ms,
+                        parentsByRepo: dep.parentsByRepo
+                    }
+                });
+            }
+        }
+
         // === Collect Source Repository findings (dead repos) ===
         if (findingTypeFilter === 'all' || findingTypeFilter === 'source-repo') {
             const allDependencies = orgData?.data?.allDependencies || [];
@@ -822,6 +977,8 @@ document.addEventListener('DOMContentLoaded', async function() {
             githubActions: allFindings.filter(f => f.category === 'github-actions').length,
             dependencyConfusion: allFindings.filter(f => f.category === 'dependency-confusion').length,
             eox: allFindings.filter(f => f.category === 'eox').length,
+            lifecycle: allFindings.filter(f => f.category === 'lifecycle').length,
+            maintainerSignal: allFindings.filter(f => f.category === 'maintainer-signal').length,
             sourceRepo: allFindings.filter(f => f.category === 'source-repo').length
         };
         
@@ -935,6 +1092,12 @@ document.addEventListener('DOMContentLoaded', async function() {
             } else if (typeData.category === 'source-repo') {
                 categoryIcon = 'fas fa-unlink';
                 categoryLabel = 'Dead Source Repo';
+            } else if (typeData.category === 'lifecycle') {
+                categoryIcon = 'fas fa-shield-alt';
+                categoryLabel = 'Package Lifecycle';
+            } else if (typeData.category === 'maintainer-signal') {
+                categoryIcon = 'fas fa-user-shield';
+                categoryLabel = 'Maintainer Signal';
             } else {
                 categoryIcon = 'fas fa-box';
                 categoryLabel = 'Dependency Confusion';

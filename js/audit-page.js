@@ -1561,13 +1561,39 @@ document.addEventListener('DOMContentLoaded', async function() {
             );
         }
         
-        // Check each dependency for deprecation warnings
+        // Check each dependency for deprecation warnings.
+        // Phase 4 (lifecycle) — `dep.lifecycle.status` carries the AUTHORITATIVE
+        // signal from the native registry / GitHub. The legacy text heuristic
+        // (`packages[].warnings.isDeprecated`) stays as a fallback so we keep
+        // surfacing readme/description heuristic hits for ecosystems without
+        // an official deprecation channel. The two sources are clearly labeled
+        // in the UI so users know which is which.
         const deprecatedPackages = [];
         const batchSize = 50;
-        
+
         for (let i = 0; i < filteredDependencies.length; i += batchSize) {
             const batch = filteredDependencies.slice(i, i + batchSize);
             const batchChecks = await Promise.all(batch.map(async (dep) => {
+                // 1. Official lifecycle signal — preferred because it comes
+                //    straight from the registry. Includes deprecated/yanked/
+                //    archived/quarantined.
+                if (dep.lifecycle && ['deprecated', 'yanked', 'archived', 'quarantined'].includes(dep.lifecycle.status)) {
+                    return {
+                        name: dep.name,
+                        version: dep.version,
+                        ecosystem: dep.ecosystem || 'unknown',
+                        repositories: dep.repositories || [],
+                        replacement: dep.lifecycle.replacement || null,
+                        reason: dep.lifecycle.reason || null,
+                        signalSource: 'official',
+                        signalLabel: dep.lifecycle.status,
+                        signalProvider: dep.lifecycle.source || 'registry',
+                        warningType: dep.lifecycle.status
+                    };
+                }
+                // 2. Heuristic fallback — keep surfacing readme/text hints so
+                //    Maven/Hex/Pub deps without an official channel still get
+                //    flagged. Clearly labeled as 'heuristic' downstream.
                 if (dep.packageKey) {
                     try {
                         const packageData = await window.cacheManager.getPackage(dep.packageKey);
@@ -1578,6 +1604,10 @@ document.addEventListener('DOMContentLoaded', async function() {
                                 ecosystem: dep.ecosystem || 'unknown',
                                 repositories: dep.repositories || [],
                                 replacement: packageData.warnings.replacement || null,
+                                reason: packageData.warnings.message || null,
+                                signalSource: 'heuristic',
+                                signalLabel: 'deprecated',
+                                signalProvider: 'text-heuristic',
                                 warningType: 'deprecated'
                             };
                         }
@@ -1587,13 +1617,16 @@ document.addEventListener('DOMContentLoaded', async function() {
                 }
                 return null;
             }));
-            
+
             deprecatedPackages.push(...batchChecks.filter(p => p !== null));
         }
-        
+
         if (deprecatedPackages.length === 0) {
             return '';
         }
+
+        const officialCount = deprecatedPackages.filter(p => p.signalSource === 'official').length;
+        const heuristicCount = deprecatedPackages.filter(p => p.signalSource === 'heuristic').length;
         
         // Filter by severity (deprecated packages are always high severity)
         if (severityFilter && severityFilter !== 'all' && severityFilter !== 'high') {
@@ -1634,35 +1667,56 @@ document.addEventListener('DOMContentLoaded', async function() {
         
         // Summary
         html += `<div class="alert alert-danger mb-3">
-            <strong>Warning:</strong> Found <strong>${deprecatedPackages.length}</strong> deprecated packages that should be replaced or updated.
+            <strong>Warning:</strong> Found <strong>${deprecatedPackages.length}</strong> deprecated/yanked/archived packages.
+            <span class="badge bg-light text-dark ms-2">${officialCount} official</span>
+            <span class="badge bg-light text-dark">${heuristicCount} heuristic</span>
         </div>`;
-        
+
         // Detailed list
-        html += '<h6 class="mb-2">Deprecated Packages</h6>';
+        html += '<h6 class="mb-2">Lifecycle Signals</h6>';
         html += '<div class="table-responsive"><table class="table table-sm table-hover align-middle">';
         html += '<thead class="table-light"><tr>';
-        html += '<th style="width: 250px;">Package</th>';
-        html += '<th style="width: 150px;">Version</th>';
-        html += '<th style="width: 120px;">Ecosystem</th>';
+        html += '<th style="width: 240px;">Package</th>';
+        html += '<th style="width: 120px;">Version</th>';
+        html += '<th style="width: 110px;">Ecosystem</th>';
+        html += '<th style="width: 120px;">Status</th>';
+        html += '<th style="width: 130px;">Signal source</th>';
         html += '<th>Affected Repositories</th>';
         html += '<th style="width: 200px;">Replacement</th>';
         html += '</tr></thead><tbody>';
-        
+
         deprecatedPackages.forEach(pkg => {
             const repoCount = pkg.repositories.length;
-            const repoList = repoCount > 3 
+            const repoList = repoCount > 3
                 ? `${pkg.repositories.slice(0, 3).map(r => `<a href="https://github.com/${r}" target="_blank" rel="noreferrer noopener" class="text-decoration-none"><i class="fab fa-github me-1"></i>${escapeHtml(r)}</a>`).join(', ')} and ${repoCount - 3} more`
                 : pkg.repositories.map(r => `<a href="https://github.com/${r}" target="_blank" rel="noreferrer noopener" class="text-decoration-none"><i class="fab fa-github me-1"></i>${escapeHtml(r)}</a>`).join(', ');
-            
+
+            // Status badge color is severity-mapped: yanked/archived are
+            // strongest signals, deprecated is high-priority but recoverable,
+            // quarantined is policy-driven (PyPI Trove). Heuristic hits get a
+            // muted color so the difference from official is obvious.
+            const statusColors = {
+                'yanked': 'bg-danger',
+                'archived': 'bg-danger',
+                'deprecated': 'bg-warning text-dark',
+                'quarantined': 'bg-warning text-dark'
+            };
+            const statusBadge = `<span class="badge ${statusColors[pkg.signalLabel] || 'bg-secondary'}">${escapeHtml(pkg.signalLabel)}</span>`;
+            const sourceBadge = pkg.signalSource === 'official'
+                ? `<span class="badge bg-info text-dark" title="${escapeHtml(pkg.signalProvider)}"><i class="fas fa-check-circle me-1"></i>Official</span>`
+                : `<span class="badge bg-secondary" title="Inferred from package description / readme text"><i class="fas fa-magnifying-glass me-1"></i>Heuristic</span>`;
+
             html += `<tr>
                 <td><code class="small">${escapeHtml(pkg.name)}</code></td>
                 <td><span class="text-muted">${escapeHtml(pkg.version)}</span></td>
                 <td><span class="badge bg-secondary">${escapeHtml(pkg.ecosystem)}</span></td>
+                <td>${statusBadge}</td>
+                <td>${sourceBadge}</td>
                 <td><small>${repoList}</small></td>
                 <td>${pkg.replacement ? `<code class="small text-success">${escapeHtml(pkg.replacement)}</code>` : '<span class="text-muted"><em>None specified</em></span>'}</td>
             </tr>`;
         });
-        
+
         html += '</tbody></table></div>';
         html += '</div></div>';
         

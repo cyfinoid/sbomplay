@@ -1364,11 +1364,19 @@ class SBOMPlayApp {
             }
             
             // Forward GitHub repo metadata so the Insights page has push activity / language /
-            // default branch even on single-repo scans.
+            // default branch even on single-repo scans. Phase 5.2 — also include
+            // stargazerCount, openIssues, latestReleaseAt, lastCommitAt, and
+            // mentionableUsers so `computeMaintainerSignal` doesn't have to
+            // re-fetch the same repo.
             const repoMeta = {
                 pushedAt: repoData.pushed_at || null,
                 primaryLanguage: repoData.language || null,
-                defaultBranch: repoData.default_branch || null
+                defaultBranch: repoData.default_branch || null,
+                stargazerCount: typeof repoData.stargazers_count === 'number' ? repoData.stargazers_count : null,
+                openIssues: typeof repoData.open_issues_count === 'number' ? repoData.open_issues_count : null,
+                latestReleaseAt: repoData.latest_release_at || null,
+                lastCommitAt: repoData.pushed_at || null,
+                mentionableUsers: null
             };
             const success = await this.sbomProcessor.processSBOM(
                 owner, repo, sbomData, repositoryLicense, repoData.archived || false, repoMeta
@@ -1711,10 +1719,19 @@ class SBOMPlayApp {
                         // default branch) used by the Insights page for hygiene and
                         // language-stack signals. REST returns snake_case; GraphQL
                         // mapping in github-client.js normalises to the same shape.
+                        // Phase 5.2 — also forward stargazerCount/openIssues/etc when
+                        // present (GraphQL path attaches `repoMeta`; REST path falls
+                        // back to whatever the bare REST response carries).
                         const repoMeta = {
                             pushedAt: repo.pushed_at || null,
                             primaryLanguage: repo.language || null,
-                            defaultBranch: repo.default_branch || null
+                            defaultBranch: repo.default_branch || null,
+                            stargazerCount: (repo.repoMeta && repo.repoMeta.stargazerCount) ?? (typeof repo.stargazers_count === 'number' ? repo.stargazers_count : null),
+                            openIssues: (repo.repoMeta && repo.repoMeta.openIssues) ?? (typeof repo.open_issues_count === 'number' ? repo.open_issues_count : null),
+                            closedIssues: (repo.repoMeta && repo.repoMeta.closedIssues) ?? null,
+                            latestReleaseAt: (repo.repoMeta && repo.repoMeta.latestReleaseAt) || null,
+                            lastCommitAt: (repo.repoMeta && repo.repoMeta.lastCommitAt) || repo.pushed_at || null,
+                            mentionableUsers: (repo.repoMeta && repo.repoMeta.mentionableUsers) ?? null
                         };
                         const success = await this.sbomProcessor.processSBOM(owner, name, sbomData, repositoryLicense, archived, repoMeta);
                         this.sbomProcessor.updateProgress(success);
@@ -3607,28 +3624,41 @@ class SBOMPlayApp {
         const summary = data.data.licenseAnalysis.summary;
         const breakdown = summary.categoryBreakdown || {};
         
-        // Calculate copyleft (including LGPL)
-        const copyleftCount = (breakdown.copyleft || 0) + (breakdown.lgpl || 0);
-        const totalLicensed = summary.licensedDependencies || 0;
-        const unlicensed = summary.unlicensedDependencies || 0;
-        const proprietary = breakdown.proprietary || 0;
-        const unknown = breakdown.unknown || 0;
+        // Calculate buckets — every numeric read MUST default to 0 so a missing
+        // bucket can never silently turn into NaN downstream.
         const permissive = breakdown.permissive || 0;
-        
-        // Calculate percentages for pie chart
-        const total = totalLicensed + unlicensed;
+        const copyleftCount = (breakdown.copyleft || 0) + (breakdown.lgpl || 0); // copyleft incl. LGPL
+        const proprietary = breakdown.proprietary || 0;
+        const custom = breakdown.custom || 0;
+        const unknown = breakdown.unknown || 0;
+        const unlicensed = summary.unlicensedDependencies || 0;
+
+        // Pie total is the sum of what we actually render — not licensedDependencies +
+        // unlicensedDependencies — so any bucket we forget to slice is still visible
+        // as a "missing wedge" rather than silently absorbed.
+        const total = permissive + copyleftCount + proprietary + custom + unknown + unlicensed;
+        const totalLicensed = summary.licensedDependencies || 0;
         if (total === 0) {
             licenseSection.classList.add('d-none');
             licenseSection.classList.remove('d-block');
             return;
         }
-        
-        const copyleftPercent = total > 0 ? ((copyleftCount / total) * 100).toFixed(1) : 0;
-        const permissivePercent = total > 0 ? ((permissive / total) * 100).toFixed(1) : 0;
-        const proprietaryPercent = total > 0 ? ((proprietary / total) * 100).toFixed(1) : 0;
-        const unknownPercent = total > 0 ? ((unknown / total) * 100).toFixed(1) : 0;
-        const unlicensedPercent = total > 0 ? ((unlicensed / total) * 100).toFixed(1) : 0;
-        
+
+        const pct = (n) => ((n / total) * 100).toFixed(1);
+        const permissivePercent = pct(permissive);
+        const copyleftPercent = pct(copyleftCount);
+        const proprietaryPercent = pct(proprietary);
+        const customPercent = pct(custom);
+        const unknownPercent = pct(unknown);
+        const unlicensedPercent = pct(unlicensed);
+
+        // Cumulative wedge stops for conic-gradient.
+        const stop1 = parseFloat(permissivePercent);
+        const stop2 = stop1 + parseFloat(copyleftPercent);
+        const stop3 = stop2 + parseFloat(proprietaryPercent);
+        const stop4 = stop3 + parseFloat(customPercent);
+        const stop5 = stop4 + parseFloat(unknownPercent);
+
         // Build pie chart using CSS (conic-gradient)
         const pieChartHtml = `
             <div class="row mb-4">
@@ -3636,11 +3666,12 @@ class SBOMPlayApp {
                     <h6 class="mb-3">License Distribution</h6>
                     <div class="d-flex justify-content-center align-items-center">
                         <div class="license-pie-chart license-pie-chart-small" style="background: conic-gradient(
-                            #28a745 ${permissivePercent}%,
-                            #ffc107 ${parseFloat(permissivePercent)}% ${parseFloat(permissivePercent) + parseFloat(copyleftPercent)}%,
-                            #dc3545 ${parseFloat(permissivePercent) + parseFloat(copyleftPercent)}% ${parseFloat(permissivePercent) + parseFloat(copyleftPercent) + parseFloat(proprietaryPercent)}%,
-                            #6c757d ${parseFloat(permissivePercent) + parseFloat(copyleftPercent) + parseFloat(proprietaryPercent)}% ${parseFloat(permissivePercent) + parseFloat(copyleftPercent) + parseFloat(proprietaryPercent) + parseFloat(unknownPercent)}%,
-                            #17a2b8 ${parseFloat(permissivePercent) + parseFloat(copyleftPercent) + parseFloat(proprietaryPercent) + parseFloat(unknownPercent)}%
+                            #28a745 0% ${stop1}%,
+                            #ffc107 ${stop1}% ${stop2}%,
+                            #dc3545 ${stop2}% ${stop3}%,
+                            #fd7e14 ${stop3}% ${stop4}%,
+                            #6c757d ${stop4}% ${stop5}%,
+                            #17a2b8 ${stop5}% 100%
                         );">
                             <div class="license-pie-chart-center">
                                 <strong>${total}</strong>
@@ -3665,6 +3696,10 @@ class SBOMPlayApp {
                         <div class="d-flex align-items-center gap-2">
                             <div class="license-legend-box" style="--legend-color: #dc3545;"></div>
                             <span>Proprietary (${proprietaryPercent}%)</span>
+                        </div>
+                        <div class="d-flex align-items-center gap-2">
+                            <div class="license-legend-box" style="--legend-color: #fd7e14;"></div>
+                            <span>Custom (${customPercent}%)</span>
                         </div>
                         <div class="d-flex align-items-center gap-2">
                             <div class="license-legend-box" style="--legend-color: #6c757d;"></div>

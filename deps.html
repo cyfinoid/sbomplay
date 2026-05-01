@@ -127,6 +127,21 @@
                             <option value="all">All</option>
                         </select>
                     </div>
+                    <!-- Phase 4 (lifecycle) — filter the dependency table by
+                         official lifecycle status so users can drill into
+                         deprecated/yanked/archived/quarantined packages
+                         without scrolling the whole list. -->
+                    <div class="col-md-2">
+                        <label class="form-label">Lifecycle</label>
+                        <select class="form-select" id="lifecycleFilter">
+                            <option value="all">All</option>
+                            <option value="deprecated">Deprecated</option>
+                            <option value="yanked">Yanked</option>
+                            <option value="archived">Archived</option>
+                            <option value="quarantined">Quarantined</option>
+                            <option value="unmaintained-suspected">Unmaintained (heuristic)</option>
+                        </select>
+                    </div>
                 </div>
                 <div class="row g-3 mt-2">
                     <div class="col-12">
@@ -319,13 +334,13 @@
     <script src="js/version-utils.js?v=0.0.9&cb=1777494400000"></script>
     <script src="js/registry-utils.js?v=0.0.9&cb=1788100000000"></script>
     <script src="js/version-drift-analyzer.js?v=0.0.9&cb=1783200000000"></script>
-    <script src="js/github-client.js?v=0.0.9&cb=1783200000000"></script>
+    <script src="js/github-client.js?v=0.1.0&cb=1810800001000"></script>
     <script src="js/cache-manager.js?v=0.0.9&cb=1777494400000"></script>
     <script src="js/eox-service.js?v=0.0.9&cb=1783000000000"></script>
     <script src="js/storage-manager.js?v=0.0.9&cb=1800000000000"></script>
     <script src="js/license-processor.js?v=0.0.9&cb=1777716000000"></script>
     <script src="js/osv-service.js?v=0.0.9&cb=1777800000000"></script>
-    <script src="js/package-details-modal.js?v=0.0.9&cb=1777494400000"></script>
+    <script src="js/package-details-modal.js?v=0.1.0&cb=1810800000000"></script>
     <script src="js/feed-url-builder.js?v=0.0.9&cb=1777494400000"></script>
     <script src="js/opml-builder.js?v=0.0.9&cb=1777494400000"></script>
     <script src="js/deps-page.js?v=0.0.9&cb=1788000000000"></script>

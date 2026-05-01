@@ -1173,14 +1173,18 @@ class SBOMProcessor {
                 licenseSource = licenseAugmented ? 'external' : 'sbom';
             }
             
-            // Determine repository license for this dependency
-            // For dependencies from repositories, use the first repository's license as fallback
-            let repositoryLicense = null;
+            // First consuming repo's license — used by the license-compatibility
+            // checker only, NEVER as a dep license fallback. Historically this
+            // field was named `repositoryLicense` and was misread by both
+            // view-manager and deps-page as "the dep's source repo license",
+            // which silently attributed a host project's license (e.g.
+            // Apache-2.0) to license-less third-party deps. Renamed for clarity.
+            let consumerRepoLicense = null;
             if (dep.repositories && dep.repositories.size > 0) {
                 const firstRepoKey = Array.from(dep.repositories)[0];
                 const repoData = this.repositories.get(firstRepoKey);
                 if (repoData && repoData.license) {
-                    repositoryLicense = repoData.license;
+                    consumerRepoLicense = repoData.license;
                 }
             }
             
@@ -1209,8 +1213,13 @@ class SBOMProcessor {
                 license: license,  // Include license (short form, from SBOM or fetched)
                 licenseFull: licenseFull,  // Include license (full form, from SBOM or fetched)
                 licenseAugmented: licenseAugmented,  // True if license was fetched externally
-                licenseSource: licenseSource,  // 'sbom' or 'deps.dev' or 'external'
-                repositoryLicense: repositoryLicense,  // Include repository license as fallback
+                licenseSource: licenseSource,  // 'sbom' or 'deps.dev' or 'external' or 'source-repo'
+                consumerRepoLicense: consumerRepoLicense,  // Host repo license — compatibility checker ONLY (not a dep license fallback)
+                // sourceRepoUrl is captured by license-fetcher and author-service
+                // (Phase 1.6 — feeds source repo discovery). Persisted on the
+                // dep so feed-url-builder and the source-repo license fallback
+                // can use it without consulting external services.
+                sourceRepoUrl: dep.sourceRepoUrl || null,
                 // Insights / executive metrics: persist enrichment results on EVERY dep so
                 // dashboards (Insights page, age/drift/EOL charts, tech-debt scoring) don't
                 // depend on whether the dep was also flagged as vulnerable.

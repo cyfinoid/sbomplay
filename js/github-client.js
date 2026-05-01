@@ -639,6 +639,18 @@ class GitHubClient {
                                 __typename
                                 login
                             }
+                            # Phase 5.2 — repository-health metadata used by
+                            # computeMaintainerSignal. Counts are bounded by
+                            # GraphQL (issues/releases/contributors return
+                            # totalCount cheaply), so this doesn't add another
+                            # paginated request per repo.
+                            stargazerCount
+                            openIssues: issues(states: OPEN) { totalCount }
+                            closedIssues: issues(states: CLOSED) { totalCount }
+                            mentionableUsers { totalCount }
+                            releases(first: 1, orderBy: {field: CREATED_AT, direction: DESC}) {
+                                nodes { createdAt }
+                            }
                         }
                     }
                 }
@@ -675,7 +687,20 @@ class GitHubClient {
                     login: repo.owner.login,
                     type: repo.owner.__typename === 'User' ? 'User' : 'Organization'
                 },
-                visibility: 'public' // GraphQL query only returns public repos by default
+                visibility: 'public', // GraphQL query only returns public repos by default
+                // Phase 5.2 — repoMeta plumbed through to enrichment so the
+                // maintainer-signal composite can consume it without a new
+                // round-trip. `latestReleaseAt` matches the field name used
+                // by computeMaintainerSignal so consumers can pass repoMeta
+                // straight through.
+                repoMeta: {
+                    stargazerCount: typeof repo.stargazerCount === 'number' ? repo.stargazerCount : null,
+                    openIssues: repo.openIssues && typeof repo.openIssues.totalCount === 'number' ? repo.openIssues.totalCount : null,
+                    closedIssues: repo.closedIssues && typeof repo.closedIssues.totalCount === 'number' ? repo.closedIssues.totalCount : null,
+                    mentionableUsers: repo.mentionableUsers && typeof repo.mentionableUsers.totalCount === 'number' ? repo.mentionableUsers.totalCount : null,
+                    latestReleaseAt: (repo.releases && repo.releases.nodes && repo.releases.nodes[0] && repo.releases.nodes[0].createdAt) || null,
+                    lastCommitAt: repo.pushedAt || null
+                }
             }));
             
             return {

@@ -20,6 +20,7 @@ class SettingsApp {
         this.loadRateLimitInfo();
         this.setupEventListeners();
         this.displaySanctionsStatus();  // Load and display sanctions status
+        await this.displayVexDocuments();  // Phase 3 (VEX) — render uploaded VEX docs
     }
 
     /**
@@ -68,12 +69,8 @@ class SettingsApp {
                 case 'showStorageStatus':
                     this.showStorageStatus();
                     break;
-                case 'testStorageQuota':
-                    this.testStorageQuota();
-                    break;
-                case 'migrateOldData':
-                    this.migrateOldData();
-                    break;
+                // Phase 1.8 — testStorageQuota / migrateOldData dispatch removed
+                // along with their broken handlers. See note further down.
                 case 'clearOldData':
                     this.clearOldData();
                     break;
@@ -1134,7 +1131,34 @@ class SettingsApp {
     }
 
     /**
-     * Handle file import
+     * Map an import-type identifier to the user-facing button label so the
+     * mismatch error message is actionable. Keep in sync with the buttons
+     * defined in settings.html.
+     */
+    _labelForImportType(type) {
+        const labels = {
+            'all': 'All Data',
+            'cached': 'Cached Databases',
+            'authors': 'Authors',
+            'packages': 'Packages',
+            'vulnerabilities': 'Vulnerabilities',
+            'analysis': 'Analysis Data',
+            'locations': 'Locations Cache',
+            'eox': 'EOX Cache',
+            'legacy-authors': 'Legacy Authors'
+        };
+        return labels[type] || type;
+    }
+
+    /**
+     * Handle file import. Phase 1.8 changes:
+     *   - Honors `data-import-type` set by the per-button helpers; rejects a
+     *     mismatch with the file's `jsonData.type` so an "Import Authors"
+     *     button can no longer silently restore an `all` snapshot.
+     *   - Reads `data-import-mode` (Replace / Merge) and forwards it to
+     *     storageManager.importAllData. The confirm dialog now describes the
+     *     chosen mode accurately rather than the misleading "existing entries
+     *     will be overwritten" text (which was only true for matching keys).
      */
     async handleFileImport(event) {
         const file = event.target.files[0];
@@ -1149,22 +1173,44 @@ class SettingsApp {
             return;
         }
 
-        // Confirm import
-        if (!confirm('This will import data from the selected file. Existing entries with the same name will be overwritten. Continue?')) {
-            event.target.value = ''; // Reset file input
-            return;
-        }
+        const expectedType = event.target.dataset.importType || null;
+        const mode = (() => {
+            const radio = document.querySelector('input[name="importMode"]:checked');
+            return radio && radio.value === 'replace' ? 'replace' : 'merge';
+        })();
 
         try {
-            // Read file
+            // Read file (parse before confirm so we can validate type up front
+            // and tell the user what they actually picked).
             const text = await file.text();
             const jsonData = JSON.parse(text);
+
+            // Phase 1.8 — honor data-import-type. Reject mismatches with a
+            // clear error so the UI button labels become real guarantees
+            // instead of decorative text.
+            if (expectedType && jsonData.type && jsonData.type !== expectedType) {
+                this.showAlert(
+                    `This file is a "${jsonData.type}" export. Use the "Import ${this._labelForImportType(jsonData.type)}" button instead.`,
+                    'danger'
+                );
+                event.target.value = '';
+                return;
+            }
+
+            // Confirm import — describe the chosen mode accurately.
+            const modeText = mode === 'replace'
+                ? 'Replace mode will CLEAR the matching stores before restoring this snapshot. Anything not in the file will be deleted.'
+                : 'Merge mode will overwrite existing entries that share the same key with the file, but leave other rows untouched.';
+            if (!confirm(`${modeText}\n\nContinue with import?`)) {
+                event.target.value = '';
+                return;
+            }
 
             // Show loading message
             this.showAlert('Importing data...', 'info');
 
             // Import data
-            const result = await this.storageManager.importAllData(jsonData);
+            const result = await this.storageManager.importAllData(jsonData, { mode });
 
             if (result.success) {
                 let message = `Import completed! `;
@@ -1185,7 +1231,19 @@ class SettingsApp {
                 if (result.importedRelationships !== undefined) {
                     message += `Imported ${result.importedRelationships} package-author relationships. `;
                 }
-                
+                if (result.importedLocations !== undefined) {
+                    message += `Imported ${result.importedLocations} locations. `;
+                }
+                if (result.importedEoxData !== undefined) {
+                    message += `Imported ${result.importedEoxData} EOX records. `;
+                }
+                if (result.importedLegacyAuthors !== undefined) {
+                    message += `Imported ${result.importedLegacyAuthors} legacy author entries. `;
+                }
+
+                if (result.mode) {
+                    message += `(mode: ${result.mode}) `;
+                }
                 if (result.skippedEntries > 0) {
                     message += ` Skipped ${result.skippedEntries} invalid entries.`;
                 }
@@ -1218,46 +1276,13 @@ class SettingsApp {
         }
     }
 
-    /**
-     * Test storage quota
-     */
-    testStorageQuota() {
-        try {
-            this.storageManager.testStorageQuota();
-            this.showAlert('Storage test completed successfully!', 'success');
-            this.showStorageStatus(); // Refresh display
-        } catch (error) {
-            this.showAlert(`Storage test failed: ${error.message}`, 'danger');
-        }
-    }
-
-    /**
-     * Migrate old data
-     */
-    migrateOldData() {
-        try {
-            this.storageManager.migrateOldData();
-            this.showAlert('Data migration completed!', 'success');
-            this.showStorageStatus(); // Refresh display
-        } catch (error) {
-            this.showAlert(`Migration failed: ${error.message}`, 'danger');
-        }
-    }
-
-    /**
-     * Clear old data
-     */
-    clearOldData() {
-        if (confirm('Are you sure you want to clear old data? This will remove old history entries and keep only recent analyses.')) {
-            try {
-                this.storageManager.clearOldData();
-                this.showAlert('Old data cleared successfully!', 'success');
-                this.showStorageStatus(); // Refresh display
-            } catch (error) {
-                this.showAlert(`Failed to clear old data: ${error.message}`, 'danger');
-            }
-        }
-    }
+    // Phase 1.8 — duplicate definitions of testStorageQuota / migrateOldData /
+    // clearOldData previously lived here. They called methods that do not
+    // exist on StorageManager, so every click was a console error. The plan:
+    //   - testStorageQuota / migrateOldData: REMOVED entirely (functionality
+    //     never worked and nothing depends on them).
+    //   - clearOldData: keep the WORKING definition further down (which uses
+    //     `removeOrganizationData`); remove this earlier broken stub.
 
     /**
      * Clear all data
@@ -1310,40 +1335,67 @@ class SettingsApp {
         }
     }
 
-    /**
-     * Test storage quota management
-     */
-    testStorageQuota() {
-        try {
-            const testResults = this.storageManager.testStorageQuota();
-            if (testResults) {
-                console.log('🧪 Storage quota test results:', testResults);
-                this.showAlert(`Storage test completed. Check console for details. Compression ratio: ${testResults.compressionRatio.toFixed(1)}%`, 'info');
-            } else {
-                this.showAlert('Storage test failed. Check console for details.', 'warning');
-            }
-        } catch (error) {
-            console.error('Storage test failed:', error);
-            this.showAlert('Storage test failed', 'danger');
-        }
-    }
+    // Phase 1.8 — testStorageQuota and migrateOldData removed. They called
+    // StorageManager methods that don't exist, so the buttons in debug.html
+    // and any handler dispatches were dead code. Re-introduce only when an
+    // actual implementation exists.
 
     /**
-     * Migrate old data to new compressed format
+     * Phase 3 (VEX) — render the list of uploaded VEX/VDR documents along
+     * with delete controls. Upload happens on vuln.html; this card is the
+     * inventory + cleanup surface so users can audit what's annotating
+     * their findings without having to open every analysis.
      */
-    migrateOldData() {
+    async displayVexDocuments() {
+        const container = document.getElementById('vexDocList');
+        const badge = document.getElementById('vexDocCountBadge');
+        if (!container) return;
         try {
-            const migratedCount = this.storageManager.migrateOldData();
-            if (migratedCount > 0) {
-                this.showAlert(`Successfully migrated ${migratedCount} organizations to compressed format.`, 'success');
-                this.showStorageStatus(); // Update storage status
-                this.displayOrganizationsOverview(); // Refresh display
-            } else {
-                this.showAlert('No old data found to migrate. All data is already in compressed format.', 'info');
+            const idb = this.storageManager && this.storageManager.indexedDB;
+            const docs = idb && idb.getAllVexDocuments ? await idb.getAllVexDocuments() : [];
+            if (badge) badge.textContent = String(docs.length);
+            if (!docs || docs.length === 0) {
+                container.innerHTML = '<p class="text-muted small mb-0">No VEX/VDR documents uploaded yet.</p>';
+                return;
             }
-        } catch (error) {
-            console.error('Migration failed:', error);
-            this.showAlert('Failed to migrate old data', 'danger');
+            const rows = docs.map(d => {
+                const scope = d.analysisIdentifier ? `Analysis: ${escapeHtml(d.analysisIdentifier)}` : 'All analyses';
+                const fmt = escapeHtml(d.format || 'unknown');
+                const filename = escapeHtml(d.filename || '(no filename)');
+                const stmt = d.statementCount || 0;
+                const uploaded = d.uploadedAt ? new Date(d.uploadedAt).toLocaleString() : '';
+                return `
+                    <div class="d-flex justify-content-between align-items-center border-bottom py-2">
+                        <div class="small">
+                            <div><strong>${filename}</strong> <span class="badge bg-light text-dark ms-1">${fmt}</span></div>
+                            <div class="text-muted">${scope} • ${stmt} statement(s) • ${escapeHtml(uploaded)}</div>
+                        </div>
+                        <button class="btn btn-sm btn-outline-danger" data-vex-id="${escapeHtml(d.vexId)}" data-action="deleteVexDocument">
+                            <i class="fas fa-trash"></i>
+                        </button>
+                    </div>`;
+            }).join('');
+            container.innerHTML = rows;
+            // Wire up delete handlers — delegate via querySelectorAll because
+            // these buttons are dynamically rendered and we want a single
+            // listener installation per refresh.
+            container.querySelectorAll('button[data-action="deleteVexDocument"]').forEach(btn => {
+                btn.addEventListener('click', async () => {
+                    const vexId = btn.getAttribute('data-vex-id');
+                    if (!vexId) return;
+                    if (!confirm('Delete this VEX document? Findings annotated by it will lose their VEX badge until the document is re-uploaded.')) return;
+                    try {
+                        await idb.deleteVexDocument(vexId);
+                        await this.displayVexDocuments();
+                        this.showAlert('VEX document deleted.', 'success');
+                    } catch (err) {
+                        this.showAlert(`Failed to delete VEX document: ${err.message}`, 'danger');
+                    }
+                });
+            });
+        } catch (err) {
+            console.error('Failed to load VEX documents:', err);
+            container.innerHTML = '<p class="text-danger small mb-0">Failed to load VEX documents.</p>';
         }
     }
 

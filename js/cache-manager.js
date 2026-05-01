@@ -412,6 +412,50 @@ class CacheManager {
     }
 
     /**
+     * Synchronous packages-cache lookup. Reads ONLY from the in-memory map
+     * and never touches IndexedDB, so the caller is responsible for priming
+     * the cache (`primePackagesCache`) when it needs every row available.
+     * Used by FeedUrlBuilder (which must remain sync because OPML resolution
+     * is called from a single non-async render path).
+     *
+     * @param {string} packageKey - Format: ecosystem:packageName
+     * @returns {Object|null}
+     */
+    getPackageSync(packageKey) {
+        if (!packageKey) return null;
+        return this.memoryCache.get(`package:${packageKey}`) || null;
+    }
+
+    /**
+     * Pull every persisted package row into the memory cache so subsequent
+     * `getPackageSync` calls can resolve without awaiting IndexedDB. Idempotent
+     * — safe to call multiple times. Only honors rows whose `timestamp` is
+     * still within the configured `packages` TTL so we don't surface stale
+     * `versionDrift`/`repositoryUrl` data.
+     *
+     * @returns {Promise<number>} number of entries primed into memory.
+     */
+    async primePackagesCache() {
+        const dbManager = window.indexedDBManager;
+        if (!dbManager || !dbManager.db || typeof dbManager.getAllPackages !== 'function') {
+            return 0;
+        }
+        let primed = 0;
+        try {
+            const packages = await dbManager.getAllPackages();
+            for (const pkg of packages || []) {
+                if (!pkg || !pkg.packageKey) continue;
+                if (!this.isCacheValid(pkg.timestamp, 'packages')) continue;
+                this.memoryCache.set(`package:${pkg.packageKey}`, pkg);
+                primed++;
+            }
+        } catch (error) {
+            console.warn('⚠️ Cache: primePackagesCache failed:', error);
+        }
+        return primed;
+    }
+
+    /**
      * Save package metadata to cache
      * @param {string} packageKey - Format: ecosystem:packageName
      * @param {Object} packageData - Package metadata

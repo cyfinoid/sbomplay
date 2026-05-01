@@ -126,6 +126,8 @@
                             <option value="github-actions">GitHub Actions Security</option>
                             <option value="dependency-confusion">Dependency Confusion</option>
                             <option value="eox">EOX (End-of-Life/Support)</option>
+                            <option value="lifecycle">Package Lifecycle (deprecated/yanked/archived)</option>
+                            <option value="maintainer-signal">Maintainer Signal (risk/critical)</option>
                             <option value="source-repo">Dead Source Repos</option>
                         </select>
                     </div>
@@ -141,6 +143,40 @@
         
         <div id="findings-page-content">
             <!-- Findings content will be rendered here by JS -->
+        </div>
+
+        <!-- Phase 3 (VEX) — surface VEX statements that didn't match any
+             dependency, so users can spot broken PURLs / typo'd CVE ids
+             without having to inspect each upload manually. Populated by
+             findings-page.js from the analysis's vexSummary.unmatchedStatements. -->
+        <div class="card mb-4 d-none" id="vexUnmatchedCard">
+            <div class="card-header d-flex align-items-center justify-content-between">
+                <h5 class="mb-0">
+                    <i class="fas fa-shield-alt me-2"></i>VEX statements without a matching dependency
+                </h5>
+                <span class="badge bg-warning text-dark" id="vexUnmatchedCount">0</span>
+            </div>
+            <div class="card-body">
+                <p class="small text-muted mb-2">
+                    These statements were present in your uploaded VEX/VDR documents but
+                    did not match any dependency in this analysis. Common causes: typo in
+                    the PURL, missing version, or the package was renamed upstream.
+                </p>
+                <div class="table-responsive">
+                    <table class="table table-sm table-striped mb-0" id="vexUnmatchedTable">
+                        <thead>
+                            <tr>
+                                <th>Vulnerability</th>
+                                <th>Status</th>
+                                <th>Identifier</th>
+                                <th>Source</th>
+                                <th>Document</th>
+                            </tr>
+                        </thead>
+                        <tbody></tbody>
+                    </table>
+                </div>
+            </div>
         </div>
 
         <!-- No Data Section -->
@@ -252,16 +288,17 @@
     <script src="js/cache-manager.js?v=0.0.9&cb=1777494400000"></script>
     <script src="js/osv-service.js?v=0.0.9&cb=1777800000000"></script>
     <script src="js/malware-service.js?v=0.0.9&cb=1777800000000"></script>
+    <script src="js/vex-service.js?v=0.1.0&cb=1809900000000"></script>
     <script src="js/view-manager.js?v=0.0.9&cb=1777716000000"></script>
     <script src="js/license-processor.js?v=0.0.9&cb=1777716000000"></script>
     <script src="js/sbom-processor.js?v=0.0.9&cb=1800000000000"></script>
     <script src="js/storage-manager.js?v=0.0.9&cb=1800000000000"></script>
-    <script src="js/github-client.js?v=0.0.9&cb=1783200000000"></script>
+    <script src="js/github-client.js?v=0.1.0&cb=1810800001000"></script>
     <script src="js/version-drift-analyzer.js?v=0.0.9&cb=1783200000000"></script>
     <script src="js/eox-service.js?v=0.0.9&cb=1783000000000"></script>
-    <script src="js/package-details-modal.js?v=0.0.9&cb=1777494400000"></script>
-    <script src="js/app.js?v=0.0.9&cb=1783200000000"></script>
+    <script src="js/package-details-modal.js?v=0.1.0&cb=1810800000000"></script>
+    <script src="js/app.js?v=0.1.0&cb=1810800000000"></script>
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
-    <script src="js/findings-page.js?v=0.0.9&cb=1788000000000"></script>
+    <script src="js/findings-page.js?v=0.1.0&cb=1810800000000"></script>
 </body>
 </html>

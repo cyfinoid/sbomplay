@@ -105,40 +105,72 @@ class LicenseFetcher {
             // Try deps.dev API first
             const url = `https://api.deps.dev/v3alpha/systems/${system}/packages/${encodeURIComponent(dep.name)}/versions/${encodeURIComponent(dep.version)}`;
 
+            let licenseFetched = false;
             const response = await fetch(url);
             if (response.ok) {
                 const data = await response.json();
+
+                // Even when deps.dev has no license, it usually has a `links[]`
+                // array including SOURCE_REPO. Persist that on the dep so
+                // feeds.html and the source-repo license fallback can use it.
+                this._captureSourceRepoFromLinks(dep, data && data.links);
+
                 if (data.licenses && data.licenses.length > 0) {
                     const licenseIds = data.licenses.map(l => l.license || l).filter(Boolean);
                     const licenseStr = licenseIds.join(' AND ');
-                    
-                    // Update the dependency object
+
                     dep.license = licenseStr;
                     dep.licenseFull = licenseStr;
                     dep.licenseAugmented = true;
                     dep.licenseSource = 'deps.dev';
-                    
-                    return true;
+
+                    licenseFetched = true;
                 }
             }
-            
+
             // Fallback: For Go packages hosted on github.com, try GitHub API
             // deps.dev may not have license info for older versions
-            if ((system === 'go') && dep.name.startsWith('github.com/')) {
+            if (!licenseFetched && (system === 'go') && dep.name.startsWith('github.com/')) {
                 const githubLicense = await this.fetchLicenseFromGitHub(dep.name);
                 if (githubLicense) {
                     dep.license = githubLicense;
                     dep.licenseFull = githubLicense;
                     dep.licenseAugmented = true;
                     dep.licenseSource = 'github';
-                    return true;
+                    licenseFetched = true;
                 }
             }
-            
-            return false;
+
+            return licenseFetched;
         } catch (e) {
             console.debug(`Failed to fetch license for ${dep.name}:`, e.message);
             return false;
+        }
+    }
+
+    /**
+     * Walk a deps.dev `links[]` array looking for a usable source-repo URL.
+     * Prefers `SOURCE_REPO` (the canonical VCS link), then falls back to
+     * `ORIGIN` and finally `HOMEPAGE` so we can still surface a reasonable
+     * GitHub link when registries only list a homepage. Writes the URL to
+     * `dep.sourceRepoUrl` only when not already populated by an earlier source
+     * (so an SBOM-provided value wins over a registry guess).
+     *
+     * @param {Object} dep    Dependency record (mutated in place).
+     * @param {Array}  links  deps.dev `data.links` array; safe to pass null.
+     * @private
+     */
+    _captureSourceRepoFromLinks(dep, links) {
+        if (!dep || dep.sourceRepoUrl || !Array.isArray(links) || links.length === 0) {
+            return;
+        }
+        const priorities = ['SOURCE_REPO', 'ORIGIN', 'HOMEPAGE'];
+        for (const label of priorities) {
+            const hit = links.find(l => l && l.label === label && l.url);
+            if (hit) {
+                dep.sourceRepoUrl = hit.url;
+                return;
+            }
         }
     }
 

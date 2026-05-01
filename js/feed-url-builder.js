@@ -381,6 +381,26 @@ class FeedUrlBuilder {
         // Also check explicit known fields some callers populate.
         if (dep.repositoryUrl) candidates.push(dep.repositoryUrl);
         if (raw && raw.repositoryUrl) candidates.push(raw.repositoryUrl);
+        // sourceRepoUrl is the canonical post-enrichment field — written by
+        // license-fetcher (deps.dev SOURCE_REPO link) and author-service
+        // (native registry repository.url). This is what unblocks "minimal"
+        // SBOMs (e.g. GitHub Dependency-Graph) that ship without externalRefs.
+        if (dep.sourceRepoUrl) candidates.push(dep.sourceRepoUrl);
+        if (raw && raw.sourceRepoUrl) candidates.push(raw.sourceRepoUrl);
+
+        // Last resort: consult the persistent packages cache. We populate
+        // packageData.repositoryUrl from author-service even when the dep
+        // object itself wasn't decorated (e.g. legacy analyses re-loaded
+        // without re-running enrichment). Only available when cacheManager
+        // is loaded on this page (see feeds.html script list).
+        if (typeof window !== 'undefined' && window.cacheManager
+                && typeof window.cacheManager.getPackageSync === 'function') {
+            const ecosystem = (dep.ecosystem || dep.category?.ecosystem || '').toString().toLowerCase();
+            if (ecosystem && dep.name) {
+                const pkg = window.cacheManager.getPackageSync(`${ecosystem}:${dep.name}`);
+                if (pkg && pkg.repositoryUrl) candidates.push(pkg.repositoryUrl);
+            }
+        }
 
         for (const candidate of candidates) {
             const parsed = this._parseGitHubRepoFromUrl(candidate);

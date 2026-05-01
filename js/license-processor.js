@@ -1199,7 +1199,9 @@ class LicenseProcessor {
                 categoryBreakdown: {
                     permissive: 0,
                     copyleft: 0,
+                    lgpl: 0,
                     proprietary: 0,
+                    custom: 0,
                     unknown: 0
                 }
             },
@@ -1215,8 +1217,11 @@ class LicenseProcessor {
             
             if (licenseInfo.license && licenseInfo.license !== 'NOASSERTION') {
                 report.summary.licensedDependencies++;
-                report.summary.riskBreakdown[licenseInfo.risk]++;
-                report.summary.categoryBreakdown[licenseInfo.category]++;
+                report.summary.riskBreakdown[licenseInfo.risk] = (report.summary.riskBreakdown[licenseInfo.risk] || 0) + 1;
+                // Guard against parseLicense emitting a category we don't pre-initialize
+                // (e.g. future categories) — never increment undefined into NaN.
+                report.summary.categoryBreakdown[licenseInfo.category] =
+                    (report.summary.categoryBreakdown[licenseInfo.category] || 0) + 1;
                 
                 if (licenseInfo.risk === 'high') {
                     report.highRiskDependencies.push({

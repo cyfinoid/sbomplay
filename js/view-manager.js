@@ -2756,29 +2756,15 @@ class ViewManager {
             }
         }
         
-        // 5. Final fallback: Use repository license if available
-        // Many SBOMs don't include license info for individual packages,
-        // so we infer it from the repository license as a last resort
-        if (!licenseInfo && orgData && dep.repositories && dep.repositories.length > 0) {
-            // Get license from first repository (most dependencies come from one repo)
-            const repoName = dep.repositories[0];
-            const allRepos = orgData.data?.allRepositories || [];
-            const repo = allRepos.find(r => `${r.owner}/${r.name}` === repoName);
-            
-            if (repo && (repo.repositoryLicense || repo.license)) {
-                const repoLicense = repo.repositoryLicense || repo.license;
-                if (repoLicense && repoLicense !== 'NOASSERTION') {
-                    licenseInfo = licenseProcessor.parseLicense({
-                        licenseConcluded: repoLicense,
-                        licenseDeclared: repoLicense
-                    });
-                    if (licenseInfo && licenseInfo.license && licenseInfo.license !== 'NOASSERTION') {
-                        source = 'repositoryLicense';
-                    }
-                }
-            }
-        }
-        
+        // 5. Final fallback REMOVED (Phase 1.7): we used to attribute the
+        // *consuming* repo's license to license-less deps. That silently
+        // misclassified third-party deps as e.g. Apache-2.0 just because the
+        // host project happened to be Apache-licensed. The honest answer for
+        // an unresolvable dep is `Unknown`, which downstream code already
+        // handles. The legitimate "host repo license" use is the
+        // compatibility checker (`isDependencyCompatibleWithRepository`),
+        // which receives the value as an explicit parameter — not a fallback.
+
         return { licenseInfo, source };
     }
 
@@ -3552,21 +3538,24 @@ class ViewManager {
 
         // Group by ecosystem:packageName to avoid false positives from same-name packages in different ecosystems
         const packageMap = new Map();
-        
+
         allDependencies.forEach(dep => {
             const packageName = dep.name || 'Unknown';
             if (!packageName || packageName === 'Unknown') return;
-            
-            // Parse license for this dependency
-            const licenseInfo = licenseProcessor.parseLicense(dep.originalPackage || {});
+
+            // Phase 1.4: prefer enriched license fields (deps.dev / source-repo)
+            // over the raw originalPackage. The previous logic ignored everything
+            // an enrichment phase wrote and so missed real license changes that
+            // were only visible via the registry.
+            const enriched = dep.licenseFull || dep.license;
+            const licenseInfo = (enriched && enriched !== 'NOASSERTION' && String(enriched).trim() !== '')
+                ? licenseProcessor.parseLicense({ licenseConcluded: enriched, licenseDeclared: enriched })
+                : licenseProcessor.parseLicense(dep.originalPackage || {});
             const license = licenseInfo.license || 'Unknown';
-            
-            // Get ecosystem for display - normalize to lowercase for consistent grouping
+
             const ecosystem = (dep.ecosystem || dep.category?.ecosystem || 'unknown').toLowerCase();
-            
-            // Use ecosystem:packageName as key to separate same-name packages from different ecosystems
             const packageKey = `${ecosystem}:${packageName}`;
-            
+
             if (!packageMap.has(packageKey)) {
                 packageMap.set(packageKey, []);
             }
@@ -3576,43 +3565,42 @@ class ViewManager {
                 category: licenseInfo.category || 'unknown',
                 repositories: dep.repositories || [],
                 ecosystem: ecosystem,
-                packageName: packageName
+                packageName: packageName,
+                // Latest registry version + license (populated by Phase 2.6
+                // fetchLatestVersionLicenses); used to add a third row type.
+                latestVersion: dep.versionDrift?.latestVersion || null,
+                latestLicense: dep.versionDrift?.latestLicense || null,
+                latestLicenseFull: dep.versionDrift?.latestLicenseFull || null
             });
         });
 
         // Process each package to detect license changes
         packageMap.forEach((versions, packageKey) => {
-            // Skip if only one version
-            if (versions.length < 2) return;
-            
-            // Get package name from first version (all versions have same name within a key)
+            // Versions in our environment may be a single one — that's still
+            // worth a transition row when the registry's latest differs.
             const packageName = versions[0].packageName;
-            
+
             // Sort versions chronologically
             versions.sort((a, b) => {
                 return a.version.localeCompare(b.version, undefined, { numeric: true, sensitivity: 'base' });
             });
 
-            // Detect transitions between consecutive versions
+            // Detect transitions between consecutive in-environment versions.
             for (let i = 0; i < versions.length - 1; i++) {
                 const current = versions[i];
                 const next = versions[i + 1];
-                
-                // Normalize licenses before comparison to avoid false positives
-                const licenseProcessor = window.LicenseProcessor ? new window.LicenseProcessor() : null;
-                const normalizedCurrent = licenseProcessor ? licenseProcessor.normalizeLicenseName(current.license) : current.license;
-                const normalizedNext = licenseProcessor ? licenseProcessor.normalizeLicenseName(next.license) : next.license;
-                
-                // Only report if licenses are different after normalization
+
+                const lp = window.LicenseProcessor ? new window.LicenseProcessor() : null;
+                const normalizedCurrent = lp ? lp.normalizeLicenseName(current.license) : current.license;
+                const normalizedNext = lp ? lp.normalizeLicenseName(next.license) : next.license;
+
                 if (normalizedCurrent !== normalizedNext && normalizedCurrent !== 'Unknown' && normalizedNext !== 'Unknown') {
-                    // Combine repositories from both versions
                     const allRepos = new Set([...(current.repositories || []), ...(next.repositories || [])]);
-                    
-                    // Use ecosystem from either version (they should be the same within a packageKey)
                     const ecosystem = current.ecosystem || next.ecosystem || null;
-                    
+
                     transitions.push({
                         type: 'license-transition',
+                        source: 'in-environment',
                         packageName: packageName,
                         ecosystem: ecosystem,
                         fromLicense: normalizedCurrent,
@@ -3622,6 +3610,32 @@ class ViewManager {
                         fromCategory: current.category,
                         toCategory: next.category,
                         repositories: Array.from(allRepos)
+                    });
+                }
+            }
+
+            // Append a "current → latest registry" row when the registry's
+            // latest version is newer AND has a different license than the
+            // newest in-environment version. This surfaces license drift
+            // happening upstream that hasn't reached our codebase yet.
+            const newest = versions[versions.length - 1];
+            if (newest.latestLicense && newest.latestVersion && newest.latestVersion !== newest.version) {
+                const lp = window.LicenseProcessor ? new window.LicenseProcessor() : null;
+                const normNewest = lp ? lp.normalizeLicenseName(newest.license) : newest.license;
+                const normLatest = lp ? lp.normalizeLicenseName(newest.latestLicense) : newest.latestLicense;
+                if (normNewest !== normLatest && normNewest !== 'Unknown' && normLatest !== 'Unknown') {
+                    transitions.push({
+                        type: 'license-transition',
+                        source: 'latest-registry',
+                        packageName: packageName,
+                        ecosystem: newest.ecosystem || null,
+                        fromLicense: normNewest,
+                        toLicense: normLatest,
+                        fromVersion: newest.version,
+                        toVersion: newest.latestVersion,
+                        fromCategory: newest.category,
+                        toCategory: 'unknown',
+                        repositories: Array.from(newest.repositories || [])
                     });
                 }
             }
@@ -4287,6 +4301,13 @@ class ViewManager {
                 const displayName = transition.ecosystem 
                     ? `${transition.ecosystem}:${transition.packageName}` 
                     : transition.packageName;
+                // Phase 1.4 — surface where the transition came from. "In environment"
+                // = both versions exist in the user's SBOMs; "Latest registry" = the
+                // newer version is what the registry currently publishes (may not be
+                // installed anywhere yet — leading indicator of upstream license drift).
+                const sourceBadge = transition.source === 'latest-registry'
+                    ? '<span class="badge bg-info text-dark" title="Newer version published on the registry; not installed in your environment yet">Latest registry</span>'
+                    : '<span class="badge bg-secondary" title="Both versions exist in your SBOMs">In environment</span>';
                 return `
                 <tr>
                     <td>
@@ -4306,6 +4327,7 @@ class ViewManager {
                         </a>
                         <span class="badge badge-license ms-2">${escapeHtml(transition.toLicense)}</span>
                     </td>
+                    <td>${sourceBadge}</td>
                     <td class="text-center">
                         <strong>${repoCount}</strong>
                     </td>
@@ -4314,7 +4336,7 @@ class ViewManager {
             
             licenseChangesHTML = `<div class="license-changes-section" id="license-changes-section">
     <h4>🔄 License Changes Detected</h4>
-    <p class="text-muted mb-3">All license changes across all dependencies (not just high-risk)</p>
+    <p class="text-muted mb-3">All license changes across all dependencies — both within your environment and from the latest version on the registry.</p>
     <div class="table-responsive">
         <table class="table table-striped table-hover">
             <thead>
@@ -4322,6 +4344,7 @@ class ViewManager {
                     <th>Dependency</th>
                     <th>Version 1 @ License 1</th>
                     <th>Version 2 @ License 2</th>
+                    <th>Source</th>
                     <th class="text-center">Repositories</th>
                 </tr>
             </thead>
@@ -4710,6 +4733,9 @@ class ViewManager {
         if (allLicenseTransitions.length > 0) {
             const transitionRows = allLicenseTransitions.map(transition => {
                 const repoCount = transition.repositories ? transition.repositories.length : 0;
+                const sourceBadge = transition.source === 'latest-registry'
+                    ? '<span class="badge bg-info text-dark" title="Newer version published on the registry; not installed in your environment yet">Latest registry</span>'
+                    : '<span class="badge bg-secondary" title="Both versions exist in your SBOMs">In environment</span>';
                 return `
                 <tr>
                     <td>
@@ -4729,6 +4755,7 @@ class ViewManager {
                         </a>
                         <span class="badge badge-license ms-2">${escapeHtml(transition.toLicense)}</span>
                     </td>
+                    <td>${sourceBadge}</td>
                     <td class="text-center">
                         <strong>${repoCount}</strong>
                     </td>
@@ -4737,7 +4764,7 @@ class ViewManager {
 
             licenseChangesHTML = `<div class="license-changes-section mb-4" id="license-changes-section">
     <h4>🔄 License Changes Detected</h4>
-    <p class="text-muted mb-3">All license changes across all dependencies (not just high-risk)</p>
+    <p class="text-muted mb-3">All license changes across all dependencies — both within your environment and from the latest version on the registry.</p>
     <div class="table-responsive">
         <table class="table table-striped table-hover" id="license-changes-table">
             <thead>
@@ -4745,6 +4772,7 @@ class ViewManager {
                     <th>Dependency</th>
                     <th>Version 1 @ License 1</th>
                     <th>Version 2 @ License 2</th>
+                    <th>Source</th>
                     <th class="text-center">Repositories</th>
                 </tr>
             </thead>
@@ -5288,6 +5316,36 @@ class ViewManager {
         return usage;
     }
 
+    /**
+     * Render a small badge describing a VEX statement attached to a finding.
+     * Phase 3 (VEX) — colors map to status:
+     *   - not_affected → muted secondary (suppression hint)
+     *   - fixed        → green (resolved)
+     *   - affected     → red (confirmed)
+     *   - under_investigation → amber (in triage)
+     * Tooltip carries the justification + matched-by source so the user can
+     * audit the suppression without opening the modal.
+     */
+    _renderVexBadge(vex) {
+        if (!vex || !vex.status) return '';
+        const status = vex.status;
+        const map = {
+            'not_affected':       { cls: 'bg-secondary text-light', label: 'VEX: not affected', icon: 'fa-shield-alt' },
+            'fixed':              { cls: 'bg-success',              label: 'VEX: fixed',         icon: 'fa-check' },
+            'affected':           { cls: 'bg-danger',               label: 'VEX: affected',      icon: 'fa-exclamation-triangle' },
+            'under_investigation':{ cls: 'bg-warning text-dark',    label: 'VEX: under investigation', icon: 'fa-search' }
+        };
+        const meta = map[status];
+        if (!meta) return '';
+        const tooltipParts = [
+            meta.label,
+            vex.justification ? `Justification: ${vex.justification}` : null,
+            vex.matchedBy ? `Matched by: ${vex.matchedBy}` : null,
+            vex.filename ? `Source: ${vex.filename}` : null
+        ].filter(Boolean).join('\n');
+        return `<span class="badge ${meta.cls} ms-1" title="${escapeHtml(tooltipParts)}"><i class="fas ${meta.icon} me-1"></i>${escapeHtml(meta.label)}</span>`;
+    }
+
     async generateVulnerabilityAnalysisHTML(orgData, severityFilter = null, limit = 25, offset = 0) {
         const vulnAnalysis = orgData.data.vulnerabilityAnalysis;
         const orgName = orgData.organization || orgData.name;
@@ -5401,20 +5459,43 @@ class ViewManager {
                     });
                 }
                 
+                // Phase 3 (VEX) — apply suppression filter when the user has
+                // toggled it on. Suppressed statuses are `not_affected` and
+                // `fixed`. We never delete the underlying findings; we just
+                // hide them at render time so the user can flip the toggle
+                // and see them again.
+                const vexSuppressActive = !!window.__vexSuppress;
+                if (vexSuppressActive) {
+                    depVulnerabilities = depVulnerabilities.filter(v =>
+                        !(v && v.vex && (v.vex.status === 'not_affected' || v.vex.status === 'fixed'))
+                    );
+                }
+
                 const vulnerabilities = depVulnerabilities.map(vuln => {
                     const severity = window.osvService ? window.osvService.getHighestSeverity(vuln) : 'UNKNOWN';
                     const tooltip = `${vuln.id || 'Unknown ID'}\n${vuln.summary || 'No summary'}`;
                     const cssSeverity = severity.toLowerCase() === 'moderate' ? 'medium' : severity.toLowerCase();
+                    // VEX badge metadata — surfaced inline next to each
+                    // severity badge so the user can see suppression at a
+                    // glance without opening the details modal.
+                    const vex = vuln.vex || null;
+                    const vexBadge = vex ? this._renderVexBadge(vex) : '';
                     return {
                         severity: severity,
                         cssSeverity: cssSeverity,
                         tooltip: tooltip,
-                        vulnJson: JSON.stringify(vuln).replace(/"/g, '&quot;')
+                        vulnJson: JSON.stringify(vuln).replace(/"/g, '&quot;'),
+                        vexBadge
                     };
                 });
                 
                 // Skip this dependency if no vulnerabilities match the filter
                 if (severityFilter && vulnerabilities.length === 0) {
+                    continue;
+                }
+                if (vulnerabilities.length === 0) {
+                    // VEX suppression hid every finding for this dep — drop
+                    // the row entirely so the page doesn't show empty cards.
                     continue;
                 }
                 
@@ -5562,7 +5643,7 @@ class ViewManager {
                   title="${escapeHtml(vuln.tooltip)}" 
                   onclick="viewManager.showVulnerabilityDetails('${escapeJsString(escapeHtml(depData.depName))}', '${escapeJsString(escapeHtml(depData.depVersion))}', [${vuln.vulnJson}])">
                 ${escapeHtml(vuln.severity)}
-            </span>`).join('')}
+            </span>${vuln.vexBadge || ''}`).join('')}
         </div>
         ${usageHTML}
     </div>

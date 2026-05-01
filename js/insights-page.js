@@ -246,8 +246,44 @@ document.addEventListener('DOMContentLoaded', async function () {
 // RENDERING
 // =============================================================================
 
+// Analysis identifier captured from the most recent generateInsightsHTML call.
+// Used by `insightsDepsLink` to forward `&org=<name>` so a link from a
+// per-analysis insights view lands on the same analysis in deps.html.
+let __insightsCurrentOrg = '';
+
+/**
+ * Build a deps.html URL for a package/version row in the Insights tables.
+ * Mirrors the global `buildDepsLink` helper but defaults `org` to the
+ * insights page's currently-selected analysis so the link narrows to the
+ * same dataset the user is looking at.
+ */
+function insightsDepsLink({ name, version, ecosystem }) {
+    if (typeof window.buildDepsLink !== 'function' || !name) return null;
+    return window.buildDepsLink({
+        name,
+        version,
+        ecosystem,
+        org: __insightsCurrentOrg
+    });
+}
+
+/**
+ * Render `name@version` as a deps.html link when possible. Falls back to
+ * plain escaped text if `buildDepsLink` is unavailable or `name` is missing,
+ * so the cell never disappears entirely. Always escapes user-controlled text.
+ */
+function renderInsightsPkgLink(name, version, ecosystem) {
+    const url = insightsDepsLink({ name, version, ecosystem });
+    const text = `${escapeHtml(name || '')}@${escapeHtml(version || '')}`;
+    return url ? `<a href="${url}">${text}</a>` : text;
+}
+
 function generateInsightsHTML(orgData) {
     const data = orgData?.data || {};
+    // "All analyses" combined view has no organization name; leave blank so
+    // links omit `org=` and deps.html falls back to its aggregated view.
+    __insightsCurrentOrg = (orgData && (orgData.organization || orgData.name)) || '';
+    if (__insightsCurrentOrg === '__ALL__') __insightsCurrentOrg = '';
     const ins = buildInsights(data);
     window.__insightsCache = ins;
     // Reset queues — `destroyAllInsightsCharts` is called from the loader before
@@ -736,7 +772,7 @@ function renderAgeSection(ins) {
     const oldestRowFormatter = (r) => `
         <tr>
             <td><a href="repos.html?repo=${encodeURIComponent(r.repoKey)}">${escapeHtml(r.repoKey)}</a></td>
-            <td>${escapeHtml(r.oldest.name)}@${escapeHtml(r.oldest.version)}</td>
+            <td>${renderInsightsPkgLink(r.oldest.name, r.oldest.version, r.oldest.ecosystem)}</td>
             <td><span class="badge bg-secondary">${escapeHtml(r.oldest.ecosystem || '—')}</span></td>
             <td class="text-end">${r.oldest.months} mo</td>
             <td class="text-end">${formatYears(r.oldest.months)}</td>
@@ -754,7 +790,7 @@ function renderAgeSection(ins) {
 
     const eolRowFormatter = (p) => `
         <tr>
-            <td>${escapeHtml(p.name)}@${escapeHtml(p.version)}</td>
+            <td>${renderInsightsPkgLink(p.name, p.version, p.ecosystem)}</td>
             <td><span class="badge bg-secondary">${escapeHtml(p.ecosystem || '—')}</span></td>
             <td class="text-end">${p.months} mo</td>
             <td class="text-end">${p.repoCount}</td>
@@ -903,7 +939,7 @@ function renderDriftSection(ins) {
 
     const topRowFormatter = (p) => `
         <tr>
-            <td>${escapeHtml(p.name)}@${escapeHtml(p.version)} <span class="text-muted small">→ ${escapeHtml(p.latestVersion)}</span></td>
+            <td>${renderInsightsPkgLink(p.name, p.version, p.ecosystem)} <span class="text-muted small">→ ${escapeHtml(p.latestVersion)}</span></td>
             <td><span class="badge bg-secondary">${escapeHtml(p.ecosystem || '—')}</span></td>
             <td><span class="badge bg-${p.kind === 'major' ? 'danger' : 'warning text-dark'}">${p.kind}</span></td>
             <td class="text-end">${p.repoCount}</td>
@@ -1146,7 +1182,7 @@ function renderVulnAgeSection(ins) {
 
     const tbRowFormatter = (t) => `
         <tr>
-            <td>${escapeHtml(t.pkg)}@${escapeHtml(t.version)}</td>
+            <td>${renderInsightsPkgLink(t.pkg, t.version, t.ecosystem)}</td>
             <td><span class="badge bg-secondary">${escapeHtml(t.ecosystem || '—')}</span></td>
             <td><a href="https://osv.dev/vulnerability/${encodeURIComponent(t.cveId)}" target="_blank" rel="noreferrer noopener">${escapeHtml(t.cveId)}</a></td>
             <td><span class="badge severity-${t.severity}">${escapeHtml(t.severity)}</span></td>
@@ -1409,7 +1445,7 @@ function renderRedFlagsSection(ins) {
 
     const directRowFormatter = (r) => `
         <tr>
-            <td>${escapeHtml(r.name)}@${escapeHtml(r.version)}</td>
+            <td>${renderInsightsPkgLink(r.name, r.version, r.ecosystem)}</td>
             <td><span class="badge bg-secondary">${escapeHtml(r.ecosystem || '—')}</span></td>
             <td><code class="small">${escapeHtml(r.license)}</code></td>
             <td class="text-end">${r.repoCount}</td>
@@ -1427,7 +1463,7 @@ function renderRedFlagsSection(ins) {
 
     const eolRowFormatter = (e) => `
         <tr>
-            <td>${escapeHtml(e.name)}@${escapeHtml(e.version)}</td>
+            <td>${renderInsightsPkgLink(e.name, e.version, e.ecosystem)}</td>
             <td><span class="badge bg-secondary">${escapeHtml(e.ecosystem || '—')}</span></td>
             <td>${e.product ? `<a href="https://endoflife.date/${encodeURIComponent(e.product)}" target="_blank" rel="noreferrer noopener">${escapeHtml(e.product)}</a>` : '—'}</td>
             <td class="small text-muted">${escapeHtml(e.eolDate || '')}</td>

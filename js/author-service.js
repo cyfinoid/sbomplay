@@ -292,9 +292,12 @@ class AuthorService {
             console.warn(`⚠️ No authors found for ${packageKey} - saving package metadata only`);
         }
         
-        // Save package and authors to cache immediately (incremental save)
-        // This happens for EVERY package discovered, regardless of whether authors were found
-        await this.saveAuthorsToCache(packageKey, ecosystem, authors, funding, packageWarnings);
+        // Save package and authors to cache immediately (incremental save).
+        // Native registry repository.url (npm/PyPI/Cargo/RubyGems) used to be
+        // captured in-memory only; persist it so feeds.html (and the source-repo
+        // license fallback) can resolve GitHub URLs for packages whose SBOM
+        // entry lacks externalRefs (e.g. minimal Dependency-Graph SBOMs).
+        await this.saveAuthorsToCache(packageKey, ecosystem, authors, funding, packageWarnings, nativeRepositoryUrl);
         console.log(`💾 Author: Saved package ${packageKey} to cache immediately (${authors.length} authors)`);
         
         // Also save to legacy cache for backward compatibility
@@ -326,7 +329,7 @@ class AuthorService {
      * @param {Object} packageFunding - Package-level funding (from package.json) - stored in package cache, NOT author entity
      * @param {Object} packageWarnings - Package warnings (maintenance and deprecation) - stored in package cache
      */
-    async saveAuthorsToCache(packageKey, ecosystem, authors, packageFunding = null, packageWarnings = null) {
+    async saveAuthorsToCache(packageKey, ecosystem, authors, packageFunding = null, packageWarnings = null, repositoryUrl = null) {
         if (!window.cacheManager) return;
 
         // ALWAYS save package metadata to package cache (even if no funding or no authors)
@@ -346,6 +349,14 @@ class AuthorService {
         // Add or update package warnings if available
         if (packageWarnings) {
             packageData.warnings = packageWarnings;  // Package warnings (maintenance and deprecation)
+        }
+
+        // Persist the canonical source-repo URL extracted from the native registry
+        // record (npm/PyPI/Cargo/RubyGems `repository.url`). Don't overwrite a
+        // value already captured by another source (e.g. deps.dev SOURCE_REPO),
+        // and don't blank an existing one if this call has nothing to add.
+        if (repositoryUrl && !packageData.repositoryUrl) {
+            packageData.repositoryUrl = repositoryUrl;
         }
 
         // Bundle accumulator for the single per-package transaction (T3.3).
@@ -603,7 +614,12 @@ class AuthorService {
                         authors: npmAuthors,
                         packageFunding: npmFunding,  // Package-level funding (from package.json)
                         description: description,
-                        packageWarnings: this.parsePackageWarnings(description),
+                        // Phase 5.1 — npm bundles the README inside the registry
+                        // payload, so we feed it to parsePackageWarnings without
+                        // a second network call. This catches "looking for
+                        // contributors" / "no longer maintained" hits that don't
+                        // make it into the short summary field.
+                        packageWarnings: this.parsePackageWarnings(description, { readme: data.readme || null }),
                         repositoryUrl: npmRepositoryUrl
                     };
                 
@@ -636,7 +652,10 @@ class AuthorService {
                         authors: pypiAuthors,
                         packageFunding: pypiFunding,  // Package-level funding (from project_urls)
                         description: description,
-                        packageWarnings: this.parsePackageWarnings(description),
+                        // Phase 5.1 — PyPI returns the long description (often
+                        // the README) on `info.description`. Pass it as readme
+                        // so we scan both the summary and the long form.
+                        packageWarnings: this.parsePackageWarnings(description, { readme: data.info && data.info.description || null }),
                         repositoryUrl: pypiRepositoryUrl
                     };
                 
@@ -697,88 +716,108 @@ class AuthorService {
     }
     
     /**
-     * Parse package description for warnings (maintenance and deprecation)
-     * @param {string} description - Package description text
-     * @returns {Object} - {isUnmaintained: bool, warningType: string, isDeprecated: bool, replacement: string|null}
+     * Parse package description (and optionally readme) for warnings.
+     *
+     * Phase 5.1 — also emit a structured `heuristicSignals` array so the UI
+     * (`package-details-modal`, audit, findings) can label each phrase with
+     * its source and weight rather than collapsing everything into a single
+     * boolean. Existing callers continue to read `isDeprecated` /
+     * `isUnmaintained` / `replacement` / `warningType` for backward
+     * compatibility.
+     *
+     * @param {string} description - Package description text (registry summary).
+     * @param {Object} [opts]
+     * @param {string} [opts.readme]   Readme text (optional, npm includes it).
+     * @returns {Object} warnings
      */
-    parsePackageWarnings(description) {
-        if (!description || typeof description !== 'string') {
-            return {
-                isUnmaintained: false,
-                warningType: null,
-                isDeprecated: false,
-                replacement: null,
-                deprecationReason: null
-            };
-        }
-        
-        const descLower = description.toLowerCase();
-        const warnings = {
+    parsePackageWarnings(description, opts = {}) {
+        const empty = {
             isUnmaintained: false,
             warningType: null,
             isDeprecated: false,
             replacement: null,
-            deprecationReason: null
+            deprecationReason: null,
+            heuristicSignals: []
         };
-        
-        // Check for maintenance warnings
-        const maintenancePatterns = [
-            /out\s+of\s+support/i,
-            /no\s+longer\s+supported/i,
-            /end\s+of\s+life/i,
-            /\beol\b/i,
-            /end-of-life/i,
-            /not\s+maintained/i,
-            /unmaintained/i,
-            /abandoned/i,
-            /archived/i,
-            /no\s+longer\s+maintained/i
+        const desc = typeof description === 'string' ? description : '';
+        const readme = typeof opts.readme === 'string' ? opts.readme : '';
+        if (!desc && !readme) return empty;
+
+        const warnings = { ...empty, heuristicSignals: [] };
+
+        // Phrase library — each entry pairs a regex with a category, weight,
+        // and human-readable label. Weight is a 0..1 confidence used by the
+        // composite maintainer signal (Phase 5.3).
+        const phraseLibrary = [
+            // Strong unmaintained / archived
+            { re: /\barchived\b/i,                            category: 'archived',     weight: 0.9, label: 'archived' },
+            { re: /\babandoned\b/i,                           category: 'unmaintained', weight: 0.9, label: 'abandoned' },
+            { re: /no longer maintained/i,                    category: 'unmaintained', weight: 0.95, label: 'no longer maintained' },
+            { re: /not\s+maintained/i,                        category: 'unmaintained', weight: 0.85, label: 'not maintained' },
+            { re: /\bunmaintained\b/i,                        category: 'unmaintained', weight: 0.9, label: 'unmaintained' },
+            { re: /security fixes only/i,                     category: 'maintenance',  weight: 0.7, label: 'security fixes only' },
+            // End-of-life / out-of-support
+            { re: /out\s+of\s+support/i,                      category: 'out-of-support', weight: 0.85, label: 'out of support' },
+            { re: /no\s+longer\s+supported/i,                 category: 'out-of-support', weight: 0.85, label: 'no longer supported' },
+            { re: /end\s*of\s*life|end-of-life|\beol\b/i,     category: 'out-of-support', weight: 0.85, label: 'end of life' },
+            // Deprecation
+            { re: /\bdeprecated\b/i,                          category: 'deprecated', weight: 0.7, label: 'deprecated' },
+            { re: /\bdeprecation\b/i,                         category: 'deprecated', weight: 0.6, label: 'deprecation' },
+            { re: /\bdeprecating\b/i,                         category: 'deprecated', weight: 0.6, label: 'deprecating' },
+            // Replacement / migration hints (lower weight — informational)
+            { re: /\buse\s+[\w@./-]+\s+instead\b/i,           category: 'replacement', weight: 0.6, label: 'use … instead' },
+            { re: /superseded\s+by/i,                         category: 'replacement', weight: 0.6, label: 'superseded by' },
+            { re: /\bmoved\s+to\b/i,                          category: 'replacement', weight: 0.55, label: 'moved to' },
+            // Help-wanted / community signals (do NOT trigger isDeprecated)
+            { re: /looking\s+for\s+(maintainers?|contributors?)/i, category: 'help-wanted', weight: 0.5, label: 'looking for maintainers' },
+            { re: /\bhelp\s+wanted\b/i,                            category: 'help-wanted', weight: 0.4, label: 'help wanted' }
         ];
-        
-        for (const pattern of maintenancePatterns) {
-            if (pattern.test(description)) {
-                warnings.isUnmaintained = true;
-                if (pattern.source.includes('support') || pattern.source.includes('life') || pattern.source.includes('eol')) {
-                    warnings.warningType = 'out-of-support';
-                } else {
-                    warnings.warningType = 'unmaintained';
+
+        const scan = (text, source) => {
+            if (!text) return;
+            for (const item of phraseLibrary) {
+                if (item.re.test(text)) {
+                    warnings.heuristicSignals.push({
+                        phrase: item.label,
+                        category: item.category,
+                        weight: item.weight,
+                        source
+                    });
+                    if (item.category === 'unmaintained' || item.category === 'archived') {
+                        warnings.isUnmaintained = true;
+                        warnings.warningType = warnings.warningType || 'unmaintained';
+                    } else if (item.category === 'out-of-support') {
+                        warnings.isUnmaintained = true;
+                        warnings.warningType = 'out-of-support';
+                    } else if (item.category === 'deprecated') {
+                        warnings.isDeprecated = true;
+                    }
                 }
-                break;
             }
-        }
-        
-        // Check for deprecation warnings
-        const deprecationPatterns = [
-            /\bdeprecated\b/i,
-            /\bdeprecation\b/i,
-            /\bdeprecating\b/i
-        ];
-        
-        for (const pattern of deprecationPatterns) {
-            if (pattern.test(description)) {
-                warnings.isDeprecated = true;
-                break;
-            }
-        }
-        
-        // Extract replacement package if mentioned
+        };
+
+        scan(desc, 'description');
+        scan(readme, 'readme');
+
+        // Replacement extraction — keep the more targeted regexes here so we
+        // capture the *target* package name, not just the phrase.
         const replacementPatterns = [
             /superseded\s+by\s+([a-zA-Z0-9@\/\-_\.]+)/i,
             /replaced\s+by\s+([a-zA-Z0-9@\/\-_\.]+)/i,
             /use\s+([a-zA-Z0-9@\/\-_\.]+)\s+instead/i,
             /migrate\s+to\s+([a-zA-Z0-9@\/\-_\.]+)/i,
             /successor\s+is\s+([a-zA-Z0-9@\/\-_\.]+)/i,
-            /consider\s+using\s+([a-zA-Z0-9@\/\-_\.]+)/i
+            /consider\s+using\s+([a-zA-Z0-9@\/\-_\.]+)/i,
+            /moved\s+to\s+([a-zA-Z0-9@\/\-_\.]+)/i
         ];
-        
         for (const pattern of replacementPatterns) {
-            const match = description.match(pattern);
+            const match = (desc + '\n' + readme).match(pattern);
             if (match && match[1]) {
                 warnings.replacement = match[1].trim();
                 break;
             }
         }
-        
+
         return warnings;
     }
     

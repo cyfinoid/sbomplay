@@ -358,15 +358,62 @@ class PackageDetailsModal {
         
         // Additional sections
         html += `<div class="row g-3 mt-2">`;
-        
-        // Warnings section
+
+        // Phase 5.4 — Six-badge "Health summary" row. Surfaces the six
+        // labeled signals the plan calls out: Official deprecation,
+        // Registry status, Repository status, Maintainer signal, Textual
+        // heuristic, Needs manual review. Each badge is independently
+        // sourced so a user can audit the inference chain at a glance.
+        html += this._renderHealthSummaryRow(depInfo, packageData);
+
+        // Phase 4 (lifecycle) — render the OFFICIAL lifecycle status from
+        // the native registry/GitHub. This trumps the heuristic warnings
+        // because it's authoritative; we still render heuristic warnings
+        // afterwards but clearly labeled so users can tell them apart.
+        const lifecycle = depInfo && depInfo.lifecycle ? depInfo.lifecycle : null;
+        if (lifecycle && lifecycle.status && lifecycle.status !== 'unknown') {
+            const lcMap = {
+                'deprecated':  { cls: 'alert-warning', label: 'Deprecated' },
+                'yanked':      { cls: 'alert-danger',  label: 'Yanked' },
+                'archived':    { cls: 'alert-danger',  label: 'Archived' },
+                'quarantined': { cls: 'alert-warning', label: 'Quarantined' }
+            };
+            const meta = lcMap[lifecycle.status];
+            if (meta) {
+                html += `
+                    <div class="col-12">
+                        <div class="alert ${meta.cls} py-2 mb-0 d-flex align-items-start gap-2">
+                            <i class="fas fa-shield-alt mt-1"></i>
+                            <div class="flex-grow-1">
+                                <div>
+                                    <strong>Official lifecycle: ${escapeHtml(meta.label)}</strong>
+                                    <span class="badge bg-info text-dark ms-1" title="${escapeHtml(lifecycle.source || '')}">${escapeHtml(lifecycle.source || 'official')}</span>
+                                </div>
+                                ${lifecycle.reason ? `<small class="d-block text-muted">${escapeHtml(lifecycle.reason)}</small>` : ''}
+                                ${lifecycle.replacement ? `<small class="d-block">Replacement: <code>${escapeHtml(lifecycle.replacement)}</code></small>` : ''}
+                            </div>
+                        </div>
+                    </div>
+                `;
+            }
+        }
+
+        // Warnings section (text/heuristic). Phase 5 (heuristics) — when
+        // structured signals are available, surface them as a labeled list
+        // so users can audit the inference rather than seeing only a single
+        // boolean banner.
         if (packageData && packageData.warnings) {
             const warnings = packageData.warnings;
+            const heuristicSignals = Array.isArray(warnings.heuristicSignals) ? warnings.heuristicSignals : [];
             html += `<div class="col-12">`;
-            if (warnings.isDeprecated) {
+            // Only show heuristic deprecation banner if no official lifecycle status exists
+            // (avoid duplication when both signals agree).
+            const officialAlreadyShown = lifecycle && ['deprecated','yanked','archived','quarantined'].includes(lifecycle.status);
+            if (warnings.isDeprecated && !officialAlreadyShown) {
                 html += `
-                    <div class="alert alert-danger py-2 mb-0">
-                        <i class="fas fa-exclamation-triangle me-1"></i><strong>Deprecated</strong>
+                    <div class="alert alert-warning py-2 mb-0">
+                        <i class="fas fa-magnifying-glass me-1"></i><strong>Heuristic: Deprecated</strong>
+                        <span class="badge bg-secondary ms-1" title="Inferred from package description / readme text">heuristic</span>
                         ${warnings.replacement ? ` - Consider migrating to: <code>${escapeHtml(warnings.replacement)}</code>` : ''}
                     </div>
                 `;
@@ -374,11 +421,53 @@ class PackageDetailsModal {
                 const warningText = warnings.warningType === 'out-of-support' ? 'Out of support' : 'Unmaintained';
                 html += `
                     <div class="alert alert-warning py-2 mb-0">
-                        <i class="fas fa-exclamation-triangle me-1"></i><strong>${warningText}</strong> - May not receive security updates
+                        <i class="fas fa-exclamation-triangle me-1"></i><strong>${warningText}</strong>
+                        <span class="badge bg-secondary ms-1">heuristic</span>
+                        - May not receive security updates
+                    </div>
+                `;
+            }
+            // Phase 5.4 — render the textual heuristic signals as a labeled
+            // list so users see exactly which phrase fired and where.
+            if (heuristicSignals.length > 0) {
+                const items = heuristicSignals.map(s => `
+                    <li><code>${escapeHtml(s.phrase || '')}</code>
+                        <span class="badge bg-light text-dark ms-1">${escapeHtml(s.source || 'description')}</span>
+                        ${typeof s.weight === 'number' ? `<span class="text-muted small ms-1">w=${s.weight}</span>` : ''}
+                    </li>`).join('');
+                html += `
+                    <div class="mt-2">
+                        <small class="text-muted d-block mb-1"><i class="fas fa-list me-1"></i>Textual heuristic signals</small>
+                        <ul class="small mb-0">${items}</ul>
                     </div>
                 `;
             }
             html += `</div>`;
+        }
+
+        // Phase 5.3 — Maintainer signal composite (level + factors). Only
+        // render when we actually have a computed level so we don't bait
+        // users with empty cards on legacy analyses.
+        const maintainerSignal = depInfo && depInfo.maintainerSignal ? depInfo.maintainerSignal : null;
+        if (maintainerSignal && maintainerSignal.level) {
+            const levelMap = {
+                'critical': { cls: 'alert-danger',  label: 'Critical' },
+                'risk':     { cls: 'alert-warning', label: 'Risk' },
+                'watch':    { cls: 'alert-info',    label: 'Watch' },
+                'healthy':  { cls: 'alert-success', label: 'Healthy' }
+            };
+            const meta = levelMap[maintainerSignal.level] || levelMap.healthy;
+            const factorChips = Array.isArray(maintainerSignal.factors)
+                ? maintainerSignal.factors.map(f => `<span class="badge bg-light text-dark me-1" title="${escapeHtml(f.key)}">${escapeHtml(f.key)}${f.value !== undefined ? `: ${escapeHtml(String(f.value))}` : ''}</span>`).join('')
+                : '';
+            html += `
+                <div class="col-12">
+                    <div class="alert ${meta.cls} py-2 mb-0">
+                        <strong><i class="fas fa-user-shield me-1"></i>Maintainer signal: ${escapeHtml(meta.label)}</strong>
+                        <div class="mt-1">${factorChips}</div>
+                    </div>
+                </div>
+            `;
         }
         
         // Sponsorship section
@@ -467,6 +556,91 @@ class PackageDetailsModal {
         }
         
         return html;
+    }
+
+    /**
+     * Phase 5.4 — render the six labeled signal badges in a single row.
+     *
+     * The six labels (per the plan):
+     *   1. Official deprecation — `lifecycle.status === 'deprecated'` from
+     *      a native registry's deprecation flag.
+     *   2. Registry status     — `lifecycle.status` for non-deprecated
+     *      registry signals (yanked, quarantined). Distinct from
+     *      "deprecated" because semantics differ across ecosystems.
+     *   3. Repository status   — `lifecycle.status === 'archived'` (source
+     *      repo on GitHub).
+     *   4. Maintainer signal   — composite from `dep.maintainerSignal.level`.
+     *   5. Textual heuristic   — number of fired phrase-based signals from
+     *      `dep.warnings.heuristicSignals`.
+     *   6. Needs manual review — true when only weak signals fired and no
+     *      official lifecycle status confirmed them, OR when the maintainer
+     *      signal is `risk`/`critical` without an official lifecycle source.
+     *
+     * Each badge collapses to a muted "—" when there is no data, so the
+     * row stays readable on healthy packages.
+     */
+    _renderHealthSummaryRow(depInfo, packageData) {
+        const lifecycle = (depInfo && depInfo.lifecycle) || null;
+        const heuristicSignals = (packageData && packageData.warnings && Array.isArray(packageData.warnings.heuristicSignals))
+            ? packageData.warnings.heuristicSignals
+            : [];
+        const maintainer = (depInfo && depInfo.maintainerSignal) || null;
+        const lcStatus = lifecycle && lifecycle.status ? lifecycle.status : null;
+
+        const badge = (cls, label) => `<span class="badge ${cls}">${escapeHtml(label)}</span>`;
+        const muted = `<span class="text-muted small">&mdash;</span>`;
+
+        // 1. Official deprecation
+        const officialDeprecated = lcStatus === 'deprecated' ? badge('bg-warning text-dark', 'Deprecated') : muted;
+
+        // 2. Registry status (yanked / quarantined / unknown)
+        const registryStatus = (lcStatus === 'yanked')
+            ? badge('bg-danger', 'Yanked')
+            : (lcStatus === 'quarantined' ? badge('bg-warning text-dark', 'Quarantined') : muted);
+
+        // 3. Repository status (archived)
+        const repoStatus = (lcStatus === 'archived') ? badge('bg-danger', 'Archived') : muted;
+
+        // 4. Maintainer signal
+        const levelMap = {
+            critical: 'bg-danger',
+            risk:     'bg-warning text-dark',
+            watch:    'bg-info text-dark',
+            healthy:  'bg-success'
+        };
+        const maintainerBadge = (maintainer && maintainer.level && levelMap[maintainer.level])
+            ? badge(levelMap[maintainer.level], maintainer.level.charAt(0).toUpperCase() + maintainer.level.slice(1))
+            : muted;
+
+        // 5. Textual heuristic count
+        const textBadge = heuristicSignals.length > 0
+            ? badge('bg-secondary', `${heuristicSignals.length} signal${heuristicSignals.length === 1 ? '' : 's'}`)
+            : muted;
+
+        // 6. Needs manual review
+        const officialKnown = lcStatus && ['deprecated','yanked','archived','quarantined'].includes(lcStatus);
+        const heuristicFired = heuristicSignals.length > 0;
+        const maintainerWarn = maintainer && (maintainer.level === 'risk' || maintainer.level === 'critical');
+        const needsReview = (heuristicFired && !officialKnown) || (maintainerWarn && !officialKnown);
+        const reviewBadge = needsReview ? badge('bg-warning text-dark', 'Review') : muted;
+
+        return `
+            <div class="col-12">
+                <div class="card">
+                    <div class="card-body py-2">
+                        <small class="text-muted d-block mb-2"><i class="fas fa-stethoscope me-1"></i>Health summary</small>
+                        <div class="row g-2 small">
+                            <div class="col-6 col-md-4 col-lg-2"><div class="text-muted">Official deprecation</div>${officialDeprecated}</div>
+                            <div class="col-6 col-md-4 col-lg-2"><div class="text-muted">Registry status</div>${registryStatus}</div>
+                            <div class="col-6 col-md-4 col-lg-2"><div class="text-muted">Repository status</div>${repoStatus}</div>
+                            <div class="col-6 col-md-4 col-lg-2"><div class="text-muted">Maintainer signal</div>${maintainerBadge}</div>
+                            <div class="col-6 col-md-4 col-lg-2"><div class="text-muted">Textual heuristic</div>${textBadge}</div>
+                            <div class="col-6 col-md-4 col-lg-2"><div class="text-muted">Needs manual review</div>${reviewBadge}</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        `;
     }
 
     /**

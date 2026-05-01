@@ -686,6 +686,48 @@ function generateRepoListHTML(repositories) {
 }
 
 // =============================================================================
+// CROSS-PAGE LINKING
+// =============================================================================
+
+/**
+ * Build a URL pointing at deps.html filtered to a single package.
+ *
+ * Deps.html accepts `?search=<encoded name@version>` and treats it as an exact
+ * match (see `parsePackageSearch`/`searchFromURL` in deps-page.js). Optional
+ * params narrow the result further so a name like `lodash` that exists in
+ * multiple ecosystems lands on the right row.
+ *
+ * @param {Object} opts
+ * @param {string} opts.name        Package name (required).
+ * @param {string} [opts.version]   Version string. If present and not "unknown"
+ *                                  it's appended as `name@version`.
+ * @param {string} [opts.ecosystem] Ecosystem hint (e.g. "npm", "PyPI"). Skipped
+ *                                  if missing/unknown so the filter doesn't
+ *                                  silently exclude rows.
+ * @param {string} [opts.org]       Analysis identifier to pre-select on Deps.
+ * @returns {string|null} URL string or null when name is missing.
+ */
+function buildDepsLink(opts) {
+    if (!opts || !opts.name) return null;
+    const params = new URLSearchParams();
+    let search = String(opts.name);
+    if (opts.version && opts.version !== 'unknown' && String(opts.version).trim() !== '') {
+        search += '@' + String(opts.version);
+    }
+    params.set('search', search);
+    if (opts.ecosystem) {
+        const eco = String(opts.ecosystem).trim();
+        if (eco && eco.toLowerCase() !== 'unknown' && eco !== '—') {
+            params.set('ecosystem', eco);
+        }
+    }
+    if (opts.org && String(opts.org).trim() !== '') {
+        params.set('org', String(opts.org));
+    }
+    return 'deps.html?' + params.toString();
+}
+
+// =============================================================================
 // GLOBAL EXPORTS
 // =============================================================================
 
@@ -701,3 +743,5 @@ window.safeSetHTML = safeSetHTML;
 
 window.GITHUB_TOKEN_PREFIXES = GITHUB_TOKEN_PREFIXES;
 window.isValidGitHubTokenFormat = isValidGitHubTokenFormat;
+
+window.buildDepsLink = buildDepsLink;

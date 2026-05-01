@@ -130,6 +130,9 @@ document.addEventListener('DOMContentLoaded', async function() {
     const urlParams = new URLSearchParams(window.location.search);
     const orgParam = urlParams.get('org');
     const searchParam = urlParams.get('search');
+    // ?repo=<owner/repo> pre-fills the search box (Insights links use this).
+    // URLSearchParams already decodes %2F → /, so we don't need to decode again.
+    const repoParam = urlParams.get('repo');
     
     await loadAnalysesList();
     
@@ -330,11 +333,16 @@ document.addEventListener('DOMContentLoaded', async function() {
         
         console.log(`📊 Processed ${allRepositories.length} repositories`);
         
-        // Set search input from URL parameter if present
-        if (searchParam) {
-            const searchInput = document.getElementById('searchInput');
-            if (searchInput) {
+        // Set search input from URL parameter if present.
+        // ?search= takes priority; otherwise ?repo=<owner/repo> pre-fills the box so
+        // links like insights.html → repos.html?repo=Foo/bar narrow the table to the
+        // matching row instead of being silently ignored.
+        const searchInput = document.getElementById('searchInput');
+        if (searchInput && !searchInput.value) {
+            if (searchParam) {
                 searchInput.value = decodeURIComponent(searchParam);
+            } else if (repoParam) {
+                searchInput.value = repoParam;
             }
         }
         
