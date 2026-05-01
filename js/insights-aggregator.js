@@ -9,9 +9,9 @@
  *   - `buildInsights(analysisData)` and all `compute*` aggregators
  *   - `gradeColor`, `countCritHigh`, `clamp01`, `scoreToGrade`
  *   - `renderKpiStrip(ins, opts)` — accepts an optional `opts.linkMap` keyed by
- *     stable tile id (`repos`, `deps`, `vulnsCH`, `vulnAge`, `eol`, `licenses`,
- *     `drift`, `techDebt`) so callers can wrap each tile in an anchor that
- *     drills into the matching detail page.
+ *     stable tile id (`repos`, `deps`, `vulnsCH`, `directDwell`, `eol`,
+ *     `licenses`, `drift`, `techDebt`) so callers can wrap each tile in an
+ *     anchor that drills into the matching detail page.
  *
  * Load this file BEFORE `insights-page.js` (and before `app.js` on index.html).
  */
@@ -51,16 +51,24 @@ function buildInsights(analysisData) {
     const reposArchived = allRepos.filter(r => r.archived).length;
     const totalRepos = allRepos.length;
 
-    const driftStats = computeDriftStats(allDeps);
-    const ageStats = computeAgeStats(allDeps);
-    const vulnAgeStats = computeVulnAgeStats(vulnAnalysis, allDeps);
-    const eolStats = computeEolStats(allDeps);
-    const licenseStats = computeLicenseStats(allDeps, licenseAnalysis);
-    const repoHygiene = computeRepoHygiene(allRepos);
-    const supplyChain = computeSupplyChainStats(allDeps, malwareAnalysis, ghActions);
+    // `directMap`: repoKey → Set(`name@version`) for that repo's direct deps. Built once and
+    // threaded into every compute* aggregator below so the (dep, repo) → direct/transitive
+    // classification is consistent across charts/tables. The classification unit is the
+    // (dep, repo) PAIR — a package can be direct in repo A and transitive in repo B.
+    const directMap = buildDirectMap(allRepos);
+    // `depthStats` is computed first so `computeVulnAgeStats` can join its per-repo BFS
+    // depth into the new "Vulnerabilities × dependency depth" chart without repeating BFS.
     const depthStats = computeDepthStats(allDeps, allRepos);
 
-    const perRepo = computePerRepoStats(allRepos, allDeps, vulnAnalysis, ghActions);
+    const driftStats = computeDriftStats(allDeps, directMap);
+    const ageStats = computeAgeStats(allDeps, directMap);
+    const vulnAgeStats = computeVulnAgeStats(vulnAnalysis, allDeps, directMap, depthStats);
+    const eolStats = computeEolStats(allDeps, directMap);
+    const licenseStats = computeLicenseStats(allDeps, licenseAnalysis, directMap);
+    const repoHygiene = computeRepoHygiene(allRepos);
+    const supplyChain = computeSupplyChainStats(allDeps, malwareAnalysis, ghActions);
+
+    const perRepo = computePerRepoStats(allRepos, allDeps, vulnAnalysis, ghActions, directMap);
     // SBOM quality intentionally excluded from the tech-debt composite: when GitHub
     // generates the SBOM (the typical case for this tool) the user has no control
     // over its NTIA / completeness fields, so penalising the org/repo for it would
@@ -104,43 +112,118 @@ function normalizeLanguageStats(languageStats) {
     return [];
 }
 
-function computeDriftStats(allDeps) {
+/**
+ * Build the canonical (repoKey → Set(`name@version`)) lookup of every repo's
+ * direct dependencies. Threaded into every compute* aggregator below so the
+ * Direct/Transitive classification of each `(dep, repo)` occurrence is computed
+ * once and shared across charts, tables, and the tech-debt composite.
+ *
+ * Why we don't just trust `dep.directIn`: `dep.directIn` is *eventually* correct
+ * (storage-manager's `_recomputeDirectAndTransitive` heals it on every load),
+ * but reading from `repo.directDependencies` directly is the SBOM ground truth
+ * and avoids any gap between dep-level and repo-level views.
+ */
+function buildDirectMap(allRepos) {
+    const directMap = new Map();
+    for (const repo of allRepos) {
+        const repoKey = `${repo.owner}/${repo.name}`;
+        const set = new Set(Array.isArray(repo.directDependencies) ? repo.directDependencies : []);
+        directMap.set(repoKey, set);
+    }
+    return directMap;
+}
+
+function isDirectIn(directMap, repoKey, depKey) {
+    const set = directMap && directMap.get ? directMap.get(repoKey) : null;
+    return !!(set && set.has(depKey));
+}
+
+/**
+ * Helpers used by every aggregator below. `splitCounts` returns a fresh
+ * `{ direct: 0, transitive: 0 }` object so each call site can mutate
+ * independently; `bumpSplit` increments the right side based on the
+ * `(directMap, repoKey, depKey)` classification of an occurrence.
+ */
+function splitCounts() {
+    return { direct: 0, transitive: 0 };
+}
+function bumpSplit(splitObj, isDirect) {
+    if (isDirect) splitObj.direct++;
+    else splitObj.transitive++;
+}
+
+function computeDriftStats(allDeps, directMap) {
     let withDrift = 0, major = 0, minor = 0, patch = 0, current = 0;
+    // Per-bucket direct/transitive splits. These count `(dep, repoKey)` PAIRS,
+    // whereas `withDrift` / `major` / etc. count packages — both shapes are
+    // surfaced because the existing render path reads the package-level totals
+    // and the new direct/transitive pills read the pair-level totals.
+    const splits = {
+        withDrift: splitCounts(),
+        major: splitCounts(),
+        minor: splitCounts(),
+        patch: splitCounts(),
+        current: splitCounts()
+    };
     const lagging = [];
 
     for (const dep of allDeps) {
         const drift = dep.versionDrift;
         if (!drift || !drift.latestVersion) continue;
         withDrift++;
+
+        // Classify each repo this dep appears in as direct or transitive once,
+        // then bump the matching bucket's split accordingly. We use
+        // `dep.repositories` rather than `directIn ∪ transitiveIn` because the
+        // first is the canonical "every repo this dep is in" set.
+        const depKey = `${dep.name}@${dep.version}`;
+        const repos = Array.isArray(dep.repositories) ? dep.repositories : [];
+        const repoSplit = splitCounts();
+        for (const repoKey of repos) {
+            bumpSplit(repoSplit, isDirectIn(directMap, repoKey, depKey));
+        }
+
+        let bucket = null;
         if (drift.hasMajorUpdate) {
-            major++;
-            const repoCount = (dep.repositories || []).length || 1;
+            major++; bucket = 'major';
+            const repoCount = repos.length || 1;
             lagging.push({
                 name: dep.name,
                 version: dep.version,
                 latestVersion: drift.latestVersion,
                 repoCount,
+                directRepoCount: repoSplit.direct,
+                transitiveRepoCount: repoSplit.transitive,
                 ecosystem: dep.category?.ecosystem || '',
                 kind: 'major',
                 score: repoCount * 3
             });
         } else if (drift.hasMinorUpdate) {
-            minor++;
-            const repoCount = (dep.repositories || []).length || 1;
+            minor++; bucket = 'minor';
+            const repoCount = repos.length || 1;
             lagging.push({
                 name: dep.name,
                 version: dep.version,
                 latestVersion: drift.latestVersion,
                 repoCount,
+                directRepoCount: repoSplit.direct,
+                transitiveRepoCount: repoSplit.transitive,
                 ecosystem: dep.category?.ecosystem || '',
                 kind: 'minor',
                 score: repoCount * 1
             });
         } else if (drift.latestVersion && (window.normalizeVersion ? window.normalizeVersion(drift.latestVersion) : drift.latestVersion) !==
             (window.normalizeVersion ? window.normalizeVersion(dep.version) : dep.version)) {
-            patch++;
+            patch++; bucket = 'patch';
         } else {
-            current++;
+            current++; bucket = 'current';
+        }
+
+        if (bucket) {
+            splits.withDrift.direct += repoSplit.direct;
+            splits.withDrift.transitive += repoSplit.transitive;
+            splits[bucket].direct += repoSplit.direct;
+            splits[bucket].transitive += repoSplit.transitive;
         }
     }
 
@@ -148,11 +231,27 @@ function computeDriftStats(allDeps) {
     // Renderers slice to the collapsed view themselves so the expand-toggle has the
     // full ordered list available — keeping `top` as the field name for backwards
     // compatibility with anything that may still read it externally.
-    return { withDrift, major, minor, patch, current, top: lagging, majorPct: withDrift ? (major / withDrift) * 100 : 0 };
+    return {
+        withDrift, major, minor, patch, current,
+        top: lagging,
+        majorPct: withDrift ? (major / withDrift) * 100 : 0,
+        splits
+    };
 }
 
-function computeAgeStats(allDeps) {
+function computeAgeStats(allDeps, directMap) {
     const buckets = { '<6m': 0, '6-12m': 0, '1-2y': 0, '2-3y': 0, '3-5y': 0, '>5y': 0 };
+    // Parallel splits: each bucket key carries `{ direct, transitive }` totals
+    // counted at the (dep, repo) granularity. The package-level `buckets` is
+    // kept for the existing portfolio chart, the splits feed the new overlays.
+    const bucketSplits = {
+        '<6m': splitCounts(),
+        '6-12m': splitCounts(),
+        '1-2y': splitCounts(),
+        '2-3y': splitCounts(),
+        '3-5y': splitCounts(),
+        '>5y': splitCounts()
+    };
     let withAge = 0;
     let probableEol = 0;
     const probableEolList = [];
@@ -162,12 +261,25 @@ function computeAgeStats(allDeps) {
         const months = dep.staleness?.monthsSinceRelease;
         if (typeof months !== 'number' || isNaN(months)) continue;
         withAge++;
-        if (months < 6) buckets['<6m']++;
-        else if (months < 12) buckets['6-12m']++;
-        else if (months < 24) buckets['1-2y']++;
-        else if (months < 36) buckets['2-3y']++;
-        else if (months < 60) buckets['3-5y']++;
-        else buckets['>5y']++;
+        let bucketKey;
+        if (months < 6) bucketKey = '<6m';
+        else if (months < 12) bucketKey = '6-12m';
+        else if (months < 24) bucketKey = '1-2y';
+        else if (months < 36) bucketKey = '2-3y';
+        else if (months < 60) bucketKey = '3-5y';
+        else bucketKey = '>5y';
+        buckets[bucketKey]++;
+
+        const depKey = `${dep.name}@${dep.version}`;
+        const repos = Array.isArray(dep.repositories) ? dep.repositories : [];
+        let directRepoCount = 0;
+        let transitiveRepoCount = 0;
+        for (const repoKey of repos) {
+            if (isDirectIn(directMap, repoKey, depKey)) directRepoCount++;
+            else transitiveRepoCount++;
+        }
+        bucketSplits[bucketKey].direct += directRepoCount;
+        bucketSplits[bucketKey].transitive += transitiveRepoCount;
 
         if (dep.staleness?.isProbableEOL) {
             probableEol++;
@@ -177,18 +289,21 @@ function computeAgeStats(allDeps) {
                 months,
                 reason: dep.staleness.probableEOLReason || 'Unknown',
                 ecosystem: dep.category?.ecosystem || '',
-                repoCount: (dep.repositories || []).length || 1
+                repoCount: repos.length || 1,
+                directRepoCount,
+                transitiveRepoCount
             });
         }
 
-        for (const repoKey of (dep.repositories || [])) {
+        for (const repoKey of repos) {
             const cur = oldestPerRepo.get(repoKey);
             if (!cur || months > cur.months) {
                 oldestPerRepo.set(repoKey, {
                     name: dep.name,
                     version: dep.version,
                     months,
-                    ecosystem: dep.category?.ecosystem || ''
+                    ecosystem: dep.category?.ecosystem || '',
+                    isDirect: isDirectIn(directMap, repoKey, depKey)
                 });
             }
         }
@@ -198,6 +313,7 @@ function computeAgeStats(allDeps) {
 
     return {
         buckets,
+        bucketSplits,
         withAge,
         coveragePct: allDeps.length ? (withAge / allDeps.length) * 100 : 0,
         probableEol,
@@ -206,7 +322,29 @@ function computeAgeStats(allDeps) {
     };
 }
 
-function computeVulnAgeStats(vulnAnalysis, allDeps) {
+/**
+ * Bucket every vulnerability finding by (severity × age) at the package level
+ * (existing behaviour) PLUS:
+ *   - direct/transitive split for every aggregate at the (vDep, repo, vuln) level
+ *   - `byDepth`: distribution of CVEs across dependency depths (Level 1..N) by
+ *     joining each (vDep, repoKey) pair against `depthStats.perRepo[repoKey].byLevel`
+ *   - `directDwellMedian`: median ageDays of unfixed C+H CVEs on direct deps,
+ *     surfaced on the new "Direct-dep CVE dwell" KPI tile. This is the headline
+ *     "how long are owners ignoring fixable issues on stuff they directly chose"
+ *     signal.
+ *
+ * The classification unit for the splits is the **(vDep, repoKey, vuln)**
+ * triple. A package can be a direct dep in repo A and a transitive in repo B,
+ * so when we count "high-severity CVEs on direct deps" we need to count once
+ * per repo it appears in, classified per repo.
+ */
+function computeVulnAgeStats(vulnAnalysis, allDeps, directMap, depthStats) {
+    const makeSevSplit = () => ({
+        critical: splitCounts(),
+        high: splitCounts(),
+        medium: splitCounts(),
+        low: splitCounts()
+    });
     const buckets = {
         '<30d': { critical: 0, high: 0, medium: 0, low: 0 },
         '30-90d': { critical: 0, high: 0, medium: 0, low: 0 },
@@ -214,26 +352,79 @@ function computeVulnAgeStats(vulnAnalysis, allDeps) {
         '1-2y': { critical: 0, high: 0, medium: 0, low: 0 },
         '>2y': { critical: 0, high: 0, medium: 0, low: 0 }
     };
+    const bucketSplits = {
+        '<30d': makeSevSplit(),
+        '30-90d': makeSevSplit(),
+        '90d-1y': makeSevSplit(),
+        '1-2y': makeSevSplit(),
+        '>2y': makeSevSplit()
+    };
     const ages = [];
+    const agesDirect = [];
+    const agesTransitive = [];
+    const directDwellAges = [];
     const timeBombs = [];
+    // perRepoCH: each repo carries `{ critical: { direct, transitive }, high: { direct, transitive } }`
+    // — the renderer collapses to a single 4-segment mini bar per row.
     const perRepoCH = new Map();
+    // byDepth: Map(level -> { critical, high, medium, low, total }). Counts each
+    // (vDep, repoKey, vuln) triple at the dep's depth in that repo's BFS tree.
+    const byDepth = new Map();
     let total = 0;
+    const totalsBySev = makeSevSplit();
+    let directCves = 0;
+    let transitiveCves = 0;
 
     if (!vulnAnalysis || !vulnAnalysis.vulnerableDependencies) {
-        return { buckets, totalCves: 0, medianAgeDays: null, timeBombs: [], perRepoCH };
+        return {
+            buckets, bucketSplits, byDepth,
+            totalCves: 0, totalsBySev,
+            directCves: 0, transitiveCves: 0,
+            medianAgeDays: null, medianAgeDirectDays: null, medianAgeTransitiveDays: null,
+            directDwellMedian: null, directDwellCount: 0,
+            timeBombs: [], perRepoCH
+        };
     }
 
     const driftMap = new Map();
+    const allDepsByKey = new Map();
     for (const dep of allDeps) {
+        const key = `${dep.name}@${dep.version}`;
+        allDepsByKey.set(key, dep);
         if (dep.versionDrift?.latestVersion) {
-            driftMap.set(`${dep.name}@${dep.version}`, dep.versionDrift);
+            driftMap.set(key, dep.versionDrift);
         }
     }
+
+    // Resolve a (vDep, repo) pair → depth in that repo using the BFS already
+    // computed by `computeDepthStats`. `perRepo[repoKey].byLevel` is keyed by
+    // level → count, so we can't go straight from depKey → level — instead we
+    // re-derive per-(dep, repo) depth from the same edge data the BFS used.
+    // Cheaper option: rebuild a (repoKey, depKey) → level map up-front.
+    const depthByPair = buildDepthByPair(allDeps, depthStats);
 
     const now = Date.now();
     for (const vDep of vulnAnalysis.vulnerableDependencies) {
         const key = `${vDep.name}@${vDep.version}`;
         const drift = vDep.versionDrift || driftMap.get(key) || null;
+        // Repo list may be missing on the vulnDep blob (older stored analyses);
+        // fall back to the joined `allDependencies` row if so. If still empty we
+        // count the finding once with no repo classification (treated as
+        // transitive — the conservative default).
+        let repos = Array.isArray(vDep.repositories) ? vDep.repositories : [];
+        if (!repos.length) {
+            const fullDep = allDepsByKey.get(key);
+            repos = fullDep && Array.isArray(fullDep.repositories) ? fullDep.repositories : [];
+        }
+        // Compute the per-repo direct/transitive classification once per vDep.
+        const repoDirect = [];
+        const repoTransitive = [];
+        for (const repoKey of repos) {
+            if (isDirectIn(directMap, repoKey, key)) repoDirect.push(repoKey);
+            else repoTransitive.push(repoKey);
+        }
+        const isDirectAnywhere = repoDirect.length > 0;
+
         for (const vuln of (vDep.vulnerabilities || [])) {
             if (vuln.kind === 'malware') continue;
             total++;
@@ -241,15 +432,62 @@ function computeVulnAgeStats(vulnAnalysis, allDeps) {
             const sevKey = sev === 'critical' || sev === 'high' || sev === 'medium' || sev === 'low' ? sev : 'low';
             const pubMs = vuln.published ? Date.parse(vuln.published) : NaN;
             const ageDays = isFinite(pubMs) ? Math.max(0, Math.floor((now - pubMs) / (24 * 3600 * 1000))) : null;
-            if (ageDays !== null) {
-                ages.push(ageDays);
-                let bucket;
-                if (ageDays < 30) bucket = '<30d';
-                else if (ageDays < 90) bucket = '30-90d';
-                else if (ageDays < 365) bucket = '90d-1y';
-                else if (ageDays < 730) bucket = '1-2y';
-                else bucket = '>2y';
-                buckets[bucket][sevKey]++;
+
+            // Each (vuln, repo) occurrence is counted once per repo. If the
+            // vulnDep had no repos, count once as transitive (so the totals
+            // don't silently drop legacy data).
+            const occurrences = repos.length > 0
+                ? repos.map(repoKey => ({ repoKey, isDirect: isDirectIn(directMap, repoKey, key) }))
+                : [{ repoKey: null, isDirect: false }];
+
+            for (const occ of occurrences) {
+                bumpSplit(totalsBySev[sevKey], occ.isDirect);
+                if (occ.isDirect) directCves++; else transitiveCves++;
+
+                if (ageDays !== null) {
+                    let bucket;
+                    if (ageDays < 30) bucket = '<30d';
+                    else if (ageDays < 90) bucket = '30-90d';
+                    else if (ageDays < 365) bucket = '90d-1y';
+                    else if (ageDays < 730) bucket = '1-2y';
+                    else bucket = '>2y';
+                    buckets[bucket][sevKey]++;
+                    bumpSplit(bucketSplits[bucket][sevKey], occ.isDirect);
+                    ages.push(ageDays);
+                    if (occ.isDirect) agesDirect.push(ageDays);
+                    else agesTransitive.push(ageDays);
+                }
+
+                if (occ.repoKey) {
+                    const level = depthByPair.get(`${occ.repoKey}|${key}`) || 1;
+                    if (!byDepth.has(level)) {
+                        byDepth.set(level, { critical: 0, high: 0, medium: 0, low: 0, total: 0,
+                                              criticalDirect: 0, highDirect: 0, mediumDirect: 0, lowDirect: 0 });
+                    }
+                    const slot = byDepth.get(level);
+                    slot[sevKey]++;
+                    slot.total++;
+                    if (occ.isDirect) slot[sevKey + 'Direct']++;
+                }
+
+                if ((sevKey === 'critical' || sevKey === 'high') && occ.repoKey) {
+                    if (!perRepoCH.has(occ.repoKey)) {
+                        perRepoCH.set(occ.repoKey, {
+                            critical: splitCounts(),
+                            high: splitCounts()
+                        });
+                    }
+                    bumpSplit(perRepoCH.get(occ.repoKey)[sevKey], occ.isDirect);
+                }
+            }
+
+            // Direct-dep dwell time: how long has the C+H CVE been published on
+            // a direct dep that has a fix available. This is the metric that
+            // tells the user "this is a fixable issue you've been ignoring".
+            if (ageDays !== null && (sevKey === 'critical' || sevKey === 'high') && drift && drift.latestVersion) {
+                if (isDirectAnywhere) {
+                    directDwellAges.push(ageDays);
+                }
             }
 
             if (ageDays !== null && ageDays >= 90 && drift && drift.latestVersion && (sevKey === 'critical' || sevKey === 'high')) {
@@ -261,43 +499,86 @@ function computeVulnAgeStats(vulnAnalysis, allDeps) {
                     severity: sevKey,
                     ageDays,
                     fixVersion: drift.latestVersion,
-                    summary: vuln.summary || ''
+                    summary: vuln.summary || '',
+                    isDirect: isDirectAnywhere,
+                    directRepoCount: repoDirect.length,
+                    transitiveRepoCount: repoTransitive.length,
+                    sampleRepoKey: repoDirect[0] || repoTransitive[0] || null
                 });
-            }
-
-            if (sevKey === 'critical' || sevKey === 'high') {
-                for (const repoKey of (vDep.repositories || [])) {
-                    if (!perRepoCH.has(repoKey)) perRepoCH.set(repoKey, { critical: 0, high: 0 });
-                    perRepoCH.get(repoKey)[sevKey]++;
-                }
             }
         }
     }
 
-    ages.sort((a, b) => a - b);
-    let medianAgeDays = null;
-    if (ages.length) {
-        const mid = Math.floor(ages.length / 2);
-        medianAgeDays = ages.length % 2 ? ages[mid] : Math.round((ages[mid - 1] + ages[mid]) / 2);
-    }
+    const median = (arr) => {
+        if (!arr.length) return null;
+        const sorted = arr.slice().sort((a, b) => a - b);
+        const mid = Math.floor(sorted.length / 2);
+        return sorted.length % 2 ? sorted[mid] : Math.round((sorted[mid - 1] + sorted[mid]) / 2);
+    };
+
+    const medianAgeDays = median(ages);
+    const medianAgeDirectDays = median(agesDirect);
+    const medianAgeTransitiveDays = median(agesTransitive);
+    const directDwellMedian = median(directDwellAges);
 
     timeBombs.sort((a, b) => {
         const sevOrder = { critical: 0, high: 1, medium: 2, low: 3 };
         const aRank = sevOrder[a.severity] ?? 9;
         const bRank = sevOrder[b.severity] ?? 9;
         if (aRank !== bRank) return aRank - bRank;
+        // Within a severity, surface direct-dep findings first — they are the
+        // ones the user can actually act on without a vendor cycle.
+        if (a.isDirect !== b.isDirect) return a.isDirect ? -1 : 1;
         return b.ageDays - a.ageDays;
     });
 
-    return { buckets, totalCves: total, medianAgeDays, timeBombs, perRepoCH };
+    return {
+        buckets, bucketSplits, byDepth,
+        totalCves: total, totalsBySev,
+        directCves, transitiveCves,
+        medianAgeDays, medianAgeDirectDays, medianAgeTransitiveDays,
+        directDwellMedian, directDwellCount: directDwellAges.length,
+        timeBombs, perRepoCH
+    };
 }
 
-function computeEolStats(allDeps) {
+/**
+ * Flatten `depthStats.perRepo[repoKey].levelByDep` into a single
+ * `Map(`${repoKey}|${depKey}` → level)` for cheap lookups by aggregators that
+ * want to bucket findings by dependency depth (e.g. the Vulns × Depth chart).
+ *
+ * `computeDepthStats` already stashes `levelByDep` on each per-repo entry, so
+ * this is just a flatten — we don't re-run the BFS.
+ */
+function buildDepthByPair(allDeps, depthStats) {
+    const result = new Map();
+    if (!depthStats || !depthStats.perRepo) return result;
+    for (const [repoKey, entry] of depthStats.perRepo.entries()) {
+        if (!entry || !entry.levelByDep) continue;
+        for (const [depKey, level] of entry.levelByDep.entries()) {
+            result.set(`${repoKey}|${depKey}`, level);
+        }
+    }
+    return result;
+}
+
+function computeEolStats(allDeps, directMap) {
     const eolItems = [];
     const eosItems = [];
+    let eolDirectPairs = 0, eolTransitivePairs = 0;
+    let eosDirectPairs = 0, eosTransitivePairs = 0;
+
     for (const dep of allDeps) {
         const eox = dep.eoxStatus;
         if (!eox) continue;
+        const depKey = `${dep.name}@${dep.version}`;
+        const repos = Array.isArray(dep.repositories) ? dep.repositories : [];
+        let directRepoCount = 0;
+        let transitiveRepoCount = 0;
+        for (const repoKey of repos) {
+            if (isDirectIn(directMap, repoKey, depKey)) directRepoCount++;
+            else transitiveRepoCount++;
+        }
         if (eox.isEOL) {
             eolItems.push({
                 name: dep.name,
@@ -306,8 +587,12 @@ function computeEolStats(allDeps) {
                 eolDate: eox.eolDate || null,
                 product: eox.productMatched || null,
                 successor: eox.successor || null,
-                repoCount: (dep.repositories || []).length || 1
+                repoCount: repos.length || 1,
+                directRepoCount,
+                transitiveRepoCount
             });
+            eolDirectPairs += directRepoCount;
+            eolTransitivePairs += transitiveRepoCount;
         } else if (eox.isEOS) {
             eosItems.push({
                 name: dep.name,
@@ -315,14 +600,37 @@ function computeEolStats(allDeps) {
                 ecosystem: dep.category?.ecosystem || '',
                 eosDate: eox.eosDate || null,
                 product: eox.productMatched || null,
-                repoCount: (dep.repositories || []).length || 1
+                repoCount: repos.length || 1,
+                directRepoCount,
+                transitiveRepoCount
             });
+            eosDirectPairs += directRepoCount;
+            eosTransitivePairs += transitiveRepoCount;
         }
     }
-    return { eolCount: eolItems.length, eosCount: eosItems.length, eolItems, eosItems };
+    return {
+        eolCount: eolItems.length, eosCount: eosItems.length,
+        eolItems, eosItems,
+        eolPairs: { direct: eolDirectPairs, transitive: eolTransitivePairs },
+        eosPairs: { direct: eosDirectPairs, transitive: eosTransitivePairs }
+    };
 }
 
-function computeLicenseStats(allDeps, licenseAnalysis) {
+/**
+ * License risk aggregates with a direct/transitive split layered on top.
+ *
+ * The headline `high` / `medium` / `low` numbers still come from
+ * `licenseAnalysis.summary.riskBreakdown` (per-package totals — the existing
+ * shape consumed by the donut chart). On top of those we now also count
+ * `(dep, repoKey)` PAIRS bucketed into `riskPairs.{high,medium,low}.{direct,transitive}`,
+ * which feeds the new 4-slice donut + the per-card direct/transitive counts on
+ * licenses.html.
+ *
+ * `directHighRisk` / `transitiveHighRisk` keep the per-row drilldown — the
+ * "Copyleft on direct dependencies" table also gains an "Also transitive in"
+ * column powered by the per-row `transitiveIn` array.
+ */
+function computeLicenseStats(allDeps, licenseAnalysis, directMap) {
     const summary = licenseAnalysis?.summary || null;
     const conflicts = licenseAnalysis?.conflicts || [];
     const high = summary?.riskBreakdown?.high || 0;
@@ -332,28 +640,82 @@ function computeLicenseStats(allDeps, licenseAnalysis) {
 
     const COPYLEFT_RX = /(GPL|AGPL|LGPL|MPL|EPL|CDDL|OSL|EUPL)/i;
     const directHighRisk = [];
+    const transitiveHighRisk = [];
+    const riskPairs = {
+        high: splitCounts(),
+        medium: splitCounts(),
+        low: splitCounts()
+    };
+
+    // We accept the per-package risk-tier classification from the license
+    // analyser's output (the same source `summary.riskBreakdown` uses); join by
+    // package key so every (dep, repoKey) pair gets its own classification.
+    const tierByDepKey = new Map();
+    if (Array.isArray(licenseAnalysis?.dependencies)) {
+        for (const ld of licenseAnalysis.dependencies) {
+            if (!ld || !ld.name) continue;
+            const key = `${ld.name}@${ld.version}`;
+            const tier = ld.riskTier || ld.risk || ld.riskLevel || null;
+            if (tier && (tier === 'high' || tier === 'medium' || tier === 'low')) {
+                tierByDepKey.set(key, tier);
+            }
+        }
+    }
+
     for (const dep of allDeps) {
         const licStr = dep.licenseFull || dep.license || '';
-        const isDirect = Array.isArray(dep.directIn) && dep.directIn.length > 0;
-        if (!isDirect) continue;
+        const depKey = `${dep.name}@${dep.version}`;
+        const repos = Array.isArray(dep.repositories) ? dep.repositories : [];
+        const directRepos = [];
+        const transitiveRepos = [];
+        for (const repoKey of repos) {
+            if (isDirectIn(directMap, repoKey, depKey)) directRepos.push(repoKey);
+            else transitiveRepos.push(repoKey);
+        }
+
+        // Bucket each (dep, repo) pair into the high/medium/low pair-split.
+        // Falls back to "high if copyleft" / "low if non-empty license" when the
+        // license analyser hasn't attached an explicit tier — covers older
+        // analyses that pre-date the riskTier persistence.
+        let tier = tierByDepKey.get(depKey);
+        if (!tier) {
+            if (licStr && COPYLEFT_RX.test(licStr)) tier = 'high';
+            else if (licStr) tier = 'low';
+        }
+        if (tier === 'high' || tier === 'medium' || tier === 'low') {
+            riskPairs[tier].direct += directRepos.length;
+            riskPairs[tier].transitive += transitiveRepos.length;
+        }
+
         if (licStr && COPYLEFT_RX.test(licStr)) {
-            directHighRisk.push({
+            const row = {
                 name: dep.name,
                 version: dep.version,
                 license: licStr,
                 ecosystem: dep.category?.ecosystem || '',
-                repoCount: (dep.repositories || []).length || 1,
-                directIn: dep.directIn || []
-            });
+                repoCount: repos.length || 1,
+                directIn: dep.directIn || directRepos,
+                transitiveIn: dep.transitiveIn || transitiveRepos,
+                directRepoCount: directRepos.length,
+                transitiveRepoCount: transitiveRepos.length
+            };
+            if (directRepos.length > 0) {
+                directHighRisk.push(row);
+            } else if (transitiveRepos.length > 0) {
+                transitiveHighRisk.push(row);
+            }
         }
     }
     directHighRisk.sort((a, b) => b.repoCount - a.repoCount);
+    transitiveHighRisk.sort((a, b) => b.repoCount - a.repoCount);
 
     return {
         high, medium, low, totalLicensed,
         conflicts,
         directHighRisk,
-        highRiskShare: totalLicensed ? high / totalLicensed : 0
+        transitiveHighRisk,
+        highRiskShare: totalLicensed ? high / totalLicensed : 0,
+        riskPairs
     };
 }
 
@@ -552,11 +914,16 @@ function computeDepthStats(allDeps, allRepos) {
             perRepo.set(repoKey, { byLevel: new Map(), total: 0, imputedDirect: 0 });
         }
         const repoEntry = perRepo.get(repoKey);
+        // Stash the per-repo (depKey → level) BFS result so downstream aggregators
+        // (notably `computeVulnAgeStats` for the Vulns × Depth chart) can join
+        // findings to depth without re-running the BFS.
+        const finalLevelByDep = new Map();
 
         for (const depKey of flatDeps) {
             const level = levelByDep.has(depKey) ? levelByDep.get(depKey) : 1;
             bumpRepo(repoKey, level);
             bumpGlobal(level);
+            finalLevelByDep.set(depKey, level);
             if (!levelByDep.has(depKey)) {
                 repoEntry.imputedDirect++;
                 imputedDirectGlobal++;
@@ -566,15 +933,17 @@ function computeDepthStats(allDeps, allRepos) {
                 observedMaxLevel = level;
             }
         }
+        repoEntry.levelByDep = finalLevelByDep;
     }
 
     // Ensure every repo has an entry (even empty) and decorate with deepest/repoKey for renderer.
     for (const repo of allRepos) {
         const repoKey = `${repo.owner}/${repo.name}`;
         if (!perRepo.has(repoKey)) {
-            perRepo.set(repoKey, { byLevel: new Map(), total: 0, imputedDirect: 0 });
+            perRepo.set(repoKey, { byLevel: new Map(), total: 0, imputedDirect: 0, levelByDep: new Map() });
         }
         const entry = perRepo.get(repoKey);
+        if (!entry.levelByDep) entry.levelByDep = new Map();
         let deepest = null;
         for (const k of entry.byLevel.keys()) {
             if (typeof k === 'number' && (deepest === null || k > deepest)) deepest = k;
@@ -610,9 +979,12 @@ function computeDepthStats(allDeps, allRepos) {
     };
 }
 
-function computePerRepoStats(allRepos, allDeps, vulnAnalysis, ghActions) {
+function computePerRepoStats(allRepos, allDeps, vulnAnalysis, ghActions, directMap) {
     const depsByRepo = new Map();
+    const allDepsByKey = new Map();
     for (const dep of allDeps) {
+        const depKey = `${dep.name}@${dep.version}`;
+        allDepsByKey.set(depKey, dep);
         for (const repoKey of (dep.repositories || [])) {
             if (!depsByRepo.has(repoKey)) depsByRepo.set(repoKey, []);
             depsByRepo.get(repoKey).push(dep);
@@ -624,49 +996,89 @@ function computePerRepoStats(allRepos, allDeps, vulnAnalysis, ghActions) {
     for (const repo of allRepos) {
         const repoKey = `${repo.owner}/${repo.name}`;
         const deps = depsByRepo.get(repoKey) || [];
-        const driftCounts = { major: 0, minor: 0, patch: 0, current: 0, withDrift: 0, total: deps.length };
+        // Drift counters keep their existing aggregate field names; each one
+        // also carries `{direct, transitive}` sub-counts so the renderer can
+        // overlay direct/transitive shading on the per-repo mini bars.
+        const driftCounts = {
+            major: 0, minor: 0, patch: 0, current: 0, withDrift: 0, total: deps.length,
+            majorSplit: splitCounts(),
+            minorSplit: splitCounts(),
+            patchSplit: splitCounts(),
+            currentSplit: splitCounts()
+        };
         const ageBuckets = { '<6m': 0, '6-12m': 0, '1-2y': 0, '2-3y': 0, '3-5y': 0, '>5y': 0 };
+        const ageBucketSplits = {
+            '<6m': splitCounts(),
+            '6-12m': splitCounts(),
+            '1-2y': splitCounts(),
+            '2-3y': splitCounts(),
+            '3-5y': splitCounts(),
+            '>5y': splitCounts()
+        };
         let oldest = null;
+        let directDepCountActual = 0;
+        let transitiveDepCount = 0;
 
         for (const dep of deps) {
+            const depKey = `${dep.name}@${dep.version}`;
+            const isDirect = isDirectIn(directMap, repoKey, depKey);
+            if (isDirect) directDepCountActual++; else transitiveDepCount++;
+
             const drift = dep.versionDrift;
             if (drift && drift.latestVersion) {
                 driftCounts.withDrift++;
-                if (drift.hasMajorUpdate) driftCounts.major++;
-                else if (drift.hasMinorUpdate) driftCounts.minor++;
+                let bucket = null;
+                if (drift.hasMajorUpdate) { driftCounts.major++; bucket = 'major'; }
+                else if (drift.hasMinorUpdate) { driftCounts.minor++; bucket = 'minor'; }
                 else if ((window.normalizeVersion ? window.normalizeVersion(drift.latestVersion) : drift.latestVersion) !==
                     (window.normalizeVersion ? window.normalizeVersion(dep.version) : dep.version)) {
-                    driftCounts.patch++;
+                    driftCounts.patch++; bucket = 'patch';
                 } else {
-                    driftCounts.current++;
+                    driftCounts.current++; bucket = 'current';
                 }
+                if (bucket) bumpSplit(driftCounts[bucket + 'Split'], isDirect);
             }
 
             const months = dep.staleness?.monthsSinceRelease;
             if (typeof months === 'number' && !isNaN(months)) {
-                if (months < 6) ageBuckets['<6m']++;
-                else if (months < 12) ageBuckets['6-12m']++;
-                else if (months < 24) ageBuckets['1-2y']++;
-                else if (months < 36) ageBuckets['2-3y']++;
-                else if (months < 60) ageBuckets['3-5y']++;
-                else ageBuckets['>5y']++;
+                let bucketKey;
+                if (months < 6) bucketKey = '<6m';
+                else if (months < 12) bucketKey = '6-12m';
+                else if (months < 24) bucketKey = '1-2y';
+                else if (months < 36) bucketKey = '2-3y';
+                else if (months < 60) bucketKey = '3-5y';
+                else bucketKey = '>5y';
+                ageBuckets[bucketKey]++;
+                bumpSplit(ageBucketSplits[bucketKey], isDirect);
                 if (!oldest || months > oldest.months) {
-                    oldest = { name: dep.name, version: dep.version, months, ecosystem: dep.category?.ecosystem || '' };
+                    oldest = { name: dep.name, version: dep.version, months, ecosystem: dep.category?.ecosystem || '', isDirect };
                 }
             }
         }
 
         let crit = 0, high = 0, med = 0, low = 0;
+        // Per-repo CVE counters split by direct/transitive — the tech-debt
+        // composite uses these to weight direct findings 3x higher.
+        const critSplit = splitCounts();
+        const highSplit = splitCounts();
+        const medSplit = splitCounts();
+        const lowSplit = splitCounts();
         if (vulnAnalysis && Array.isArray(vulnAnalysis.vulnerableDependencies)) {
             for (const vDep of vulnAnalysis.vulnerableDependencies) {
-                if (!Array.isArray(vDep.repositories) || !vDep.repositories.includes(repoKey)) continue;
+                let repos = Array.isArray(vDep.repositories) ? vDep.repositories : [];
+                if (!repos.length) {
+                    const fullDep = allDepsByKey.get(`${vDep.name}@${vDep.version}`);
+                    repos = fullDep && Array.isArray(fullDep.repositories) ? fullDep.repositories : [];
+                }
+                if (!repos.includes(repoKey)) continue;
+                const isDirect = isDirectIn(directMap, repoKey, `${vDep.name}@${vDep.version}`);
                 for (const v of (vDep.vulnerabilities || [])) {
                     if (v.kind === 'malware') continue;
                     const s = String(v.severity || '').toLowerCase();
-                    if (s === 'critical') crit++;
-                    else if (s === 'high') high++;
-                    else if (s === 'medium' || s === 'moderate') med++;
-                    else if (s === 'low') low++;
+                    if (s === 'critical') { crit++; bumpSplit(critSplit, isDirect); }
+                    else if (s === 'high') { high++; bumpSplit(highSplit, isDirect); }
+                    else if (s === 'medium' || s === 'moderate') { med++; bumpSplit(medSplit, isDirect); }
+                    else if (s === 'low') { low++; bumpSplit(lowSplit, isDirect); }
                 }
             }
         }
@@ -700,13 +1112,24 @@ function computePerRepoStats(allRepos, allDeps, vulnAnalysis, ghActions) {
             languages: repo.languages || [],
             depCount: deps.length,
             directDepCount: (repo.directDependencies || []).length,
+            // Cross-checked count derived from the same directMap the rest of
+            // the aggregator uses; useful when `repo.directDependencies` is a
+            // larger superset than the deps actually present in `dep.repositories`
+            // (e.g. legacy storage state).
+            directDepCountObserved: directDepCountActual,
+            transitiveDepCount,
             driftCounts,
             ageBuckets,
+            ageBucketSplits,
             oldest,
             critical: crit,
             high,
             medium: med,
             low,
+            criticalSplit: critSplit,
+            highSplit: highSplit,
+            mediumSplit: medSplit,
+            lowSplit: lowSplit,
             unpinnedActions: unpinned,
             pushedAt: repo.pushedAt || null,
             activity
@@ -715,21 +1138,66 @@ function computePerRepoStats(allRepos, allDeps, vulnAnalysis, ghActions) {
     return result;
 }
 
+/**
+ * Tech-debt composite — direct-weighted edition.
+ *
+ * Findings on **direct** dependencies count 3x their transitive equivalents in
+ * the drift / vulnerability scores below. Rationale:
+ *   - A direct dep is one the team explicitly chose to pull in. They have
+ *     immediate control over its version, license, and replacement.
+ *   - A transitive dep is brought in by something else; an unfixed CVE on it
+ *     may genuinely require the parent maintainer to ship first.
+ * So an unfixed direct-dep issue is a much stronger "this team is sitting on
+ * actionable risk" signal and the score should reflect that. The 3x multiplier
+ * matches the per-repo composite below and is documented in CHANGELOG.
+ *
+ * Backwards compat: the legacy un-split aggregates (`driftStats.major`,
+ * `vulnAgeStats.buckets[*].critical`, etc.) are still consumed when the new
+ * splits are absent — keeps the function working on stale aggregator output
+ * without forcing a coordinated update everywhere.
+ */
 function computeTechDebt(parts) {
     const { driftStats, vulnAgeStats, ageStats, licenseStats,
         eolStats, supplyChain, totalDeps } = parts;
 
-    const driftMajor = driftStats.withDrift ? driftStats.major / driftStats.withDrift : 0;
-    const driftMinor = driftStats.withDrift ? driftStats.minor / driftStats.withDrift : 0;
-    const driftScore = clamp01(driftMajor * 0.75 + driftMinor * 0.25 / 3); // major dominates
+    // Drift score uses (dep, repo) pair counts when split data is present so
+    // a major-drift dep used as a direct dep in 5 repos correctly counts as 5
+    // direct major-drift hits, not 1.
+    const driftSplits = driftStats?.splits || null;
+    const driftMajorWeighted = driftSplits
+        ? (driftSplits.major.direct * 3 + driftSplits.major.transitive)
+        : driftStats.major;
+    const driftMinorWeighted = driftSplits
+        ? (driftSplits.minor.direct * 3 + driftSplits.minor.transitive)
+        : driftStats.minor;
+    const driftPairsWithDrift = driftSplits
+        ? (driftSplits.withDrift.direct + driftSplits.withDrift.transitive)
+        : driftStats.withDrift;
+    const driftMajorRatio = driftPairsWithDrift ? driftMajorWeighted / driftPairsWithDrift : 0;
+    const driftMinorRatio = driftPairsWithDrift ? driftMinorWeighted / driftPairsWithDrift : 0;
+    const driftScore = clamp01(driftMajorRatio * 0.75 + driftMinorRatio * 0.25 / 3);
 
     let vulnScore = 0;
     if (vulnAgeStats && totalDeps > 0) {
-        let crit = 0, high = 0, med = 0;
-        for (const bucket of Object.values(vulnAgeStats.buckets)) {
-            crit += bucket.critical; high += bucket.high; med += bucket.medium;
+        let critDir = 0, critTrans = 0, highDir = 0, highTrans = 0, medDir = 0, medTrans = 0;
+        const totalsBySev = vulnAgeStats.totalsBySev;
+        if (totalsBySev) {
+            critDir = totalsBySev.critical?.direct || 0;
+            critTrans = totalsBySev.critical?.transitive || 0;
+            highDir = totalsBySev.high?.direct || 0;
+            highTrans = totalsBySev.high?.transitive || 0;
+            medDir = totalsBySev.medium?.direct || 0;
+            medTrans = totalsBySev.medium?.transitive || 0;
+        } else {
+            for (const bucket of Object.values(vulnAgeStats.buckets)) {
+                critTrans += bucket.critical;
+                highTrans += bucket.high;
+                medTrans += bucket.medium;
+            }
         }
-        const weighted = crit * 10 + high * 4 + med * 1;
+        // Direct severities count 3x — matches the per-repo composite weighting.
+        const weighted = (critDir * 30 + highDir * 12 + medDir * 3)
+            + (critTrans * 10 + highTrans * 4 + medTrans * 1);
         vulnScore = clamp01(weighted / Math.max(1, totalDeps) / 1.0);
     }
 
@@ -822,19 +1290,39 @@ function gradeColor(grade) {
  * anchor that drills into the matching detail page. Without a link map the
  * tiles render exactly as before.
  *
- * Stable tile keys: `repos`, `deps`, `vulnsCH`, `vulnAge`, `eol`, `licenses`,
- *                   `drift`, `techDebt`.
+ * Stable tile keys: `repos`, `deps`, `vulnsCH`, `directDwell`, `eol`,
+ *                   `licenses`, `drift`, `techDebt`.
  */
 function renderKpiStrip(ins, opts = {}) {
     const linkMap = (opts && opts.linkMap) || {};
     const sbomCoveragePct = ins.totalRepos ? Math.round((ins.reposWithSbom / ins.totalRepos) * 100) : 0;
     const driftMajorPct = ins.driftStats.withDrift ? Math.round((ins.driftStats.major / ins.driftStats.withDrift) * 100) : 0;
     const td = ins.techDebt;
+
+    // Direct/Transitive split for the Critical+High tile sub-line. Counts
+    // (vDep, repo, vuln) triples — same unit as the new vuln-page badges.
+    const totalsBySev = ins.vulnAgeStats.totalsBySev || null;
+    const chDirect = totalsBySev
+        ? (totalsBySev.critical?.direct || 0) + (totalsBySev.high?.direct || 0)
+        : 0;
+    const chTransitive = totalsBySev
+        ? (totalsBySev.critical?.transitive || 0) + (totalsBySev.high?.transitive || 0)
+        : 0;
+    const chTotal = countCritHigh(ins.vulnAgeStats);
+
+    // Direct-dep dwell: median age of unfixed C+H CVEs that have a fix
+    // available AND are on a direct dep. The signal "this team is sitting on
+    // an actionable issue" — separated from the population median so the
+    // headline number isn't diluted by transitive findings the team can't
+    // unilaterally fix.
+    const dwell = ins.vulnAgeStats.directDwellMedian;
+    const dwellCount = ins.vulnAgeStats.directDwellCount || 0;
+
     const tiles = [
         { key: 'repos', icon: 'fa-code-branch', label: 'Repos analysed', value: ins.totalRepos, sub: `${ins.reposWithSbom} with SBOM (${sbomCoveragePct}%)` },
         { key: 'deps', icon: 'fa-cubes', label: 'Total dependencies', value: ins.totalDeps.toLocaleString(), sub: `${ins.directCount.toLocaleString()} direct / ${ins.transitiveCount.toLocaleString()} transitive` },
-        { key: 'vulnsCH', icon: 'fa-shield-alt', label: 'Open Critical+High', value: countCritHigh(ins.vulnAgeStats), sub: 'across all CVEs' },
-        { key: 'vulnAge', icon: 'fa-stopwatch', label: 'Median CVE age', value: ins.vulnAgeStats.medianAgeDays !== null ? `${ins.vulnAgeStats.medianAgeDays} d` : 'N/A', sub: 'time-to-fix proxy' },
+        { key: 'vulnsCH', icon: 'fa-shield-alt', label: 'Open Critical+High', value: chTotal, sub: totalsBySev ? `${chDirect.toLocaleString()} on direct / ${chTransitive.toLocaleString()} on transitive` : 'across all CVEs' },
+        { key: 'directDwell', icon: 'fa-bullseye', label: 'Direct-dep CVE dwell', value: dwell !== null ? `${dwell} d` : 'N/A', sub: dwellCount > 0 ? `${dwellCount.toLocaleString()} unfixed C/H on direct deps` : 'no fixable C/H on direct deps' },
         { key: 'eol', icon: 'fa-skull-crossbones', label: 'EOL components', value: ins.eolStats.eolCount, sub: `${ins.eolStats.eosCount} EOS` },
         { key: 'licenses', icon: 'fa-balance-scale', label: 'High-risk licenses', value: ins.licenseStats.high, sub: `${ins.licenseStats.conflicts.length} conflicts` },
         { key: 'drift', icon: 'fa-arrow-up-right-dots', label: 'Major drift', value: `${driftMajorPct}%`, sub: `${ins.driftStats.major}/${ins.driftStats.withDrift} deps` },

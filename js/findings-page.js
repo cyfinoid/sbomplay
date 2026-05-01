@@ -361,6 +361,39 @@ document.addEventListener('DOMContentLoaded', async function() {
     async function generateSecurityFindingsHTML(orgData, severityFilter = 'all', findingTypeFilter = 'all', repoFilter = 'all', storageManager = null) {
         const allFindings = [];
 
+        // Build a reusable directMap for the per-finding Direct/Transitive
+        // badge. Same shape (`repoKey -> Set('name@version')`) every other
+        // page uses; resolved against `repo.directDependencies` (SBOM
+        // ground truth). Computed once per render so per-row classification
+        // is constant-time.
+        const _findingsDirectMap = new Map();
+        for (const r of (orgData?.data?.allRepositories || [])) {
+            const rk = `${r.owner}/${r.name}`;
+            _findingsDirectMap.set(rk, new Set(Array.isArray(r.directDependencies) ? r.directDependencies : []));
+        }
+        // Returns an HTML <span> badge summarising direct/transitive reach
+        // for a finding given its package and the repositories it appears in.
+        // Skips emit when there's nothing useful to say (no package or no repos).
+        function findingReachBadge(packageName, packageVersion, repositories) {
+            if (!packageName) return '';
+            const repos = Array.isArray(repositories) ? repositories : [];
+            if (repos.length === 0) return '';
+            const depKey = `${packageName}@${packageVersion || 'unknown'}`;
+            let direct = 0, trans = 0;
+            for (const rk of repos) {
+                const set = _findingsDirectMap.get(rk);
+                if (set && set.has(depKey)) direct++;
+                else trans++;
+            }
+            if (direct > 0 && trans > 0) {
+                return `<span class="badge bg-danger ms-1" title="Direct in ${direct}; transitive in ${trans}">${direct}D/${trans}T</span>`;
+            }
+            if (direct > 0) {
+                return `<span class="badge bg-danger ms-1" title="Direct in ${direct} repo${direct === 1 ? '' : 's'}">Direct</span>`;
+            }
+            return `<span class="badge bg-secondary ms-1" title="Transitive in ${trans} repo${trans === 1 ? '' : 's'}">Transitive</span>`;
+        }
+
         // === Collect Malware findings ===
         // Malware advisories are the most severe class of finding here -
         // they always map to "critical" severity and link out to the
@@ -1162,8 +1195,9 @@ document.addEventListener('DOMContentLoaded', async function() {
                                                 : '';
                                             const malwarePageLink = '<br><a href="malware.html" class="small">View on Malware page</a>';
 
+                                            const _reach = findingReachBadge(instance.packageName, instance.packageVersion, repos);
                                             return `<tr class="table-danger">
-                                                <td>${packageLink}<br><small class="text-muted">${escapeHtml(instance.message || '')}</small></td>
+                                                <td>${packageLink}${_reach}<br><small class="text-muted">${escapeHtml(instance.message || '')}</small></td>
                                                 <td><span class="badge bg-secondary">${escapeHtml(instance.ecosystem || '-')}</span></td>
                                                 <td>${advisoryLinks}${overflow}${malwarePageLink}</td>
                                                 <td>${repos.length > 0 ? generateRepoListHTML(repos) : '<span class="text-muted">-</span>'}</td>
@@ -1419,8 +1453,9 @@ document.addEventListener('DOMContentLoaded', async function() {
                                                 </a>
                                             ` : `<code class="small">${packageDisplay}</code>`;
                                             
+                                            const _eoxReach = findingReachBadge(instance.packageName, instance.packageVersion, instance.repositories);
                                             return `<tr>
-                                                <td>${packageLink}</td>
+                                                <td>${packageLink}${_eoxReach}</td>
                                                 <td><span class="badge bg-secondary">${escapeHtml(instance.ecosystem || '-')}</span></td>
                                                 <td>${instance.repositories && instance.repositories.length > 0 ? generateRepoListHTML(instance.repositories) : '-'}</td>
                                                 <td class="small">${detailsHtml}</td>
@@ -1443,8 +1478,9 @@ document.addEventListener('DOMContentLoaded', async function() {
                                                 <br><small class="text-muted"><i class="fas fa-exclamation-triangle me-1"></i>404 Not Found</small>`;
                                             }
                                             
+                                            const _srcReach = findingReachBadge(instance.packageName, instance.packageVersion, instance.repositories);
                                             return `<tr>
-                                                <td><code class="small">${packageDisplay}</code><br><small class="text-muted">${escapeHtml(instance.ecosystem || '-')}</small></td>
+                                                <td><code class="small">${packageDisplay}</code>${_srcReach}<br><small class="text-muted">${escapeHtml(instance.ecosystem || '-')}</small></td>
                                                 <td>${repoLink}</td>
                                                 <td>${instance.repositories && instance.repositories.length > 0 ? generateRepoListHTML(instance.repositories) : '-'}</td>
                                                 <td class="small">${escapeHtml(instance.message || '-')}</td>
@@ -1457,9 +1493,9 @@ document.addEventListener('DOMContentLoaded', async function() {
                                             const sbomNote = (instance.sbomName && instance.sbomName !== instance.package?.split('@')[0]) 
                                                 ? `<br><small class="text-muted">SBOM name: ${escapeHtml(instance.sbomName)}</small>` 
                                                 : '';
-                                            
+                                            const _genReach = findingReachBadge(instance.packageName, instance.packageVersion, instance.repositories);
                                             return `<tr>
-                                                <td><code class="small">${packageDisplay}</code>${purlDisplay}${sbomNote}</td>
+                                                <td><code class="small">${packageDisplay}</code>${_genReach}${purlDisplay}${sbomNote}</td>
                                                 <td><span class="badge bg-secondary">${escapeHtml(instance.ecosystem || '-')}</span></td>
                                                 <td>${instance.repositories && instance.repositories.length > 0 ? generateRepoListHTML(instance.repositories) : '-'}</td>
                                                 <td class="small">${escapeHtml(instance.message || '-')}</td>

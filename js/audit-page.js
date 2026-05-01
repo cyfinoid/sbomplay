@@ -1681,9 +1681,38 @@ document.addEventListener('DOMContentLoaded', async function() {
         html += '<th style="width: 110px;">Ecosystem</th>';
         html += '<th style="width: 120px;">Status</th>';
         html += '<th style="width: 130px;">Signal source</th>';
+        html += '<th style="width: 120px;">Reach</th>';
         html += '<th>Affected Repositories</th>';
         html += '<th style="width: 200px;">Replacement</th>';
         html += '</tr></thead><tbody>';
+
+        // Per-page directMap so each row's Reach badge is consistent with
+        // the rest of the app (uses repo.directDependencies as ground truth).
+        const _auditDirectMap = new Map();
+        for (const r of (orgData?.data?.allRepositories || [])) {
+            const rk = `${r.owner}/${r.name}`;
+            _auditDirectMap.set(rk, new Set(Array.isArray(r.directDependencies) ? r.directDependencies : []));
+        }
+        const _auditReach = (pkg) => {
+            const repos = Array.isArray(pkg.repositories) ? pkg.repositories : [];
+            const depKey = `${pkg.name}@${pkg.version || 'unknown'}`;
+            let direct = 0, trans = 0;
+            for (const rk of repos) {
+                const set = _auditDirectMap.get(rk);
+                if (set && set.has(depKey)) direct++;
+                else trans++;
+            }
+            if (direct > 0 && trans > 0) {
+                return `<span class="badge bg-danger" title="Direct in ${direct}; transitive in ${trans}">${direct}D / ${trans}T</span>`;
+            }
+            if (direct > 0) {
+                return `<span class="badge bg-danger" title="Direct in ${direct}">Direct</span>`;
+            }
+            if (trans > 0) {
+                return `<span class="badge bg-secondary" title="Transitive in ${trans}">Transitive</span>`;
+            }
+            return '<span class="text-muted small">—</span>';
+        };
 
         deprecatedPackages.forEach(pkg => {
             const repoCount = pkg.repositories.length;
@@ -1712,6 +1741,7 @@ document.addEventListener('DOMContentLoaded', async function() {
                 <td><span class="badge bg-secondary">${escapeHtml(pkg.ecosystem)}</span></td>
                 <td>${statusBadge}</td>
                 <td>${sourceBadge}</td>
+                <td>${_auditReach(pkg)}</td>
                 <td><small>${repoList}</small></td>
                 <td>${pkg.replacement ? `<code class="small text-success">${escapeHtml(pkg.replacement)}</code>` : '<span class="text-muted"><em>None specified</em></span>'}</td>
             </tr>`;

@@ -3185,6 +3185,62 @@ class ViewManager {
     /**
      * Calculate license counts based on category filter
      */
+    /**
+     * Tally direct/transitive (dep, repo) pair counts per license category.
+     * Mirrors the bucketing in `calculateLicenseCounts` but produces
+     * `{ <category>: { direct, transitive } }` keyed counts so the per-card
+     * sub-line can read e.g. "12 packages · 5 direct / 7 transitive".
+     *
+     * Counts pairs, not packages — same unit the Insights aggregator and the
+     * vuln-page badges use.
+     */
+    _computeLicenseReachCounts(orgData) {
+        const empty = () => ({ direct: 0, transitive: 0 });
+        const buckets = {
+            total: empty(),
+            copyleft: empty(),
+            proprietary: empty(),
+            custom: empty(),
+            unknown: empty(),
+            unlicensed: empty()
+        };
+        if (!orgData || !orgData.data || !Array.isArray(orgData.data.allDependencies)) return buckets;
+        const allRepos = orgData.data.allRepositories || [];
+        const directMap = new Map();
+        for (const repo of allRepos) {
+            const repoKey = `${repo.owner}/${repo.name}`;
+            const set = new Set(Array.isArray(repo.directDependencies) ? repo.directDependencies : []);
+            directMap.set(repoKey, set);
+        }
+        const tally = (cat, dCount, tCount) => {
+            if (!buckets[cat]) return;
+            buckets[cat].direct += dCount;
+            buckets[cat].transitive += tCount;
+        };
+        for (const dep of orgData.data.allDependencies) {
+            const { licenseInfo } = this.getDependencyLicenseInfo(dep, orgData);
+            const depKey = `${dep.name}@${dep.version}`;
+            const repos = Array.isArray(dep.repositories) ? dep.repositories : [];
+            let dCount = 0, tCount = 0;
+            for (const repoKey of repos) {
+                const set = directMap.get(repoKey);
+                if (set && set.has(depKey)) dCount++;
+                else tCount++;
+            }
+            if (!licenseInfo || !licenseInfo.license || licenseInfo.license === 'NOASSERTION') {
+                tally('unlicensed', dCount, tCount);
+                continue;
+            }
+            tally('total', dCount, tCount);
+            const cat = licenseInfo.category;
+            if (cat === 'copyleft' || cat === 'lgpl') tally('copyleft', dCount, tCount);
+            else if (cat === 'proprietary') tally('proprietary', dCount, tCount);
+            else if (cat === 'custom') tally('custom', dCount, tCount);
+            else if (cat === 'unknown') tally('unknown', dCount, tCount);
+        }
+        return buckets;
+    }
+
     calculateLicenseCounts(orgData, categoryFilter = null) {
         if (!orgData || !orgData.data || !orgData.data.allDependencies) {
             return {
@@ -3400,6 +3456,13 @@ class ViewManager {
 
         const licenseProcessor = new LicenseProcessor();
         const licenseMap = new Map(); // license name -> { category, risk, packages: Set, repositories: Set }
+        // Reach lookup — same shape used by `_computeLicenseReachCounts`.
+        const _allRepos = orgData?.data?.allRepositories || [];
+        const _directMap = new Map();
+        for (const r of _allRepos) {
+            const rk = `${r.owner}/${r.name}`;
+            _directMap.set(rk, new Set(Array.isArray(r.directDependencies) ? r.directDependencies : []));
+        }
 
         allDependencies.forEach(dep => {
             // Use unified method to get license info
@@ -3436,7 +3499,9 @@ class ViewManager {
                     category: category,
                     risk: risk,
                     packages: new Set(),
-                    repositories: new Set()
+                    repositories: new Set(),
+                    directPairs: 0,
+                    transitivePairs: 0
                 });
             }
 
@@ -3444,10 +3509,13 @@ class ViewManager {
             const packageKey = `${dep.name}@${dep.version}`;
             licenseData.packages.add(packageKey);
 
-            // Add repositories
+            // Add repositories + bump pair-level direct/transitive split.
             if (dep.repositories && Array.isArray(dep.repositories)) {
-                dep.repositories.forEach(repo => {
-                    licenseData.repositories.add(repo);
+                dep.repositories.forEach(repoKey => {
+                    licenseData.repositories.add(repoKey);
+                    const set = _directMap.get(repoKey);
+                    if (set && set.has(packageKey)) licenseData.directPairs++;
+                    else licenseData.transitivePairs++;
                 });
             }
         });
@@ -3460,7 +3528,9 @@ class ViewManager {
                 category: licenseData.category,
                 risk: (licenseData.risk || 'low').toLowerCase(),
                 packageCount: licenseData.packages.size,
-                repositoryCount: licenseData.repositories.size
+                repositoryCount: licenseData.repositories.size,
+                directPairs: licenseData.directPairs,
+                transitivePairs: licenseData.transitivePairs
             }))
             .sort((a, b) => {
                 // First sort by risk level (high first)
@@ -3482,6 +3552,12 @@ class ViewManager {
         }
 
         const packageMap = new Map();
+        const _allRepos = orgData?.data?.allRepositories || [];
+        const _directMap = new Map();
+        for (const r of _allRepos) {
+            const rk = `${r.owner}/${r.name}`;
+            _directMap.set(rk, new Set(Array.isArray(r.directDependencies) ? r.directDependencies : []));
+        }
 
         allDependencies.forEach(dep => {
             // Use unified method to get license info (includes GitHub Actions enriched data)
@@ -3497,16 +3573,22 @@ class ViewManager {
                         name: packageName,
                         versions: new Set(),
                         repositories: new Set(),
-                        totalUsage: 0
+                        totalUsage: 0,
+                        directPairs: 0,
+                        transitivePairs: 0
                     });
                 }
 
                 const pkg = packageMap.get(packageName);
+                const depKey = `${dep.name}@${dep.version}`;
                 if (dep.version) pkg.versions.add(dep.version);
                 if (dep.repositories && Array.isArray(dep.repositories)) {
-                    dep.repositories.forEach(repo => {
-                        pkg.repositories.add(repo);
+                    dep.repositories.forEach(repoKey => {
+                        pkg.repositories.add(repoKey);
                         pkg.totalUsage++;
+                        const set = _directMap.get(repoKey);
+                        if (set && set.has(depKey)) pkg.directPairs++;
+                        else pkg.transitivePairs++;
                     });
                 }
             }
@@ -3520,7 +3602,9 @@ class ViewManager {
                 repositories: Array.from(pkg.repositories),
                 totalUsage: pkg.totalUsage,
                 repositoryCount: pkg.repositories.size,
-                versionCount: pkg.versions.size  // Use .size for Set, not .length
+                versionCount: pkg.versions.size,  // Use .size for Set, not .length
+                directPairs: pkg.directPairs,
+                transitivePairs: pkg.transitivePairs
             }))
             .sort((a, b) => b.totalUsage - a.totalUsage);
     }
@@ -3664,7 +3748,9 @@ class ViewManager {
                 version: dep.version || 'Unknown',
                 license: dep.license || 'Unknown',
                 category: dep.category || 'Unknown',
-                warnings: dep.warnings || []
+                warnings: dep.warnings || [],
+                directRepoCount: dep.directRepoCount || 0,
+                transitiveRepoCount: dep.transitiveRepoCount || 0
             });
         });
 
@@ -3688,6 +3774,11 @@ class ViewManager {
                 licenseGroups.get(license).push(v);
             });
 
+            // Roll up reach across all (version, repo) pairs for the package
+            // — used for the per-row "Direct in N · Transitive in M" badge.
+            const directRepoCountTotal = versions.reduce((s, v) => s + (v.directRepoCount || 0), 0);
+            const transitiveRepoCountTotal = versions.reduce((s, v) => s + (v.transitiveRepoCount || 0), 0);
+
             // If all versions have the same license, create one issue
             if (licenseGroups.size === 1) {
                 const license = Array.from(licenseGroups.keys())[0];
@@ -3698,7 +3789,9 @@ class ViewManager {
                     license: license,
                     category: versionsList[0].category,
                     versions: versionsList.map(v => v.version),
-                    warnings: versionsList[0].warnings || []
+                    warnings: versionsList[0].warnings || [],
+                    directRepoCount: directRepoCountTotal,
+                    transitiveRepoCount: transitiveRepoCountTotal
                 });
             } else {
                 // Multiple licenses detected - detect all transitions between consecutive versions
@@ -3717,7 +3810,9 @@ class ViewManager {
                             fromVersion: current.version,
                             toVersion: next.version,
                             category: next.category, // Use the "to" category
-                            warnings: [...(current.warnings || []), ...(next.warnings || [])]
+                            warnings: [...(current.warnings || []), ...(next.warnings || [])],
+                            directRepoCount: (current.directRepoCount || 0) + (next.directRepoCount || 0),
+                            transitiveRepoCount: (current.transitiveRepoCount || 0) + (next.transitiveRepoCount || 0)
                         });
                     }
                 }
@@ -3993,6 +4088,11 @@ class ViewManager {
         
         const licenseAnalysis = orgData.data.licenseAnalysis;
         const orgName = orgData.organization || orgData.name;
+        // Reach filter (`direct` / `transitive` / null) — set by `licenses-page.js`
+        // via `viewManager.__reachFilter`. We use it to (a) annotate the
+        // per-card stat tiles with a "X direct / Y transitive" sub-line, and
+        // (b) narrow the high-risk dep table to one of the two reach buckets.
+        const reachFilter = this.__reachFilter || null;
         
         // Show filter notice if category filter is active
         const filterNotice = categoryFilter ? `
@@ -4005,11 +4105,22 @@ class ViewManager {
                 <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
             </div>
         ` : '';
+        const reachNotice = reachFilter ? `
+            <div class="alert alert-info alert-dismissible fade show mb-3">
+                <i class="fas fa-filter me-2"></i>
+                <strong>Reach Filter Active:</strong> Showing only ${escapeHtml(reachFilter)} dependencies.
+                <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+            </div>
+        ` : '';
         
         // escapeHtml is provided by utils.js
         
         // Calculate counts based on filter
         const counts = this.calculateLicenseCounts(orgData, categoryFilter);
+        // Per-category direct/transitive sub-counts. Derived from
+        // `allDependencies` so they reflect the same per-(dep, repo) grain
+        // the rest of the page uses; populated lazily once per render.
+        const reachCounts = this._computeLicenseReachCounts(orgData);
         
         // Process ALL dependencies for license changes (needed before cardConfigs)
         const allDeps = orgData.data?.allDependencies || [];
@@ -4020,8 +4131,31 @@ class ViewManager {
         // This ensures we use the latest license classifications, not stored old data
         const licenseProcessor = new LicenseProcessor();
         const allRepos = orgData.data?.allRepositories || [];
+        // Direct-map for reach classification — same shape the Insights aggregator builds.
+        const _licDirectMap = new Map();
+        for (const repo of allRepos) {
+            const repoKey = `${repo.owner}/${repo.name}`;
+            const set = new Set(Array.isArray(repo.directDependencies) ? repo.directDependencies : []);
+            _licDirectMap.set(repoKey, set);
+        }
+        const _isDirectAnywhere = (dep) => {
+            const depKey = `${dep.name}@${dep.version}`;
+            const repos = Array.isArray(dep.repositories) ? dep.repositories : [];
+            for (const repoKey of repos) {
+                const set = _licDirectMap.get(repoKey);
+                if (set && set.has(depKey)) return true;
+            }
+            // Fallback: trust storage-manager's self-healed dep.directIn when
+            // dep.repositories is missing (older analyses).
+            return Array.isArray(dep.directIn) && dep.directIn.length > 0;
+        };
         const rawHighRiskDeps = [];
         allDeps.forEach(dep => {
+            // Apply reach filter early so the rest of the high-risk pipeline
+            // (compatibility checks, transitions, table rendering) only sees
+            // the in-scope subset.
+            if (reachFilter === 'direct' && !_isDirectAnywhere(dep)) return;
+            if (reachFilter === 'transitive' && _isDirectAnywhere(dep)) return;
             // Skip dependencies without any package information
             if (!dep.originalPackage && !dep.license && !dep.licenseFull) {
                 return;
@@ -4074,6 +4208,19 @@ class ViewManager {
                 licenseInfo = licenseProcessor.parseLicense(dep.originalPackage);
             }
             
+            // Pre-compute reach (direct/transitive repo counts) once per dep
+            // — surfaced on every high-risk row so the table can show the
+            // "Direct in N · Transitive in M" badge inline next to the
+            // dependency name.
+            const depKey = `${dep.name}@${dep.version}`;
+            const depRepoList = Array.isArray(dep.repositories) ? dep.repositories : [];
+            let _directIn = 0, _transitiveIn = 0;
+            for (const repoKey of depRepoList) {
+                const set = _licDirectMap.get(repoKey);
+                if (set && set.has(depKey)) _directIn++;
+                else _transitiveIn++;
+            }
+
             // If no license info found, treat as unlicensed/unknown
             if (!licenseInfo || !licenseInfo.license || licenseInfo.license === 'NOASSERTION') {
                 // Include in high-risk if unlicensed
@@ -4084,7 +4231,9 @@ class ViewManager {
                     category: 'unknown',
                     warnings: ['No license information found'],
                     originalPackage: dep.originalPackage || null,
-                    isIncompatibleWithAnyRepo: false
+                    isIncompatibleWithAnyRepo: false,
+                    directRepoCount: _directIn,
+                    transitiveRepoCount: _transitiveIn
                 });
                 return;
             }
@@ -4145,7 +4294,9 @@ class ViewManager {
                     category: licenseInfo.category || 'unknown',
                     warnings: licenseInfo.warnings || [],
                     originalPackage: dep.originalPackage,
-                    isIncompatibleWithAnyRepo: isIncompatibleWithAnyRepo
+                    isIncompatibleWithAnyRepo: isIncompatibleWithAnyRepo,
+                    directRepoCount: _directIn,
+                    transitiveRepoCount: _transitiveIn
                 });
             }
         });
@@ -4158,6 +4309,14 @@ class ViewManager {
         
         // Prepare license cards
         // Order: High risk first (unlicensed, copyleft, unknown), then medium risk (proprietary, custom), then summary/info (total, transitions)
+        const reachLine = (cat) => {
+            const slot = reachCounts[cat];
+            if (!slot) return '';
+            const total = slot.direct + slot.transitive;
+            if (total === 0) return '';
+            return `${slot.direct.toLocaleString()} direct / ${slot.transitive.toLocaleString()} transitive`;
+        };
+
         const licenseCards = [];
         const cardConfigs = [
             {
@@ -4165,49 +4324,56 @@ class ViewManager {
                 title: '🚨 Unlicensed',
                 count: counts.unlicensed,
                 detail: 'unlicensed deps',
-                licenseType: 'unlicensed'
+                licenseType: 'unlicensed',
+                reach: reachLine('unlicensed')
             },
             {
                 type: 'copyleft',
                 title: '⚠️ Copyleft',
                 count: counts.copyleft,
                 detail: 'high risk',
-                licenseType: 'copyleft'
+                licenseType: 'copyleft',
+                reach: reachLine('copyleft')
             },
             {
                 type: 'unknown',
                 title: '❓ Unknown',
                 count: counts.unknown,
                 detail: 'high risk',
-                licenseType: 'unknown'
+                licenseType: 'unknown',
+                reach: reachLine('unknown')
             },
             {
                 type: 'proprietary',
                 title: '🔒 Proprietary',
                 count: counts.proprietary,
                 detail: 'medium risk',
-                licenseType: 'proprietary'
+                licenseType: 'proprietary',
+                reach: reachLine('proprietary')
             },
             {
                 type: 'custom',
                 title: '📝 Custom',
                 count: counts.custom,
                 detail: 'needs review',
-                licenseType: 'custom'
+                licenseType: 'custom',
+                reach: reachLine('custom')
             },
             {
                 type: 'total',
                 title: '📊 Total',
                 count: counts.total,
                 detail: 'licensed deps',
-                licenseType: 'total'
+                licenseType: 'total',
+                reach: reachLine('total')
             },
             {
                 type: 'transitions',
                 title: '🔄 License Changes',
                 count: transitionCount,
                 detail: 'transitions',
-                licenseType: 'transitions'
+                licenseType: 'transitions',
+                reach: ''
             }
         ];
         
@@ -4215,10 +4381,14 @@ class ViewManager {
         for (const config of cardConfigs) {
             // All cards are clickable - Total shows all, others filter
             const clickHandler = `onclick="viewManager.filterHighRiskList('${config.type}')" style="cursor: pointer;"`;
+            const reachSub = config.reach
+                ? `<div class="license-detail small text-muted" title="(dep, repo) pair counts">${escapeHtml(config.reach)}</div>`
+                : '';
             const cardHTML = `<div class="license-stat-card ${config.type} license-card clickable-license-card" id="license-card-${config.type}" ${clickHandler}>
     <h4>${escapeHtml(config.title)}</h4>
     <div class="license-number" id="license-count-${config.type}">${config.count}</div>
     <div class="license-detail">${escapeHtml(config.detail)}</div>
+    ${reachSub}
 </div>`;
             
             licenseCards.push(cardHTML);
@@ -4236,7 +4406,7 @@ class ViewManager {
         // (Note: processedIssues was already calculated above for transitionCount)
         
         // Generate license cards HTML
-        const licenseCardsHTML = `${filterNotice}<div class="license-stats">
+        const licenseCardsHTML = `${filterNotice}${reachNotice}<div class="license-stats">
     ${licenseCards.join('\n    ')}
 </div>
 
@@ -4381,6 +4551,16 @@ class ViewManager {
                 }
             };
 
+            const reachCell = (d, t) => {
+                if (!(d || t)) return '<span class="text-muted small">—</span>';
+                if (d > 0 && t > 0) {
+                    return `<span class="badge bg-danger" title="Direct in ${d} (dep,repo) pair${d === 1 ? '' : 's'}; transitive in ${t}">${d}D / ${t}T</span>`;
+                }
+                if (d > 0) {
+                    return `<span class="badge bg-danger" title="Direct in ${d} (dep,repo) pair${d === 1 ? '' : 's'}">${d}D / 0T</span>`;
+                }
+                return `<span class="badge bg-secondary" title="Transitive in ${t} (dep,repo) pair${t === 1 ? '' : 's'}">0D / ${t}T</span>`;
+            };
             const licenseTypesRows = licenseTypesData.map(licenseData => {
                 return `
                 <tr>
@@ -4396,6 +4576,7 @@ class ViewManager {
                     <td class="text-center">
                         <strong>${licenseData.repositoryCount}</strong>
                     </td>
+                    <td class="text-center">${reachCell(licenseData.directPairs, licenseData.transitivePairs)}</td>
                     <td>
                         <span class="badge ${getRiskBadgeClass(licenseData.risk)}">${escapeHtml(licenseData.risk)}</span>
                     </td>
@@ -4409,7 +4590,7 @@ class ViewManager {
 
             licenseTypesHTML = `<div class="license-types-section mb-4" id="license-types-section">
     <h4>📋 License Types</h4>
-    <p class="text-muted mb-3">All unique licenses found in dependencies</p>
+    <p class="text-muted mb-3">All unique licenses found in dependencies. Reach counts (dep, repo) pairs — same unit as Insights direct/transitive splits.</p>
     <div class="table-responsive">
         <table class="table table-striped table-hover" id="license-types-table">
             <thead>
@@ -4418,6 +4599,7 @@ class ViewManager {
                     <th>Category</th>
                     <th class="text-center">Packages</th>
                     <th class="text-center">Repositories</th>
+                    <th class="text-center">Reach</th>
                     <th>Risk Level</th>
                     <th>Actions</th>
                 </tr>
@@ -4434,6 +4616,14 @@ class ViewManager {
         const unlicensedData = this.generateUnlicensedTableData(allDeps, orgData);
         let unlicensedHTML = '';
         if (unlicensedData.length > 0) {
+            const reachCellU = (d, t) => {
+                if (!(d || t)) return '<span class="text-muted small">—</span>';
+                if (d > 0 && t > 0) {
+                    return `<span class="badge bg-danger" title="Direct in ${d}; transitive in ${t}">${d}D / ${t}T</span>`;
+                }
+                if (d > 0) return `<span class="badge bg-danger" title="Direct in ${d}">${d}D / 0T</span>`;
+                return `<span class="badge bg-secondary" title="Transitive in ${t}">0D / ${t}T</span>`;
+            };
             const unlicensedRows = unlicensedData.map(pkg => {
                 return `
                 <tr>
@@ -4448,6 +4638,7 @@ class ViewManager {
                     <td class="text-center">
                         <strong>${pkg.versionCount}</strong>
                     </td>
+                    <td class="text-center">${reachCellU(pkg.directPairs, pkg.transitivePairs)}</td>
                 </tr>`;
             }).join('');
 
@@ -4461,6 +4652,7 @@ class ViewManager {
                     <th>Dependency</th>
                     <th class="text-center">Used by Repos</th>
                     <th class="text-center">Version Count</th>
+                    <th class="text-center">Reach</th>
                 </tr>
             </thead>
             <tbody>
@@ -4637,6 +4829,14 @@ class ViewManager {
                 }
             };
 
+            const reachCell = (d, t) => {
+                if (!(d || t)) return '<span class="text-muted small">—</span>';
+                if (d > 0 && t > 0) {
+                    return `<span class="badge bg-danger" title="Direct in ${d} (dep,repo) pair${d === 1 ? '' : 's'}; transitive in ${t}">${d}D / ${t}T</span>`;
+                }
+                if (d > 0) return `<span class="badge bg-danger" title="Direct in ${d}">${d}D / 0T</span>`;
+                return `<span class="badge bg-secondary" title="Transitive in ${t}">0D / ${t}T</span>`;
+            };
             const licenseTypesRows = licenseTypesData.map(licenseData => {
                 return `
                 <tr>
@@ -4652,6 +4852,7 @@ class ViewManager {
                     <td class="text-center">
                         <strong>${licenseData.repositoryCount}</strong>
                     </td>
+                    <td class="text-center">${reachCell(licenseData.directPairs, licenseData.transitivePairs)}</td>
                     <td>
                         <span class="badge ${getRiskBadgeClass(licenseData.risk)}">${escapeHtml(licenseData.risk)}</span>
                     </td>
@@ -4665,7 +4866,7 @@ class ViewManager {
 
             licenseTypesHTML = `<div class="license-types-section mb-4" id="license-types-section">
     <h4>📋 License Types</h4>
-    <p class="text-muted mb-3">All unique licenses found in dependencies</p>
+    <p class="text-muted mb-3">All unique licenses found in dependencies. Reach counts (dep, repo) pairs.</p>
     <div class="table-responsive">
         <table class="table table-striped table-hover" id="license-types-table">
             <thead>
@@ -4674,6 +4875,7 @@ class ViewManager {
                     <th>Category</th>
                     <th class="text-center">Packages</th>
                     <th class="text-center">Repositories</th>
+                    <th class="text-center">Reach</th>
                     <th>Risk Level</th>
                     <th>Actions</th>
                 </tr>
@@ -4690,6 +4892,14 @@ class ViewManager {
         const unlicensedData = this.generateUnlicensedTableData(allDeps, orgData);
         let unlicensedHTML = '';
         if (unlicensedData.length > 0) {
+            const reachCellU = (d, t) => {
+                if (!(d || t)) return '<span class="text-muted small">—</span>';
+                if (d > 0 && t > 0) {
+                    return `<span class="badge bg-danger" title="Direct in ${d}; transitive in ${t}">${d}D / ${t}T</span>`;
+                }
+                if (d > 0) return `<span class="badge bg-danger" title="Direct in ${d}">${d}D / 0T</span>`;
+                return `<span class="badge bg-secondary" title="Transitive in ${t}">0D / ${t}T</span>`;
+            };
             const unlicensedRows = unlicensedData.map(pkg => {
                 return `
                 <tr>
@@ -4704,6 +4914,7 @@ class ViewManager {
                     <td class="text-center">
                         <strong>${pkg.versionCount}</strong>
                     </td>
+                    <td class="text-center">${reachCellU(pkg.directPairs, pkg.transitivePairs)}</td>
                 </tr>`;
             }).join('');
 
@@ -4717,6 +4928,7 @@ class ViewManager {
                     <th>Dependency</th>
                     <th class="text-center">Used by Repos</th>
                     <th class="text-center">Version Count</th>
+                    <th class="text-center">Reach</th>
                 </tr>
             </thead>
             <tbody>
@@ -5358,11 +5570,70 @@ class ViewManager {
         
         // escapeHtml is provided by utils.js
         
+        // Reach filter (Direct / Transitive / All) — set by vuln-page.js via
+        // `viewManager.__reachFilter`. We classify using `dep.directIn` /
+        // `dep.transitiveIn` from the joined allDependencies record (or the
+        // vulnDep itself if those fields are present after storage self-heal).
+        const reachFilter = this.__reachFilter || null;
+
+        // Per-page direct/transitive split for the dashboard tiles. We sum
+        // CVE counts across `(vDep, repo, vuln)` triples — the same unit the
+        // Insights aggregator uses — so the tile sub-line stays consistent
+        // with the KPI strip on insights.html.
+        const splitTotals = {
+            critical: { direct: 0, transitive: 0 },
+            high: { direct: 0, transitive: 0 },
+            medium: { direct: 0, transitive: 0 },
+            low: { direct: 0, transitive: 0 }
+        };
+        let directVulnPackages = 0;
+        let transitiveVulnPackages = 0;
+        const _allDeps = orgData.data.allDependencies || [];
+        const _allDepsByKey = new Map();
+        for (const d of _allDeps) {
+            _allDepsByKey.set(`${d.name}@${d.version}`, d);
+        }
+        const reachOf = (vDep) => {
+            const dKey = `${vDep.name}@${vDep.version}`;
+            let directIn = vDep.directIn;
+            let transitiveIn = vDep.transitiveIn;
+            if (!Array.isArray(directIn) && !Array.isArray(transitiveIn)) {
+                const fullDep = _allDepsByKey.get(dKey);
+                directIn = fullDep?.directIn || [];
+                transitiveIn = fullDep?.transitiveIn || [];
+            }
+            return {
+                directIn: Array.isArray(directIn) ? directIn : [],
+                transitiveIn: Array.isArray(transitiveIn) ? transitiveIn : []
+            };
+        };
+
         // Pre-process vulnerable dependencies with usage info
         let vulnerableDepsHTML = '';
         if (vulnAnalysis && vulnAnalysis.vulnerableDependencies) {
             let vulnerableDeps = vulnAnalysis.vulnerableDependencies || [];
-            
+
+            // Compute split totals across the full vulnerable-dep population
+            // (BEFORE the severity / reach filters narrow the rendered list)
+            // so the tile counts always reflect the underlying data, not the
+            // current filter state.
+            for (const vDep of vulnerableDeps) {
+                const reach = reachOf(vDep);
+                const dCount = reach.directIn.length;
+                const tCount = reach.transitiveIn.length;
+                if (dCount > 0) directVulnPackages++;
+                else if (tCount > 0) transitiveVulnPackages++;
+                else transitiveVulnPackages++;
+                for (const vuln of (vDep.vulnerabilities || [])) {
+                    if (vuln.kind === 'malware') continue;
+                    const sev = window.osvService ? window.osvService.getHighestSeverity(vuln) : 'UNKNOWN';
+                    const sevKey = sev.toLowerCase() === 'moderate' ? 'medium' : sev.toLowerCase();
+                    if (!splitTotals[sevKey]) continue;
+                    splitTotals[sevKey].direct += dCount;
+                    splitTotals[sevKey].transitive += tCount;
+                }
+            }
+
             // Filter by severity if parameter is present
             if (severityFilter) {
                 vulnerableDeps = vulnerableDeps.filter(dep => {
@@ -5372,6 +5643,17 @@ class ViewManager {
                         const severity = window.osvService ? window.osvService.getHighestSeverity(vuln) : 'UNKNOWN';
                         return severity === severityFilter;
                     });
+                });
+            }
+
+            // Filter by reach (direct / transitive only) — applied after
+            // severity so the two filters compose. A vuln-dep is "direct" if
+            // it appears as a direct dependency in at least one repo.
+            if (reachFilter === 'direct' || reachFilter === 'transitive') {
+                vulnerableDeps = vulnerableDeps.filter(dep => {
+                    const reach = reachOf(dep);
+                    if (reachFilter === 'direct') return reach.directIn.length > 0;
+                    return reach.directIn.length === 0;
                 });
             }
             
@@ -5575,6 +5857,7 @@ class ViewManager {
                     isArchived: u.isArchived || false
                 }));
                 
+                const reach = reachOf(dep);
                 processedDeps.push({
                     name: dep.name || 'Unknown',
                     version: dep.version || 'Unknown',
@@ -5591,7 +5874,10 @@ class ViewManager {
                     allVulnsJson: JSON.stringify(depVulnerabilities).replace(/"/g, '&quot;'), // Use filtered vulnerabilities
                     hasMajorUpdate: hasMajorUpdate,
                     hasMinorUpdate: hasMinorUpdate,
-                    latestVersion: latestVersion
+                    latestVersion: latestVersion,
+                    directRepoCount: reach.directIn.length,
+                    transitiveRepoCount: reach.transitiveIn.length,
+                    isDirectAnywhere: reach.directIn.length > 0
                 });
             }
             
@@ -5631,10 +5917,32 @@ class ViewManager {
             </small>
         </div>`;
                     
+                    // Reach badge: tells the user at a glance whether this is
+                    // a direct dep (something the team explicitly chose) or a
+                    // transitive (pulled in by a parent). Direct findings get a
+                    // red badge to flag them as the most actionable. We render
+                    // both counts when the package is direct in some repos and
+                    // transitive in others — this happens often when the same
+                    // library is a dev-dep in repo A and a runtime dep in repo B.
+                    const reachBadge = (() => {
+                        const d = depData.directRepoCount;
+                        const t = depData.transitiveRepoCount;
+                        if (d > 0 && t > 0) {
+                            return `<span class="badge bg-danger ms-2" title="Direct in ${d} repo${d === 1 ? '' : 's'}, transitive in ${t}">Direct in ${d} · Transitive in ${t}</span>`;
+                        }
+                        if (d > 0) {
+                            return `<span class="badge bg-danger ms-2" title="Direct in ${d} repo${d === 1 ? '' : 's'}">Direct in ${d}</span>`;
+                        }
+                        if (t > 0) {
+                            return `<span class="badge bg-secondary ms-2" title="Transitive in ${t} repo${t === 1 ? '' : 's'}">Transitive in ${t}</span>`;
+                        }
+                        return '';
+                    })();
+
                     return `<div class="vulnerable-dep-item mb-3" style="border-left: 3px solid #dc3545; padding-left: 15px;">
     <div class="vuln-dep-info">
         <div class="vuln-dep-name d-flex align-items-center flex-wrap" style="font-weight: bold; font-size: 1.1em;">
-            <span>${escapeHtml(depData.name)}@${escapeHtml(depData.version)}</span>${versionBadgesHTML}
+            <span>${escapeHtml(depData.name)}@${escapeHtml(depData.version)}</span>${versionBadgesHTML}${reachBadge}
         </div>
         <div class="vuln-dep-count mb-2">${depData.vulnerabilityCount} ${depData.vulnerabilityCount !== 1 ? 'vulnerabilities' : 'vulnerability'}</div>
         <div class="vuln-severity-badges mb-2">
@@ -5692,11 +6000,24 @@ class ViewManager {
             <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
         </div>
             ` : '';
-            
+            const reachNotice = reachFilter ? `
+        <div class="alert alert-info alert-dismissible fade show mb-3">
+            <i class="fas fa-filter me-2"></i>
+            <strong>Reach Filter Active:</strong> Showing only ${escapeHtml(reachFilter)} dependencies.
+            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+        </div>
+            ` : '';
+
+            // Per-tile direct/transitive sub-line. Each line reads "X direct /
+            // Y transitive" — the same shape the Insights KPI strip uses, so
+            // users get a consistent mental model across both pages.
+            const splitLine = (slot) => `${(slot?.direct || 0).toLocaleString()} direct / ${(slot?.transitive || 0).toLocaleString()} transitive`;
+
             return `<div id="vulnerability-section" class="independent-section">
     <div class="vulnerability-breakdown">
         <h3>🔒 Vulnerability Analysis</h3>
         ${filterNotice}
+        ${reachNotice}
         <div class="vulnerability-actions mb-3">
             <button class="btn btn-primary btn-sm" onclick="viewManager.runBatchVulnerabilityQuery('${escapeJsString(escapeHtml(orgName))}')">
                 <i class="fas fa-search"></i> Re-run Batch Vulnerability Query
@@ -5713,26 +6034,31 @@ class ViewManager {
                 <h4>🚨 Critical</h4>
                 <div class="vuln-number">${vulnAnalysis.criticalVulnerabilities || 0}</div>
                 <div class="vuln-detail">vulnerabilities</div>
+                <div class="vuln-detail small text-muted">${splitLine(splitTotals.critical)}</div>
             </div>
             <div class="vuln-stat-card high">
                 <h4>⚠️ High</h4>
                 <div class="vuln-number">${vulnAnalysis.highVulnerabilities || 0}</div>
                 <div class="vuln-detail">vulnerabilities</div>
+                <div class="vuln-detail small text-muted">${splitLine(splitTotals.high)}</div>
             </div>
             <div class="vuln-stat-card medium">
                 <h4>⚡ Medium</h4>
                 <div class="vuln-number">${vulnAnalysis.mediumVulnerabilities || 0}</div>
                 <div class="vuln-detail">vulnerabilities</div>
+                <div class="vuln-detail small text-muted">${splitLine(splitTotals.medium)}</div>
             </div>
             <div class="vuln-stat-card low">
                 <h4>ℹ️ Low</h4>
                 <div class="vuln-number">${vulnAnalysis.lowVulnerabilities || 0}</div>
                 <div class="vuln-detail">vulnerabilities</div>
+                <div class="vuln-detail small text-muted">${splitLine(splitTotals.low)}</div>
             </div>
             <div class="vuln-stat-card total">
                 <h4>📊 Total</h4>
                 <div class="vuln-number">${vulnAnalysis.vulnerablePackages || 0}</div>
                 <div class="vuln-detail">vulnerable packages</div>
+                <div class="vuln-detail small text-muted">${directVulnPackages.toLocaleString()} direct / ${transitiveVulnPackages.toLocaleString()} transitive</div>
             </div>
         </div>
         ${vulnerableDepsHTML}

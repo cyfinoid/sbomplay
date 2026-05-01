@@ -769,39 +769,53 @@ function renderAgeSection(ins) {
     const oldestList = ins.perRepo
         .filter(r => r.oldest)
         .sort((a, b) => (b.oldest?.months || 0) - (a.oldest?.months || 0));
-    const oldestRowFormatter = (r) => `
-        <tr>
-            <td><a href="repos.html?repo=${encodeURIComponent(r.repoKey)}">${escapeHtml(r.repoKey)}</a></td>
-            <td>${renderInsightsPkgLink(r.oldest.name, r.oldest.version, r.oldest.ecosystem)}</td>
-            <td><span class="badge bg-secondary">${escapeHtml(r.oldest.ecosystem || '—')}</span></td>
-            <td class="text-end">${r.oldest.months} mo</td>
-            <td class="text-end">${formatYears(r.oldest.months)}</td>
-        </tr>
-    `;
+    const oldestRowFormatter = (r) => {
+        const reachBadge = r.oldest.isDirect
+            ? '<span class="badge bg-danger" title="Used as a direct dependency in this repo">Direct</span>'
+            : '<span class="badge bg-secondary" title="Used as a transitive dependency in this repo">Transitive</span>';
+        return `
+            <tr>
+                <td><a href="repos.html?repo=${encodeURIComponent(r.repoKey)}">${escapeHtml(r.repoKey)}</a></td>
+                <td>${renderInsightsPkgLink(r.oldest.name, r.oldest.version, r.oldest.ecosystem)}</td>
+                <td>${reachBadge}</td>
+                <td><span class="badge bg-secondary">${escapeHtml(r.oldest.ecosystem || '—')}</span></td>
+                <td class="text-end">${r.oldest.months} mo</td>
+                <td class="text-end">${formatYears(r.oldest.months)}</td>
+            </tr>
+        `;
+    };
     const oldestTable = renderExpandableTable({
         rows: oldestList,
         capCount: 30,
         rowFormatter: oldestRowFormatter,
-        headerHtml: '<thead><tr><th>Repository</th><th>Package</th><th>Ecosystem</th><th class="text-end">Age</th><th class="text-end">~years</th></tr></thead>',
+        headerHtml: '<thead><tr><th>Repository</th><th>Package</th><th>Reach</th><th>Ecosystem</th><th class="text-end">Age</th><th class="text-end">~years</th></tr></thead>',
         wrapperStyle: 'max-height: 480px;',
         emptyHtml: '<p class="text-muted small mb-0">No publish-date data available for any repository.</p>',
         rowsLabel: 'repos'
     });
 
-    const eolRowFormatter = (p) => `
-        <tr>
-            <td>${renderInsightsPkgLink(p.name, p.version, p.ecosystem)}</td>
-            <td><span class="badge bg-secondary">${escapeHtml(p.ecosystem || '—')}</span></td>
-            <td class="text-end">${p.months} mo</td>
-            <td class="text-end">${p.repoCount}</td>
-            <td class="small text-muted">${escapeHtml(p.reason)}</td>
-        </tr>
-    `;
+    const eolRowFormatter = (p) => {
+        const direct = p.directRepoCount ?? 0;
+        const trans = p.transitiveRepoCount ?? 0;
+        const reachCell = direct > 0
+            ? `<span class="badge bg-danger" title="Direct in ${direct} repo${direct === 1 ? '' : 's'}">${direct}D / ${trans}T</span>`
+            : `<span class="badge bg-secondary" title="Transitive in ${trans} repo${trans === 1 ? '' : 's'}">${direct}D / ${trans}T</span>`;
+        return `
+            <tr>
+                <td>${renderInsightsPkgLink(p.name, p.version, p.ecosystem)}</td>
+                <td><span class="badge bg-secondary">${escapeHtml(p.ecosystem || '—')}</span></td>
+                <td class="text-end">${p.months} mo</td>
+                <td class="text-end">${p.repoCount}</td>
+                <td class="text-end">${reachCell}</td>
+                <td class="small text-muted">${escapeHtml(p.reason)}</td>
+            </tr>
+        `;
+    };
     const eolTable = renderExpandableTable({
         rows: ins.ageStats.probableEolTop || [],
         capCount: 25,
         rowFormatter: eolRowFormatter,
-        headerHtml: '<thead><tr><th>Package</th><th>Ecosystem</th><th class="text-end">Age</th><th class="text-end">Repos</th><th>Reason</th></tr></thead>',
+        headerHtml: '<thead><tr><th>Package</th><th>Ecosystem</th><th class="text-end">Age</th><th class="text-end">Repos</th><th class="text-end">Direct/Transitive</th><th>Reason</th></tr></thead>',
         wrapperStyle: 'max-height: 480px;',
         emptyHtml: '<p class="text-muted small mb-0">No probable-EOL packages detected.</p>',
         rowsLabel: 'packages'
@@ -904,23 +918,41 @@ function renderDriftSection(ins) {
 
     const driftRowFormatter = (r) => {
         const dc = r.driftCounts;
+        // 8-segment stack: each drift bucket split into direct (solid) and
+        // transitive (50% alpha). The renderer skips zero segments so empty
+        // splits don't bloat the legend.
+        const sCurrent = dc.currentSplit || { direct: dc.current, transitive: 0 };
+        const sPatch = dc.patchSplit || { direct: dc.patch, transitive: 0 };
+        const sMinor = dc.minorSplit || { direct: dc.minor, transitive: 0 };
+        const sMajor = dc.majorSplit || { direct: dc.major, transitive: 0 };
         const datasets = [
-            { label: 'Current', data: [dc.current], backgroundColor: cssColorForBucket('success'), borderWidth: 0, stack: 'drift' },
-            { label: 'Patch behind', data: [dc.patch], backgroundColor: cssColorForBucket('info'), borderWidth: 0, stack: 'drift' },
-            { label: 'Minor behind', data: [dc.minor], backgroundColor: cssColorForBucket('warning'), borderWidth: 0, stack: 'drift' },
-            { label: 'Major behind', data: [dc.major], backgroundColor: cssColorForBucket('danger'), borderWidth: 0, stack: 'drift' }
+            { label: 'Current (direct)', data: [sCurrent.direct], backgroundColor: cssColorForBucket('success'), borderWidth: 0, stack: 'drift' },
+            { label: 'Current (transitive)', data: [sCurrent.transitive], backgroundColor: alphaColor(cssColorForBucket('success'), 0.5), borderWidth: 0, stack: 'drift' },
+            { label: 'Patch (direct)', data: [sPatch.direct], backgroundColor: cssColorForBucket('info'), borderWidth: 0, stack: 'drift' },
+            { label: 'Patch (transitive)', data: [sPatch.transitive], backgroundColor: alphaColor(cssColorForBucket('info'), 0.5), borderWidth: 0, stack: 'drift' },
+            { label: 'Minor (direct)', data: [sMinor.direct], backgroundColor: cssColorForBucket('warning'), borderWidth: 0, stack: 'drift' },
+            { label: 'Minor (transitive)', data: [sMinor.transitive], backgroundColor: alphaColor(cssColorForBucket('warning'), 0.5), borderWidth: 0, stack: 'drift' },
+            { label: 'Major (direct)', data: [sMajor.direct], backgroundColor: cssColorForBucket('danger'), borderWidth: 0, stack: 'drift' },
+            { label: 'Major (transitive)', data: [sMajor.transitive], backgroundColor: alphaColor(cssColorForBucket('danger'), 0.5), borderWidth: 0, stack: 'drift' }
         ];
+        const totalPairs = sCurrent.direct + sCurrent.transitive
+            + sPatch.direct + sPatch.transitive
+            + sMinor.direct + sMinor.transitive
+            + sMajor.direct + sMajor.transitive;
         const miniCanvas = renderInlineMiniBarCanvas({
             datasets,
             width: 240,
             height: 16,
-            totalForDataset: dc.withDrift
+            totalForDataset: totalPairs || dc.withDrift
         });
+        const majorDirectChip = sMajor.direct > 0
+            ? `<span class="badge bg-danger ms-1" title="Major drift on a direct dep">${sMajor.direct}</span>`
+            : '';
         return `
             <tr>
                 <td><a href="repos.html?repo=${encodeURIComponent(r.repoKey)}">${escapeHtml(r.repoKey)}</a></td>
                 <td style="min-width: 250px;">${miniCanvas}</td>
-                <td class="text-end small">${dc.current}/${dc.patch}/${dc.minor}/<strong class="text-danger">${dc.major}</strong></td>
+                <td class="text-end small">${dc.current}/${dc.patch}/${dc.minor}/<strong class="text-danger">${dc.major}</strong>${majorDirectChip}</td>
                 <td class="text-end small">${dc.withDrift}</td>
             </tr>
         `;
@@ -937,19 +969,27 @@ function renderDriftSection(ins) {
         rowsLabel: 'repos'
     });
 
-    const topRowFormatter = (p) => `
-        <tr>
-            <td>${renderInsightsPkgLink(p.name, p.version, p.ecosystem)} <span class="text-muted small">→ ${escapeHtml(p.latestVersion)}</span></td>
-            <td><span class="badge bg-secondary">${escapeHtml(p.ecosystem || '—')}</span></td>
-            <td><span class="badge bg-${p.kind === 'major' ? 'danger' : 'warning text-dark'}">${p.kind}</span></td>
-            <td class="text-end">${p.repoCount}</td>
-        </tr>
-    `;
+    const topRowFormatter = (p) => {
+        const direct = p.directRepoCount ?? 0;
+        const trans = p.transitiveRepoCount ?? 0;
+        const reachCell = direct > 0
+            ? `<span class="badge bg-danger" title="Direct in ${direct} repo${direct === 1 ? '' : 's'}, transitive in ${trans}">${direct}D / ${trans}T</span>`
+            : `<span class="badge bg-secondary" title="Transitive in ${trans} repo${trans === 1 ? '' : 's'}">${direct}D / ${trans}T</span>`;
+        return `
+            <tr>
+                <td>${renderInsightsPkgLink(p.name, p.version, p.ecosystem)} <span class="text-muted small">→ ${escapeHtml(p.latestVersion)}</span></td>
+                <td><span class="badge bg-secondary">${escapeHtml(p.ecosystem || '—')}</span></td>
+                <td><span class="badge bg-${p.kind === 'major' ? 'danger' : 'warning text-dark'}">${p.kind}</span></td>
+                <td class="text-end">${p.repoCount}</td>
+                <td class="text-end">${reachCell}</td>
+            </tr>
+        `;
+    };
     const topTable = renderExpandableTable({
         rows: ins.driftStats.top || [],
         capCount: 20,
         rowFormatter: topRowFormatter,
-        headerHtml: '<thead><tr><th>Package</th><th>Ecosystem</th><th>Drift</th><th class="text-end">Repos</th></tr></thead>',
+        headerHtml: '<thead><tr><th>Package</th><th>Ecosystem</th><th>Drift</th><th class="text-end">Repos</th><th class="text-end">Direct/Transitive</th></tr></thead>',
         wrapperStyle: 'max-height: 520px;',
         emptyHtml: '<p class="text-muted small mb-0">No drift data available.</p>',
         rowsLabel: 'packages'
@@ -962,7 +1002,7 @@ function renderDriftSection(ins) {
                 <div class="row g-4">
                     <div class="col-12">
                         <h6 class="text-muted text-uppercase small mb-3">Drift per repository</h6>
-                        <p class="small text-muted mb-2">Stack order: <span class="badge bg-success">current</span> <span class="badge bg-info">patch</span> <span class="badge bg-warning text-dark">minor</span> <span class="badge bg-danger">major</span></p>
+                        <p class="small text-muted mb-2">Stack order: <span class="badge bg-success">current</span> <span class="badge bg-info">patch</span> <span class="badge bg-warning text-dark">minor</span> <span class="badge bg-danger">major</span> · solid = direct dep, faded = transitive. The trailing red chip on each row counts major-drift hits on direct deps.</p>
                         ${driftTable}
                     </div>
                     <div class="col-12">
@@ -1180,47 +1220,94 @@ function renderVulnAgeSection(ins) {
             factory: () => buildVulnAgeStackedBarConfig(ins.vulnAgeStats, ageBuckets)
         });
 
-    const tbRowFormatter = (t) => `
-        <tr>
-            <td>${renderInsightsPkgLink(t.pkg, t.version, t.ecosystem)}</td>
-            <td><span class="badge bg-secondary">${escapeHtml(t.ecosystem || '—')}</span></td>
-            <td><a href="https://osv.dev/vulnerability/${encodeURIComponent(t.cveId)}" target="_blank" rel="noreferrer noopener">${escapeHtml(t.cveId)}</a></td>
-            <td><span class="badge severity-${t.severity}">${escapeHtml(t.severity)}</span></td>
-            <td class="text-end">${t.ageDays} d</td>
-            <td><code class="small">${escapeHtml(t.fixVersion)}</code></td>
-        </tr>
-    `;
+    // New: Vulnerabilities × dependency depth chart. One stack per Level 1..N
+    // with the four severity colours layered on top. The user's headline
+    // request — surface that an unfixed CVE on a Level-1 dep is a much more
+    // pressing issue than the same CVE at depth 5.
+    const byDepth = ins.vulnAgeStats.byDepth;
+    const hasDepthData = byDepth && byDepth.size > 0;
+    const depthChartHtml = hasDepthData
+        ? renderChartCanvas({
+            height: 260,
+            factory: () => buildVulnDepthStackedBarConfig(byDepth)
+        })
+        : '<p class="text-muted small mb-0">No depth-level data available for findings.</p>';
+    const depthCaption = hasDepthData
+        ? '<p class="small text-muted mt-1 mb-2">Each bar is a depth level (Level 1 = direct, Level 2 = first-level transitive, …); stacks show severity. Unfixed findings on Level 1 are the strongest "actionable on this team alone" signal.</p>'
+        : '';
+
+    const tbRowFormatter = (t) => {
+        const reachBadge = t.isDirect
+            ? '<span class="badge bg-danger" title="At least one repo uses this dep as a direct dependency">Direct</span>'
+            : '<span class="badge bg-secondary" title="Used as a transitive dependency">Transitive</span>';
+        return `
+            <tr>
+                <td>${renderInsightsPkgLink(t.pkg, t.version, t.ecosystem)}</td>
+                <td>${reachBadge}</td>
+                <td><span class="badge bg-secondary">${escapeHtml(t.ecosystem || '—')}</span></td>
+                <td><a href="https://osv.dev/vulnerability/${encodeURIComponent(t.cveId)}" target="_blank" rel="noreferrer noopener">${escapeHtml(t.cveId)}</a></td>
+                <td><span class="badge severity-${t.severity}">${escapeHtml(t.severity)}</span></td>
+                <td class="text-end">${t.ageDays} d</td>
+                <td><code class="small">${escapeHtml(t.fixVersion)}</code></td>
+            </tr>
+        `;
+    };
     const tbTable = renderExpandableTable({
         rows: ins.vulnAgeStats.timeBombs || [],
         capCount: 50,
         rowFormatter: tbRowFormatter,
-        headerHtml: '<thead><tr><th>Package</th><th>Ecosystem</th><th>CVE</th><th>Severity</th><th class="text-end">Age</th><th>Fix</th></tr></thead>',
+        headerHtml: '<thead><tr><th>Package</th><th>Reach</th><th>Ecosystem</th><th>CVE</th><th>Severity</th><th class="text-end">Age</th><th>Fix</th></tr></thead>',
         wrapperStyle: 'max-height: 480px;',
         emptyHtml: '<p class="text-muted small mb-0">No time-bomb CVEs detected.</p>',
         rowsLabel: 'CVEs'
     });
 
+    // perRepoCH entries now carry `{ critical: { direct, transitive }, high: { ... } }`
+    // — flatten to a row model that the renderer can use.
     const repoCH = Array.from(ins.vulnAgeStats.perRepoCH.entries())
-        .map(([repoKey, c]) => ({ repoKey, ...c, total: (c.critical || 0) + (c.high || 0) }))
-        .sort((a, b) => b.total - a.total);
+        .map(([repoKey, c]) => {
+            const critDirect = c.critical?.direct || 0;
+            const critTrans = c.critical?.transitive || 0;
+            const highDirect = c.high?.direct || 0;
+            const highTrans = c.high?.transitive || 0;
+            return {
+                repoKey,
+                critDirect, critTrans, highDirect, highTrans,
+                criticalTotal: critDirect + critTrans,
+                highTotal: highDirect + highTrans,
+                directTotal: critDirect + highDirect,
+                total: critDirect + critTrans + highDirect + highTrans
+            };
+        })
+        // Sort by `directTotal` first (the most actionable bucket), then by overall total.
+        .sort((a, b) => (b.directTotal - a.directTotal) || (b.total - a.total));
 
     const repoCHRowFormatter = (r) => {
+        // 4-segment stack: direct C, direct H, transitive C, transitive H.
+        // Direct stacks shaded fully, transitive stacks at 50% alpha so the
+        // visual hierarchy reads "direct = louder".
         const datasets = [
-            { label: 'Critical', data: [r.critical], backgroundColor: cssColorForBucket('danger'), borderWidth: 0, stack: 'ch' },
-            { label: 'High', data: [r.high], backgroundColor: cssColorForBucket('warning'), borderWidth: 0, stack: 'ch' }
+            { label: 'Critical (direct)', data: [r.critDirect], backgroundColor: cssColorForBucket('danger'), borderWidth: 0, stack: 'ch' },
+            { label: 'High (direct)', data: [r.highDirect], backgroundColor: cssColorForBucket('warning'), borderWidth: 0, stack: 'ch' },
+            { label: 'Critical (transitive)', data: [r.critTrans], backgroundColor: alphaColor(cssColorForBucket('danger'), 0.5), borderWidth: 0, stack: 'ch' },
+            { label: 'High (transitive)', data: [r.highTrans], backgroundColor: alphaColor(cssColorForBucket('warning'), 0.5), borderWidth: 0, stack: 'ch' }
         ];
         const miniCanvas = renderInlineMiniBarCanvas({
             datasets,
-            width: 200,
+            width: 220,
             height: 14,
             totalForDataset: r.total
         });
+        const dirBadge = r.directTotal > 0
+            ? `<span class="badge bg-danger" title="${r.critDirect} critical + ${r.highDirect} high on direct deps">${r.directTotal}</span>`
+            : '<span class="text-muted small">0</span>';
         return `
             <tr>
                 <td><a href="repos.html?repo=${encodeURIComponent(r.repoKey)}">${escapeHtml(r.repoKey)}</a></td>
-                <td style="min-width: 210px;">${miniCanvas}</td>
-                <td class="text-end small text-danger fw-bold">${r.critical}</td>
-                <td class="text-end small text-warning fw-bold">${r.high}</td>
+                <td style="min-width: 230px;">${miniCanvas}</td>
+                <td class="text-end small text-danger fw-bold">${r.criticalTotal}</td>
+                <td class="text-end small text-warning fw-bold">${r.highTotal}</td>
+                <td class="text-end small fw-bold">${dirBadge}</td>
             </tr>
         `;
     };
@@ -1228,24 +1315,36 @@ function renderVulnAgeSection(ins) {
         rows: repoCH,
         capCount: 30,
         rowFormatter: repoCHRowFormatter,
-        headerHtml: '<thead><tr><th>Repository</th><th>Distribution</th><th class="text-end">C</th><th class="text-end">H</th></tr></thead>',
+        headerHtml: '<thead><tr><th>Repository</th><th>Distribution <span class="text-muted small">(direct=solid, transitive=faded)</span></th><th class="text-end">C</th><th class="text-end">H</th><th class="text-end">On direct</th></tr></thead>',
         wrapperStyle: 'max-height: 480px;',
         emptyHtml: '<p class="text-muted small mb-0">No Critical/High CVEs by repository.</p>',
         rowsLabel: 'repos'
     });
 
+    const splitBadge = (() => {
+        const td = ins.vulnAgeStats.totalsBySev;
+        if (!td) return '';
+        const direct = ins.vulnAgeStats.directCves || 0;
+        const trans = ins.vulnAgeStats.transitiveCves || 0;
+        return `<span class="badge bg-secondary ms-2">${direct.toLocaleString()} on direct / ${trans.toLocaleString()} on transitive</span>`;
+    })();
+
     return `
         <section class="card mb-4">
             <div class="card-header d-flex justify-content-between align-items-center">
                 <h5 class="mb-0"><i class="fas fa-stopwatch me-2"></i>Vulnerability age</h5>
-                <span class="badge bg-secondary">${ins.vulnAgeStats.totalCves} CVEs · median age ${ins.vulnAgeStats.medianAgeDays !== null ? ins.vulnAgeStats.medianAgeDays + ' d' : 'N/A'}</span>
+                <span class="badge bg-secondary">${ins.vulnAgeStats.totalCves} CVEs · median age ${ins.vulnAgeStats.medianAgeDays !== null ? ins.vulnAgeStats.medianAgeDays + ' d' : 'N/A'}${splitBadge ? ' ' + splitBadge : ''}</span>
             </div>
             <div class="card-body">
                 <h6 class="text-muted text-uppercase small mb-3">CVE age × severity</h6>
                 ${ageChartHtml}
+                <hr>
+                <h6 class="text-muted text-uppercase small mb-2">Vulnerabilities × dependency depth</h6>
+                ${depthCaption}
+                ${depthChartHtml}
                 <div class="row g-4 mt-1">
                     <div class="col-12">
-                        <h6 class="text-muted text-uppercase small mb-3">Time-bomb CVEs <span class="text-muted small">(&ge; 90d old, fix available, C/H)</span></h6>
+                        <h6 class="text-muted text-uppercase small mb-3">Time-bomb CVEs <span class="text-muted small">(&ge; 90d old, fix available, C/H — direct first)</span></h6>
                         ${tbTable}
                     </div>
                     <div class="col-12">
@@ -1256,6 +1355,103 @@ function renderVulnAgeSection(ins) {
             </div>
         </section>
     `;
+}
+
+/**
+ * Convert a hex/rgb color string to an rgba string with the given alpha.
+ * Used to fade transitive segments in the per-repo Critical+High mini bars
+ * so direct-dep findings stand out visually.
+ */
+function alphaColor(color, alpha) {
+    if (!color) return `rgba(108, 117, 125, ${alpha})`;
+    if (color.startsWith('rgba(')) {
+        return color.replace(/rgba\(([^)]+)\)/, (_, body) => {
+            const parts = body.split(',').map(s => s.trim());
+            parts[3] = String(alpha);
+            return `rgba(${parts.join(', ')})`;
+        });
+    }
+    if (color.startsWith('rgb(')) {
+        return color.replace('rgb(', 'rgba(').replace(')', `, ${alpha})`);
+    }
+    if (color.startsWith('#')) {
+        let hex = color.slice(1);
+        if (hex.length === 3) hex = hex.split('').map(c => c + c).join('');
+        const r = parseInt(hex.slice(0, 2), 16);
+        const g = parseInt(hex.slice(2, 4), 16);
+        const b = parseInt(hex.slice(4, 6), 16);
+        return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+    }
+    return color;
+}
+
+function buildVulnDepthStackedBarConfig(byDepth) {
+    const colors = getInsightsThemeColors();
+    const levels = Array.from(byDepth.keys()).sort((a, b) => a - b);
+    const series = [
+        { key: 'critical', label: 'Critical', color: cssColorForBucket('danger') },
+        { key: 'high', label: 'High', color: cssColorForBucket('warning') },
+        { key: 'medium', label: 'Medium', color: cssColorForBucket('info') },
+        { key: 'low', label: 'Low', color: cssColorForBucket('secondary') }
+    ];
+    return {
+        type: 'bar',
+        data: {
+            labels: levels.map(l => `Level ${l}`),
+            datasets: series.map(s => ({
+                label: s.label,
+                data: levels.map(l => byDepth.get(l)?.[s.key] || 0),
+                backgroundColor: s.color,
+                borderWidth: 0,
+                stack: 'sev'
+            }))
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                legend: {
+                    display: true,
+                    position: 'bottom',
+                    labels: { color: colors.text, boxWidth: 12, boxHeight: 12 }
+                },
+                tooltip: {
+                    callbacks: {
+                        label: (ctx) => {
+                            const v = ctx.parsed.y || 0;
+                            return `${ctx.dataset.label}: ${v.toLocaleString()}`;
+                        },
+                        afterBody: (ctxs) => {
+                            if (!ctxs.length) return '';
+                            const idx = ctxs[0].dataIndex;
+                            const level = levels[idx];
+                            const slot = byDepth.get(level);
+                            if (!slot) return '';
+                            const total = slot.total || 0;
+                            const directOnly = (slot.criticalDirect || 0) + (slot.highDirect || 0)
+                                + (slot.mediumDirect || 0) + (slot.lowDirect || 0);
+                            return `Total: ${total.toLocaleString()} · ${directOnly.toLocaleString()} on direct deps`;
+                        }
+                    }
+                }
+            },
+            scales: {
+                x: {
+                    stacked: true,
+                    title: { display: true, text: 'Dependency depth (Level 1 = direct)', color: colors.text },
+                    ticks: { color: colors.textMuted },
+                    grid: { display: false }
+                },
+                y: {
+                    stacked: true,
+                    beginAtZero: true,
+                    title: { display: true, text: 'Vulnerability count', color: colors.text },
+                    ticks: { color: colors.textMuted, precision: 0 },
+                    grid: { color: colors.border }
+                }
+            }
+        }
+    };
 }
 
 function buildVulnAgeStackedBarConfig(vulnAgeStats, ageBuckets) {
@@ -1410,14 +1606,33 @@ function buildRepoActivityBarConfig(buckets) {
 
 function renderRedFlagsSection(ins) {
     const ls = ins.licenseStats;
-    const licTotal = ls.high + ls.medium + ls.low;
-    const licSlices = [
+    // Prefer the (dep, repo) pair-level split if available — that's the unit
+    // the user actually sees on a per-row basis ("this license is direct in
+    // 3 repos and transitive in 7"). Falls back to per-package totals when
+    // the analyser hasn't tagged riskTier on each dep.
+    const pairs = ls.riskPairs || null;
+    const hasPairSplit = !!pairs && (pairs.high.direct + pairs.high.transitive
+        + pairs.medium.direct + pairs.medium.transitive
+        + pairs.low.direct + pairs.low.transitive) > 0;
+    const licTotal = hasPairSplit
+        ? (pairs.high.direct + pairs.high.transitive + pairs.medium.direct + pairs.medium.transitive + pairs.low.direct + pairs.low.transitive)
+        : (ls.high + ls.medium + ls.low);
+    // 4-slice donut: High (direct/transitive) and Medium (direct/transitive),
+    // plus Low (direct+transitive collapsed) so the donut keeps a manageable
+    // legend while still highlighting "direct" as visually distinct.
+    const licSlices = hasPairSplit ? [
+        { key: 'High (direct)', color: paletteHex('danger'), count: pairs.high.direct },
+        { key: 'High (transitive)', color: alphaColor(paletteHex('danger'), 0.5), count: pairs.high.transitive },
+        { key: 'Medium (direct)', color: paletteHex('warning'), count: pairs.medium.direct },
+        { key: 'Medium (transitive)', color: alphaColor(paletteHex('warning'), 0.5), count: pairs.medium.transitive },
+        { key: 'Low', color: paletteHex('success'), count: pairs.low.direct + pairs.low.transitive }
+    ] : [
         { key: 'High', color: paletteHex('danger'), count: ls.high },
         { key: 'Medium', color: paletteHex('warning'), count: ls.medium },
         { key: 'Low', color: paletteHex('success'), count: ls.low }
     ];
     const licDonut = licTotal > 0
-        ? renderDoughnutBlock(licSlices, 'deps', { size: 200 })
+        ? renderDoughnutBlock(licSlices, hasPairSplit ? 'occurrences' : 'deps', { size: 200 })
         : '<div class="text-muted small">No license data</div>';
 
     const sc = ins.supplyChain;
@@ -1443,19 +1658,27 @@ function renderRedFlagsSection(ins) {
         ? `${scTotal} red-flag findings · ${sc.totalActions} Actions scanned`
         : `${scTotal} red-flag findings`;
 
-    const directRowFormatter = (r) => `
-        <tr>
-            <td>${renderInsightsPkgLink(r.name, r.version, r.ecosystem)}</td>
-            <td><span class="badge bg-secondary">${escapeHtml(r.ecosystem || '—')}</span></td>
-            <td><code class="small">${escapeHtml(r.license)}</code></td>
-            <td class="text-end">${r.repoCount}</td>
-        </tr>
-    `;
+    const directRowFormatter = (r) => {
+        const directIn = r.directRepoCount ?? (Array.isArray(r.directIn) ? r.directIn.length : 0);
+        const transitiveIn = r.transitiveRepoCount ?? (Array.isArray(r.transitiveIn) ? r.transitiveIn.length : 0);
+        const transitiveCell = transitiveIn > 0
+            ? `<span class="badge bg-secondary" title="Same package, transitive in ${transitiveIn} other repo${transitiveIn === 1 ? '' : 's'}">${transitiveIn}</span>`
+            : '<span class="text-muted small">—</span>';
+        return `
+            <tr>
+                <td>${renderInsightsPkgLink(r.name, r.version, r.ecosystem)}</td>
+                <td><span class="badge bg-secondary">${escapeHtml(r.ecosystem || '—')}</span></td>
+                <td><code class="small">${escapeHtml(r.license)}</code></td>
+                <td class="text-end">${directIn}</td>
+                <td class="text-end">${transitiveCell}</td>
+            </tr>
+        `;
+    };
     const directTable = renderExpandableTable({
         rows: ls.directHighRisk || [],
         capCount: 25,
         rowFormatter: directRowFormatter,
-        headerHtml: '<thead><tr><th>Package</th><th>Ecosystem</th><th>License</th><th class="text-end">Repos</th></tr></thead>',
+        headerHtml: '<thead><tr><th>Package</th><th>Ecosystem</th><th>License</th><th class="text-end">Direct in</th><th class="text-end">Also transitive in</th></tr></thead>',
         wrapperStyle: 'max-height: 480px;',
         emptyHtml: '<p class="text-muted small mb-0">No copyleft licenses found on direct dependencies.</p>',
         rowsLabel: 'packages'
@@ -1547,6 +1770,13 @@ function renderTechDebtSection(ins) {
         repoTechDebt: computeRepoTechDebt(r)
     })).sort((a, b) => b.repoTechDebt.debt100 - a.repoTechDebt.debt100);
 
+    const directChip = (split, total, color, title) => {
+        const direct = split?.direct || 0;
+        if (!total) return `<span class="text-muted small">0</span>`;
+        if (direct === 0) return `<span class="small text-${color}">${total}</span>`;
+        return `<span class="small text-${color}">${total}</span> <span class="badge bg-danger ms-1" title="${title}">${direct}D</span>`;
+    };
+
     const repoRowFormatter = (r) => {
         const dc = r.driftCounts;
         const grade = scoreToGrade(r.repoTechDebt.score100);
@@ -1556,10 +1786,10 @@ function renderTechDebtSection(ins) {
                 <td><span class="badge bg-${gradeColor(grade)}">${grade}</span></td>
                 <td class="text-end fw-bold">${r.repoTechDebt.score100}</td>
                 <td class="text-end text-muted small">${r.depCount.toLocaleString()}</td>
-                <td class="text-end small text-danger">${r.critical}</td>
-                <td class="text-end small text-warning">${r.high}</td>
-                <td class="text-end small text-danger">${dc.major}</td>
-                <td class="text-end small text-warning">${dc.minor}</td>
+                <td class="text-end">${directChip(r.criticalSplit, r.critical, 'danger', `${r.criticalSplit?.direct || 0} on direct deps`)}</td>
+                <td class="text-end">${directChip(r.highSplit, r.high, 'warning', `${r.highSplit?.direct || 0} on direct deps`)}</td>
+                <td class="text-end">${directChip(dc.majorSplit, dc.major, 'danger', `${dc.majorSplit?.direct || 0} on direct deps`)}</td>
+                <td class="text-end">${directChip(dc.minorSplit, dc.minor, 'warning', `${dc.minorSplit?.direct || 0} on direct deps`)}</td>
                 <td class="text-end small text-muted">${escapeHtml(r.activity)}</td>
             </tr>
         `;
@@ -1570,7 +1800,7 @@ function renderTechDebtSection(ins) {
         rowFormatter: repoRowFormatter,
         headerHtml: '<thead><tr><th>Repository</th><th>Grade</th><th class="text-end">Score</th><th class="text-end">Deps</th><th class="text-end">Crit</th><th class="text-end">High</th><th class="text-end">Major drift</th><th class="text-end">Minor drift</th><th class="text-end">Activity</th></tr></thead>',
         wrapperStyle: 'max-height: 520px;',
-        emptyHtml: '<p class="text-muted small mb-0">No per-repo data.</p>',
+        emptyHtml: '<p class="text-muted small mb-0">No per-repo data. <span class="text-muted">Red "ND" badges count direct-dep findings — those weigh 3× in the score.</span></p>',
         rowsLabel: 'repos'
     });
 
@@ -1592,7 +1822,7 @@ function renderTechDebtSection(ins) {
                     </div>
                     <div class="col-md-9">
                         <h6 class="text-muted text-uppercase small mb-2">Component breakdown</h6>
-                        <p class="small text-muted mb-3">Each bar shows what fraction of that component's worst-case debt the portfolio currently carries (0 = perfect, 100 = maximum debt). Bars are tinted from green (healthy) → yellow → red as the debt level rises. The contribution column below each bar's tooltip multiplies the level by the component's weight; summing them yields the overall debt index above.</p>
+                        <p class="small text-muted mb-3">Each bar shows what fraction of that component's worst-case debt the portfolio currently carries (0 = perfect, 100 = maximum debt). Bars are tinted from green (healthy) → yellow → red as the debt level rises. The contribution column below each bar's tooltip multiplies the level by the component's weight; summing them yields the overall debt index above. <strong>Note:</strong> findings on direct dependencies (Level 1) count 3× their transitive equivalents inside the drift and vulnerability components — an unfixed direct-dep issue is the strongest "actionable on this team alone" signal.</p>
                         ${componentChartHtml}
                         <div class="table-responsive mt-3">
                             <table class="table table-sm align-middle mb-0">
@@ -1664,20 +1894,52 @@ function buildTechDebtComponentBarConfig(components) {
 }
 
 /**
- * Per-repo composite — same weights, narrowed inputs.
+ * Per-repo composite — direct-weighted edition.
+ *
+ * Same weights as before, but findings on **direct** dependencies count 3x
+ * their transitive equivalents in the drift + vulnerability subcomponents.
+ * Same rationale as the org-level `computeTechDebt`:
+ *   - direct deps are under the team's immediate control (version pin, swap,
+ *     remove). An unfixed direct issue is a stronger "actionable risk" signal.
+ *   - transitive deps may legitimately need the parent maintainer to ship
+ *     first, so they shouldn't dominate the composite.
+ *
+ * Falls back to legacy un-split aggregates if the new `*Split` fields are
+ * missing — keeps stored analyses with older aggregator output rendering.
  *
  * SBOM quality (formerly weight 0.15, derived from `repo.grade`) is intentionally
- * excluded for the same reason as the org-level composite: the SBOM is usually
- * generated by GitHub and the user has no lever to fix its NTIA / completeness
- * fields. The 0.15 weight is split evenly across drift / vulns / age — the
- * three signals a repo owner can actually move. `repo.grade` is still surfaced
- * via the Repository Hygiene SBOM-grade donut and the per-repo CSV export.
+ * excluded — the SBOM is usually generated by GitHub and the user has no lever
+ * to fix its NTIA / completeness fields. The 0.15 weight is split across drift /
+ * vulns / age (the user-actionable signals); `repo.grade` is still surfaced via
+ * the Repository Hygiene SBOM-grade donut and the per-repo CSV export.
  */
 function computeRepoTechDebt(repo) {
     const dc = repo.driftCounts;
-    const driftScore = dc.withDrift ? clamp01((dc.major * 3 + dc.minor) / (dc.withDrift * 3)) : 0;
-    const totalCves = repo.critical + repo.high + repo.medium + repo.low;
-    const vulnScore = repo.depCount ? clamp01((repo.critical * 10 + repo.high * 4 + repo.medium) / Math.max(1, repo.depCount)) : 0;
+    const majorDirect = dc.majorSplit?.direct || 0;
+    const majorTransitive = dc.majorSplit?.transitive || 0;
+    const minorDirect = dc.minorSplit?.direct || 0;
+    const minorTransitive = dc.minorSplit?.transitive || 0;
+    // Weighted (dep, repo) pair counts: each direct hit counts 3x.
+    const driftMajorWeighted = (majorDirect * 3) + majorTransitive;
+    const driftMinorWeighted = (minorDirect * 3) + minorTransitive;
+    const driftPairsTotal = (dc.majorSplit ? (dc.majorSplit.direct + dc.majorSplit.transitive
+        + dc.minorSplit.direct + dc.minorSplit.transitive
+        + (dc.patchSplit?.direct || 0) + (dc.patchSplit?.transitive || 0)
+        + (dc.currentSplit?.direct || 0) + (dc.currentSplit?.transitive || 0)) : dc.withDrift) || 0;
+    const driftScore = driftPairsTotal
+        ? clamp01((driftMajorWeighted * 3 + driftMinorWeighted) / (driftPairsTotal * 3))
+        : 0;
+
+    const critDirect = repo.criticalSplit?.direct || 0;
+    const critTransitive = repo.criticalSplit?.transitive || (repo.critical - critDirect);
+    const highDirect = repo.highSplit?.direct || 0;
+    const highTransitive = repo.highSplit?.transitive || (repo.high - highDirect);
+    const medDirect = repo.mediumSplit?.direct || 0;
+    const medTransitive = repo.mediumSplit?.transitive || (repo.medium - medDirect);
+    const vulnWeighted = (critDirect * 30 + highDirect * 12 + medDirect * 3)
+        + (critTransitive * 10 + highTransitive * 4 + medTransitive * 1);
+    const vulnScore = repo.depCount ? clamp01(vulnWeighted / Math.max(1, repo.depCount)) : 0;
+
     const ageWithData = Object.values(repo.ageBuckets).reduce((a, b) => a + b, 0);
     const stale = (repo.ageBuckets['2-3y'] || 0) + (repo.ageBuckets['3-5y'] || 0) + (repo.ageBuckets['>5y'] || 0);
     const ageScore = ageWithData ? clamp01(stale / ageWithData) : 0;
@@ -1715,25 +1977,41 @@ function exportTechDebtCsv(orgData) {
     const ins = window.__insightsCache;
     if (!ins) return;
 
-    const rows = [['repo', 'grade', 'score', 'deps', 'critical', 'high', 'medium', 'low',
-                   'major_drift', 'minor_drift', 'patch_drift', 'oldest_months', 'archived',
+    const rows = [['repo', 'grade', 'score', 'deps', 'direct_deps', 'transitive_deps',
+                   'critical', 'critical_direct', 'critical_transitive',
+                   'high', 'high_direct', 'high_transitive',
+                   'medium', 'medium_direct', 'medium_transitive',
+                   'low', 'low_direct', 'low_transitive',
+                   'major_drift', 'major_drift_direct', 'major_drift_transitive',
+                   'minor_drift', 'minor_drift_direct', 'minor_drift_transitive',
+                   'patch_drift', 'oldest_months', 'archived',
                    'has_dependency_graph', 'sbom_grade', 'unpinned_actions', 'pushed_at',
                    'primary_language']];
+
+    const sp = (v) => (v && typeof v === 'object') ? v : { direct: 0, transitive: 0 };
 
     for (const r of ins.perRepo) {
         const td = computeRepoTechDebt(r);
         const grade = scoreToGrade(td.score100);
+        const cs = sp(r.criticalSplit);
+        const hs = sp(r.highSplit);
+        const ms = sp(r.mediumSplit);
+        const lws = sp(r.lowSplit);
+        const majS = sp(r.driftCounts?.majorSplit);
+        const minS = sp(r.driftCounts?.minorSplit);
         rows.push([
             r.repoKey,
             grade,
             td.score100,
             r.depCount,
-            r.critical,
-            r.high,
-            r.medium,
-            r.low,
-            r.driftCounts.major,
-            r.driftCounts.minor,
+            r.directDepCountObserved ?? '',
+            r.transitiveDepCount ?? '',
+            r.critical, cs.direct, cs.transitive,
+            r.high, hs.direct, hs.transitive,
+            r.medium, ms.direct, ms.transitive,
+            r.low, lws.direct, lws.transitive,
+            r.driftCounts.major, majS.direct, majS.transitive,
+            r.driftCounts.minor, minS.direct, minS.transitive,
             r.driftCounts.patch,
             r.oldest?.months ?? '',
             r.archived ? 'true' : 'false',

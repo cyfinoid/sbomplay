@@ -497,9 +497,23 @@ document.addEventListener('DOMContentLoaded', async function() {
                 }
             });
             
-            // Get dependency count
+            // Get dependency count + direct/transitive split.
+            // The direct dep set is the SBOM ground truth (`repo.directDependencies`);
+            // the transitive count is what's left after subtracting direct hits.
             const depCount = repoDepKeys.size || repo.totalDependencies || 0;
-            
+            const directSet = new Set(Array.isArray(repo.directDependencies) ? repo.directDependencies : []);
+            let directDepCount = 0;
+            let transitiveDepCount = 0;
+            for (const depKey of repoDepKeys) {
+                if (directSet.has(depKey)) directDepCount++;
+                else transitiveDepCount++;
+            }
+            // Fall back to the SBOM-declared direct count if the repoDepKeys set
+            // is empty (legacy data without dep.repositories backfill).
+            if (directDepCount === 0 && transitiveDepCount === 0) {
+                directDepCount = directSet.size;
+            }
+
             // Get author count
             const authorCount = (authorRepoMap.get(repoKey) || new Set()).size;
             
@@ -521,6 +535,8 @@ document.addEventListener('DOMContentLoaded', async function() {
                 vulnLow: vulnLow,
                 vulnCount: vulnHigh + vulnMedium + vulnLow,
                 depCount: depCount,
+                directDepCount,
+                transitiveDepCount,
                 authorCount: authorCount,
                 license: repoLicense,
                 archived: isArchived,
@@ -681,9 +697,16 @@ document.addEventListener('DOMContentLoaded', async function() {
             }
             vulnCell += '</td>';
             
-            // Build dependencies cell (clickable)
+            // Build dependencies cell (clickable). Sub-line surfaces the
+            // direct/transitive split per repo so the user can scan for
+            // "highest direct-dep count" repos without opening each one.
             const depsLink = createRepoLink('deps.html', repo.name);
-            const depsCell = `<td><a href="${depsLink}" class="text-decoration-none"><span class="badge bg-primary">${repo.depCount}</span></a></td>`;
+            const direct = repo.directDepCount || 0;
+            const trans = repo.transitiveDepCount || 0;
+            const splitSub = (direct + trans) > 0
+                ? `<div class="small text-muted" title="Direct deps (declared in repo manifest) / Transitive deps (pulled in by other deps)">${direct.toLocaleString()} direct / ${trans.toLocaleString()} transitive</div>`
+                : '';
+            const depsCell = `<td><a href="${depsLink}" class="text-decoration-none"><span class="badge bg-primary">${repo.depCount}</span></a>${splitSub}</td>`;
             
             // Build authors cell (clickable)
             const authorsLink = createRepoLink('authors.html', repo.name);
@@ -729,13 +752,15 @@ document.addEventListener('DOMContentLoaded', async function() {
         });
         
         const csv = [
-            ['Repository', 'SBOM Grade', 'SBOM Score', 'Vulnerabilities (H/M/L)', 'Dependencies', 'Authors', 'Repository License'].join(','),
+            ['Repository', 'SBOM Grade', 'SBOM Score', 'Vulnerabilities (H/M/L)', 'Dependencies', 'Direct Deps', 'Transitive Deps', 'Authors', 'Repository License'].join(','),
             ...filtered.map(repo => [
                 `"${repo.name}"`,
                 repo.sbomGrade,
                 repo.sbomScore || 'N/A',
                 `"H:${repo.vulnHigh} M:${repo.vulnMedium} L:${repo.vulnLow}"`,
                 repo.depCount,
+                repo.directDepCount || 0,
+                repo.transitiveDepCount || 0,
                 repo.authorCount,
                 repo.license || 'N/A'
             ].join(','))

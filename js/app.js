@@ -2633,7 +2633,7 @@ class SBOMPlayApp {
                     repos: 'repos.html',
                     deps: 'deps.html',
                     vulnsCH: 'vuln.html',
-                    vulnAge: 'vuln.html',
+                    directDwell: 'vuln.html',
                     eol: 'findings.html',
                     licenses: 'licenses.html',
                     drift: 'insights.html',

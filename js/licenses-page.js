@@ -32,6 +32,14 @@ document.addEventListener('DOMContentLoaded', async function() {
         try {
             const analysisName = document.getElementById('analysisSelector')?.value;
             const categoryFilter = document.getElementById('categoryFilter')?.value || 'all';
+            const reachFilterEl = document.getElementById('reachFilter');
+            const reachFilterValue = reachFilterEl ? reachFilterEl.value : 'all';
+            // Stash on the renderer the same way `vuln-page.js` does — same
+            // rationale: avoids a coordinated refactor of `loadOrganizationData`'s
+            // renderFunction signature across every page.
+            if (window.viewManager) {
+                window.viewManager.__reachFilter = reachFilterValue === 'all' ? null : reachFilterValue;
+            }
             const container = document.getElementById('license-compliance-page');
             
             // Note: analysisName can be empty string '' for aggregated view - don't skip loading!
@@ -115,6 +123,12 @@ document.addEventListener('DOMContentLoaded', async function() {
         // Reload data to update both counts and high-risk list with new filter
         await loadLicenseData();
     });
+    const reachFilterEl = document.getElementById('reachFilter');
+    if (reachFilterEl) {
+        reachFilterEl.addEventListener('change', async function() {
+            await loadLicenseData();
+        });
+    }
     
     // Load initial data
     await loadLicenseData();

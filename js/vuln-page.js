@@ -44,13 +44,22 @@ document.addEventListener('DOMContentLoaded', async function() {
         try {
         const analysisName = document.getElementById('analysisSelector').value;
         const severityFilter = document.getElementById('severityFilter').value;
-        
+        const reachFilterEl = document.getElementById('reachFilter');
+        const reachFilterValue = reachFilterEl ? reachFilterEl.value : 'all';
+        // Stash on the renderer's `this`-scope via a property on viewManager
+        // — generateVulnerabilityAnalysisHTML reads it (no clean way to plumb
+        // an extra positional arg through `loadOrganizationData`'s `renderFunction`
+        // signature without a coordinated refactor of all the other pages).
+        if (window.viewManager) {
+            window.viewManager.__reachFilter = reachFilterValue === 'all' ? null : reachFilterValue;
+        }
+
         // Note: analysisName can be empty string '' for aggregated view - don't skip loading!
         console.log(`📋 Loading vulnerability data for: ${analysisName || 'All Analyses (aggregated)'}`);
-        
+
         // Use severity filter from parameter or URL
         const severityFilterValue = severityFilter === 'all' ? null : severityFilter.toUpperCase();
-        
+
         const data = await loadOrganizationData(analysisName, storageManager, {
             severityFilter: severityFilterValue,
             repoFilter: urlParamsObj.repo || null,
@@ -108,6 +117,8 @@ document.addEventListener('DOMContentLoaded', async function() {
     // Setup event listeners
     document.getElementById('analysisSelector').addEventListener('change', loadVulnerabilityData);
     document.getElementById('severityFilter').addEventListener('change', loadVulnerabilityData);
+    const reachFilterEl = document.getElementById('reachFilter');
+    if (reachFilterEl) reachFilterEl.addEventListener('change', loadVulnerabilityData);
 
     // ---------- Phase 3 (VEX) wiring ----------
     // Upload, suppression toggle, and management modal. Upload triggers a

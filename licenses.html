@@ -100,13 +100,13 @@
         <div class="card mb-4">
             <div class="card-body">
                 <div class="row">
-                    <div class="col-md-6">
+                    <div class="col-md-4">
                         <label class="form-label">Select Analysis</label>
                         <select class="form-select" id="analysisSelector">
                             <!-- Options populated dynamically, defaults to "All Analyses" (aggregated) -->
                         </select>
                     </div>
-                    <div class="col-md-6">
+                    <div class="col-md-4">
                         <label class="form-label">Filter by License Category</label>
                         <select class="form-select" id="categoryFilter">
                             <option value="all">All Categories</option>
@@ -116,6 +116,14 @@
                             <option value="lgpl">LGPL</option>
                             <option value="unknown">Unknown</option>
                             <option value="unlicensed">Unlicensed</option>
+                        </select>
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label">Filter by Reach</label>
+                        <select class="form-select" id="reachFilter" title="Direct = at least one repo declares this dep directly. Transitive = only pulled in by another dep.">
+                            <option value="all">All Dependencies</option>
+                            <option value="direct">Direct only</option>
+                            <option value="transitive">Transitive only</option>
                         </select>
                     </div>
                 </div>
@@ -211,14 +219,14 @@
     <script src="js/ecosystem-utils.js?v=0.0.9&cb=1777494400000"></script>
     <script src="js/depconfuse-service.js?v=0.0.9&cb=1777494400000"></script>
     <script src="js/cache-manager.js?v=0.0.9&cb=1777494400000"></script>
-    <script src="js/view-manager.js?v=0.0.9&cb=1777716000000"></script>
+    <script src="js/view-manager.js?v=0.1.1&cb=1814000000000"></script>
     <script src="js/license-processor.js?v=0.0.9&cb=1777716000000"></script>
     <script src="js/osv-service.js?v=0.0.9&cb=1777800000000"></script>
     <script src="js/sbom-processor.js?v=0.0.9&cb=1800000000000"></script>
     <script src="js/storage-manager.js?v=0.0.9&cb=1800000000000"></script>
     <script src="js/github-client.js?v=0.1.0&cb=1810800001000"></script>
-    <script src="js/app.js?v=0.1.0&cb=1810800000000"></script>
+    <script src="js/app.js?v=0.1.1&cb=1814000000000"></script>
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
-    <script src="js/licenses-page.js?v=0.0.9&cb=1788000000000"></script>
+    <script src="js/licenses-page.js?v=0.1.1&cb=1814000000000"></script>
 </body>
 </html> 
