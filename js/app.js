@@ -8,14 +8,20 @@ class SBOMPlayApp {
     constructor() {
         this.githubClient = new GitHubClient();
 
-        // Live rate limit updates: every GitHub REST response carries
-        // X-RateLimit-* headers. Re-render the counter on each response so
-        // the UI ticks down without polling. GraphQL uses a separate bucket
-        // and is intentionally not surfaced here (the existing display only
-        // shows the core REST limit).
+        // Per-bucket rate limit cache. GitHub charges each request against
+        // one of several independent pools (`core`, `graphql`, `search`,
+        // `code_search`, `dependency_snapshots`, …); we keep the latest
+        // counters for each so the UI can render one row per bucket instead
+        // of overwriting a single slot and "flipping" between values.
+        this.rateLimitByBucket = new Map();
+
+        // Live rate limit updates: every GitHub response carries
+        // X-RateLimit-* headers. The client emits one event per response
+        // (and seeds every known bucket from `/rate_limit` at scan start)
+        // so we re-render the per-bucket panel without polling.
         this.githubClient.addEventListener('rateLimitUpdate', (event) => {
             const info = event && event.detail;
-            if (!info || info.bucket !== 'core') return;
+            if (!info || !info.bucket) return;
             if (info.limit === null && info.remaining === null) return;
             this.updateRateLimitInfo(info);
         });
@@ -2281,27 +2287,104 @@ class SBOMPlayApp {
     }
 
     /**
-     * Update rate limit information
+     * Update rate limit information.
+     *
+     * GitHub charges each request against one of several independent
+     * rate-limit pools (`core`, `graphql`, `search`, `code_search`,
+     * `dependency_snapshots`, `integration_manifest`, …). We accumulate the
+     * latest counters per bucket in `this.rateLimitByBucket` and render one
+     * row per bucket so the panel doesn't flip between unrelated values.
+     *
+     * Accepts either a single per-bucket info object (live updates) or an
+     * object without a `bucket` field (legacy callers that passed the core
+     * summary directly), which we treat as the `core` bucket.
      */
     updateRateLimitInfo(info) {
         const rateLimitDiv = document.getElementById('rateLimitInfo');
         if (!rateLimitDiv) return;
 
-        const remainingDisplay = info.remaining === null || info.remaining === undefined
-            ? 'Unknown'
-            : info.remaining;
-        const limitDisplay = info.limit === null || info.limit === undefined
-            ? 'Unknown'
-            : info.limit;
-        const resetTime = info.reset
-            ? new Date(info.reset * 1000).toLocaleTimeString()
-            : 'Unknown';
+        if (!this.rateLimitByBucket) {
+            this.rateLimitByBucket = new Map();
+        }
+
+        if (info && typeof info === 'object') {
+            const bucket = info.bucket || 'core';
+            const merged = {
+                ...(this.rateLimitByBucket.get(bucket) || {}),
+                ...info,
+                bucket
+            };
+            this.rateLimitByBucket.set(bucket, merged);
+        }
+
+        if (this.rateLimitByBucket.size === 0) {
+            rateLimitDiv.innerHTML = '';
+            return;
+        }
+
+        const bucketLabels = {
+            core: 'Core REST',
+            graphql: 'GraphQL',
+            search: 'Search',
+            code_search: 'Code Search',
+            dependency_snapshots: 'Dependency Snapshots',
+            integration_manifest: 'Integration Manifest',
+            source_import: 'Source Import',
+            code_scanning_upload: 'Code Scanning Upload',
+            code_scanning_autofix: 'Code Scanning Autofix',
+            audit_log: 'Audit Log',
+            audit_log_streaming: 'Audit Log Streaming',
+            actions_runner_registration: 'Actions Runner Registration',
+            scim: 'SCIM'
+        };
+
+        const titleCase = (str) => str
+            .split('_')
+            .filter(Boolean)
+            .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+            .join(' ');
+
+        const bucketOrder = (bucket) => {
+            if (bucket === 'core') return 0;
+            if (bucket === 'graphql') return 1;
+            return 2;
+        };
+
+        const entries = Array.from(this.rateLimitByBucket.values()).sort((a, b) => {
+            const diff = bucketOrder(a.bucket) - bucketOrder(b.bucket);
+            if (diff !== 0) return diff;
+            return a.bucket.localeCompare(b.bucket);
+        });
+
+        const authenticated = entries.find((e) => e.authenticated)?.authenticated || 'No';
+
+        const rows = entries.map((entry) => {
+            const label = bucketLabels[entry.bucket] || titleCase(entry.bucket);
+            const remaining = entry.remaining === null || entry.remaining === undefined
+                ? 'Unknown'
+                : entry.remaining.toLocaleString();
+            const limit = entry.limit === null || entry.limit === undefined
+                ? 'Unknown'
+                : entry.limit.toLocaleString();
+            const reset = entry.reset
+                ? new Date(entry.reset * 1000).toLocaleTimeString()
+                : 'Unknown';
+
+            return `
+                <tr>
+                    <td class="pe-3">${escapeHtml(label)}</td>
+                    <td class="pe-3"><strong>${escapeHtml(remaining)}</strong> / ${escapeHtml(limit)}</td>
+                    <td class="text-muted">resets ${escapeHtml(reset)}</td>
+                </tr>
+            `;
+        }).join('');
 
         rateLimitDiv.innerHTML = `
-            <div class="alert alert-info alert-sm">
-                <strong>Rate Limit:</strong> ${remainingDisplay}/${limitDisplay} requests remaining
-                <br><strong>Reset Time:</strong> ${resetTime}
-                <br><strong>Authenticated:</strong> ${info.authenticated}
+            <div class="alert alert-info alert-sm mb-0">
+                <div class="mb-1"><strong>GitHub Rate Limits</strong> &middot; Authenticated: ${escapeHtml(authenticated)}</div>
+                <table class="table table-sm mb-0">
+                    <tbody>${rows}</tbody>
+                </table>
             </div>
         `;
     }

@@ -277,11 +277,23 @@ js/github-client.js |  55 +++++++++++++++++++----
 3 files changed, 151 insertions(+), 28 deletions(-)
 ```
 
-- GitHub client gains rate-limit awareness (read response headers, back off on 403/429, surface
-  remaining quota to the UI).
-- `app.js` consumes rate-limit info and pauses the analysis pipeline cleanly when quota is
-  exhausted.
+- `extractRateLimitFromResponse` now reads the `X-RateLimit-Resource` response header (added by
+  GitHub) to identify which independent rate-limit pool the response was charged against —
+  `core`, `graphql`, `search`, `code_search`, `dependency_snapshots`, `integration_manifest`, …
+  Per-bucket counters land in `lastRateLimit[resolvedBucket]` instead of overwriting a shared slot.
+- `getRateLimitInfo()` walks every entry in `data.resources` from `/rate_limit` at scan start and
+  emits one `rateLimitUpdate` event per bucket, so the UI panel is fully populated up-front rather
+  than being filled in piecemeal by whichever endpoints happen to respond first.
+- `SBOMPlayApp` constructor adds a new `rateLimitByBucket = new Map()` and removes the
+  `bucket !== 'core'` filter on the event listener; `updateRateLimitInfo` accumulates per-bucket
+  state and renders one `<tr>` per bucket inside `#rateLimitInfo` (Core REST and GraphQL first,
+  then alphabetical), with friendly bucket labels and a fallback to title-cased API names for
+  future GitHub bucket additions.
+- No back-off / pause behaviour was added — this is purely a UI-truthfulness fix so the displayed
+  counter stops "flipping" between unrelated bucket values.
 - Smallest, lowest-risk change in the inventory — port first.
+
+> **STATUS: PORTED** — see `Unreleased → Changed` in `CHANGELOG.md` on this branch.
 
 ### Group D — Supply chain hygiene refactor
 
@@ -684,10 +696,13 @@ Suggested ordering — smallest, lowest-risk first; cross-cutting refactors near
 one group at a time, ship a clean commit per sub-feature where the size warrants, and update the
 `CHANGELOG` `Unreleased` section as you go.
 
-- [ ] **Group C — Rate limit handling** (`a4d9f465`)
-  - [ ] `js/github-client.js` — read `X-RateLimit-*` headers, back off on 403/429.
-  - [ ] `js/app.js` — surface remaining quota; pause pipeline when exhausted.
-  - [ ] CHANGELOG entry.
+- [x] **Group C — Rate limit handling** (`a4d9f465`) — **DONE**
+  - [x] `js/github-client.js` — `extractRateLimitFromResponse` reads `X-RateLimit-Resource`;
+        `getRateLimitInfo` seeds every bucket from `/rate_limit`.
+  - [x] `js/app.js` — `rateLimitByBucket` Map; per-bucket `<tr>` rendering with friendly labels
+        (Core REST, GraphQL, Dependency Snapshots, …); core/graphql first then alphabetical.
+  - [x] Cache-busters bumped on all 9 HTML pages that load `js/app.js` or `js/github-client.js`.
+  - [x] CHANGELOG entry.
 - [ ] **Group A — EOL / EOX findings hardening** (`9d4bf346`, `ec2f08dc`, `7d91396a`)
   - [ ] `js/eox-service.js` — full ecosystem support (largest single file in this group).
   - [ ] `js/findings-page.js` — consume new EOX shape.
