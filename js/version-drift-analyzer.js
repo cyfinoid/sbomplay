@@ -8,14 +8,17 @@ class VersionDriftAnalyzer {
         this.cacheExpiry = 24 * 60 * 60 * 1000; // 24 hours cache
         this.requestTimeout = 10000; // 10 seconds timeout
         
-        // Registry URLs for fetching latest versions
+        // Registry URLs for fetching publish dates of specific versions.
+        // Latest-version lookups go through window.registryManager (which uses
+        // ecosyste.ms and is browser/CORS-safe for every ecosystem); only the
+        // direct date-fetch helpers below (npm/PyPI/Cargo) hit native registries
+        // for the per-version `time` / `upload_time` / `created_at` fields.
+        // Maven / RubyGems / NuGet date fetches are not implemented here — the
+        // search.maven.org Solr API in particular blocks browser CORS.
         this.registryUrls = {
             npm: 'https://registry.npmjs.org',
             pypi: 'https://pypi.org/pypi',
-            cargo: 'https://crates.io/api/v1/crates',
-            rubygems: 'https://rubygems.org/api/v1/gems',
-            maven: 'https://search.maven.org/solrsearch/select',
-            nuget: 'https://api.nuget.org/v3-flatcontainer'
+            cargo: 'https://crates.io/api/v1/crates'
         };
     }
 

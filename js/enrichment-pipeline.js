@@ -16,19 +16,10 @@ class EnrichmentPipeline {
     constructor(sbomProcessor, storageManager) {
         this.sbomProcessor = sbomProcessor;
         this.storageManager = storageManager;
-        
-        // deps.dev ecosystem mapping
-        this.ecosystemMap = {
-            'npm': 'npm',
-            'pypi': 'pypi',
-            'go': 'go',
-            'golang': 'go',
-            'maven': 'maven',
-            'cargo': 'cargo',
-            'nuget': 'nuget',
-            'rubygems': 'rubygems',
-            'composer': 'npm'  // Packagist uses similar API
-        };
+        // License fetching (with deps.dev ecosystem mapping) lives in LicenseFetcher
+        // (`js/license-fetcher.js`); we delegate to `window.licenseFetcher` from
+        // `fetchAllLicenses` so the GitHub flow and the upload flow share the same
+        // implementation per AGENTS.md "Never duplicate implementations".
     }
 
     /**
@@ -166,145 +157,29 @@ class EnrichmentPipeline {
     }
 
     /**
-     * Fetch licenses for all ecosystems
+     * Fetch licenses (and deps.dev source-repo / homepage / issue-tracker links)
+     * for all ecosystems. Delegates to the shared LicenseFetcher service so the
+     * GitHub flow and the upload flow use identical logic.
      */
     async fetchAllLicenses(dependencies, identifier, onProgress = () => {}) {
-        const depsNeedingLicenses = dependencies.filter(dep => {
-            const hasLicense = dep.license && 
-                dep.license !== 'Unknown' && 
-                dep.license !== 'NOASSERTION' &&
-                String(dep.license).trim() !== '';
-            return !hasLicense && dep.name && dep.version && dep.version !== 'unknown';
-        });
-
-        if (depsNeedingLicenses.length === 0) {
-            console.log('ℹ️ All dependencies already have licenses');
+        if (!window.licenseFetcher) {
+            console.warn('⚠️ LicenseFetcher service not available — skipping license enrichment');
             return;
         }
 
-        console.log(`📄 Fetching licenses for ${depsNeedingLicenses.length} packages...`);
-
-        // Group by ecosystem
-        const byEcosystem = new Map();
-        for (const dep of depsNeedingLicenses) {
-            const ecosystem = (dep.category?.ecosystem || '').toLowerCase();
-            if (!byEcosystem.has(ecosystem)) {
-                byEcosystem.set(ecosystem, []);
+        const result = await window.licenseFetcher.fetchLicenses(
+            dependencies,
+            (processed, total, message) => {
+                const pct = total > 0 ? (processed / total) * 100 : 0;
+                onProgress(pct, message || `Fetched ${processed}/${total} licenses`);
             }
-            byEcosystem.get(ecosystem).push(dep);
-        }
+        );
 
-        let processed = 0;
-        const total = depsNeedingLicenses.length;
+        // Mirror licenses + deps.dev links (repository_url, homepage, issue tracker)
+        // back into sbomProcessor so subsequent exports carry them.
+        window.licenseFetcher.syncToProcessor(dependencies, this.sbomProcessor);
 
-        for (const [ecosystem, deps] of byEcosystem) {
-            const system = this.ecosystemMap[ecosystem];
-            if (!system) continue;
-
-            // Process in batches
-            const batchSize = 10;
-            for (let i = 0; i < deps.length; i += batchSize) {
-                const batch = deps.slice(i, i + batchSize);
-                
-                await Promise.all(batch.map(dep => this.fetchLicenseForPackage(dep, system)));
-                
-                processed += batch.length;
-                onProgress((processed / total) * 100, `Fetched ${processed}/${total} licenses`);
-
-                // Rate limiting
-                if (i + batchSize < deps.length) {
-                    await new Promise(r => setTimeout(r, 100));
-                }
-            }
-        }
-
-        // Sync to processor
-        this.syncLicensesToProcessor(depsNeedingLicenses);
-        
-        console.log(`✅ License fetching complete: ${processed} processed`);
-    }
-
-    /**
-     * Fetch license for a single package from deps.dev
-     */
-    async fetchLicenseForPackage(dep, system) {
-        try {
-            const url = `https://api.deps.dev/v3alpha/systems/${system}/packages/${encodeURIComponent(dep.name)}/versions/${encodeURIComponent(dep.version)}`;
-            const response = await fetch(url);
-            
-            if (response.ok) {
-                const data = await response.json();
-                if (data.licenses && data.licenses.length > 0) {
-                    const licenseStr = data.licenses.map(l => l.license || l).filter(Boolean).join(' AND ');
-                    dep.license = licenseStr;
-                    dep.licenseFull = licenseStr;
-                    dep.licenseAugmented = true;
-                    dep.licenseSource = 'deps.dev';
-                    return true;
-                }
-            }
-
-            // Fallback for Go packages on GitHub
-            if (system === 'go' && dep.name.startsWith('github.com/')) {
-                return await this.fetchLicenseFromGitHub(dep);
-            }
-
-            return false;
-        } catch (e) {
-            return false;
-        }
-    }
-
-    /**
-     * Fetch license from GitHub API (fallback for Go packages)
-     */
-    async fetchLicenseFromGitHub(dep) {
-        try {
-            const parts = dep.name.replace('github.com/', '').split('/');
-            if (parts.length < 2) return false;
-            
-            const url = `https://api.github.com/repos/${parts[0]}/${parts[1]}`;
-            const response = await fetch(url);
-            
-            if (response.ok) {
-                const data = await response.json();
-                if (data.license?.spdx_id) {
-                    dep.license = data.license.spdx_id;
-                    dep.licenseFull = data.license.spdx_id;
-                    dep.licenseAugmented = true;
-                    dep.licenseSource = 'github';
-                    return true;
-                }
-            }
-            return false;
-        } catch (e) {
-            return false;
-        }
-    }
-
-    /**
-     * Sync fetched licenses back to sbomProcessor
-     */
-    syncLicensesToProcessor(dependencies) {
-        if (!this.sbomProcessor?.dependencies) return;
-
-        let synced = 0;
-        for (const dep of dependencies) {
-            if (dep.licenseAugmented && dep.license) {
-                const key = `${dep.name}@${dep.version}`;
-                const procDep = this.sbomProcessor.dependencies.get(key);
-                if (procDep) {
-                    procDep.license = dep.license;
-                    procDep.licenseFull = dep.licenseFull;
-                    procDep._licenseAugmented = true;
-                    procDep._licenseSource = dep.licenseSource;
-                    synced++;
-                }
-            }
-        }
-        if (synced > 0) {
-            console.log(`📄 Synced ${synced} licenses to processor`);
-        }
+        console.log(`✅ License fetching complete: ${result.fetched}/${result.total} fetched`);
     }
 
     /**
@@ -469,33 +344,50 @@ class EnrichmentPipeline {
     }
 
     /**
-     * Validate source repository URLs from SBOM externalRefs
-     * Checks if GitHub repos listed as SOURCE-CONTROL actually exist
+     * Validate source repository URLs from the SBOM and from API enrichment.
+     *
+     * Collects candidate GitHub repo URLs from THREE sources:
+     *   1. SBOM externalRefs (referenceCategory: SOURCE-CONTROL / referenceType: vcs)
+     *   2. dep.repositoryUrl populated by LicenseFetcher (deps.dev `links.SOURCE_REPO`)
+     *   3. dep.homepage populated by LicenseFetcher (deps.dev `links.HOMEPAGE`)
+     *
+     * Then issues at most one GitHub HEAD per unique owner/repo to flag dead repos.
+     * Without (2)+(3), Maven / NuGet / Go / etc. that don't carry SBOM externalRefs
+     * but DO have a deps.dev `SOURCE_REPO` would never be checked for dead-ness.
      */
     async validateSourceRepos(dependencies, onProgress = () => {}) {
         // Collect unique GitHub repo URLs to validate
-        const repoMap = new Map(); // url -> { deps: [], owner, repo }
-        
+        const repoMap = new Map(); // owner/repo -> { deps: [], owner, repo, originalUrl }
+
+        const addCandidate = (dep, url) => {
+            if (!url || typeof url !== 'string') return;
+            const parsed = this.parseGitHubUrl(url);
+            if (!parsed) return;
+            const key = `${parsed.owner}/${parsed.repo}`;
+            if (!repoMap.has(key)) {
+                repoMap.set(key, {
+                    deps: [],
+                    owner: parsed.owner,
+                    repo: parsed.repo,
+                    originalUrl: url
+                });
+            }
+            const entry = repoMap.get(key);
+            // Avoid double-listing the same dep when externalRefs and deps.dev agree.
+            if (!entry.deps.includes(dep)) {
+                entry.deps.push(dep);
+            }
+        };
+
         for (const dep of dependencies) {
             const externalRefs = dep.originalPackage?.externalRefs || [];
             for (const ref of externalRefs) {
                 if (ref.referenceCategory === 'SOURCE-CONTROL' || ref.referenceType === 'vcs') {
-                    const url = ref.referenceLocator || '';
-                    const parsed = this.parseGitHubUrl(url);
-                    if (parsed) {
-                        const key = `${parsed.owner}/${parsed.repo}`;
-                        if (!repoMap.has(key)) {
-                            repoMap.set(key, { 
-                                deps: [], 
-                                owner: parsed.owner, 
-                                repo: parsed.repo,
-                                originalUrl: url
-                            });
-                        }
-                        repoMap.get(key).deps.push(dep);
-                    }
+                    addCandidate(dep, ref.referenceLocator || '');
                 }
             }
+            addCandidate(dep, dep.repositoryUrl);
+            addCandidate(dep, dep.homepage);
         }
 
         if (repoMap.size === 0) {

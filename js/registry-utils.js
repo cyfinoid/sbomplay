@@ -332,24 +332,23 @@ class RegistryManager {
 
     /**
      * Fetch latest version from Maven via ecosyste.ms
-     * Maven packages are formatted as "groupId:artifactId"
+     * Maven packages are formatted as "groupId:artifactId" and ecosyste.ms expects
+     * the colon-joined coordinate as a SINGLE URL-encoded path segment.
+     * Using two segments (groupId/artifactId) returns 404 for every Maven package.
      */
     async _fetchMavenLatestVersion(packageName) {
         try {
             const registryName = await this.getRegistryName('maven');
             if (!registryName) return null;
-            
-            // Parse Maven package name: "groupId:artifactId"
+
             const parts = packageName.split(':');
             if (parts.length < 2) {
                 console.log(`⚠️ Invalid Maven package format: ${packageName} (expected groupId:artifactId)`);
                 return null;
             }
-            
-            const groupId = parts[0];
-            const artifactId = parts[1];
-            
-            const url = `${this.ecosystemsBaseUrl}/registries/${registryName}/packages/${encodeURIComponent(groupId)}/${encodeURIComponent(artifactId)}`;
+
+            const coordinate = `${parts[0]}:${parts[1]}`;
+            const url = `${this.ecosystemsBaseUrl}/registries/${registryName}/packages/${encodeURIComponent(coordinate)}`;
             const response = await fetchWithTimeout(url);
             if (!response.ok) return null;
             const data = await response.json();
