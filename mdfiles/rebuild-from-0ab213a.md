@@ -23,18 +23,49 @@
 | Commits to re-create | 17 |
 | Files to consult on `defcon-sg-3` | see per-commit inventory below |
 
-To diff a single file between this branch and the historical reference:
+To diff a single file between this branch and the historical reference (read-only inspection
+only — see the process rule below):
 
 ```bash
 git diff post-defcon-sg-2026..defcon-sg-3 -- js/insights-aggregator.js
+git show defcon-sg-3:js/vex-service.js | less
 ```
 
-To copy a file wholesale from `defcon-sg-3` into the rebuild branch (use sparingly, prefer
-hand-porting to avoid bringing back regressions):
+## 0.1. Process rule: re-implement, do not cherry-pick or copy
 
-```bash
-git checkout defcon-sg-3 -- js/vex-service.js
-```
+**For this rebuild we do not bring code back from `defcon-sg-3` mechanically. We re-implement.**
+
+Why this matters:
+- The whole point of rolling back was that the cumulative state on `defcon-sg-3` had quality
+  problems (destructive `computeDependencyTrees` post-pass, stats-card inconsistencies, license
+  attribution mis-credit, dead `audit.html` cards, etc.). Mechanical copies bring those problems
+  back.
+- Cherry-picks lift code along with whatever surrounding context it depended on at the time —
+  including code from earlier commits in the rolled-back range that we have not (and may never)
+  re-implement.
+- Hand re-implementation forces us to read each piece of code, understand it, and decide whether
+  the current rebuild branch should host it in that exact shape. It is the slowest correct path
+  and the only one that actually exits the rebuild with a clean codebase.
+
+Forbidden in this rebuild:
+- `git cherry-pick <sha>` from the rolled-back range (`0ab213a..defcon-sg-3`).
+- `git checkout defcon-sg-3 -- <path>` to overwrite a file with its `defcon-sg-3` version.
+- `git restore --source=defcon-sg-3 <path>` (same effect).
+- `git apply` of a patch generated from `git format-patch <sha>` against the rolled-back range,
+  unless every hunk has been read and validated by hand first.
+- "Just copy the whole file from `defcon-sg-3`" via the editor.
+
+Permitted (and encouraged):
+- `git diff post-defcon-sg-2026..defcon-sg-3 -- <path>` to read what changed.
+- `git show defcon-sg-3:<path>` / `git show <sha>:<path>` to read the historical version side by
+  side with the rebuild target.
+- Quoting small snippets from `defcon-sg-3` into the new implementation, after reading them and
+  deciding they make sense in the rebuild.
+- Asking "what did `defcon-sg-3` do here and why?" before deciding what the rebuild should do.
+
+Acceptance criterion for any rebuilt feature: every line of new code on `post-defcon-sg-2026` was
+typed (or generated) on this branch with intent, not lifted by SHA. The CHANGELOG entry should
+read like a re-implementation, not a port.
 
 ## 1. Inventory — 17 commits since `0ab213a`
 
