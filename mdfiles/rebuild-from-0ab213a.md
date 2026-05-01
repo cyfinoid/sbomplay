@@ -351,6 +351,52 @@ js/app.js             |  54 +++++++++++--
   `malware-page.js` to consume the new helpers.
 - `github-client.js` simplified.
 
+> **STATUS: PARTIALLY PORTED — `showFilterLoading` / `hideFilterLoading` slice only.**
+>
+> The 86-line `js/common.js` chunk in `6b446a91` bundled together at least three independent
+> threads of work: the **FilterLoading overlay helpers**, the **multi-page rewrites** that consume
+> the new supply-chain-hygiene helpers in `storage-manager.js`, and the simplification of
+> `github-client.js`. Re-implementing the whole commit in one go would force every other Group D
+> change to land at the same time and would be hard to review.
+>
+> What has been re-implemented on `post-defcon-sg-2026` so far:
+>
+> - `js/common.js` — `showFilterLoading(containerId, opts)` and `hideFilterLoading(containerId)`
+>   debounced overlay helpers (default 150 ms debounce). State held in a module-level `Map` keyed
+>   by container id; container is auto-promoted to `position: relative` if currently `static`;
+>   overlay DOM is reused if the host page already ships one, injected on first use otherwise.
+>   Both helpers are also exposed via `window.X` aliases at the bottom of `common.js` so they're
+>   reachable from any caller pattern.
+> - Wired into 7 call-sites that already exist on this branch (re-implemented by hand, not
+>   cherry-picked):
+>     - `js/audit-page.js` → `loadAuditData` (container `audit-analysis-page`)
+>     - `js/vuln-page.js` → `loadVulnerabilityData` (container `vulnerability-analysis-page`)
+>     - `js/malware-page.js` → `loadMalwareData` and `applyAndRender`
+>       (container `malware-analysis-page`)
+>     - `js/licenses-page.js` → `loadLicenseData` (container `license-compliance-page`,
+>       wrapped around the existing `try { ... } catch { ... }`, hide goes in the new `finally`)
+>     - `js/feeds-page.js` → `applyFilters` and the display-limit `change` handler
+>       (container `tableCard`)
+>     - `js/repos-page.js` → `filterTable` (container `tableCard`)
+> - The `.loading-overlay` / `.loading-spinner` CSS already exists at `0ab213a`
+>   (`css/style.css:3285-3304`, originally introduced in `376cd61` "js and css optimization"
+>   which pre-dates the rollback point), so no CSS change was needed.
+> - `cb=` cache-busters bumped on every HTML page that loads the touched JS files (12 files).
+>
+> Still pending in Group D (intentionally **not** ported in this slice — bring them back
+> alongside the rest of the supply-chain-hygiene refactor when each consumer is rebuilt):
+>
+> - The new helpers landed in `js/storage-manager.js` (~214 lines).
+> - The remaining `js/common.js` chunk beyond the FilterLoading helpers (~70 lines of additional
+>   helpers).
+> - Page-script rewrites in `authors-page.js`, `findings-page.js`, `insights-page.js`,
+>   `app.js`, plus the `github-client.js` simplification — all of which depend on Group B
+>   (Insights) and other groups and should be re-implemented when those groups are tackled.
+> - `defcon-sg-3` also wires `feeds-page.js`, `repos-page.js`, `malware-page.js` to the new
+>   storage helpers in addition to FilterLoading; only the FilterLoading wiring has been added
+>   here. Future Group D work needs to revisit these three files to re-implement the storage
+>   refactor without re-introducing regressions.
+
 ### Group E — VEX + package lifecycle + maintainer signals (largest)
 
 > Despite the modest commit message ("smaller tweaks, vex support added"), this is the single largest
@@ -741,12 +787,27 @@ one group at a time, ship a clean commit per sub-feature where the size warrants
   - [ ] `flowchart.md` — new EOX phase.
   - [ ] About-page airgap-info update.
   - [ ] CHANGELOG entry.
-- [ ] **Group D — Supply chain hygiene refactor** (`6b446a91`)
-  - [ ] `js/storage-manager.js` + `js/common.js` helpers.
-  - [ ] Multi-page rewrites (`authors-page.js`, `feeds-page.js`, `findings-page.js`,
-        `repos-page.js`, `malware-page.js`).
+- [ ] **Group D — Supply chain hygiene refactor** (`6b446a91`) — **PARTIALLY DONE
+       (FilterLoading slice only)**
+  - [x] `js/common.js` — `showFilterLoading` / `hideFilterLoading` debounced overlay helpers
+        (150 ms default debounce, `window.X` aliased).
+  - [x] Wired into 7 call-sites already on this branch:
+        `audit-page.js` (`loadAuditData`), `vuln-page.js` (`loadVulnerabilityData`),
+        `malware-page.js` (`loadMalwareData` + `applyAndRender`), `licenses-page.js`
+        (`loadLicenseData`, threaded through the existing `try/catch`), `feeds-page.js`
+        (`applyFilters` + display-limit handler), `repos-page.js` (`filterTable`).
+  - [x] CSS already present at `0ab213a` (`css/style.css:3285-3304` from `376cd61`); no CSS
+        changes needed.
+  - [x] Cache-busters bumped on all 12 HTML pages that load any of the touched JS files.
+  - [x] CHANGELOG entry (FilterLoading slice).
+  - [ ] Remainder of `js/common.js` chunk (the ~70 lines beyond FilterLoading).
+  - [ ] `js/storage-manager.js` supply-chain-hygiene helpers (~214 lines).
+  - [ ] Multi-page rewrites that consume the storage-manager helpers
+        (`authors-page.js`, `findings-page.js`, `insights-page.js`,
+        plus the storage-refactor portions of `feeds-page.js`, `malware-page.js`,
+        `repos-page.js` not already touched by the FilterLoading wiring).
   - [ ] `js/github-client.js` simplification.
-  - [ ] CHANGELOG entry.
+  - [ ] CHANGELOG entry (remainder).
 - [ ] **Group B — Insights page** — port hunks from `f58ea5fc`, `6e9cbee5`, `8621e79d`, `976a8946`,
        `5d09f6d2`, `aeaef48a`. **Skip** the destructive post-pass from `b50fa977` / `efb35de7`;
        use the two-pass attribution from §3.1 directly.

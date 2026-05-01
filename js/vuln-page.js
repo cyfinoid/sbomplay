@@ -40,6 +40,8 @@ document.addEventListener('DOMContentLoaded', async function() {
     await loadAnalysesList('analysisSelector', storageManager, document.getElementById('noDataSection'));
     
     async function loadVulnerabilityData() {
+        showFilterLoading('vulnerability-analysis-page');
+        try {
         const analysisName = document.getElementById('analysisSelector').value;
         const severityFilter = document.getElementById('severityFilter').value;
         
@@ -98,6 +100,9 @@ document.addEventListener('DOMContentLoaded', async function() {
         });
         
         return data;
+        } finally {
+            hideFilterLoading('vulnerability-analysis-page');
+        }
     }
     
     // Setup event listeners
