@@ -157,7 +157,7 @@ function computeAgeStats(allDeps, directMap) {
     let covered = 0;
 
     for (const dep of allDeps) {
-        const s = dep.staleness;
+        const s = dep.staleness || dep.versionDrift?.staleness;
         if (!s || s.monthsSinceRelease === undefined || s.monthsSinceRelease === null) continue;
         covered++;
         const months = s.monthsSinceRelease;
@@ -300,7 +300,7 @@ function computeEolStats(allDeps, directMap) {
     for (const dep of allDeps) {
         const isDirect = isDirectAnywhere(dep, directMap);
         const eox = dep.eoxStatus;
-        const staleness = dep.staleness;
+        const staleness = dep.staleness || dep.versionDrift?.staleness;
         let isEol = false, isEos = false, source = null;
 
         if (eox && (eox.isEOL || eox.isEOS)) {

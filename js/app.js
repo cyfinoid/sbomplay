@@ -4812,9 +4812,18 @@ class SBOMPlayApp {
             
             if (driftData) {
                 dep.versionDrift = driftData;
+                if (driftData.staleness) {
+                    dep.staleness = driftData.staleness;
+                }
                 attachedCount++;
             }
         });
+
+        // Mirror onto sbomProcessor.dependencies so exportData() persists drift +
+        // staleness (same contract as EnrichmentPipeline.fetchVersionDrift).
+        if (window.EnrichmentPipeline && typeof window.EnrichmentPipeline.syncDriftToProcessor === 'function') {
+            window.EnrichmentPipeline.syncDriftToProcessor(dependencies, this.sbomProcessor);
+        }
         
         console.log(`✅ Version drift and staleness fetching complete: ${processed} versions fetched, ${attachedCount} attached to dependencies`);
     }
@@ -4834,8 +4843,8 @@ class SBOMPlayApp {
         const notableDeps = dependencies.filter(dep => {
             if (!dep.name) return false;
             const name = dep.name.toLowerCase();
-            // Check if it matches any known product in EOX service
-            return window.eoxService.findProduct(name, dep.ecosystem) !== null;
+            const eco = dep.category?.ecosystem || dep.ecosystem;
+            return window.eoxService.findProduct(name, eco) !== null;
         });
         
         if (notableDeps.length === 0) {
@@ -4854,10 +4863,11 @@ class SBOMPlayApp {
             
             await Promise.all(batch.map(async (dep) => {
                 try {
+                    const eco = dep.category?.ecosystem || dep.ecosystem;
                     const eoxStatus = await window.eoxService.checkEOX(
                         dep.name,
                         dep.version,
-                        dep.ecosystem
+                        eco
                     );
                     
                     if (eoxStatus && (eoxStatus.isEOL || eoxStatus.isEOS || eoxStatus.eolDate || eoxStatus.eosDate)) {
@@ -4929,6 +4939,9 @@ class SBOMPlayApp {
 
             // Fetch EOX (End-of-Life) data for notable packages
             await this.fetchEOXData(results.allDependencies);
+            if (window.EnrichmentPipeline && typeof window.EnrichmentPipeline.syncEOXToProcessor === 'function') {
+                window.EnrichmentPipeline.syncEOXToProcessor(results.allDependencies, this.sbomProcessor);
+            }
 
             // Attach version drift to vulnerable dependencies
             if (results.vulnerabilityAnalysis?.vulnerableDependencies) {
