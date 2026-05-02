@@ -1360,7 +1360,15 @@ class SBOMPlayApp {
                 }
             }
             
-            const success = await this.sbomProcessor.processSBOM(owner, repo, sbomData, repositoryLicense);
+            // Phase B: pass GitHub repo metadata through to processSBOM so the
+            // saved analysis carries push date / primary language / default branch
+            // for downstream Insights repo-hygiene + language-stack consumers.
+            const singleRepoMeta = {
+                pushedAt: repoData.pushed_at || null,
+                primaryLanguage: repoData.language || null,
+                defaultBranch: repoData.default_branch || null
+            };
+            const success = await this.sbomProcessor.processSBOM(owner, repo, sbomData, repositoryLicense, repoData.archived || false, singleRepoMeta);
             
             if (!success) {
                 this.showAlert(`Failed to process SBOM data for ${repoKey}`, 'danger');
@@ -1695,7 +1703,17 @@ class SBOMPlayApp {
                         
                         // Extract archived status from GitHub API response
                         const archived = repo.archived || false;
-                        const success = await this.sbomProcessor.processSBOM(owner, name, sbomData, repositoryLicense, archived);
+                        // Phase B: capture GitHub repo metadata (push date,
+                        // primary language, default branch) so the saved analysis
+                        // carries it for Insights / Language-stack / per-repo CSV.
+                        // Both REST (`getOrganizationRepos`) and GraphQL
+                        // (`getUserRepositoriesGraphQL`) emit these on the same keys.
+                        const orgRepoMeta = {
+                            pushedAt: repo.pushed_at || null,
+                            primaryLanguage: repo.language || null,
+                            defaultBranch: repo.default_branch || null
+                        };
+                        const success = await this.sbomProcessor.processSBOM(owner, name, sbomData, repositoryLicense, archived, orgRepoMeta);
                         this.sbomProcessor.updateProgress(success);
                         if (success) {
                             result.success = true;
@@ -1725,12 +1743,24 @@ class SBOMPlayApp {
                                 categories: {}
                             },
                             hasDependencyGraph: false, // NEW FLAG
-                            repositoryLicense: repo.license?.spdx_id || repo.license?.key || null,
+                            // Renamed from `repositoryLicense` to `license` so this no-SBOM stub
+                            // matches the same field name regular repos populate in
+                            // SBOMProcessor.processSBOM (line 259) — readers of repo.license
+                            // (view-manager, deps-page, license compatibility checker) now find
+                            // a value here too instead of always reading `undefined`.
+                            license: repo.license?.spdx_id || repo.license?.key || null,
                             archived: repo.archived || false,
                             description: repo.description || null,
                             url: repo.html_url || `https://github.com/${owner}/${name}`,
                             visibility: repo.visibility || 'public',
-                            language: repo.language || null
+                            language: repo.language || null,
+                            // Phase B: same GitHub repo metadata that processSBOM repos
+                            // carry — needed so no-SBOM stubs still contribute to the
+                            // Insights repo-hygiene activity-bucket histogram and the
+                            // Language-stack section instead of being silent rows.
+                            pushedAt: repo.pushed_at || null,
+                            primaryLanguage: repo.language || null,
+                            defaultBranch: repo.default_branch || null
                         };
                         
                         this.sbomProcessor.repositories.set(repoKey, repoData);

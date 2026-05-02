@@ -1319,15 +1319,21 @@ class LicenseProcessor {
     }
 
     /**
-     * Check if a dependency license is compatible with a repository license
-     * Returns true if compatible, false if incompatible, null if unknown/indeterminate
-     * @param {string} dependencyLicense - The dependency's license (SPDX identifier)
-     * @param {string} repositoryLicense - The repository's license (SPDX identifier)
+     * Check if a dependency license is compatible with the consuming repo's license.
+     * Returns true if compatible, false if incompatible, null if unknown/indeterminate.
+     *
+     * The second arg is the license of the host/consumer repo this dep is consumed
+     * by — historically called `repositoryLicense` (matched the dep field of the
+     * same name); renamed to `consumerRepoLicense` in line with the dep-field
+     * rename, to make the semantic ("license of the repo consuming this dep") clear.
+     *
+     * @param {string} dependencyLicense - The dependency's own license (SPDX identifier)
+     * @param {string} consumerRepoLicense - The consuming repo's license (SPDX identifier)
      * @returns {boolean|null} - true if compatible, false if incompatible, null if unknown
      */
-    isDependencyCompatibleWithRepository(dependencyLicense, repositoryLicense) {
-        // If repository license is not available, we can't determine compatibility
-        if (!repositoryLicense) {
+    isDependencyCompatibleWithRepository(dependencyLicense, consumerRepoLicense) {
+        // If consumer repo license is not available, we can't determine compatibility
+        if (!consumerRepoLicense) {
             return null;
         }
 
@@ -1337,20 +1343,20 @@ class LicenseProcessor {
         }
 
         // Same license is always compatible
-        if (dependencyLicense === repositoryLicense) {
+        if (dependencyLicense === consumerRepoLicense) {
             return true;
         }
 
         // Check compatibility using the existing compatibility matrix
         // If repository is GPL and dependency is GPL, they're compatible
-        if (this.areLicensesCompatible(dependencyLicense, repositoryLicense)) {
+        if (this.areLicensesCompatible(dependencyLicense, consumerRepoLicense)) {
             return true;
         }
 
-        // Special case: If repository is GPL-licensed, GPL dependencies are compatible
-        const repoIsGPL = repositoryLicense.toLowerCase().includes('gpl') && 
-                          !repositoryLicense.toLowerCase().includes('lgpl') &&
-                          !repositoryLicense.toLowerCase().includes('agpl');
+        // Special case: If consumer repo is GPL-licensed, GPL dependencies are compatible
+        const repoIsGPL = consumerRepoLicense.toLowerCase().includes('gpl') && 
+                          !consumerRepoLicense.toLowerCase().includes('lgpl') &&
+                          !consumerRepoLicense.toLowerCase().includes('agpl');
         const depIsGPL = dependencyLicense.toLowerCase().includes('gpl') && 
                          !dependencyLicense.toLowerCase().includes('lgpl') &&
                          !dependencyLicense.toLowerCase().includes('agpl');
@@ -1359,17 +1365,17 @@ class LicenseProcessor {
             return true; // GPL dependencies are compatible with GPL repositories
         }
 
-        // Special case: If repository is LGPL-licensed, LGPL and GPL dependencies are compatible
-        const repoIsLGPL = repositoryLicense.toLowerCase().includes('lgpl');
+        // Special case: If consumer repo is LGPL-licensed, LGPL and GPL dependencies are compatible
+        const repoIsLGPL = consumerRepoLicense.toLowerCase().includes('lgpl');
         const depIsLGPL = dependencyLicense.toLowerCase().includes('lgpl');
         
         if (repoIsLGPL && (depIsLGPL || depIsGPL)) {
             return true; // LGPL/GPL dependencies are compatible with LGPL repositories
         }
 
-        // If repository is permissive (MIT, Apache, BSD, etc.), all dependencies are generally compatible
+        // If consumer repo is permissive (MIT, Apache, BSD, etc.), all dependencies are generally compatible
         // But copyleft dependencies might still be flagged for awareness
-        const repoIsPermissive = this.licenseCategories.permissive.licenses.includes(repositoryLicense);
+        const repoIsPermissive = this.licenseCategories.permissive.licenses.includes(consumerRepoLicense);
         if (repoIsPermissive) {
             // Permissive licenses can use any dependency, but we still want to flag copyleft for awareness
             // Return true for compatibility, but the risk assessment will still flag copyleft
@@ -1377,7 +1383,7 @@ class LicenseProcessor {
         }
 
         // For other cases, use the compatibility matrix
-        return this.areLicensesCompatible(dependencyLicense, repositoryLicense);
+        return this.areLicensesCompatible(dependencyLicense, consumerRepoLicense);
     }
 }
 

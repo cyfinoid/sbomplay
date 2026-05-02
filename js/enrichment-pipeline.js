@@ -183,6 +183,84 @@ class EnrichmentPipeline {
     }
 
     /**
+     * Mirror per-dep version-drift + staleness writes back into
+     * `sbomProcessor.dependencies` (the Map exportData() rebuilds dep objects
+     * from). Without this step the enrichment fields live only on the in-memory
+     * dep array and get silently erased on the next save/load cycle.
+     *
+     * Mirrors the pattern of `LicenseFetcher.syncToProcessor` (see
+     * `js/license-fetcher.js:426`). Idempotent — when the Map entry doesn't
+     * exist (dep was filtered out before processing reached the Map), we skip
+     * silently.
+     *
+     * @param {Array} dependencies - dep array enriched by `fetchVersionDrift`
+     * @param {Object|null} sbomProcessor - processor whose Map should be updated
+     */
+    static syncDriftToProcessor(dependencies, sbomProcessor) {
+        if (!sbomProcessor?.dependencies || !Array.isArray(dependencies)) return;
+        let driftSynced = 0;
+        let stalenessSynced = 0;
+        for (const dep of dependencies) {
+            if (!dep?.name) continue;
+            const packageKey = `${dep.name}@${dep.version}`;
+            const processorDep = sbomProcessor.dependencies.get(packageKey);
+            if (!processorDep) continue;
+            if (dep.versionDrift) {
+                processorDep.versionDrift = dep.versionDrift;
+                driftSynced++;
+            }
+            if (dep.staleness) {
+                processorDep.staleness = dep.staleness;
+                stalenessSynced++;
+            }
+        }
+        if (driftSynced > 0 || stalenessSynced > 0) {
+            console.log(`🔄 Synced ${driftSynced} version-drift + ${stalenessSynced} staleness entries to processor`);
+        }
+    }
+    
+    /**
+     * Mirror per-dep EOX status writes back into `sbomProcessor.dependencies`
+     * so `exportData()` can persist them. See syncDriftToProcessor for rationale.
+     */
+    static syncEOXToProcessor(dependencies, sbomProcessor) {
+        if (!sbomProcessor?.dependencies || !Array.isArray(dependencies)) return;
+        let synced = 0;
+        for (const dep of dependencies) {
+            if (!dep?.name || !dep.eoxStatus) continue;
+            const packageKey = `${dep.name}@${dep.version}`;
+            const processorDep = sbomProcessor.dependencies.get(packageKey);
+            if (!processorDep) continue;
+            processorDep.eoxStatus = dep.eoxStatus;
+            synced++;
+        }
+        if (synced > 0) {
+            console.log(`🔄 Synced ${synced} EOX status entries to processor`);
+        }
+    }
+    
+    /**
+     * Mirror per-dep source-repo validation results back into
+     * `sbomProcessor.dependencies` so `exportData()` can persist them. See
+     * syncDriftToProcessor for rationale.
+     */
+    static syncSourceRepoStatusToProcessor(dependencies, sbomProcessor) {
+        if (!sbomProcessor?.dependencies || !Array.isArray(dependencies)) return;
+        let synced = 0;
+        for (const dep of dependencies) {
+            if (!dep?.name || !dep.sourceRepoStatus) continue;
+            const packageKey = `${dep.name}@${dep.version}`;
+            const processorDep = sbomProcessor.dependencies.get(packageKey);
+            if (!processorDep) continue;
+            processorDep.sourceRepoStatus = dep.sourceRepoStatus;
+            synced++;
+        }
+        if (synced > 0) {
+            console.log(`🔄 Synced ${synced} source-repo status entries to processor`);
+        }
+    }
+
+    /**
      * Fetch version drift data and staleness information
      */
     async fetchVersionDrift(dependencies, onProgress = () => {}) {
@@ -246,6 +324,13 @@ class EnrichmentPipeline {
             }
         }
 
+        // Phase D: mirror dep.versionDrift + dep.staleness onto the
+        // sbomProcessor's dependencies Map so the next exportData() persists
+        // them. Without this step, both fields silently disappear on the
+        // following save/load cycle even though the in-memory dep array carried
+        // them through the run.
+        EnrichmentPipeline.syncDriftToProcessor(dependencies, this.sbomProcessor);
+        
         console.log(`✅ Version drift complete: ${checked} checked`);
     }
 
@@ -419,6 +504,12 @@ class EnrichmentPipeline {
         }
 
         const eoxCount = depsToCheck.filter(d => d.eoxStatus).length;
+        
+        // Phase D: mirror dep.eoxStatus onto the sbomProcessor's dependencies
+        // Map so the next exportData() persists it. See syncDriftToProcessor
+        // for the full rationale.
+        EnrichmentPipeline.syncEOXToProcessor(dependencies, this.sbomProcessor);
+        
         console.log(`✅ EOX status complete: ${eoxCount} packages have EOX data`);
     }
 
@@ -544,6 +635,11 @@ class EnrichmentPipeline {
             }
         }
 
+        // Phase D: mirror dep.sourceRepoStatus onto the sbomProcessor's
+        // dependencies Map so the next exportData() persists it. See
+        // syncDriftToProcessor for the full rationale.
+        EnrichmentPipeline.syncSourceRepoStatusToProcessor(dependencies, this.sbomProcessor);
+        
         console.log(`✅ Source repo validation complete: ${notFoundCount} repos not found`);
     }
 

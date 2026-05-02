@@ -988,8 +988,12 @@ document.addEventListener('DOMContentLoaded', function() {
                 const allRepos = window.currentData.allRepositories || [];
                 const repo = allRepos.find(r => `${r.owner}/${r.name}` === repoName);
                 
-                if (repo && (repo.repositoryLicense || repo.license)) {
-                    const repoLicense = repo.repositoryLicense || repo.license;
+                // The repo entry in allRepositories carries the host repo's own license
+                // in `repo.license`. The legacy `repo.repositoryLicense` fallback was a
+                // misnomer — that field only ever existed on dep entries (now renamed
+                // `consumerRepoLicense`) and was always undefined on repo entries.
+                if (repo && repo.license) {
+                    const repoLicense = repo.license;
                     if (repoLicense && repoLicense !== 'NOASSERTION' && String(repoLicense).trim() !== '') {
                         licenseFull = repoLicense;
                         isEnriched = true;

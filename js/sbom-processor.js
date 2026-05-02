@@ -237,8 +237,13 @@ class SBOMProcessor {
      * @param {Object} sbomData - SBOM data from GitHub
      * @param {string} repositoryLicense - Repository's own license (SPDX identifier, e.g., 'GPL-3.0', 'MIT')
      * @param {boolean} archived - Whether the repository is archived
+     * @param {Object} [meta] - Optional GitHub repo metadata captured from REST or GraphQL.
+     *   Shape: `{ pushedAt: string|null, primaryLanguage: string|null, defaultBranch: string|null }`.
+     *   Persisted onto the repo entry so downstream features (Insights repo-hygiene
+     *   activity-bucket histogram, Language stack, per-repo CSV export) can read the
+     *   host repo's actual GitHub metadata instead of inferring it from dep ecosystems.
      */
-    async processSBOM(owner, repo, sbomData, repositoryLicense = null, archived = false) {
+    async processSBOM(owner, repo, sbomData, repositoryLicense = null, archived = false, meta = null) {
         if (!sbomData || !sbomData.sbom || !sbomData.sbom.packages) {
             console.log(`⚠️  Invalid SBOM data for ${owner}/${repo}`);
             return false;
@@ -258,6 +263,11 @@ class SBOMProcessor {
             owner: owner,
             license: repositoryLicense || null,  // Store repository's own license
             archived: archived || false,  // Store archived status
+            // GitHub repo metadata captured from REST/GraphQL — nullable for the
+            // upload path / org-listing edge cases where it was not provided.
+            pushedAt: meta?.pushedAt || null,
+            primaryLanguage: meta?.primaryLanguage || null,
+            defaultBranch: meta?.defaultBranch || null,
             dependencies: new Set(),
             directDependencies: new Set(),  // Track direct dependencies from relationships
             totalDependencies: 0,
@@ -456,6 +466,13 @@ class SBOMProcessor {
         }
         
         this.repositories.set(repoKey, repoData);
+        
+        // Centralised two-pass attribution after every processSBOM keeps
+        // dep.repositories / directIn / transitiveIn correct for callers that
+        // never run the full resolver (single-repo scans, uploaded SBOMs that
+        // already declare every transitive). resolveFullDependencyTrees calls
+        // the same helper again once it discovers more deps + edges.
+        this.computeDirectAndTransitive();
         
         console.log(`📦 Processed ${repoKey}: ${processedPackages} packages, ${skippedPackages} skipped, ${repoData.totalDependencies} unique dependencies`);
         
@@ -681,6 +698,113 @@ class SBOMProcessor {
     }
 
     /**
+     * Centralised direct/transitive attribution for every dep in this.dependencies.
+     *
+     * Two-pass design:
+     *   Pass 1 (SBOM truth) — walk every repo.dependencies and use the repo's
+     *     directDependencies set as the source of truth. Each (dep, repo) pair
+     *     becomes either direct (if the repo declared it as such in the SBOM
+     *     relationships) or transitive otherwise. Every dep that appears in any
+     *     repo SBOM gets at least one entry in dep.repositories here.
+     *   Pass 2 (per-repo BFS) — for every repo, BFS from that repo's SBOM-direct
+     *     seed set through dep.children registry edges. Reaches transitives that
+     *     the SBOM did not enumerate (e.g., resolver-discovered packages that
+     *     were never in any repo.dependencies set). Pass 1 always wins on
+     *     direct/transitive classification (we never overwrite directIn).
+     *
+     * BFS scope is naturally per-ecosystem because dep.children only contains
+     * same-ecosystem children — no cross-ecosystem leak possible. This replaces
+     * the inline parent-trace pass that previously lived inside the per-ecosystem
+     * resolver loop and that suffered from concurrent-resolve cross-attribution.
+     *
+     * Pre-condition for Pass 2 to actually walk anywhere: direct deps need
+     * `dep.children` populated. The resolver itself never calls `tree.set` on
+     * direct-dep keys (it only stores their transitive children), so
+     * resolveFullDependencyTrees() backfills `dep.children` on every parent
+     * referenced in the resolver tree before Pass 2 runs. Without that
+     * backfill, Pass 2 BFS terminates at every seed without visiting a single
+     * transitive — the regression that keeps re-appearing whenever the
+     * "rebuild attribution from scratch" rewrite forgets this step.
+     *
+     * Idempotent: every call resets dep.repositories / dep.directIn /
+     * dep.transitiveIn / dep.count before recomputing, so calling it after each
+     * resolver run AND at the end of processSBOM converges to the same answer.
+     */
+    computeDirectAndTransitive() {
+        // Reset attribution state on every dep so successive runs converge.
+        for (const dep of this.dependencies.values()) {
+            dep.repositories = new Set();
+            dep.directIn = new Set();
+            dep.transitiveIn = new Set();
+        }
+        
+        // Pass 1: SBOM truth
+        for (const [repoKey, repoData] of this.repositories) {
+            const repoDeps = repoData.dependencies || new Set();
+            const directSet = repoData.directDependencies || new Set();
+            for (const depKey of repoDeps) {
+                const dep = this.dependencies.get(depKey);
+                if (!dep) continue;
+                dep.repositories.add(repoKey);
+                if (directSet.has(depKey)) {
+                    dep.directIn.add(repoKey);
+                } else {
+                    dep.transitiveIn.add(repoKey);
+                }
+            }
+        }
+        
+        // Pass 2: per-repo BFS through children edges
+        let bfsAttributions = 0;
+        for (const [repoKey, repoData] of this.repositories) {
+            const directSet = repoData.directDependencies || new Set();
+            if (directSet.size === 0) continue;
+            
+            const visited = new Set();
+            const queue = [];
+            for (const depKey of directSet) {
+                if (this.dependencies.has(depKey)) {
+                    queue.push(depKey);
+                    visited.add(depKey);
+                }
+            }
+            
+            while (queue.length > 0) {
+                const currentKey = queue.shift();
+                const currentDep = this.dependencies.get(currentKey);
+                if (!currentDep) continue;
+                const children = currentDep.children || [];
+                for (const childKey of children) {
+                    if (visited.has(childKey)) continue;
+                    visited.add(childKey);
+                    const childDep = this.dependencies.get(childKey);
+                    if (!childDep) continue;
+                    // Pass 1 is authoritative for direct classification — only
+                    // mark transitive if we did not already mark this pair as
+                    // direct (the SBOM declared it as a top-level dep).
+                    if (!childDep.directIn.has(repoKey)) {
+                        if (!childDep.transitiveIn.has(repoKey)) {
+                            bfsAttributions++;
+                        }
+                        childDep.transitiveIn.add(repoKey);
+                        childDep.repositories.add(repoKey);
+                    }
+                    queue.push(childKey);
+                }
+            }
+        }
+        
+        if (bfsAttributions > 0) {
+            console.log(`🔗 Resolver BFS added ${bfsAttributions} transitive (dep, repo) attribution${bfsAttributions === 1 ? '' : 's'} from registry tree`);
+        }
+        
+        // Refresh count to reflect repository attribution
+        for (const dep of this.dependencies.values()) {
+            dep.count = dep.repositories.size;
+        }
+    }
+
+    /**
      * Resolve full dependency trees using registry APIs
      */
     async resolveFullDependencyTrees(onProgress = null) {
@@ -782,17 +906,22 @@ class SBOMProcessor {
                         });
                     }
                     
-                    // Update dependencies with depth information
-                    // Use depth to correctly classify dependencies as direct (depth=1) or transitive (depth>1)
-                    // Track which repos have direct dependencies in this ecosystem to propagate transitive status
-                    const reposWithDirectDeps = new Set();
-                    directDeps.forEach(depKey => {
-                        const directDep = this.dependencies.get(depKey);
-                        if (directDep) {
-                            directDep.directIn.forEach(repo => reposWithDirectDeps.add(repo));
-                        }
-                    });
-                    
+                    // Decorate every dep in the resolved tree with depth + parents/children
+                    // edges. Repository attribution (directIn/transitiveIn/repositories) is NOT
+                    // mutated here — it is computed centrally by computeDirectAndTransitive()
+                    // after every per-ecosystem resolver finishes (see resolveFullDependencyTrees
+                    // tail and processSBOM tail). Doing repo attribution per-ecosystem here used
+                    // to leak across ecosystems (npm/Maven concurrent resolves attributing each
+                    // others' transitives), so we keep this loop dedicated to depth/edge metadata.
+                    //
+                    // Also build a parent → children index from the tree so we can backfill
+                    // `dep.children` on the direct-dep seeds below. The resolver itself only
+                    // calls `tree.set(childKey, …)` for transitive children — direct deps are
+                    // passed in as `parent` but never added as tree nodes — so without this
+                    // backfill `dep.children` is empty/undefined on every direct dep, and the
+                    // Pass-2 BFS in computeDirectAndTransitive() terminates at the seed without
+                    // visiting a single transitive (a real, repeatedly-rediscovered regression).
+                    const childrenByParentInTree = new Map();
                     for (const [packageKey, treeNode] of tree) {
                         let dep = this.dependencies.get(packageKey);
                         
@@ -862,86 +991,32 @@ class SBOMProcessor {
                         dep.parents = Array.from(treeNode.parents);
                         dep.children = Array.from(treeNode.children);
                         
-                        // CRITICAL: Ensure ALL dependencies (direct and transitive) are associated with the current repository
-                        // This is essential because every dependency belongs to at least one repository in the scan
-                        if (dep.repositories.size === 0 && reposWithDirectDeps.size > 0) {
-                            // This dependency was discovered during tree resolution but has no repos yet
-                            // Add it to all repos that are being scanned
-                            reposWithDirectDeps.forEach(repoKey => {
-                                dep.repositories.add(repoKey);
-                                if (treeNode.depth === 1) {
-                                    dep.directIn.add(repoKey);
-                                } else {
-                                    dep.transitiveIn.add(repoKey);
-                                }
-                            });
-                            dep.count = dep.repositories.size;
-                            console.log(`   📌 Associated ${packageKey} (depth ${treeNode.depth}) with ${dep.repositories.size} repo(s)`);
-                        }
-                        
-                        // Update directIn/transitiveIn based on depth
-                        // Depth 1 = direct, depth 2+ = transitive
-                        // For transitive dependencies, add them to transitiveIn for all repos that have their parent as direct
-                        if (treeNode.depth === 1) {
-                            // Direct dependency - ensure repos are marked correctly
-                            reposWithDirectDeps.forEach(repoKey => {
-                                // Add repo even if not already present (for newly discovered deps)
-                                dep.repositories.add(repoKey);
-                                dep.directIn.add(repoKey);
-                                dep.transitiveIn.delete(repoKey);
-                            });
-                            dep.count = dep.repositories.size;
-                        } else if (treeNode.depth > 1) {
-                            // Transitive dependency - mark as transitive in repos where parent is used
-                            // Trace back through parents to find which repos use this transitively
-                            const reposUsingTransitive = new Set();
-                            treeNode.parents.forEach(parentKey => {
-                                const parentDep = this.dependencies.get(parentKey);
-                                if (parentDep) {
-                                    // If parent is direct in a repo, then this transitive dep should be transitive in that repo
-                                    parentDep.directIn.forEach(repo => {
-                                        reposUsingTransitive.add(repo);
-                                        dep.repositories.add(repo);
-                                    });
-                                    // Also check if parent itself is transitive in some repos
-                                    parentDep.transitiveIn.forEach(repo => {
-                                        reposUsingTransitive.add(repo);
-                                        dep.repositories.add(repo);
-                                    });
-                                } else {
-                                    // Parent might be a direct dependency - check reposWithDirectDeps
-                                    reposWithDirectDeps.forEach(repo => reposUsingTransitive.add(repo));
-                                }
-                            });
-                            
-                            // Mark as transitive in all relevant repos
-                            reposUsingTransitive.forEach(repoKey => {
-                                dep.transitiveIn.add(repoKey);
-                                dep.directIn.delete(repoKey); // Ensure it's not marked as direct
-                                dep.repositories.add(repoKey);
-                            });
-                            
-                            // Update count to reflect all repositories
-                            dep.count = dep.repositories.size;
-                            
-                            // Fallback: if transitive dep still has no repositories, inherit from first parent
-                            if (dep.repositories.size === 0 && treeNode.parents && treeNode.parents.length > 0) {
-                                const firstParentKey = treeNode.parents[0];
-                                const parentDep = this.dependencies.get(firstParentKey);
-                                
-                                if (parentDep && parentDep.repositories.size > 0) {
-                                    // Inherit all repositories from first parent
-                                    parentDep.repositories.forEach(repo => {
-                                        dep.repositories.add(repo);
-                                        dep.transitiveIn.add(repo);
-                                    });
-                                    dep.count = dep.repositories.size;
-                                    console.log(`   📌 Inherited ${dep.repositories.size} repos from parent for ${depKey}`);
-                                } else {
-                                    console.warn(`   ⚠️  No repositories found for transitive dep ${depKey}`);
-                                }
+                        // Index this node under each of its parents so the post-loop
+                        // backfill can give direct-dep parents a non-empty .children.
+                        for (const parentKey of treeNode.parents) {
+                            if (!childrenByParentInTree.has(parentKey)) {
+                                childrenByParentInTree.set(parentKey, new Set());
                             }
+                            childrenByParentInTree.get(parentKey).add(packageKey);
                         }
+                    }
+                    
+                    // Backfill `dep.children` for every parent referenced in the tree —
+                    // most importantly the direct deps, which the resolver never adds as
+                    // tree nodes (it seeds them as `parent` but only `tree.set`s their
+                    // transitive children; see DependencyTreeResolver.resolvePackageDependencies).
+                    // Without this step, direct deps end up with `dep.children = undefined`
+                    // and the Pass-2 BFS in computeDirectAndTransitive() walks nowhere from
+                    // its seeds, leaving every resolver-discovered transitive orphaned in
+                    // `repo.dependencies` / `dep.repositories` / `dep.directIn` / `dep.transitiveIn`.
+                    for (const [parentKey, childKeys] of childrenByParentInTree) {
+                        const parentDep = this.dependencies.get(parentKey);
+                        if (!parentDep) continue;
+                        const merged = new Set(Array.isArray(parentDep.children) ? parentDep.children : []);
+                        for (const childKey of childKeys) {
+                            merged.add(childKey);
+                        }
+                        parentDep.children = Array.from(merged);
                     }
                     
                     const stats = resolver.getTreeStats(tree);
@@ -983,6 +1058,13 @@ class SBOMProcessor {
             console.log('✅ Dependency tree resolution complete');
             this.dependencyTreesResolved = true;
             this.resolvedDependencyTrees = resolvedTrees;
+            
+            // Centralised two-pass attribution sees every dep the resolver just
+            // discovered (with depth/parents/children edges populated) and rebuilds
+            // dep.repositories / dep.directIn / dep.transitiveIn from SBOM truth +
+            // per-repo BFS. Replaces the inline parent-trace pass that used to live
+            // inside the resolver loop and that leaked across ecosystems.
+            this.computeDirectAndTransitive();
             
             // Proactively check all dependencies for confusion using their original PURLs
             // This catches cases where SBOM name != PURL package name (e.g., mislabeled dependencies)
@@ -1098,26 +1180,11 @@ class SBOMProcessor {
         const topDeps = this.getTopDependencies(50);
         const topRepos = this.getTopRepositories(50);
         
-        // CRITICAL: Safety check - ensure all dependencies have at least one repository
-        // This is a belt-and-suspenders approach for single repository scans
-        if (this.repositories.size > 0) {
-            const repoKeys = Array.from(this.repositories.keys());
-            let fixedCount = 0;
-            this.dependencies.forEach((dep, depKey) => {
-                if (dep.repositories.size === 0) {
-                    // Dependency has no repository - add it to the first available repo
-                    const repoKey = repoKeys[0];
-                    dep.repositories.add(repoKey);
-                    dep.transitiveIn.add(repoKey);  // Mark as transitive since it's not direct
-                    dep.count = 1;
-                    fixedCount++;
-                }
-            });
-            if (fixedCount > 0) {
-                console.log(`📌 Fixed ${fixedCount} dependencies without repository associations`);
-            }
-        }
-        
+        // Direct/transitive attribution is now centralised in
+        // computeDirectAndTransitive() (called from processSBOM and
+        // resolveFullDependencyTrees), so the legacy "fix orphan deps by
+        // attaching to first repo" safety net is removed — keeping it would
+        // mask attribution bugs by silently mis-attributing orphans.
         const allDeps = Array.from(this.dependencies.values()).map(dep => {
             // Extract PURL from originalPackage if available
             let purl = null;
@@ -1144,14 +1211,18 @@ class SBOMProcessor {
                 licenseSource = licenseAugmented ? 'external' : 'sbom';
             }
             
-            // Determine repository license for this dependency
-            // For dependencies from repositories, use the first repository's license as fallback
-            let repositoryLicense = null;
+            // Capture the consumer repo's license alongside the dep — this is the
+            // license of the host/consumer repository that the dep was found in,
+            // NOT the dep's own license. Used by the license-compatibility checker
+            // to compare a copyleft dep against the consuming repo's license.
+            // Renamed from `repositoryLicense` (which was misread by several callers
+            // as the dep's own license) to make the semantic explicit.
+            let consumerRepoLicense = null;
             if (dep.repositories && dep.repositories.size > 0) {
                 const firstRepoKey = Array.from(dep.repositories)[0];
                 const repoData = this.repositories.get(firstRepoKey);
                 if (repoData && repoData.license) {
-                    repositoryLicense = repoData.license;
+                    consumerRepoLicense = repoData.license;
                 }
             }
             
@@ -1181,7 +1252,7 @@ class SBOMProcessor {
                 licenseFull: licenseFull,  // Include license (full form, from SBOM or fetched)
                 licenseAugmented: licenseAugmented,  // True if license was fetched externally
                 licenseSource: licenseSource,  // 'sbom' or 'deps.dev' or 'external'
-                repositoryLicense: repositoryLicense,  // Include repository license as fallback
+                consumerRepoLicense: consumerRepoLicense,  // License of the host/consumer repo (NOT the dep's own license — for compatibility checks only)
                 // Source-repository metadata captured during enrichment.
                 // Populated by LicenseFetcher (deps.dev `links[].SOURCE_REPO`)
                 // and EnrichmentPipeline.hydrateRepoUrlsFromPackageCache
@@ -1192,7 +1263,24 @@ class SBOMProcessor {
                 repositoryUrl: dep.repositoryUrl || null,
                 homepage: dep.homepage || null,
                 issueTrackerUrl: dep.issueTrackerUrl || null,
-                repositoryUrlSource: dep.repositoryUrlSource || null
+                repositoryUrlSource: dep.repositoryUrlSource || null,
+                // Phase D — enrichment outputs persisted per-dep so the deps
+                // page, findings page, and feeds page (plus the upcoming
+                // Insights page) keep their enrichment across page reloads.
+                // Pre-Phase-D, these lived only on the in-memory dep array and
+                // were silently erased on every save/load cycle.
+                //
+                // Each is a nested object (or null when the enrichment phase
+                // didn't fire for this dep) — renderers already handle null /
+                // undefined gracefully:
+                //   versionDrift     — full drift result from VersionDriftAnalyzer
+                //   staleness        — full staleness result (publishDate / monthsSinceRelease / probableEOL …)
+                //   eoxStatus        — full EOX result from eox-service.js
+                //   sourceRepoStatus — array of dead-repo detector results from validateSourceRepos
+                versionDrift: dep.versionDrift || null,
+                staleness: dep.staleness || null,
+                eoxStatus: dep.eoxStatus || null,
+                sourceRepoStatus: dep.sourceRepoStatus || null
             };
         });
         const allRepos = Array.from(this.repositories.values()).map(repo => {
@@ -1202,6 +1290,15 @@ class SBOMProcessor {
                 owner: repo.owner,
                 license: repo.license || null,  // Include repository license
                 archived: repo.archived || false,  // Include archived status
+                // GitHub repo metadata captured during processSBOM (Phase B):
+                //   pushedAt        — last push timestamp (ISO-8601)
+                //   primaryLanguage — GitHub-detected primary language
+                //   defaultBranch   — default branch name (typically main / master)
+                // Used by Insights' repo-hygiene activity-bucket histogram,
+                // Language-stack section, and per-repo CSV export.
+                pushedAt: repo.pushedAt || null,
+                primaryLanguage: repo.primaryLanguage || null,
+                defaultBranch: repo.defaultBranch || null,
                 totalDependencies: repo.totalDependencies,
                 dependencies: Array.from(repo.dependencies || []),
                 directDependencies: Array.from(repo.directDependencies || []),  // Direct dependencies
@@ -1562,6 +1659,12 @@ class SBOMProcessor {
                     homepage: dep.homepage || null,
                     issueTrackerUrl: dep.issueTrackerUrl || null,
                     repositoryUrlSource: dep.repositoryUrlSource || null,
+                    // Phase D — enrichment outputs persisted per-dep
+                    // (see exportData() for full per-field documentation).
+                    versionDrift: dep.versionDrift || null,
+                    staleness: dep.staleness || null,
+                    eoxStatus: dep.eoxStatus || null,
+                    sourceRepoStatus: dep.sourceRepoStatus || null,
                     // Original package reference for detailed info
                     originalPackage: dep.originalPackage
                 };
@@ -1582,6 +1685,11 @@ class SBOMProcessor {
                     name: repo.name,
                     owner: repo.owner,
                     license: repo.license || null,  // Include repository license
+                    // GitHub repo metadata captured during processSBOM (Phase B);
+                    // see exportData() for the same fields and their downstream consumers.
+                    pushedAt: repo.pushedAt || null,
+                    primaryLanguage: repo.primaryLanguage || null,
+                    defaultBranch: repo.defaultBranch || null,
                     totalDependencies: repo.totalDependencies,
                     dependencies: Array.from(repo.dependencies || []),
                     dependencyCategories: {

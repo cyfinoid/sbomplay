@@ -6,10 +6,10 @@
     <title>SBOM Play - About</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
-    <link href="css/style.css?v=0.0.9&cb=1777693251981" rel="stylesheet">
-    <link href="css/themes.css?v=0.0.9&cb=1777693251981" rel="stylesheet">
-    <script src="js/theme-manager.js?v=0.0.9&cb=1777693251981"></script>
-    <script src="js/depconfuse-service.js?v=0.0.9&cb=1777693251981"></script>
+    <link href="css/style.css?v=0.0.9&cb=1778000000000" rel="stylesheet">
+    <link href="css/themes.css?v=0.0.9&cb=1778000000000" rel="stylesheet">
+    <script src="js/theme-manager.js?v=0.0.9&cb=1778000000000"></script>
+    <script src="js/depconfuse-service.js?v=0.0.9&cb=1778000000000"></script>
 </head>
 <body>
     <!-- Navigation -->
@@ -265,6 +265,97 @@
                         <strong>Visualization:</strong> View results across multiple pages: Overview, Licenses, Vulnerabilities, Quality, Dependencies, and Authors
                     </li>
                 </ol>
+            </div>
+        </div>
+
+        <!-- Direct vs Transitive Classification & Dependency Depth -->
+        <div class="card mb-4">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="fas fa-sitemap me-2"></i>Direct vs Transitive Classification &amp; Dependency Depth</h5>
+            </div>
+            <div class="card-body">
+                <p>
+                    Every dependency in a portfolio is classified per consuming repository as either
+                    <strong>direct</strong> (the repo's own code declares it) or <strong>transitive</strong>
+                    (the repo only inherits it through the dependency tree of something else it declared).
+                    The same package can be direct in one repo and transitive in another. SBOM Play computes
+                    this attribution centrally with a deterministic two-pass algorithm so every page that
+                    splits Direct vs Transitive — Licenses, Vulnerabilities, Dependencies, Findings —
+                    reads from the same source of truth.
+                </p>
+
+                <div class="alert alert-light border">
+                    <strong>Definitions:</strong><br>
+                    • <span class="badge bg-primary">Direct</span> A dependency the repository declares
+                    itself (e.g., listed in <code>package.json</code>, <code>pom.xml</code>,
+                    <code>requirements.txt</code>, or <code>.github/workflows/*.yml</code>) — the team
+                    consciously brought it in.<br>
+                    • <span class="badge bg-secondary">Transitive</span> A dependency pulled in only because
+                    a direct dependency required it — the team didn't choose it, but they ship it.<br>
+                    • <span class="badge bg-info text-dark">Depth</span> Distance from the repo's own
+                    package in the resolved dependency tree (depth 1 = direct, depth 2+ = transitive).
+                </div>
+
+                <h6 class="mt-4"><i class="fas fa-layer-group me-2 text-primary"></i>Pass 1 — SBOM Truth</h6>
+                <p>
+                    For every repository in the portfolio, walk that repo's SBOM-declared dependencies and
+                    consult its <code>directDependencies</code> set (built from the SBOM's
+                    <code>DEPENDS_ON</code> relationships from the root package). Each
+                    <code>(dep, repo)</code> pair is added as <strong>direct in</strong> that repo if the
+                    SBOM declared it as a top-level edge from the repository, and as
+                    <strong>transitive in</strong> that repo otherwise.
+                </p>
+
+                <h6 class="mt-4"><i class="fas fa-route me-2 text-primary"></i>Pass 2 — Per-Repo BFS Through the Tree</h6>
+                <p>
+                    Some transitives never appear in the SBOM at all — they're discovered later when SBOM Play
+                    walks each direct dep's full version graph through the registry resolver
+                    (<a href="https://api.deps.dev" target="_blank" rel="noreferrer noopener">deps.dev</a>,
+                    <a href="https://packages.ecosyste.ms" target="_blank" rel="noreferrer noopener">packages.ecosyste.ms</a>).
+                    For every repo we BFS from its direct seed set through each dep's child registry edges
+                    and mark every reached <code>(dep, repo)</code> pair transitive in that repo. Pass 1
+                    always wins on direct classification — Pass 2 never overwrites a direct mark with a
+                    transitive one.
+                </p>
+
+                <div class="alert alert-info">
+                    <i class="fas fa-info-circle me-2"></i>
+                    <strong>Why per-repo BFS, not per-ecosystem flood?</strong> Earlier versions of the
+                    attribution pass mutated <code>directIn</code> / <code>transitiveIn</code> inside each
+                    ecosystem's resolver loop. When npm and Maven resolved concurrently, a Maven dep with no
+                    SBOM-listed repos got attributed to repos that only had npm direct deps (cross-ecosystem
+                    leak). The per-repo BFS scope is naturally per-ecosystem because <code>dep.children</code>
+                    only contains same-ecosystem children, so this class of leak is impossible by construction.
+                </div>
+
+                <h6 class="mt-4"><i class="fas fa-question-circle me-2 text-warning"></i>Why we don't trust GitHub-flat SBOMs alone</h6>
+                <p>
+                    GitHub's dependency-graph SBOMs flatten the tree — every <code>DEPENDS_ON</code>
+                    relationship goes from the repo's main package, so the SBOM marks
+                    <em>every</em> listed dep as a direct dep of the repo, including transitives. If we
+                    only trusted the SBOM (Pass 1), the Direct/Transitive split for GitHub-fetched
+                    portfolios would be meaningless. Pass 2's BFS through resolver-discovered edges is what
+                    recovers the real shape — anything reached only via <code>dep.children</code> is
+                    transitive, regardless of what the flat SBOM said.
+                </p>
+
+                <h6 class="mt-4"><i class="fas fa-globe me-2 text-secondary"></i>Imputed Direct (cross-portfolio inference)</h6>
+                <p>
+                    For organisation-wide aggregations, a dep that's transitive in every repo it touches
+                    can still be considered "<strong>imputed-directly used</strong>" by the org if the package
+                    is also directly declared in any other repo in the portfolio (or a sister portfolio
+                    sharing the same lockfile family). This is a forward-looking concept that the
+                    forthcoming Insights page surfaces — it gives M&amp;A and CTO audiences a more honest
+                    picture of "what the org actually owns" beyond SBOM-listed direct edges.
+                </p>
+
+                <h6 class="mt-4"><i class="fas fa-book me-2"></i>References</h6>
+                <ul>
+                    <li><a href="https://spdx.github.io/spdx-spec/v2.3/relationships-between-SPDX-elements/" target="_blank" rel="noreferrer noopener">SPDX 2.3 — Relationships between SPDX elements</a> (<code>DEPENDS_ON</code> semantics)</li>
+                    <li><a href="https://cyclonedx.org/docs/1.5/json/#dependencies" target="_blank" rel="noreferrer noopener">CycloneDX 1.5 — Dependency graph</a></li>
+                    <li><a href="https://docs.github.com/en/rest/dependency-graph/sboms" target="_blank" rel="noreferrer noopener">GitHub Dependency Graph SBOM API</a></li>
+                    <li><a href="https://docs.deps.dev/api/v3alpha/" target="_blank" rel="noreferrer noopener">deps.dev v3alpha — package versions and dependency edges</a></li>
+                </ul>
             </div>
         </div>
 

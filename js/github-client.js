@@ -638,6 +638,13 @@ class GitHubClient {
                             description
                             url
                             isArchived
+                            pushedAt
+                            primaryLanguage {
+                                name
+                            }
+                            defaultBranchRef {
+                                name
+                            }
                             licenseInfo {
                                 spdxId
                                 name
@@ -663,13 +670,21 @@ class GitHubClient {
                 return null;
             }
             
-            // Convert GraphQL format to REST API format for compatibility
+            // Convert GraphQL format to REST API format for compatibility.
+            // pushedAt / primaryLanguage / defaultBranchRef are mapped to the
+            // same `pushed_at` / `language` / `default_branch` REST keys so
+            // downstream code (sbom-processor metadata propagation, app.js
+            // org-listing path, hygiene/insights aggregators) sees one shape
+            // regardless of source endpoint.
             const repos = data.user.repositories.nodes.map(repo => ({
                 name: repo.name,
                 full_name: repo.nameWithOwner,
                 description: repo.description,
                 html_url: repo.url,
                 archived: repo.isArchived,
+                pushed_at: repo.pushedAt || null,
+                language: repo.primaryLanguage?.name || null,
+                default_branch: repo.defaultBranchRef?.name || null,
                 license: repo.licenseInfo ? {
                     spdx_id: repo.licenseInfo.spdxId,
                     key: repo.licenseInfo.spdxId,
