@@ -32,15 +32,17 @@ class DependencyTreeResolver {
         const savedParallelBatchSize = localStorage.getItem('parallelBatchSize');
         this.parallelBatchSize = savedParallelBatchSize ? parseInt(savedParallelBatchSize, 10) : 10;
         
-        // Registry URL templates
+        // Registry URL templates used for direct registry fetches (npm/PyPI/Cargo).
+        // Maven / Go / RubyGems dependency resolution flows through deps.dev (see
+        // `depsDevAPI` below) and ecosyste.ms (`ecosystemsAPI`), which are CORS-safe.
+        // search.maven.org and proxy.golang.org are intentionally not registered
+        // here because Maven Central blocks browser CORS and Go modules are
+        // resolved via deps.dev's dependency graph instead of per-mod GETs.
         this.registryAPIs = {
             npm: 'https://registry.npmjs.org/{package}',
             pypi: 'https://pypi.org/pypi/{package}/json',
             cargo: 'https://crates.io/api/v1/crates/{package}',
-            rubygems: 'https://rubygems.org/api/v1/gems/{package}.json',
-            maven: 'https://search.maven.org/solrsearch/select?q=g:{group}+AND+a:{artifact}&rows=1&wt=json',
-            golang: 'https://proxy.golang.org/{package}/@v/{version}.mod',
-            go: 'https://proxy.golang.org/{package}/@v/{version}.mod'
+            rubygems: 'https://rubygems.org/api/v1/gems/{package}.json'
         };
         
         this.depsDevAPI = 'https://api.deps.dev/v3alpha/systems/{system}/packages/{package}/versions/{version}:dependencies';

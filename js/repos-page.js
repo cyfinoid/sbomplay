@@ -500,6 +500,9 @@ document.addEventListener('DOMContentLoaded', async function() {
                 console.log(`👥 First repo lookup: repoKey="${repoKey}", authorRepoMap.has(repoKey)=${authorRepoMap.has(repoKey)}, authorCount=${authorCount}`);
             }
             
+            const directDeps = Array.isArray(repo.directDependencies) ? repo.directDependencies.length : 0;
+            const transitiveDeps = Math.max(0, depCount - directDeps);
+
             repos.push({
                 name: repoKey,
                 owner: repo.owner,
@@ -513,10 +516,12 @@ document.addEventListener('DOMContentLoaded', async function() {
                 vulnLow: vulnLow,
                 vulnCount: vulnHigh + vulnMedium + vulnLow,
                 depCount: depCount,
+                directDeps: directDeps,
+                transitiveDeps: transitiveDeps,
                 authorCount: authorCount,
                 license: repoLicense,
                 archived: isArchived,
-                hasDependencyGraph: repo.hasDependencyGraph !== false, // Default to true if not specified (for backward compat)
+                hasDependencyGraph: repo.hasDependencyGraph !== false,
                 raw: repo
             });
         });
@@ -525,58 +530,63 @@ document.addEventListener('DOMContentLoaded', async function() {
     }
     
     async function filterTable() {
-        // Early return if no data is loaded
-        if (!allRepositories || allRepositories.length === 0) {
-            document.getElementById('tableCard').classList.add('d-none');
-            document.getElementById('statsRow').classList.add('d-none');
-            document.getElementById('noDataMessage').classList.remove('d-none');
-            return;
-        }
-        
-        const searchInput = document.getElementById('searchInput').value;
-        const search = sanitizeSearchInput(searchInput).toLowerCase();
-        
-        let filtered = allRepositories;
-        
-        // Apply search filter
-        if (search) {
-            filtered = filtered.filter(repo => {
-                return repo.name.toLowerCase().includes(search);
+        showFilterLoading('tableCard');
+        try {
+            // Early return if no data is loaded
+            if (!allRepositories || allRepositories.length === 0) {
+                document.getElementById('tableCard').classList.add('d-none');
+                document.getElementById('statsRow').classList.add('d-none');
+                document.getElementById('noDataMessage').classList.remove('d-none');
+                return;
+            }
+
+            const searchInput = document.getElementById('searchInput').value;
+            const search = sanitizeSearchInput(searchInput).toLowerCase();
+
+            let filtered = allRepositories;
+
+            // Apply search filter
+            if (search) {
+                filtered = filtered.filter(repo => {
+                    return repo.name.toLowerCase().includes(search);
+                });
+            }
+
+            // Sort
+            filtered.sort((a, b) => {
+                let aVal = a[sortColumn];
+                let bVal = b[sortColumn];
+
+                // Handle special cases
+                if (sortColumn === 'sbomGrade') {
+                    // Sort by grade value (A=4, B=3, C=2, D=1, F=0, N/A=-1)
+                    const gradeValues = { 'A': 4, 'B': 3, 'C': 2, 'D': 1, 'F': 0, 'N/A': -1 };
+                    aVal = gradeValues[aVal] ?? -1;
+                    bVal = gradeValues[bVal] ?? -1;
+                } else if (typeof aVal === 'string') {
+                    aVal = aVal.toLowerCase();
+                    bVal = bVal.toLowerCase();
+                }
+
+                // Handle null/undefined values
+                if (aVal == null) aVal = '';
+                if (bVal == null) bVal = '';
+
+                if (sortDirection === 'asc') {
+                    return aVal < bVal ? -1 : aVal > bVal ? 1 : 0;
+                } else {
+                    return aVal > bVal ? -1 : aVal < bVal ? 1 : 0;
+                }
             });
+
+            filteredRepositories = filtered;
+            currentPage = 1; // Reset to first page when filtering
+
+            updateStats(filtered);
+            renderTable(filtered);
+        } finally {
+            hideFilterLoading('tableCard');
         }
-        
-        // Sort
-        filtered.sort((a, b) => {
-            let aVal = a[sortColumn];
-            let bVal = b[sortColumn];
-            
-            // Handle special cases
-            if (sortColumn === 'sbomGrade') {
-                // Sort by grade value (A=4, B=3, C=2, D=1, F=0, N/A=-1)
-                const gradeValues = { 'A': 4, 'B': 3, 'C': 2, 'D': 1, 'F': 0, 'N/A': -1 };
-                aVal = gradeValues[aVal] ?? -1;
-                bVal = gradeValues[bVal] ?? -1;
-            } else if (typeof aVal === 'string') {
-                aVal = aVal.toLowerCase();
-                bVal = bVal.toLowerCase();
-            }
-            
-            // Handle null/undefined values
-            if (aVal == null) aVal = '';
-            if (bVal == null) bVal = '';
-            
-            if (sortDirection === 'asc') {
-                return aVal < bVal ? -1 : aVal > bVal ? 1 : 0;
-            } else {
-                return aVal > bVal ? -1 : aVal < bVal ? 1 : 0;
-            }
-        });
-        
-        filteredRepositories = filtered;
-        currentPage = 1; // Reset to first page when filtering
-        
-        updateStats(filtered);
-        renderTable(filtered);
     }
     
     function updateStats(filtered) {
@@ -668,9 +678,10 @@ document.addEventListener('DOMContentLoaded', async function() {
             }
             vulnCell += '</td>';
             
-            // Build dependencies cell (clickable)
+            // Build dependencies cell (clickable, with direct/transitive split)
             const depsLink = createRepoLink('deps.html', repo.name);
-            const depsCell = `<td><a href="${depsLink}" class="text-decoration-none"><span class="badge bg-primary">${repo.depCount}</span></a></td>`;
+            const depsSub = repo.directDeps > 0 ? ` <small class="text-muted">(${repo.directDeps}D / ${repo.transitiveDeps}T)</small>` : '';
+            const depsCell = `<td><a href="${depsLink}" class="text-decoration-none"><span class="badge bg-primary">${repo.depCount}</span>${depsSub}</a></td>`;
             
             // Build authors cell (clickable)
             const authorsLink = createRepoLink('authors.html', repo.name);
@@ -716,13 +727,15 @@ document.addEventListener('DOMContentLoaded', async function() {
         });
         
         const csv = [
-            ['Repository', 'SBOM Grade', 'SBOM Score', 'Vulnerabilities (H/M/L)', 'Dependencies', 'Authors', 'Repository License'].join(','),
+            ['Repository', 'SBOM Grade', 'SBOM Score', 'Vulnerabilities (H/M/L)', 'Dependencies', 'direct_deps', 'transitive_deps', 'Authors', 'Repository License'].join(','),
             ...filtered.map(repo => [
                 `"${repo.name}"`,
                 repo.sbomGrade,
                 repo.sbomScore || 'N/A',
                 `"H:${repo.vulnHigh} M:${repo.vulnMedium} L:${repo.vulnLow}"`,
                 repo.depCount,
+                repo.directDeps,
+                repo.transitiveDeps,
                 repo.authorCount,
                 repo.license || 'N/A'
             ].join(','))

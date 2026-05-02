@@ -43,8 +43,14 @@ class GitHubClient {
     /**
      * Read GitHub rate limit headers from a fetch Response and emit a
      * `rateLimitUpdate` event so the UI can tick the counter down live.
-     * Bucket is `'core'` for REST (api.github.com/...) and `'graphql'` for
-     * the GraphQL endpoint — these are independent rate limit pools.
+     *
+     * GitHub charges each request against one of several independent
+     * rate-limit pools (`core`, `graphql`, `search`, `code_search`,
+     * `dependency_snapshots`, `integration_manifest`, …) and identifies
+     * which pool was charged via the `X-RateLimit-Resource` response header.
+     * We trust that header when present; the explicit `bucket` arg is only
+     * a fallback for the GraphQL endpoint (where we already know the bucket
+     * up-front) and for older/edge responses that don't include the header.
      */
     extractRateLimitFromResponse(response, bucket) {
         if (!response || !response.headers) return;
@@ -52,24 +58,27 @@ class GitHubClient {
         const limitHeader = response.headers.get('X-RateLimit-Limit');
         const remainingHeader = response.headers.get('X-RateLimit-Remaining');
         const resetHeader = response.headers.get('X-RateLimit-Reset');
+        const resourceHeader = response.headers.get('X-RateLimit-Resource');
 
         if (limitHeader === null && remainingHeader === null) {
             return;
         }
+
+        const resolvedBucket = resourceHeader || bucket;
 
         const limit = limitHeader !== null ? parseInt(limitHeader, 10) : null;
         const remaining = remainingHeader !== null ? parseInt(remainingHeader, 10) : null;
         const reset = resetHeader !== null ? parseInt(resetHeader, 10) : null;
 
         const info = {
-            bucket,
+            bucket: resolvedBucket,
             limit,
             remaining,
             reset,
             authenticated: this.token ? 'Yes' : 'No'
         };
 
-        this.lastRateLimit[bucket] = info;
+        this.lastRateLimit[resolvedBucket] = info;
 
         try {
             this.dispatchEvent(new CustomEvent('rateLimitUpdate', { detail: info }));
@@ -169,8 +178,15 @@ class GitHubClient {
             const result = await response.json();
             
             if (result.errors) {
-                // Log GraphQL errors but don't throw - let caller handle
-                console.log(`⚠️  GraphQL errors:`, result.errors);
+                console.warn(`⚠️  GraphQL partial errors (${result.errors.length}):`, result.errors.map(e => e.message));
+                // Return partial data when available — GraphQL routinely returns
+                // both `data` (successful fields) and `errors` (failed fields).
+                // Throwing here would discard 49 valid users because one login
+                // (e.g. a [bot] account) returned null.
+                if (result.data) {
+                    console.log(`   ⚠️ GraphQL Response: Partial success (${result.errors.length} error(s), returning data)`);
+                    return result.data;
+                }
                 throw new Error(`GraphQL errors: ${JSON.stringify(result.errors.map(e => e.message))}`);
             }
             
@@ -261,9 +277,14 @@ class GitHubClient {
      * Batch fetch multiple user profiles using a single GraphQL query
      * Uses field aliasing to query up to 50 users at once (GitHub complexity limits)
      * @param {Array<string>} usernames - Array of GitHub usernames to fetch
+     * @param {Function} [onProgress] - Optional callback invoked after each chunk
+     *   with `{ fetched, total, cached }` where `fetched` is the cumulative
+     *   number of usernames fetched from the network, `total` is the total
+     *   network-fetch count, and `cached` is the count served from the in-memory
+     *   user cache (no network).
      * @returns {Promise<Map<string, Object|null>>} - Map of username -> user profile data
      */
-    async getUsersBatchGraphQL(usernames) {
+    async getUsersBatchGraphQL(usernames, onProgress) {
         if (!usernames || usernames.length === 0) {
             return new Map();
         }
@@ -294,30 +315,29 @@ class GitHubClient {
             const batch = toFetch.slice(i, i + BATCH_SIZE);
             
             try {
-                // Build dynamic query with aliases for each user
-                // Query both user and organization for each username
+                // repositoryOwner is a union of User | Organization — one
+                // GraphQL point per login instead of two (user + organization).
                 const queryParts = batch.map((username, idx) => {
-                    // Sanitize username for GraphQL alias (must be valid identifier)
                     const alias = `u${idx}`;
                     return `
-                        ${alias}_user: user(login: "${username}") {
+                        ${alias}: repositoryOwner(login: "${username}") {
                             __typename
                             login
-                            name
-                            location
-                            company
-                            bio
-                            avatarUrl
-                            url
-                        }
-                        ${alias}_org: organization(login: "${username}") {
-                            __typename
-                            login
-                            name
-                            location
-                            description
-                            avatarUrl
-                            url
+                            ... on User {
+                                name
+                                location
+                                company
+                                bio
+                                avatarUrl
+                                url
+                            }
+                            ... on Organization {
+                                name
+                                location
+                                description
+                                avatarUrl
+                                url
+                            }
                         }
                     `;
                 }).join('\n');
@@ -326,41 +346,38 @@ class GitHubClient {
                 const data = await this.makeGraphQLRequest(query);
 
                 if (data) {
-                    // Process results for each user in the batch
                     batch.forEach((username, idx) => {
                         const alias = `u${idx}`;
-                        const userData = data[`${alias}_user`];
-                        const orgData = data[`${alias}_org`];
-                        
+                        const ownerData = data[alias];
+
                         let result = null;
-                        
-                        if (userData) {
+
+                        if (ownerData && ownerData.__typename === 'User') {
                             result = {
-                                login: userData.login,
-                                name: userData.name || null,
-                                location: userData.location || null,
-                                company: userData.company || null,
+                                login: ownerData.login,
+                                name: ownerData.name || null,
+                                location: ownerData.location || null,
+                                company: ownerData.company || null,
                                 email: null,
-                                bio: userData.bio || null,
-                                avatar_url: userData.avatarUrl || null,
-                                html_url: userData.url || null,
+                                bio: ownerData.bio || null,
+                                avatar_url: ownerData.avatarUrl || null,
+                                html_url: ownerData.url || null,
                                 type: 'User'
                             };
-                        } else if (orgData) {
+                        } else if (ownerData && ownerData.__typename === 'Organization') {
                             result = {
-                                login: orgData.login,
-                                name: orgData.name || null,
-                                location: orgData.location || null,
+                                login: ownerData.login,
+                                name: ownerData.name || null,
+                                location: ownerData.location || null,
                                 company: null,
                                 email: null,
-                                bio: orgData.description || null,
-                                avatar_url: orgData.avatarUrl || null,
-                                html_url: orgData.url || null,
+                                bio: ownerData.description || null,
+                                avatar_url: ownerData.avatarUrl || null,
+                                html_url: ownerData.url || null,
                                 type: 'Organization'
                             };
                         }
-                        
-                        // Cache and store result
+
                         this.userCache.set(username.toLowerCase(), result);
                         results.set(username.toLowerCase(), result);
                     });
@@ -372,6 +389,18 @@ class GitHubClient {
                     this.userCache.set(username.toLowerCase(), null);
                     results.set(username.toLowerCase(), null);
                 });
+            }
+
+            if (typeof onProgress === 'function') {
+                try {
+                    onProgress({
+                        fetched: Math.min(i + BATCH_SIZE, toFetch.length),
+                        total: toFetch.length,
+                        cached: uniqueUsernames.length - toFetch.length
+                    });
+                } catch (cbError) {
+                    console.warn('⚠️  getUsersBatchGraphQL progress callback threw:', cbError);
+                }
             }
 
             // Small delay between batches to avoid rate limiting
@@ -609,6 +638,13 @@ class GitHubClient {
                             description
                             url
                             isArchived
+                            pushedAt
+                            primaryLanguage {
+                                name
+                            }
+                            defaultBranchRef {
+                                name
+                            }
                             licenseInfo {
                                 spdxId
                                 name
@@ -634,13 +670,21 @@ class GitHubClient {
                 return null;
             }
             
-            // Convert GraphQL format to REST API format for compatibility
+            // Convert GraphQL format to REST API format for compatibility.
+            // pushedAt / primaryLanguage / defaultBranchRef are mapped to the
+            // same `pushed_at` / `language` / `default_branch` REST keys so
+            // downstream code (sbom-processor metadata propagation, app.js
+            // org-listing path, hygiene/insights aggregators) sees one shape
+            // regardless of source endpoint.
             const repos = data.user.repositories.nodes.map(repo => ({
                 name: repo.name,
                 full_name: repo.nameWithOwner,
                 description: repo.description,
                 html_url: repo.url,
                 archived: repo.isArchived,
+                pushed_at: repo.pushedAt || null,
+                language: repo.primaryLanguage?.name || null,
+                default_branch: repo.defaultBranchRef?.name || null,
                 license: repo.licenseInfo ? {
                     spdx_id: repo.licenseInfo.spdxId,
                     key: repo.licenseInfo.spdxId,
@@ -915,20 +959,50 @@ class GitHubClient {
     }
 
     /**
-     * Get rate limit information
+     * Get rate limit information.
+     *
+     * `/rate_limit` returns every bucket GitHub knows about (`core`,
+     * `graphql`, `search`, `code_search`, `dependency_snapshots`,
+     * `integration_manifest`, …). We seed the live UI with one
+     * `rateLimitUpdate` event per resource so all buckets appear up-front,
+     * then return the `core` summary for the legacy callers that only care
+     * about the top-line REST limit.
      */
     async getRateLimitInfo() {
         const url = `${this.baseUrl}/rate_limit`;
         const response = await this.makeRequest(url);
-        
+
         if (response.ok) {
             const data = await response.json();
-            const core = data.resources.core;
+            const resources = data && data.resources ? data.resources : {};
+            const authenticated = this.token ? 'Yes' : 'No';
+
+            for (const [bucket, entry] of Object.entries(resources)) {
+                if (!entry || typeof entry !== 'object') continue;
+
+                const info = {
+                    bucket,
+                    limit: typeof entry.limit === 'number' ? entry.limit : null,
+                    remaining: typeof entry.remaining === 'number' ? entry.remaining : null,
+                    reset: typeof entry.reset === 'number' ? entry.reset : null,
+                    authenticated
+                };
+
+                this.lastRateLimit[bucket] = info;
+
+                try {
+                    this.dispatchEvent(new CustomEvent('rateLimitUpdate', { detail: info }));
+                } catch (err) {
+                    console.debug('Failed to dispatch rateLimitUpdate event:', err);
+                }
+            }
+
+            const core = resources.core || {};
             return {
                 limit: core.limit,
                 remaining: core.remaining,
                 reset: core.reset,
-                authenticated: this.token ? 'Yes' : 'No'
+                authenticated
             };
         } else {
             return {

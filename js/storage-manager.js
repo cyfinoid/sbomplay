@@ -94,8 +94,10 @@ class StorageManager {
         try {
             const entries = await this.indexedDB.getAllEntries();
             if (entries.length > 0) {
-                // Return the most recent entry
-                return entries[0];
+                // Heal legacy entries on load (license-field rename + two-pass
+                // direct/transitive recompute). Idempotent — short-circuits on
+                // already-healed entries via the _directTransitiveHealVersion stamp.
+                return this._healAnalysisOnLoad(entries[0]);
             }
             return null;
         } catch (error) {
@@ -118,11 +120,14 @@ class StorageManager {
             // Names with 3+ parts (e.g., github.com/owner/repo) are treated as organizations
             const isRepo = name.includes('/') && name.split('/').length === 2;
             
-            if (isRepo) {
-                return await this.indexedDB.getRepository(name);
-            } else {
-                return await this.indexedDB.getOrganization(name);
-            }
+            const entry = isRepo
+                ? await this.indexedDB.getRepository(name)
+                : await this.indexedDB.getOrganization(name);
+            
+            // Heal legacy entries on load (license-field rename + two-pass
+            // direct/transitive recompute). Idempotent — short-circuits on
+            // already-healed entries via the _directTransitiveHealVersion stamp.
+            return this._healAnalysisOnLoad(entry);
         } catch (error) {
             console.error('❌ Failed to load data for:', name, error);
             return null;
@@ -831,6 +836,12 @@ class StorageManager {
             if (allData.length === 0) {
                 return null;
             }
+            
+            // Heal each entry before combining so the combined view sees the
+            // post-rename / post-recompute shape too.
+            for (const entry of allData) {
+                this._healAnalysisOnLoad(entry);
+            }
 
             // Combine the data
             const combinedData = this.combineOrganizationData(allData);
@@ -1410,6 +1421,200 @@ class StorageManager {
             console.error('❌ Failed to check data size:', error);
             return { isLarge: false };
         }
+    }
+
+    /**
+     * Migration shim — preserves the legacy `dep.repositoryLicense` value as
+     * `dep.consumerRepoLicense` on stored analyses created before the field was
+     * renamed, then removes the old field so no reader can mis-credit it as the
+     * dep's own license. Idempotent: skips deps that already have the new field
+     * or never had the old one.
+     */
+    _migrateLegacyRepositoryLicense(data) {
+        if (!data || !Array.isArray(data.allDependencies)) return;
+        let migratedCount = 0;
+        for (const dep of data.allDependencies) {
+            if (dep && Object.prototype.hasOwnProperty.call(dep, 'repositoryLicense')) {
+                if (dep.consumerRepoLicense === undefined) {
+                    dep.consumerRepoLicense = dep.repositoryLicense;
+                }
+                delete dep.repositoryLicense;
+                migratedCount++;
+            }
+        }
+        if (migratedCount > 0) {
+            console.log(`🪪 Migrated ${migratedCount} legacy repositoryLicense fields → consumerRepoLicense`);
+        }
+    }
+
+    /**
+     * Mirror of SBOMProcessor.computeDirectAndTransitive() for stored analyses
+     * loaded out of IndexedDB. Two passes plus a children-backfill:
+     *   Pre-pass (children backfill) — `dep.children` on direct deps is empty
+     *     in stored exports because the resolver's tree never includes direct
+     *     deps as nodes (only their transitive children). We rebuild the
+     *     parent → children index from every dep's `dep.parents` and merge it
+     *     onto the parent's `dep.children`. Without this, Pass 2 BFS terminates
+     *     at every seed and resolver-discovered transitives — which were never
+     *     in any SBOM and so are not picked up by Pass 1 either — end up
+     *     orphaned (empty `dep.repositories`, missing from per-repo views).
+     *   Pass 1 (SBOM truth) — walk every repo's dependencies; classify direct
+     *     vs transitive from repo.directDependencies.
+     *   Pass 2 (per-repo BFS) — BFS from each repo's direct seed set through
+     *     dep.children registry edges; mark reached deps as transitive in that
+     *     repo (Pass 1 wins on direct classification — never overwrites directIn).
+     *
+     * Operates on the array-of-objects shape that exportData() emits (not the
+     * Map/Set shape SBOMProcessor uses internally). Idempotent — every call
+     * resets dep.repositories / directIn / transitiveIn before recomputing.
+     */
+    _recomputeDirectAndTransitive(data) {
+        if (!data || !Array.isArray(data.allDependencies) || !Array.isArray(data.allRepositories)) {
+            return;
+        }
+        
+        const depByKey = new Map();
+        for (const dep of data.allDependencies) {
+            if (!dep || !dep.name) continue;
+            const key = `${dep.name}@${dep.version}`;
+            depByKey.set(key, dep);
+            // Use Sets internally to dedupe efficiently, then convert back to arrays.
+            dep._reposSet = new Set();
+            dep._directInSet = new Set();
+            dep._transitiveInSet = new Set();
+        }
+        
+        // Pre-pass: backfill `dep.children` for every dep that appears as a parent
+        // somewhere. Direct deps in particular have no children populated by
+        // exportData() (the resolver never `tree.set()`s direct-dep keys —
+        // only their transitive children — so the decoration loop in
+        // sbom-processor.js never writes children on the direct deps).
+        // Re-derive from each transitive's `dep.parents`. Stored shape uses
+        // arrays; merge with whatever the export already had so we never
+        // shrink an existing children list.
+        const childrenByParent = new Map();
+        for (const dep of data.allDependencies) {
+            if (!dep || !Array.isArray(dep.parents) || dep.parents.length === 0) continue;
+            const childKey = `${dep.name}@${dep.version}`;
+            for (const parentKey of dep.parents) {
+                if (!childrenByParent.has(parentKey)) {
+                    childrenByParent.set(parentKey, new Set());
+                }
+                childrenByParent.get(parentKey).add(childKey);
+            }
+        }
+        let backfilledChildren = 0;
+        for (const [parentKey, childKeys] of childrenByParent) {
+            const parentDep = depByKey.get(parentKey);
+            if (!parentDep) continue;
+            const merged = new Set(Array.isArray(parentDep.children) ? parentDep.children : []);
+            const before = merged.size;
+            for (const childKey of childKeys) {
+                merged.add(childKey);
+            }
+            if (merged.size > before) {
+                backfilledChildren += merged.size - before;
+            }
+            parentDep.children = Array.from(merged);
+        }
+        if (backfilledChildren > 0) {
+            console.log(`🌱 Backfilled ${backfilledChildren} parent → child edge(s) on stored deps from dep.parents`);
+        }
+        
+        // Pass 1: SBOM truth
+        for (const repo of data.allRepositories) {
+            if (!repo) continue;
+            const repoKey = `${repo.owner}/${repo.name}`;
+            const repoDeps = Array.isArray(repo.dependencies) ? repo.dependencies : [];
+            const directSet = new Set(Array.isArray(repo.directDependencies) ? repo.directDependencies : []);
+            for (const depKey of repoDeps) {
+                const dep = depByKey.get(depKey);
+                if (!dep) continue;
+                dep._reposSet.add(repoKey);
+                if (directSet.has(depKey)) {
+                    dep._directInSet.add(repoKey);
+                } else {
+                    dep._transitiveInSet.add(repoKey);
+                }
+            }
+        }
+        
+        // Pass 2: per-repo BFS through dep.children edges
+        let bfsAttributions = 0;
+        for (const repo of data.allRepositories) {
+            if (!repo) continue;
+            const repoKey = `${repo.owner}/${repo.name}`;
+            const directSet = Array.isArray(repo.directDependencies) ? repo.directDependencies : [];
+            if (directSet.length === 0) continue;
+            
+            const visited = new Set();
+            const queue = [];
+            for (const depKey of directSet) {
+                if (depByKey.has(depKey)) {
+                    queue.push(depKey);
+                    visited.add(depKey);
+                }
+            }
+            
+            while (queue.length > 0) {
+                const currentKey = queue.shift();
+                const currentDep = depByKey.get(currentKey);
+                if (!currentDep) continue;
+                const children = Array.isArray(currentDep.children) ? currentDep.children : [];
+                for (const childKey of children) {
+                    if (visited.has(childKey)) continue;
+                    visited.add(childKey);
+                    const childDep = depByKey.get(childKey);
+                    if (!childDep) continue;
+                    if (!childDep._directInSet.has(repoKey)) {
+                        if (!childDep._transitiveInSet.has(repoKey)) {
+                            bfsAttributions++;
+                        }
+                        childDep._transitiveInSet.add(repoKey);
+                        childDep._reposSet.add(repoKey);
+                    }
+                    queue.push(childKey);
+                }
+            }
+        }
+        if (bfsAttributions > 0) {
+            console.log(`🔗 Heal: BFS added ${bfsAttributions} transitive (dep, repo) attribution${bfsAttributions === 1 ? '' : 's'} on stored data`);
+        }
+        
+        // Convert Sets back to arrays and clean up scratch fields
+        for (const dep of data.allDependencies) {
+            if (!dep || !dep._reposSet) continue;
+            dep.repositories = Array.from(dep._reposSet);
+            dep.directIn = Array.from(dep._directInSet);
+            dep.transitiveIn = Array.from(dep._transitiveInSet);
+            dep.count = dep.repositories.length;
+            delete dep._reposSet;
+            delete dep._directInSet;
+            delete dep._transitiveInSet;
+        }
+    }
+
+    /**
+     * Heal a stored analysis on load — runs the legacy-field migration and the
+     * direct/transitive recompute. Stamps `_directTransitiveHealVersion = 3` so
+     * subsequent loads short-circuit. Bump this stamp if the recompute logic
+     * ever changes shape (v2 → v3 added the children-backfill pre-pass; without
+     * it, every analysis previously healed by v2 had orphaned resolver-discovered
+     * transitives that never re-appeared in per-repo views).
+     */
+    _healAnalysisOnLoad(entry) {
+        if (!entry || !entry.data) return entry;
+        const stampedVersion = entry._directTransitiveHealVersion || 0;
+        if (stampedVersion >= 3) return entry;
+        
+        try {
+            this._migrateLegacyRepositoryLicense(entry.data);
+            this._recomputeDirectAndTransitive(entry.data);
+            entry._directTransitiveHealVersion = 3;
+        } catch (error) {
+            console.error('❌ Failed to heal analysis on load:', error);
+        }
+        return entry;
     }
 }
 

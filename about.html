@@ -6,10 +6,10 @@
     <title>SBOM Play - About</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
-    <link href="css/style.css?v=0.0.9" rel="stylesheet">
-    <link href="css/themes.css?v=0.0.9" rel="stylesheet">
-    <script src="js/theme-manager.js?v=0.0.9&cb=1777494400000"></script>
-    <script src="js/depconfuse-service.js?v=0.0.9&cb=1777494400000"></script>
+    <link href="css/style.css?v=0.0.9&cb=1780000000000" rel="stylesheet">
+    <link href="css/themes.css?v=0.0.9&cb=1780000000000" rel="stylesheet">
+    <script src="js/theme-manager.js?v=0.0.9&cb=1778000000000"></script>
+    <script src="js/depconfuse-service.js?v=0.0.9&cb=1778000000000"></script>
 </head>
 <body>
     <!-- Navigation -->
@@ -31,13 +31,12 @@
                     <a class="nav-link" href="index.html">Home</a>
                     <a class="nav-link" href="licenses.html">License</a>
                     <a class="nav-link" href="vuln.html">Vulns</a>
-                    <a class="nav-link" href="malware.html">Malware</a>
                     <a class="nav-link" href="audit.html">Audit</a>
                     <a class="nav-link" href="findings.html">Findings</a>
+                    <a class="nav-link" href="insights.html">Insights</a>
                     <a class="nav-link" href="deps.html">Deps</a>
                     <a class="nav-link" href="repos.html">Repos</a>
                     <a class="nav-link" href="authors.html">Authors</a>
-                    <a class="nav-link" href="feeds.html">Feeds</a>
                     <a class="nav-link" href="settings.html">Settings</a>
                     <a class="nav-link active" href="about.html">About</a>
                 </div>
@@ -166,7 +165,7 @@
                         <tr><th>Domain</th><th>Purpose</th></tr>
                     </thead>
                     <tbody>
-                        <tr><td><code>cdn.jsdelivr.net</code></td><td>Bootstrap CSS/JS, marked.js, DOMPurify, js-yaml</td></tr>
+                        <tr><td><code>cdn.jsdelivr.net</code></td><td>Bootstrap CSS/JS, marked.js, DOMPurify, js-yaml, Chart.js</td></tr>
                         <tr><td><code>cdnjs.cloudflare.com</code></td><td>Font Awesome icons</td></tr>
                         <tr><td><code>unpkg.com</code></td><td>Leaflet maps library</td></tr>
                     </tbody>
@@ -200,14 +199,12 @@
                         <tr><th>Domain</th><th>Purpose</th></tr>
                     </thead>
                     <tbody>
-                        <tr><td><code>registry.npmjs.org</code></td><td>npm package metadata</td></tr>
-                        <tr><td><code>pypi.org</code></td><td>PyPI package metadata</td></tr>
+                        <tr><td><code>registry.npmjs.org</code></td><td>npm package metadata (authors, funding, repository URL)</td></tr>
+                        <tr><td><code>pypi.org</code></td><td>PyPI package metadata (authors, project URLs)</td></tr>
                         <tr><td><code>crates.io</code></td><td>Cargo/Rust package metadata</td></tr>
                         <tr><td><code>rubygems.org</code></td><td>RubyGems package metadata</td></tr>
-                        <tr><td><code>search.maven.org</code></td><td>Maven package metadata</td></tr>
-                        <tr><td><code>api.nuget.org</code></td><td>NuGet package metadata</td></tr>
-                        <tr><td><code>proxy.golang.org</code></td><td>Go module metadata</td></tr>
-                        <tr><td><code>api.deps.dev</code></td><td>Google deps.dev API (license/version info)</td></tr>
+                        <tr><td><code>packages.ecosyste.ms</code></td><td>Cross-ecosystem package metadata (Maven, NuGet, Go, etc.) — used for ecosystems where the native registry blocks browser CORS (Maven Central) or has no JSON API</td></tr>
+                        <tr><td><code>api.deps.dev</code></td><td>Google deps.dev API — licenses, version graphs, and labeled <code>SOURCE_REPO</code> / <code>HOMEPAGE</code> / <code>ISSUE_TRACKER</code> links for every supported ecosystem</td></tr>
                     </tbody>
                 </table>
 
@@ -267,6 +264,160 @@
                         <strong>Visualization:</strong> View results across multiple pages: Overview, Licenses, Vulnerabilities, Quality, Dependencies, and Authors
                     </li>
                 </ol>
+            </div>
+        </div>
+
+        <!-- Direct vs Transitive Classification & Dependency Depth -->
+        <div class="card mb-4">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="fas fa-sitemap me-2"></i>Direct vs Transitive Classification &amp; Dependency Depth</h5>
+            </div>
+            <div class="card-body">
+                <p>
+                    Every dependency in a portfolio is classified per consuming repository as either
+                    <strong>direct</strong> (the repo's own code declares it) or <strong>transitive</strong>
+                    (the repo only inherits it through the dependency tree of something else it declared).
+                    The same package can be direct in one repo and transitive in another. SBOM Play computes
+                    this attribution centrally with a deterministic two-pass algorithm so every page that
+                    splits Direct vs Transitive — Licenses, Vulnerabilities, Dependencies, Findings —
+                    reads from the same source of truth.
+                </p>
+
+                <div class="alert alert-light border">
+                    <strong>Definitions:</strong><br>
+                    • <span class="badge bg-primary">Direct</span> A dependency the repository declares
+                    itself (e.g., listed in <code>package.json</code>, <code>pom.xml</code>,
+                    <code>requirements.txt</code>, or <code>.github/workflows/*.yml</code>) — the team
+                    consciously brought it in.<br>
+                    • <span class="badge bg-secondary">Transitive</span> A dependency pulled in only because
+                    a direct dependency required it — the team didn't choose it, but they ship it.<br>
+                    • <span class="badge bg-info text-dark">Depth</span> Distance from the repo's own
+                    package in the resolved dependency tree (depth 1 = direct, depth 2+ = transitive).
+                </div>
+
+                <h6 class="mt-4"><i class="fas fa-layer-group me-2 text-primary"></i>Pass 1 — SBOM Truth</h6>
+                <p>
+                    For every repository in the portfolio, walk that repo's SBOM-declared dependencies and
+                    consult its <code>directDependencies</code> set (built from the SBOM's
+                    <code>DEPENDS_ON</code> relationships from the root package). Each
+                    <code>(dep, repo)</code> pair is added as <strong>direct in</strong> that repo if the
+                    SBOM declared it as a top-level edge from the repository, and as
+                    <strong>transitive in</strong> that repo otherwise.
+                </p>
+
+                <h6 class="mt-4"><i class="fas fa-route me-2 text-primary"></i>Pass 2 — Per-Repo BFS Through the Tree</h6>
+                <p>
+                    Some transitives never appear in the SBOM at all — they're discovered later when SBOM Play
+                    walks each direct dep's full version graph through the registry resolver
+                    (<a href="https://api.deps.dev" target="_blank" rel="noreferrer noopener">deps.dev</a>,
+                    <a href="https://packages.ecosyste.ms" target="_blank" rel="noreferrer noopener">packages.ecosyste.ms</a>).
+                    For every repo we BFS from its direct seed set through each dep's child registry edges
+                    and mark every reached <code>(dep, repo)</code> pair transitive in that repo. Pass 1
+                    always wins on direct classification — Pass 2 never overwrites a direct mark with a
+                    transitive one.
+                </p>
+
+                <div class="alert alert-info">
+                    <i class="fas fa-info-circle me-2"></i>
+                    <strong>Why per-repo BFS, not per-ecosystem flood?</strong> Earlier versions of the
+                    attribution pass mutated <code>directIn</code> / <code>transitiveIn</code> inside each
+                    ecosystem's resolver loop. When npm and Maven resolved concurrently, a Maven dep with no
+                    SBOM-listed repos got attributed to repos that only had npm direct deps (cross-ecosystem
+                    leak). The per-repo BFS scope is naturally per-ecosystem because <code>dep.children</code>
+                    only contains same-ecosystem children, so this class of leak is impossible by construction.
+                </div>
+
+                <h6 class="mt-4"><i class="fas fa-question-circle me-2 text-warning"></i>Why we don't trust GitHub-flat SBOMs alone</h6>
+                <p>
+                    GitHub's dependency-graph SBOMs flatten the tree — every <code>DEPENDS_ON</code>
+                    relationship goes from the repo's main package, so the SBOM marks
+                    <em>every</em> listed dep as a direct dep of the repo, including transitives. If we
+                    only trusted the SBOM (Pass 1), the Direct/Transitive split for GitHub-fetched
+                    portfolios would be meaningless. Pass 2's BFS through resolver-discovered edges is what
+                    recovers the real shape — anything reached only via <code>dep.children</code> is
+                    transitive, regardless of what the flat SBOM said.
+                </p>
+
+                <h6 class="mt-4"><i class="fas fa-globe me-2 text-secondary"></i>Imputed Direct (cross-portfolio inference)</h6>
+                <p>
+                    For organisation-wide aggregations, a dep that's transitive in every repo it touches
+                    can still be considered "<strong>imputed-directly used</strong>" by the org if the package
+                    is also directly declared in any other repo in the portfolio (or a sister portfolio
+                    sharing the same lockfile family). This is a forward-looking concept that the
+                    forthcoming Insights page surfaces — it gives M&amp;A and CTO audiences a more honest
+                    picture of "what the org actually owns" beyond SBOM-listed direct edges.
+                </p>
+
+                <h6 class="mt-4"><i class="fas fa-book me-2"></i>References</h6>
+                <ul>
+                    <li><a href="https://spdx.github.io/spdx-spec/v2.3/relationships-between-SPDX-elements/" target="_blank" rel="noreferrer noopener">SPDX 2.3 — Relationships between SPDX elements</a> (<code>DEPENDS_ON</code> semantics)</li>
+                    <li><a href="https://cyclonedx.org/docs/1.5/json/#dependencies" target="_blank" rel="noreferrer noopener">CycloneDX 1.5 — Dependency graph</a></li>
+                    <li><a href="https://docs.github.com/en/rest/dependency-graph/sboms" target="_blank" rel="noreferrer noopener">GitHub Dependency Graph SBOM API</a></li>
+                    <li><a href="https://docs.deps.dev/api/v3alpha/" target="_blank" rel="noreferrer noopener">deps.dev v3alpha — package versions and dependency edges</a></li>
+                </ul>
+            </div>
+        </div>
+
+        <!-- Tech-Debt Composite Scoring -->
+        <div class="card mb-4">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="fas fa-balance-scale me-2"></i>Tech-Debt Composite Scoring</h5>
+            </div>
+            <div class="card-body">
+                <p>
+                    The Insights page computes a single Tech-Debt composite score (0-100, higher is healthier) from six
+                    weighted sub-components. Direct dependencies carry <strong>3&times;</strong> weight compared to transitive
+                    ones, reflecting the higher risk and remediation urgency of code you directly control.
+                </p>
+
+                <h6 class="mt-3">Component Weights</h6>
+                <table class="table table-sm table-bordered">
+                    <thead class="table-light">
+                        <tr><th>Component</th><th>Weight</th><th>What it measures</th></tr>
+                    </thead>
+                    <tbody>
+                        <tr><td>Version Drift</td><td>30%</td><td>Major/minor updates behind, 3&times; weight for direct deps</td></tr>
+                        <tr><td>Vulnerabilities</td><td>30%</td><td>Severity-weighted CVE count (C=30, H=12, M=3 for direct; C=10, H=4, M=1 for transitive)</td></tr>
+                        <tr><td>Package Age</td><td>15%</td><td>Fraction of deps with last release &gt; 2 years ago</td></tr>
+                        <tr><td>License Risk</td><td>10%</td><td>Fraction of deps with copyleft/high-risk licenses</td></tr>
+                        <tr><td>EOL Risk</td><td>10%</td><td>Fraction of deps flagged as probable EOL (staleness heuristic or endoflife.date)</td></tr>
+                        <tr><td>Repo Hygiene</td><td>5%</td><td>Fraction of repos with D/F SBOM grade or missing SBOM</td></tr>
+                    </tbody>
+                </table>
+
+                <div class="alert alert-info py-2 mt-3">
+                    <i class="fas fa-info-circle me-2"></i>
+                    <strong>SBOM Quality excluded:</strong> the composite deliberately omits SBOM quality because users
+                    cannot control the NTIA-completeness fields that GitHub auto-generates.
+                </div>
+
+                <h6 class="mt-3">Grading Scale</h6>
+                <table class="table table-sm table-bordered">
+                    <thead class="table-light">
+                        <tr><th>Grade</th><th>Health Score Range</th></tr>
+                    </thead>
+                    <tbody>
+                        <tr><td><span class="badge bg-success">A</span></td><td>90 &ndash; 100</td></tr>
+                        <tr><td><span class="badge bg-info">B</span></td><td>75 &ndash; 89</td></tr>
+                        <tr><td><span class="badge bg-warning">C</span></td><td>55 &ndash; 74</td></tr>
+                        <tr><td><span class="badge bg-warning">D</span></td><td>35 &ndash; 54</td></tr>
+                        <tr><td><span class="badge bg-danger">F</span></td><td>0 &ndash; 34</td></tr>
+                    </tbody>
+                </table>
+
+                <h6 class="mt-3">Visualization</h6>
+                <p>
+                    Charts on the Insights page are rendered with <a href="https://www.chartjs.org/" target="_blank" rel="noreferrer noopener">Chart.js 4.4</a>,
+                    loaded from the jsdelivr CDN. Theme-aware colors are driven by <code>--chart-text-color</code>
+                    and <code>--chart-grid-color</code> CSS custom properties.
+                </p>
+
+                <h6 class="mt-3">References</h6>
+                <ul>
+                    <li><a href="https://www.chartjs.org/docs/4.4.4/" target="_blank" rel="noreferrer noopener">Chart.js 4.4 Documentation</a></li>
+                    <li><a href="https://osv.dev/docs/" target="_blank" rel="noreferrer noopener">OSV API — vulnerability severity data</a></li>
+                    <li><a href="https://endoflife.date/docs/api" target="_blank" rel="noreferrer noopener">endoflife.date API — EOL/EOS data</a></li>
+                </ul>
             </div>
         </div>
 
@@ -491,6 +642,122 @@
                     <li><a href="https://medium.com/@alex.birsan/dependency-confusion-4a5d60fec610" target="_blank" rel="noreferrer noopener">Dependency Confusion: How I Hacked Into Apple, Microsoft and Dozens of Other Companies</a> - Alex Birsan's original disclosure</li>
                     <li><a href="https://github.com/th3-j0k3r/DepConfuse" target="_blank" rel="noreferrer noopener">DepConfuse</a> - Original dependency confusion detection tool that inspired our implementation</li>
                     <li><a href="https://packages.ecosyste.ms/docs" target="_blank" rel="noreferrer noopener">ecosyste.ms API Documentation</a> - Registry aggregation API</li>
+                </ul>
+            </div>
+        </div>
+
+        <!-- Author Enrichment Methodology -->
+        <div class="card mb-4">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="fas fa-users me-2"></i>Author Enrichment Methodology</h5>
+            </div>
+            <div class="card-body">
+                <p>
+                    For every package in the SBOM, SBOM Play attempts to attribute a list of <em>authors</em> — the
+                    humans (and bots) whose accounts can ship code into the package. This list is what powers the
+                    Authors page, the geographic risk map, the sanctioned-country detector, and the contributor
+                    correlation in the Findings report. Because no single registry exposes all the information we
+                    need, the pipeline draws from up to three sources per package, in a fixed precedence order, and
+                    every API call is made <strong>once</strong> per package and reused.
+                </p>
+
+                <h6 class="mt-4"><i class="fas fa-layer-group me-2 text-primary"></i>1. Source Precedence</h6>
+                <table class="table table-sm table-bordered">
+                    <thead class="table-light">
+                        <tr><th>Order</th><th>Source</th><th>What it gives us</th><th>Applies to</th></tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td>1</td>
+                            <td>Native registry (npm, PyPI, crates.io, RubyGems)</td>
+                            <td>Authoritative <code>author</code> / <code>maintainers</code> field, declared by the publisher</td>
+                            <td>Ecosystems with a public per-package authors API</td>
+                        </tr>
+                        <tr>
+                            <td>2</td>
+                            <td><a href="https://packages.ecosyste.ms/" target="_blank" rel="noreferrer noopener">packages.ecosyste.ms</a></td>
+                            <td>Aggregated <code>maintainers</code> / <code>owners</code> + <code>repository_url</code> + <code>homepage</code></td>
+                            <td>Maven, NuGet, Go, Composer (no native authors API)</td>
+                        </tr>
+                        <tr>
+                            <td>3</td>
+                            <td>GitHub <code>/repos/{owner}/{repo}/contributors</code> (<strong>top 10</strong>)</td>
+                            <td>Tentative author list derived from commit-history contributors of the source repository</td>
+                            <td>Any package whose source URL points to <code>github.com</code></td>
+                        </tr>
+                    </tbody>
+                </table>
+                <p class="text-muted small">
+                    <i class="fas fa-info-circle me-1"></i>
+                    Sources 1 and 2 are mutually exclusive (we use whichever is available for the ecosystem). Source 3
+                    runs in <em>addition</em> to whichever of 1 or 2 returned data — registries publish only the
+                    maintainer-of-record, but real-world risk lives in the broader contributor population that can land
+                    code through pull requests.
+                </p>
+
+                <h6 class="mt-4"><i class="fas fa-code-branch me-2 text-info"></i>2. Why GitHub contributors?</h6>
+                <p>
+                    For a Maven artifact like <code>org.springframework.boot:spring-boot-starter-web</code>, the registry
+                    publishes a single "Pivotal" maintainer entry. The actual humans who can merge code into that
+                    package are the contributors of <code>spring-projects/spring-boot</code> on GitHub — currently
+                    around 1,000 people, of whom we capture the top 10 by contribution count. These are tentative
+                    correlations (we have no email/identity authority for them), so they're flagged with a
+                    <span class="badge bg-warning text-dark">⚠️</span> badge in the Authors page so you can distinguish
+                    them from registry-attested maintainers.
+                </p>
+
+                <h6 class="mt-4"><i class="fas fa-network-wired me-2 text-secondary"></i>3. Cost model</h6>
+                <p>
+                    Per-run we issue exactly <strong>one</strong> <code>/repos/{owner}/{repo}/contributors</code> REST
+                    call per unique GitHub repository, deduped by an in-memory cache keyed on
+                    <code>${owner}/${repo}</code>. Profile fields (location, company, GitHub user type) are filled in
+                    afterwards by a single batched GraphQL query — never per-user REST calls. So a 159-package Spring
+                    Boot SBOM where every package points at <code>spring-projects/spring-boot</code> issues
+                    <strong>1</strong> contributors call and a handful of GraphQL profile calls, not 159 + 1,590.
+                </p>
+
+                <h6 class="mt-4"><i class="fas fa-share-alt me-2 text-success"></i>4. Shared-repository attribution</h6>
+                <div class="alert alert-light border">
+                    <strong>Definition:</strong> When several packages in the SBOM ship from the <em>same</em> source
+                    repository (a monorepo: <code>spring-projects/spring-boot</code>, <code>babel/babel</code>,
+                    <code>angular/angular</code>, …), all of those packages will list the same set of contributors as
+                    authors. This is intentional, not a bug.
+                </div>
+                <p>
+                    From a threat-model perspective, those packages share a single supply-chain blast radius. A
+                    contributor with merge rights to the shared repository can land malicious code into every package
+                    that ships from it, in a single commit. Listing the contributors once per package (rather than
+                    once per repository) makes that fan-out explicit on the Authors page: an author shown as having
+                    "23 packages" across "1 repo" is actually a <em>single point of failure for 23 packages</em>, and
+                    that's exactly what the Repository Usage column on the Authors page surfaces with the
+                    <span class="badge bg-danger">High Risk</span> /
+                    <span class="badge bg-warning text-dark">Moderate Risk</span> badges.
+                </p>
+                <p class="text-muted small">
+                    <i class="fas fa-info-circle me-1"></i>
+                    The downside is visual repetition — a Spring-heavy SBOM will show the same ~10 Pivotal employees
+                    on every Spring artifact. The upside is risk fidelity: the count of packages those employees
+                    appear on directly reflects the number of packages an account compromise would compromise.
+                </p>
+
+                <h6 class="mt-4"><i class="fas fa-robot me-2 text-dark"></i>5. Bots and automated accounts</h6>
+                <p>
+                    GitHub contributors include automated accounts: <code>dependabot[bot]</code>,
+                    <code>github-actions[bot]</code>, <code>renovate[bot]</code>, <code>pre-commit-ci[bot]</code>, and
+                    similar. We do not filter them out at the enrichment stage — instead the Authors page detects bot
+                    accounts (by the canonical <code>[bot]</code> suffix, GitHub's <code>type: 'Bot'</code> profile
+                    field, and a denylist of common automation accounts) and routes them to a dedicated
+                    <strong>Active Bots in the Environments</strong> section. The human authors table stays clean,
+                    while the bot inventory remains visible — bots that can ship code through PRs are part of the
+                    threat model and worth knowing about.
+                </p>
+
+                <h6 class="mt-4"><i class="fas fa-book me-2"></i>References</h6>
+                <ul>
+                    <li><a href="https://docs.github.com/en/rest/repos/repos#list-repository-contributors" target="_blank" rel="noreferrer noopener">GitHub REST API: List repository contributors</a></li>
+                    <li><a href="https://packages.ecosyste.ms/docs" target="_blank" rel="noreferrer noopener">ecosyste.ms API Documentation</a> — aggregated package metadata for ecosystems without a native authors endpoint</li>
+                    <li><a href="https://docs.npmjs.com/cli/v10/configuring-npm/package-json#people-fields-author-contributors" target="_blank" rel="noreferrer noopener">npm package.json: <code>author</code> and <code>contributors</code> fields</a></li>
+                    <li><a href="https://packaging.python.org/en/latest/specifications/core-metadata/#author" target="_blank" rel="noreferrer noopener">PyPI core metadata: <code>Author</code> / <code>Maintainer</code> fields</a></li>
                 </ul>
             </div>
         </div>

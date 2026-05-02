@@ -414,6 +414,111 @@ async function loadOrganizationData(name, storageManager, options = {}) {
     return data;
 }
 
+// =============================================================================
+// FILTER LOADING OVERLAY
+// =============================================================================
+// Debounced "the table is still re-rendering" overlay used by every page with
+// a non-trivial filter step (audit, vuln, malware, licenses, feeds, repos).
+//
+// Design:
+//   - The overlay only appears if the wrapped work is still running after a
+//     short delay (default 150 ms). Filters that complete quickly never flash
+//     a spinner — keeping fast interactions flicker-free.
+//   - Hide cancels any still-pending show timer, so an early hideFilterLoading
+//     leaves the UI completely untouched.
+//   - The container is positioned `relative` if it's currently `static`, so
+//     the absolutely-positioned overlay lays out correctly without any HTML
+//     change to the host page.
+//   - Pages that already ship a hand-authored `.loading-overlay` child reuse
+//     it; pages that don't get one injected on first use.
+//   - State is keyed by container id in a module-level Map so multiple
+//     concurrent overlays (different containers) coexist without leaking.
+
+const filterLoadingStates = new Map();
+
+/**
+ * Show a debounced "Loading..." overlay over a container. If the work
+ * completes before the debounce elapses (and `hideFilterLoading` is called
+ * for the same container), no overlay is ever rendered.
+ *
+ * @param {string} containerId - id of the element to overlay
+ * @param {Object} [opts]
+ * @param {number} [opts.delay=150] - debounce in ms before the overlay appears
+ * @param {string} [opts.message='Loading...'] - text shown under the spinner
+ */
+function showFilterLoading(containerId, opts = {}) {
+    const delay = typeof opts.delay === 'number' ? opts.delay : 150;
+    const message = opts.message || 'Loading...';
+
+    const container = document.getElementById(containerId);
+    if (!container) return;
+
+    const previous = filterLoadingStates.get(containerId);
+    if (previous && previous.timeoutId) {
+        clearTimeout(previous.timeoutId);
+    }
+
+    if (getComputedStyle(container).position === 'static') {
+        container.style.position = 'relative';
+    }
+
+    const timeoutId = setTimeout(() => {
+        let overlay = container.querySelector(':scope > .loading-overlay');
+
+        if (!overlay) {
+            overlay = document.createElement('div');
+            overlay.className = 'loading-overlay';
+
+            const wrap = document.createElement('div');
+            wrap.className = 'loading-spinner';
+
+            const spinner = document.createElement('div');
+            spinner.className = 'spinner-border text-primary';
+            spinner.setAttribute('role', 'status');
+
+            const sr = document.createElement('span');
+            sr.className = 'visually-hidden';
+            sr.textContent = 'Loading...';
+            spinner.appendChild(sr);
+
+            const label = document.createElement('p');
+            label.className = 'mt-2';
+            label.textContent = message;
+
+            wrap.appendChild(spinner);
+            wrap.appendChild(label);
+            overlay.appendChild(wrap);
+            container.appendChild(overlay);
+        } else {
+            const label = overlay.querySelector('.loading-spinner p');
+            if (label && message) label.textContent = message;
+            overlay.classList.remove('d-none');
+        }
+
+        filterLoadingStates.set(containerId, { timeoutId: null, overlayEl: overlay });
+    }, delay);
+
+    filterLoadingStates.set(containerId, {
+        timeoutId,
+        overlayEl: previous ? previous.overlayEl : null
+    });
+}
+
+/**
+ * Hide the loading overlay for a container. Cancels any pending debounce
+ * timer if the overlay hasn't been shown yet — safe to call when nothing is
+ * currently visible.
+ *
+ * @param {string} containerId
+ */
+function hideFilterLoading(containerId) {
+    const state = filterLoadingStates.get(containerId);
+    if (!state) return;
+    if (state.timeoutId) clearTimeout(state.timeoutId);
+    if (state.overlayEl) state.overlayEl.classList.add('d-none');
+    filterLoadingStates.delete(containerId);
+}
+
 /**
  * Get URL parameters as an object with parsed values
  * @param {Array<string>} filterNames - Array of parameter names to extract
@@ -615,3 +720,6 @@ window.safeSetHTML = safeSetHTML;
 
 window.GITHUB_TOKEN_PREFIXES = GITHUB_TOKEN_PREFIXES;
 window.isValidGitHubTokenFormat = isValidGitHubTokenFormat;
+
+window.showFilterLoading = showFilterLoading;
+window.hideFilterLoading = hideFilterLoading;

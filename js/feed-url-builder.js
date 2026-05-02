@@ -104,6 +104,82 @@ class FeedUrlBuilder {
     }
 
     /**
+     * Hydrate `dep.repositoryUrl` / `dep.homepage` from the persistent package
+     * cache (`cacheManager` / IndexedDB `packages` store). The author-fetch
+     * pipeline writes `repository_url` / `homepage` onto the package row for
+     * every package it touches (including ecosystems with no native registry
+     * fetch like Maven / NuGet / Go), so reading them here lets us cover deps
+     * whose stored analysis predates the LicenseFetcher dep-mutation pass — or
+     * deps where license fetching was skipped entirely (e.g. an SBOM that
+     * already carried full SPDX licenses but no source-control externalRef).
+     *
+     * Mutates `deps` in place: for every dep whose `repositoryUrl` is empty
+     * we copy it from the cache row matching `${ecosystem}:${name}` (the same
+     * key shape AuthorService.fetchAuthors stores under). `homepage` and
+     * `issueTrackerUrl` are populated symmetrically.
+     *
+     * Safe to call when no cache exists (returns silently); idempotent across
+     * repeated calls; never overwrites a value the dep already carries.
+     *
+     * @param {Array<Object>} deps - Canonical dep objects (deps-page shape).
+     * @returns {Promise<{hydrated: number, scanned: number}>}
+     */
+    async hydrateFromCache(deps) {
+        const stats = { hydrated: 0, scanned: 0 };
+        if (!Array.isArray(deps) || deps.length === 0) return stats;
+
+        const dbManager = (typeof window !== 'undefined') ? window.indexedDBManager : null;
+        if (!dbManager || typeof dbManager.getAllPackages !== 'function') {
+            return stats;
+        }
+
+        let allPackages;
+        try {
+            allPackages = await dbManager.getAllPackages();
+        } catch (e) {
+            console.warn('FeedUrlBuilder.hydrateFromCache: failed to read packages cache:', e?.message || e);
+            return stats;
+        }
+        if (!Array.isArray(allPackages) || allPackages.length === 0) return stats;
+
+        const byKey = new Map();
+        for (const pkg of allPackages) {
+            if (pkg && pkg.packageKey) {
+                byKey.set(pkg.packageKey, pkg);
+            }
+        }
+        if (byKey.size === 0) return stats;
+
+        for (const dep of deps) {
+            if (!dep || !dep.name) continue;
+            stats.scanned++;
+            const ecosystem = (dep.ecosystem || dep.raw?.category?.ecosystem || '').toString().toLowerCase();
+            if (!ecosystem) continue;
+            const cached = byKey.get(`${ecosystem}:${dep.name}`);
+            if (!cached) continue;
+            let didHydrate = false;
+            if (!dep.repositoryUrl && cached.repositoryUrl) {
+                dep.repositoryUrl = cached.repositoryUrl;
+                didHydrate = true;
+            }
+            if (!dep.homepage && cached.homepage) {
+                dep.homepage = cached.homepage;
+                didHydrate = true;
+            }
+            if (!dep.issueTrackerUrl && cached.issueTrackerUrl) {
+                dep.issueTrackerUrl = cached.issueTrackerUrl;
+                didHydrate = true;
+            }
+            if (didHydrate) stats.hydrated++;
+        }
+
+        if (stats.hydrated > 0) {
+            console.log(`📡 FeedUrlBuilder.hydrateFromCache: filled repository URLs on ${stats.hydrated} of ${stats.scanned} deps from package cache`);
+        }
+        return stats;
+    }
+
+    /**
      * Resolve feeds for many deps and roll up coverage stats.
      * @param {Array<Object>} deps
      * @returns {{ entries: Array<Object>, stats: Object }}

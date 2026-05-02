@@ -40,6 +40,8 @@ document.addEventListener('DOMContentLoaded', async function() {
     await loadAnalysesList('analysisSelector', storageManager, document.getElementById('noDataSection'));
     
     async function loadVulnerabilityData() {
+        showFilterLoading('vulnerability-analysis-page');
+        try {
         const analysisName = document.getElementById('analysisSelector').value;
         const severityFilter = document.getElementById('severityFilter').value;
         
@@ -62,8 +64,7 @@ document.addEventListener('DOMContentLoaded', async function() {
                 const container = document.getElementById('vulnerability-analysis-page');
 
                 // Strip MAL- (malicious package) advisories out of the CVE
-                // view so they don't pollute severity charts. They get
-                // their own dedicated `malware.html` page. Hydrate
+                // view so they don't pollute severity charts. Hydrate
                 // `affected[]` from the per-package OSV cache first so
                 // strict version matching can correctly drop legacy
                 // false positives (e.g. importlib-metadata@2.0.0 vs
@@ -74,6 +75,23 @@ document.addEventListener('DOMContentLoaded', async function() {
                 }
                 const { filteredData, malwareCount } = excludeMalwareFromVulnAnalysis(data);
 
+                // Apply reach filter (direct/transitive)
+                const reachVal = document.getElementById('reachFilter')?.value || 'all';
+                if (reachVal !== 'all' && filteredData?.data?.vulnerabilityAnalysis?.vulnerableDependencies) {
+                    const allDeps = filteredData.data.allDependencies || [];
+                    const allRepos = filteredData.data.allRepositories || [];
+                    const directMap = window.InsightsAggregator
+                        ? window.InsightsAggregator.buildDirectMap(allRepos)
+                        : buildSimpleDirectMap(allRepos);
+                    const va = filteredData.data.vulnerabilityAnalysis;
+                    va.vulnerableDependencies = va.vulnerableDependencies.filter(vd => {
+                        const key = `${vd.name}@${vd.version}`;
+                        const isDirect = directMap.has(key) && directMap.get(key).size > 0;
+                        return reachVal === 'direct' ? isDirect : !isDirect;
+                    });
+                    va.vulnerablePackages = va.vulnerableDependencies.length;
+                }
+
                 let bannerHtml = '';
                 if (malwareCount > 0) {
                     bannerHtml = `
@@ -81,10 +99,10 @@ document.addEventListener('DOMContentLoaded', async function() {
                             <div>
                                 <i class="fas fa-biohazard me-2"></i>
                                 <strong>${malwareCount} malicious package advisor${malwareCount === 1 ? 'y' : 'ies'} detected.</strong>
-                                These are not listed below — see the dedicated Malware page for full details.
+                                These are not listed below — see the Findings page for full details.
                             </div>
-                            <a href="malware.html" class="btn btn-sm btn-light">
-                                <i class="fas fa-arrow-right me-1"></i>Open Malware page
+                            <a href="findings.html" class="btn btn-sm btn-light">
+                                <i class="fas fa-arrow-right me-1"></i>Open Findings page
                             </a>
                         </div>`;
                 }
@@ -98,11 +116,18 @@ document.addEventListener('DOMContentLoaded', async function() {
         });
         
         return data;
+        } finally {
+            hideFilterLoading('vulnerability-analysis-page');
+        }
     }
     
     // Setup event listeners
     document.getElementById('analysisSelector').addEventListener('change', loadVulnerabilityData);
     document.getElementById('severityFilter').addEventListener('change', loadVulnerabilityData);
+    const reachFilterEl = document.getElementById('reachFilter');
+    if (reachFilterEl) {
+        reachFilterEl.addEventListener('change', loadVulnerabilityData);
+    }
     
     // Load initial data
     await loadVulnerabilityData();
@@ -178,5 +203,17 @@ function excludeMalwareFromVulnAnalysis(data) {
     va.lowVulnerabilities = low;
 
     return { filteredData: cloned, malwareCount };
+}
+
+function buildSimpleDirectMap(allRepos) {
+    const map = new Map();
+    for (const repo of (allRepos || [])) {
+        const repoKey = `${repo.owner}/${repo.name}`;
+        for (const depKey of (repo.directDependencies || [])) {
+            if (!map.has(depKey)) map.set(depKey, new Set());
+            map.get(depKey).add(repoKey);
+        }
+    }
+    return map;
 }
 

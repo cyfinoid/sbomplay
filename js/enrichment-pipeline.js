@@ -16,19 +16,10 @@ class EnrichmentPipeline {
     constructor(sbomProcessor, storageManager) {
         this.sbomProcessor = sbomProcessor;
         this.storageManager = storageManager;
-        
-        // deps.dev ecosystem mapping
-        this.ecosystemMap = {
-            'npm': 'npm',
-            'pypi': 'pypi',
-            'go': 'go',
-            'golang': 'go',
-            'maven': 'maven',
-            'cargo': 'cargo',
-            'nuget': 'nuget',
-            'rubygems': 'rubygems',
-            'composer': 'npm'  // Packagist uses similar API
-        };
+        // License fetching (with deps.dev ecosystem mapping) lives in LicenseFetcher
+        // (`js/license-fetcher.js`); we delegate to `window.licenseFetcher` from
+        // `fetchAllLicenses` so the GitHub flow and the upload flow share the same
+        // implementation per AGENTS.md "Never duplicate implementations".
     }
 
     /**
@@ -166,144 +157,106 @@ class EnrichmentPipeline {
     }
 
     /**
-     * Fetch licenses for all ecosystems
+     * Fetch licenses (and deps.dev source-repo / homepage / issue-tracker links)
+     * for all ecosystems. Delegates to the shared LicenseFetcher service so the
+     * GitHub flow and the upload flow use identical logic.
      */
     async fetchAllLicenses(dependencies, identifier, onProgress = () => {}) {
-        const depsNeedingLicenses = dependencies.filter(dep => {
-            const hasLicense = dep.license && 
-                dep.license !== 'Unknown' && 
-                dep.license !== 'NOASSERTION' &&
-                String(dep.license).trim() !== '';
-            return !hasLicense && dep.name && dep.version && dep.version !== 'unknown';
-        });
-
-        if (depsNeedingLicenses.length === 0) {
-            console.log('ℹ️ All dependencies already have licenses');
+        if (!window.licenseFetcher) {
+            console.warn('⚠️ LicenseFetcher service not available — skipping license enrichment');
             return;
         }
 
-        console.log(`📄 Fetching licenses for ${depsNeedingLicenses.length} packages...`);
-
-        // Group by ecosystem
-        const byEcosystem = new Map();
-        for (const dep of depsNeedingLicenses) {
-            const ecosystem = (dep.category?.ecosystem || '').toLowerCase();
-            if (!byEcosystem.has(ecosystem)) {
-                byEcosystem.set(ecosystem, []);
+        const result = await window.licenseFetcher.fetchLicenses(
+            dependencies,
+            (processed, total, message) => {
+                const pct = total > 0 ? (processed / total) * 100 : 0;
+                onProgress(pct, message || `Fetched ${processed}/${total} licenses`);
             }
-            byEcosystem.get(ecosystem).push(dep);
-        }
+        );
 
-        let processed = 0;
-        const total = depsNeedingLicenses.length;
+        // Mirror licenses + deps.dev links (repository_url, homepage, issue tracker)
+        // back into sbomProcessor so subsequent exports carry them.
+        window.licenseFetcher.syncToProcessor(dependencies, this.sbomProcessor);
 
-        for (const [ecosystem, deps] of byEcosystem) {
-            const system = this.ecosystemMap[ecosystem];
-            if (!system) continue;
-
-            // Process in batches
-            const batchSize = 10;
-            for (let i = 0; i < deps.length; i += batchSize) {
-                const batch = deps.slice(i, i + batchSize);
-                
-                await Promise.all(batch.map(dep => this.fetchLicenseForPackage(dep, system)));
-                
-                processed += batch.length;
-                onProgress((processed / total) * 100, `Fetched ${processed}/${total} licenses`);
-
-                // Rate limiting
-                if (i + batchSize < deps.length) {
-                    await new Promise(r => setTimeout(r, 100));
-                }
-            }
-        }
-
-        // Sync to processor
-        this.syncLicensesToProcessor(depsNeedingLicenses);
-        
-        console.log(`✅ License fetching complete: ${processed} processed`);
+        console.log(`✅ License fetching complete: ${result.fetched}/${result.total} fetched`);
     }
 
     /**
-     * Fetch license for a single package from deps.dev
+     * Mirror per-dep version-drift + staleness writes back into
+     * `sbomProcessor.dependencies` (the Map exportData() rebuilds dep objects
+     * from). Without this step the enrichment fields live only on the in-memory
+     * dep array and get silently erased on the next save/load cycle.
+     *
+     * Mirrors the pattern of `LicenseFetcher.syncToProcessor` (see
+     * `js/license-fetcher.js:426`). Idempotent — when the Map entry doesn't
+     * exist (dep was filtered out before processing reached the Map), we skip
+     * silently.
+     *
+     * @param {Array} dependencies - dep array enriched by `fetchVersionDrift`
+     * @param {Object|null} sbomProcessor - processor whose Map should be updated
      */
-    async fetchLicenseForPackage(dep, system) {
-        try {
-            const url = `https://api.deps.dev/v3alpha/systems/${system}/packages/${encodeURIComponent(dep.name)}/versions/${encodeURIComponent(dep.version)}`;
-            const response = await fetch(url);
-            
-            if (response.ok) {
-                const data = await response.json();
-                if (data.licenses && data.licenses.length > 0) {
-                    const licenseStr = data.licenses.map(l => l.license || l).filter(Boolean).join(' AND ');
-                    dep.license = licenseStr;
-                    dep.licenseFull = licenseStr;
-                    dep.licenseAugmented = true;
-                    dep.licenseSource = 'deps.dev';
-                    return true;
-                }
+    static syncDriftToProcessor(dependencies, sbomProcessor) {
+        if (!sbomProcessor?.dependencies || !Array.isArray(dependencies)) return;
+        let driftSynced = 0;
+        let stalenessSynced = 0;
+        for (const dep of dependencies) {
+            if (!dep?.name) continue;
+            const packageKey = `${dep.name}@${dep.version}`;
+            const processorDep = sbomProcessor.dependencies.get(packageKey);
+            if (!processorDep) continue;
+            if (dep.versionDrift) {
+                processorDep.versionDrift = dep.versionDrift;
+                driftSynced++;
             }
-
-            // Fallback for Go packages on GitHub
-            if (system === 'go' && dep.name.startsWith('github.com/')) {
-                return await this.fetchLicenseFromGitHub(dep);
+            if (dep.staleness) {
+                processorDep.staleness = dep.staleness;
+                stalenessSynced++;
             }
-
-            return false;
-        } catch (e) {
-            return false;
+        }
+        if (driftSynced > 0 || stalenessSynced > 0) {
+            console.log(`🔄 Synced ${driftSynced} version-drift + ${stalenessSynced} staleness entries to processor`);
         }
     }
-
+    
     /**
-     * Fetch license from GitHub API (fallback for Go packages)
+     * Mirror per-dep EOX status writes back into `sbomProcessor.dependencies`
+     * so `exportData()` can persist them. See syncDriftToProcessor for rationale.
      */
-    async fetchLicenseFromGitHub(dep) {
-        try {
-            const parts = dep.name.replace('github.com/', '').split('/');
-            if (parts.length < 2) return false;
-            
-            const url = `https://api.github.com/repos/${parts[0]}/${parts[1]}`;
-            const response = await fetch(url);
-            
-            if (response.ok) {
-                const data = await response.json();
-                if (data.license?.spdx_id) {
-                    dep.license = data.license.spdx_id;
-                    dep.licenseFull = data.license.spdx_id;
-                    dep.licenseAugmented = true;
-                    dep.licenseSource = 'github';
-                    return true;
-                }
-            }
-            return false;
-        } catch (e) {
-            return false;
-        }
-    }
-
-    /**
-     * Sync fetched licenses back to sbomProcessor
-     */
-    syncLicensesToProcessor(dependencies) {
-        if (!this.sbomProcessor?.dependencies) return;
-
+    static syncEOXToProcessor(dependencies, sbomProcessor) {
+        if (!sbomProcessor?.dependencies || !Array.isArray(dependencies)) return;
         let synced = 0;
         for (const dep of dependencies) {
-            if (dep.licenseAugmented && dep.license) {
-                const key = `${dep.name}@${dep.version}`;
-                const procDep = this.sbomProcessor.dependencies.get(key);
-                if (procDep) {
-                    procDep.license = dep.license;
-                    procDep.licenseFull = dep.licenseFull;
-                    procDep._licenseAugmented = true;
-                    procDep._licenseSource = dep.licenseSource;
-                    synced++;
-                }
-            }
+            if (!dep?.name || !dep.eoxStatus) continue;
+            const packageKey = `${dep.name}@${dep.version}`;
+            const processorDep = sbomProcessor.dependencies.get(packageKey);
+            if (!processorDep) continue;
+            processorDep.eoxStatus = dep.eoxStatus;
+            synced++;
         }
         if (synced > 0) {
-            console.log(`📄 Synced ${synced} licenses to processor`);
+            console.log(`🔄 Synced ${synced} EOX status entries to processor`);
+        }
+    }
+    
+    /**
+     * Mirror per-dep source-repo validation results back into
+     * `sbomProcessor.dependencies` so `exportData()` can persist them. See
+     * syncDriftToProcessor for rationale.
+     */
+    static syncSourceRepoStatusToProcessor(dependencies, sbomProcessor) {
+        if (!sbomProcessor?.dependencies || !Array.isArray(dependencies)) return;
+        let synced = 0;
+        for (const dep of dependencies) {
+            if (!dep?.name || !dep.sourceRepoStatus) continue;
+            const packageKey = `${dep.name}@${dep.version}`;
+            const processorDep = sbomProcessor.dependencies.get(packageKey);
+            if (!processorDep) continue;
+            processorDep.sourceRepoStatus = dep.sourceRepoStatus;
+            synced++;
+        }
+        if (synced > 0) {
+            console.log(`🔄 Synced ${synced} source-repo status entries to processor`);
         }
     }
 
@@ -371,11 +324,28 @@ class EnrichmentPipeline {
             }
         }
 
+        // Phase D: mirror dep.versionDrift + dep.staleness onto the
+        // sbomProcessor's dependencies Map so the next exportData() persists
+        // them. Without this step, both fields silently disappear on the
+        // following save/load cycle even though the in-memory dep array carried
+        // them through the run.
+        EnrichmentPipeline.syncDriftToProcessor(dependencies, this.sbomProcessor);
+        
         console.log(`✅ Version drift complete: ${checked} checked`);
     }
 
     /**
-     * Fetch author information
+     * Fetch author information.
+     *
+     * After AuthorService finishes, also mirror the per-package
+     * `repository_url` / `homepage` / `registry_url` it captured (from
+     * ecosyste.ms in particular, which is the only source for ecosystems
+     * with no native registry fetch — Maven, NuGet, Go, …) back onto the
+     * dep array AND the sbomProcessor's dependency map. Without this step,
+     * those URLs live only in the persistent `packages` cache; the saved
+     * analysis blob (which is what feed-url-builder, findings-page, etc.
+     * read on subsequent loads) never sees them, so Maven packages keep
+     * resolving to "no GitHub source repo was found".
      */
     async fetchAuthors(dependencies, identifier, onProgress = () => {}) {
         if (!window.AuthorService) {
@@ -402,8 +372,77 @@ class EnrichmentPipeline {
                 onProgress((processed / total) * 100, `Authors: ${processed}/${total}`);
             });
             console.log('✅ Author fetching complete');
+
+            await EnrichmentPipeline.hydrateRepoUrlsFromPackageCache(dependencies, this.sbomProcessor);
         } catch (e) {
             console.warn(`⚠️ Author fetch failed: ${e.message}`);
+        }
+    }
+
+    /**
+     * Pull `repository_url` / `homepage` / `registry_url` written by AuthorService
+     * onto the dep array (and the sbomProcessor's Map) so they get persisted in
+     * the saved analysis. Skips deps that already carry a URL — the LicenseFetcher
+     * deps.dev pass and any SBOM externalRef therefore win over ecosyste.ms,
+     * matching the source-of-truth ordering the rest of the pipeline assumes.
+     *
+     * Static so the GitHub flow's `app.js::analyzeAuthors` can call it without
+     * instantiating an EnrichmentPipeline (per AGENTS.md "Never duplicate
+     * implementations" — both entry points share this hydrator).
+     *
+     * @param {Array} dependencies - dep array (will be mutated in place)
+     * @param {Object|null} sbomProcessor - optional processor whose .dependencies
+     *   Map should also be hydrated, so a later `exportData()` carries the URLs.
+     */
+    static async hydrateRepoUrlsFromPackageCache(dependencies, sbomProcessor = null) {
+        if (!window.cacheManager || typeof window.cacheManager.getPackage !== 'function') return;
+        if (!Array.isArray(dependencies) || dependencies.length === 0) return;
+
+        let repoSynced = 0;
+        let homepageSynced = 0;
+        for (const dep of dependencies) {
+            if (!dep || !dep.name) continue;
+            const ecosystem = (dep.category?.ecosystem || dep.ecosystem || '').toLowerCase();
+            if (!ecosystem) continue;
+
+            const packageKey = `${ecosystem}:${dep.name}`;
+            let cached;
+            try {
+                cached = await window.cacheManager.getPackage(packageKey);
+            } catch (_) {
+                continue;
+            }
+            if (!cached) continue;
+
+            let processorDep = null;
+            if (sbomProcessor?.dependencies) {
+                processorDep = sbomProcessor.dependencies.get(`${dep.name}@${dep.version}`);
+            }
+
+            if (cached.repositoryUrl && !dep.repositoryUrl) {
+                dep.repositoryUrl = cached.repositoryUrl;
+                if (processorDep && !processorDep.repositoryUrl) {
+                    processorDep.repositoryUrl = cached.repositoryUrl;
+                }
+                repoSynced++;
+            }
+            if (cached.homepage && !dep.homepage) {
+                dep.homepage = cached.homepage;
+                if (processorDep && !processorDep.homepage) {
+                    processorDep.homepage = cached.homepage;
+                }
+                homepageSynced++;
+            }
+            if (cached.issueTrackerUrl && !dep.issueTrackerUrl) {
+                dep.issueTrackerUrl = cached.issueTrackerUrl;
+                if (processorDep && !processorDep.issueTrackerUrl) {
+                    processorDep.issueTrackerUrl = cached.issueTrackerUrl;
+                }
+            }
+        }
+
+        if (repoSynced > 0 || homepageSynced > 0) {
+            console.log(`🔗 Hydrated ${repoSynced} repository URL(s) and ${homepageSynced} homepage(s) onto dep array from package cache`);
         }
     }
 
@@ -465,37 +504,60 @@ class EnrichmentPipeline {
         }
 
         const eoxCount = depsToCheck.filter(d => d.eoxStatus).length;
+        
+        // Phase D: mirror dep.eoxStatus onto the sbomProcessor's dependencies
+        // Map so the next exportData() persists it. See syncDriftToProcessor
+        // for the full rationale.
+        EnrichmentPipeline.syncEOXToProcessor(dependencies, this.sbomProcessor);
+        
         console.log(`✅ EOX status complete: ${eoxCount} packages have EOX data`);
     }
 
     /**
-     * Validate source repository URLs from SBOM externalRefs
-     * Checks if GitHub repos listed as SOURCE-CONTROL actually exist
+     * Validate source repository URLs from the SBOM and from API enrichment.
+     *
+     * Collects candidate GitHub repo URLs from THREE sources:
+     *   1. SBOM externalRefs (referenceCategory: SOURCE-CONTROL / referenceType: vcs)
+     *   2. dep.repositoryUrl populated by LicenseFetcher (deps.dev `links.SOURCE_REPO`)
+     *   3. dep.homepage populated by LicenseFetcher (deps.dev `links.HOMEPAGE`)
+     *
+     * Then issues at most one GitHub HEAD per unique owner/repo to flag dead repos.
+     * Without (2)+(3), Maven / NuGet / Go / etc. that don't carry SBOM externalRefs
+     * but DO have a deps.dev `SOURCE_REPO` would never be checked for dead-ness.
      */
     async validateSourceRepos(dependencies, onProgress = () => {}) {
         // Collect unique GitHub repo URLs to validate
-        const repoMap = new Map(); // url -> { deps: [], owner, repo }
-        
+        const repoMap = new Map(); // owner/repo -> { deps: [], owner, repo, originalUrl }
+
+        const addCandidate = (dep, url) => {
+            if (!url || typeof url !== 'string') return;
+            const parsed = this.parseGitHubUrl(url);
+            if (!parsed) return;
+            const key = `${parsed.owner}/${parsed.repo}`;
+            if (!repoMap.has(key)) {
+                repoMap.set(key, {
+                    deps: [],
+                    owner: parsed.owner,
+                    repo: parsed.repo,
+                    originalUrl: url
+                });
+            }
+            const entry = repoMap.get(key);
+            // Avoid double-listing the same dep when externalRefs and deps.dev agree.
+            if (!entry.deps.includes(dep)) {
+                entry.deps.push(dep);
+            }
+        };
+
         for (const dep of dependencies) {
             const externalRefs = dep.originalPackage?.externalRefs || [];
             for (const ref of externalRefs) {
                 if (ref.referenceCategory === 'SOURCE-CONTROL' || ref.referenceType === 'vcs') {
-                    const url = ref.referenceLocator || '';
-                    const parsed = this.parseGitHubUrl(url);
-                    if (parsed) {
-                        const key = `${parsed.owner}/${parsed.repo}`;
-                        if (!repoMap.has(key)) {
-                            repoMap.set(key, { 
-                                deps: [], 
-                                owner: parsed.owner, 
-                                repo: parsed.repo,
-                                originalUrl: url
-                            });
-                        }
-                        repoMap.get(key).deps.push(dep);
-                    }
+                    addCandidate(dep, ref.referenceLocator || '');
                 }
             }
+            addCandidate(dep, dep.repositoryUrl);
+            addCandidate(dep, dep.homepage);
         }
 
         if (repoMap.size === 0) {
@@ -573,6 +635,11 @@ class EnrichmentPipeline {
             }
         }
 
+        // Phase D: mirror dep.sourceRepoStatus onto the sbomProcessor's
+        // dependencies Map so the next exportData() persists it. See
+        // syncDriftToProcessor for the full rationale.
+        EnrichmentPipeline.syncSourceRepoStatusToProcessor(dependencies, this.sbomProcessor);
+        
         console.log(`✅ Source repo validation complete: ${notFoundCount} repos not found`);
     }
 

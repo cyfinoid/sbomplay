@@ -125,6 +125,17 @@ console.log('📡 feeds-page.js loaded');
 
         const allDeps = (data.data.allDependencies || []).map(toCanonicalDep);
 
+        // Fill in missing repository URLs from the persistent package cache before
+        // resolving feeds. Author enrichment writes `repository_url` / `homepage`
+        // onto the package row for every package (including Maven / NuGet / Go,
+        // which have no native registry fetch and therefore historically arrived
+        // here with `dep.repositoryUrl === undefined`). Without this hydration
+        // step those deps fall through to "no GitHub source repo was found"
+        // even when the URL is sitting one IndexedDB read away.
+        if (typeof feedUrlBuilder.hydrateFromCache === 'function') {
+            await feedUrlBuilder.hydrateFromCache(allDeps);
+        }
+
         const resolved = feedUrlBuilder.resolveAll(allDeps);
         allEntries = resolved.entries;
         allStats = resolved.stats;
@@ -222,24 +233,29 @@ console.log('📡 feeds-page.js loaded');
     }
 
     function applyFilters() {
-        const search = (dom.searchInput.value || '').trim().toLowerCase();
-        const typeFilter = dom.typeFilter.value;
-        const ecosystemFilter = dom.ecosystemFilter.value;
-        const coverageFilter = dom.coverageFilter.value;
+        showFilterLoading('tableCard');
+        try {
+            const search = (dom.searchInput.value || '').trim().toLowerCase();
+            const typeFilter = dom.typeFilter.value;
+            const ecosystemFilter = dom.ecosystemFilter.value;
+            const coverageFilter = dom.coverageFilter.value;
 
-        filteredEntries = allEntries.filter(({ dep, feed }) => {
-            if (search && !(dep.name || '').toLowerCase().includes(search)) return false;
-            if (typeFilter !== 'all' && dep.type !== typeFilter) return false;
-            if (ecosystemFilter !== 'all' && dep.ecosystem !== ecosystemFilter) return false;
-            if (coverageFilter === 'covered' && feed.status === 'uncovered') return false;
-            if (coverageFilter === 'uncovered' && feed.status !== 'uncovered') return false;
-            if (coverageFilter === 'native' && feed.status !== 'native') return false;
-            if (coverageFilter === 'github' && feed.status !== 'github-releases' && feed.status !== 'github-tags') return false;
-            return true;
-        });
+            filteredEntries = allEntries.filter(({ dep, feed }) => {
+                if (search && !(dep.name || '').toLowerCase().includes(search)) return false;
+                if (typeFilter !== 'all' && dep.type !== typeFilter) return false;
+                if (ecosystemFilter !== 'all' && dep.ecosystem !== ecosystemFilter) return false;
+                if (coverageFilter === 'covered' && feed.status === 'uncovered') return false;
+                if (coverageFilter === 'uncovered' && feed.status !== 'uncovered') return false;
+                if (coverageFilter === 'native' && feed.status !== 'native') return false;
+                if (coverageFilter === 'github' && feed.status !== 'github-releases' && feed.status !== 'github-tags') return false;
+                return true;
+            });
 
-        renderStats();
-        renderTable();
+            renderStats();
+            renderTable();
+        } finally {
+            hideFilterLoading('tableCard');
+        }
     }
 
     function renderStats() {
@@ -348,7 +364,12 @@ console.log('📡 feeds-page.js loaded');
         dom.displayLimitSelect.addEventListener('change', (e) => {
             const value = e.target.value;
             displayLimit = value === 'all' ? 'all' : parseInt(value, 10);
-            renderTable();
+            showFilterLoading('tableCard');
+            try {
+                renderTable();
+            } finally {
+                hideFilterLoading('tableCard');
+            }
         });
         dom.exportOpmlBtn.addEventListener('click', exportOpml);
         dom.copyAllUrlsBtn.addEventListener('click', copyAllUrls);

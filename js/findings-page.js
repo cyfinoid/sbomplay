@@ -951,7 +951,7 @@ document.addEventListener('DOMContentLoaded', async function() {
                                             const overflow = advisoryIds.length > 6
                                                 ? `<br><small class="text-muted">+${advisoryIds.length - 6} more</small>`
                                                 : '';
-                                            const malwarePageLink = '<br><a href="malware.html" class="small">View on Malware page</a>';
+                                            const malwarePageLink = '';
 
                                             return `<tr class="table-danger">
                                                 <td>${packageLink}<br><small class="text-muted">${escapeHtml(instance.message || '')}</small></td>

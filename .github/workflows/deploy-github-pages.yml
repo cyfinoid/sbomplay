@@ -48,7 +48,6 @@ jobs:
           cp index.html _site/
           cp licenses.html _site/
           cp vuln.html _site/
-          cp malware.html _site/
           cp audit.html _site/
           cp deps.html _site/
           cp settings.html _site/
@@ -58,6 +57,7 @@ jobs:
           cp debug.html _site/
           cp findings.html _site/
           cp feeds.html _site/
+          cp insights.html _site/
           echo "✅ Copied 13 HTML files"
           
           # Copy JavaScript, CSS, and images directories (matching update-prod.sh)
