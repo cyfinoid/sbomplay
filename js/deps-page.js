@@ -2211,8 +2211,7 @@ document.addEventListener('DOMContentLoaded', function() {
                             const parentsByRepo = JSON.parse(cell.getAttribute('data-parents-by-repo'));
                             const packageName = cell.getAttribute('data-package');
                             const packageVersion = cell.getAttribute('data-package-version') || '';
-                            const fullPackageName = packageVersion ? `${packageName}@${packageVersion}` : packageName;
-                            showParentsModal(parents, parentsByRepo, fullPackageName);
+                            showParentsModal(parents, parentsByRepo, packageName, packageVersion);
                         }
                     });
                 }
@@ -2954,11 +2953,16 @@ document.addEventListener('DOMContentLoaded', function() {
             new bootstrap.Modal(document.getElementById('repositoriesModal')).show();
         }
         
-        function showParentsModal(parents, parentsByRepo, packageName) {
+        function showParentsModal(parents, parentsByRepo, packageName, packageVersion) {
             const modalTitle = document.getElementById('parentsModalTitle');
             const modalBody = document.getElementById('parentsModalBody');
-            
-            modalTitle.textContent = `Dependency Chain for ${packageName}`;
+
+            // packageVersion is optional for back-compat; legacy callers may still
+            // pass a "name@version" string in packageName.
+            const fullPackageName = (packageVersion && packageVersion !== '')
+                ? `${packageName}@${packageVersion}`
+                : packageName;
+            modalTitle.textContent = `Dependency Chain for ${fullPackageName}`;
             
             // Get current organization context for the link
             const currentOrg = document.getElementById('analysisSelector')?.value || '';
@@ -2994,18 +2998,56 @@ document.addEventListener('DOMContentLoaded', function() {
                 return { name: pkgStr, version: null };
             };
             
+            // Walk up `currentData.allDependencies[].parents` from `parentKey`
+            // until we hit a dep with no parents (root) or a cycle. Mirrors
+            // `view-manager.js::buildPathFromParents` so the deps-page modal
+            // and the vuln-page chain display use the same data when SPDX
+            // edges aren't present in the repo's `relationships`.
+            // Returns a chain from root → parent → ... → target.
+            const buildChainFromAllDeps = (parentKey, targetPkg) => {
+                if (!currentData || !Array.isArray(currentData.allDependencies)) {
+                    return [parentKey, targetPkg];
+                }
+                const allDeps = currentData.allDependencies;
+                const path = [targetPkg];
+                const visited = new Set([targetPkg]);
+                let currentKey = parentKey;
+                while (currentKey && !visited.has(currentKey)) {
+                    visited.add(currentKey);
+                    path.unshift(currentKey);
+
+                    const lastAt = currentKey.lastIndexOf('@');
+                    if (lastAt <= 0) break;
+                    const curName = currentKey.substring(0, lastAt);
+                    const curVersion = currentKey.substring(lastAt + 1);
+
+                    let curDep = allDeps.find(d => d.name === curName && d.version === curVersion);
+                    if (!curDep) curDep = allDeps.find(d => d.name === curName);
+                    if (!curDep || !Array.isArray(curDep.parents) || curDep.parents.length === 0) {
+                        break;
+                    }
+                    currentKey = curDep.parents[0];
+                    if (path.length > 20) break;
+                }
+                return path;
+            };
+
             // Helper function to build full dependency chain path for a parent in a specific repo
             // Returns chain from root (direct dependency) to target: [root, ..., parent, target]
+            // SPDX-based walk first; if that doesn't reach a root direct dep
+            // (typical for resolver-discovered transitive deps that aren't
+            // enumerated in the SBOM's relationships), fall back to walking
+            // `allDeps[].parents` so the chain extends to the actual root.
             const buildDependencyChain = (repoName, parentPkg, targetPkg) => {
                 if (!currentData || !currentData.allRepositories) {
-                    return [parentPkg, targetPkg]; // Fallback
+                    return buildChainFromAllDeps(parentPkg, targetPkg);
                 }
-                
+
                 const repo = currentData.allRepositories.find(r => `${r.owner}/${r.name}` === repoName);
                 if (!repo || !repo.relationships || !repo.spdxPackages) {
-                    return [parentPkg, targetPkg]; // Fallback
+                    return buildChainFromAllDeps(parentPkg, targetPkg);
                 }
-                
+
                 // Build SPDX ID to package mapping
                 const spdxToPackage = new Map();
                 const packageToSpdx = new Map();
@@ -3016,15 +3058,15 @@ document.addEventListener('DOMContentLoaded', function() {
                         packageToSpdx.set(pkgKey, pkg.SPDXID);
                     }
                 });
-                
+
                 // Find SPDX IDs for target and parent
                 const targetSpdxId = packageToSpdx.get(targetPkg);
                 const parentSpdxId = packageToSpdx.get(parentPkg);
-                
+
                 if (!targetSpdxId || !parentSpdxId) {
-                    return [parentPkg, targetPkg]; // Fallback
+                    return buildChainFromAllDeps(parentPkg, targetPkg);
                 }
-                
+
                 // Build reverse map: child -> parent(s) for easier traversal
                 const childToParent = new Map();
                 repo.relationships.forEach(rel => {
@@ -3035,31 +3077,33 @@ document.addEventListener('DOMContentLoaded', function() {
                         childToParent.get(rel.to).push(rel.from);
                     }
                 });
-                
+
                 // Find path from root to target by tracing from parent up to root, then down to target
                 const chain = [];
                 const visited = new Set();
-                
+                let reachedDirect = false;
+
                 // First, trace from parent up to root (direct dependency)
                 const rootPath = [];
                 let currentSpdxId = parentSpdxId;
-                
+
                 while (currentSpdxId && !visited.has(currentSpdxId)) {
                     visited.add(currentSpdxId);
                     const pkg = spdxToPackage.get(currentSpdxId);
                     if (pkg) {
                         rootPath.unshift(pkg); // Add to front (root first)
                     }
-                    
+
                     // Check if this is a direct dependency (root)
-                    const isDirect = repo.relationships.some(rel => 
+                    const isDirect = repo.relationships.some(rel =>
                         rel.to === currentSpdxId && rel.isDirectFromMain
                     );
-                    
+
                     if (isDirect) {
+                        reachedDirect = true;
                         break; // Reached root
                     }
-                    
+
                     // Find parent
                     const parents = childToParent.get(currentSpdxId);
                     if (parents && parents.length > 0) {
@@ -3068,19 +3112,30 @@ document.addEventListener('DOMContentLoaded', function() {
                         break;
                     }
                 }
-                
+
                 // Add parent and target to complete the chain
                 if (rootPath.length > 0) {
                     chain.push(...rootPath);
                 } else {
                     chain.push(parentPkg);
                 }
-                
+
                 // Add target at the end if not already included
                 if (chain[chain.length - 1] !== targetPkg) {
                     chain.push(targetPkg);
                 }
-                
+
+                // If the SPDX walk didn't reach a direct dep (e.g. the
+                // transitive was resolver-discovered after SBOM parsing and
+                // the SBOM's relationships are incomplete), try the allDeps
+                // walk and prefer it when it produces a strictly longer chain.
+                if (!reachedDirect) {
+                    const fromAllDeps = buildChainFromAllDeps(parentPkg, targetPkg);
+                    if (fromAllDeps.length > chain.length) {
+                        return fromAllDeps;
+                    }
+                }
+
                 return chain.length > 0 ? chain : [parentPkg, targetPkg];
             };
             
@@ -3088,17 +3143,68 @@ document.addEventListener('DOMContentLoaded', function() {
             let html = `
                 <p class="mb-3">This transitive dependency is brought in by <strong>${parents.length}</strong> parent ${parents.length === 1 ? 'dependency' : 'dependencies'} across your repositories:</p>
             `;
-            
-            // Get target package key for building chains
-            // packageName should already be in "name@version" format, but handle edge cases
-            const targetPkg = packageName.includes('@') ? packageName : `${packageName}@unknown`;
-            
+
+            // Get target package key for building chains. Prefer the explicit
+            // packageVersion arg; legacy callers may still pass "name@version"
+            // as packageName.
+            const targetPkg = (packageVersion && packageVersion !== '')
+                ? `${packageName}@${packageVersion}`
+                : (packageName.includes('@') ? packageName : `${packageName}@unknown`);
+
+            // If `parentsByRepo` is empty (typical for resolver-discovered
+            // transitives whose parent edges live on `dep.parents` rather than
+            // in the repo's SPDX `relationships`), synthesise a per-repo
+            // grouping from the dep's `repositories` field so the modal still
+            // shows full chains grouped per repo instead of falling back to a
+            // bare list of parent names. Each parent is intersected with each
+            // repo's dep set so we don't attribute a parent to a repo that
+            // never used it.
+            let workingParentsByRepo = parentsByRepo;
+            if (Object.keys(workingParentsByRepo).length === 0
+                && parents.length > 0
+                && currentData
+                && Array.isArray(currentData.allDependencies)) {
+                const allDeps = currentData.allDependencies;
+                const targetDep = allDeps.find(d =>
+                    d.name === packageName && d.version === packageVersion
+                ) || allDeps.find(d => `${d.name}@${d.version}` === targetPkg);
+                if (targetDep && Array.isArray(targetDep.repositories) && targetDep.repositories.length > 0) {
+                    const synth = {};
+                    for (const repoName of targetDep.repositories) {
+                        const repoParents = [];
+                        for (const parentKey of parents) {
+                            const lastAt = parentKey.lastIndexOf('@');
+                            const parentName = lastAt > 0 ? parentKey.substring(0, lastAt) : parentKey;
+                            const parentVer = lastAt > 0 ? parentKey.substring(lastAt + 1) : '';
+                            const parentDep = allDeps.find(d =>
+                                d.name === parentName && d.version === parentVer
+                            ) || allDeps.find(d => d.name === parentName);
+                            // Include the parent only if we can confirm it was
+                            // also seen in this repo (or we have no repo info,
+                            // in which case we can't filter and keep it).
+                            if (!parentDep
+                                || !Array.isArray(parentDep.repositories)
+                                || parentDep.repositories.length === 0
+                                || parentDep.repositories.includes(repoName)) {
+                                repoParents.push(parentKey);
+                            }
+                        }
+                        if (repoParents.length > 0) {
+                            synth[repoName] = repoParents;
+                        }
+                    }
+                    if (Object.keys(synth).length > 0) {
+                        workingParentsByRepo = synth;
+                    }
+                }
+            }
+
             // Group by repository
-            if (Object.keys(parentsByRepo).length > 0) {
+            if (Object.keys(workingParentsByRepo).length > 0) {
                 html += '<div class="accordion" id="parentsAccordion">';
                 
-                Object.keys(parentsByRepo).sort().forEach((repoName, index) => {
-                    const repoParents = parentsByRepo[repoName];
+                Object.keys(workingParentsByRepo).sort().forEach((repoName, index) => {
+                    const repoParents = workingParentsByRepo[repoName];
                     html += `
                         <div class="accordion-item">
                             <h2 class="accordion-header" id="heading${index}">
