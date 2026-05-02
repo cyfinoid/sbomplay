@@ -32,6 +32,7 @@
                     <a class="nav-link" href="vuln.html">Vulns</a>
                     <a class="nav-link" href="audit.html">Audit</a>
                     <a class="nav-link" href="findings.html">Findings</a>
+                    <a class="nav-link" href="insights.html">Insights</a>
                     <a class="nav-link" href="deps.html">Deps</a>
                     <a class="nav-link" href="repos.html">Repos</a>
                     <a class="nav-link" href="authors.html">Authors</a>
@@ -103,7 +104,7 @@
                             <!-- Options populated dynamically, defaults to "All Analyses" (aggregated) -->
                         </select>
                     </div>
-                    <div class="col-md-6">
+                    <div class="col-md-4">
                         <label class="form-label">Filter by License Category</label>
                         <select class="form-select" id="categoryFilter">
                             <option value="all">All Categories</option>
@@ -113,6 +114,14 @@
                             <option value="lgpl">LGPL</option>
                             <option value="unknown">Unknown</option>
                             <option value="unlicensed">Unlicensed</option>
+                        </select>
+                    </div>
+                    <div class="col-md-2">
+                        <label class="form-label">Filter by Reach</label>
+                        <select class="form-select" id="reachFilter">
+                            <option value="all">All</option>
+                            <option value="direct">Direct Only</option>
+                            <option value="transitive">Transitive Only</option>
                         </select>
                     </div>
                 </div>
@@ -208,14 +217,14 @@
     <script src="js/ecosystem-utils.js?v=0.0.9&cb=1777494400000"></script>
     <script src="js/depconfuse-service.js?v=0.0.9&cb=1777494400000"></script>
     <script src="js/cache-manager.js?v=0.0.9&cb=1777494400000"></script>
-    <script src="js/view-manager.js?v=0.0.9&cb=1778100000000"></script>
+    <script src="js/view-manager.js?v=0.0.9&cb=1780000000000"></script>
     <script src="js/license-processor.js?v=0.0.9&cb=1778000000000"></script>
     <script src="js/osv-service.js?v=0.0.9&cb=1777800000000"></script>
     <script src="js/sbom-processor.js?v=0.0.9&cb=1779000000000"></script>
     <script src="js/storage-manager.js?v=0.0.9&cb=1779000000000"></script>
     <script src="js/github-client.js?v=0.0.9&cb=1778000000000"></script>
-    <script src="js/app.js?v=0.0.9&cb=1778000000000"></script>
+    <script src="js/app.js?v=0.0.9&cb=1780000000000"></script>
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
-    <script src="js/licenses-page.js?v=0.0.9&cb=1777642497882"></script>
+    <script src="js/licenses-page.js?v=0.0.9&cb=1780000000000"></script>
 </body>
 </html> 

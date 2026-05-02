@@ -112,9 +112,12 @@ document.addEventListener('DOMContentLoaded', async function() {
     // Setup event listeners
     document.getElementById('analysisSelector').addEventListener('change', loadLicenseData);
     document.getElementById('categoryFilter').addEventListener('change', async function() {
-        // Reload data to update both counts and high-risk list with new filter
         await loadLicenseData();
     });
+    const reachFilterEl = document.getElementById('reachFilter');
+    if (reachFilterEl) {
+        reachFilterEl.addEventListener('change', loadLicenseData);
+    }
     
     // Load initial data
     await loadLicenseData();

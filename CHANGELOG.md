@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Insights page — full tech-debt and supply-chain dashboard** (`insights.html`, `js/insights-aggregator.js`, `js/insights-page.js`): new page computes 10 aggregate metrics from stored SBOM analysis data and renders them with Chart.js 4.4 charts. Sections: KPI strip (8 tiles), language/ecosystem stack, package age distribution with probable-EOL list, version drift with lagging-deps table, dependency depth distribution, vulnerability age (severity x age stacked bar + time-bomb table with Reach column), repository hygiene (SBOM grade donut + pushedAt activity buckets), supply-chain & M&A red flags (malware, dep-confusion, unpinned actions, EOL, dead repos), and Tech-Debt composite (6-component weighted score with per-repo CSV export). All aggregators thread a shared `directMap` so direct dependencies carry 3x weight in the composite. Chart.js theming driven by `--chart-text-color` / `--chart-grid-color` CSS custom properties for dark/light mode support.
+- **Portfolio Snapshot KPI strip on the Home page** (`index.html`, `js/app.js`, `js/index-page.js`): a new collapsible "Portfolio Snapshot" card reuses `InsightsAggregator.renderKpiStrip()` to display 8 key health tiles (repos, deps, C+H vulns, direct-dep CVE dwell, EOL, copyleft, drift, tech-debt grade) without loading Chart.js. Links drill into the full Insights page.
+- **"Insights" nav link** added between "Findings" and "Deps" across all 13 HTML pages.
+- **"Filter by Reach" dropdown on Vuln and License pages** (`vuln.html`, `licenses.html`, `js/vuln-page.js`, `js/licenses-page.js`): filters vulnerability and license tables by direct/transitive reach.
+- **Reach badges on vulnerability items** (`js/view-manager.js`): each vulnerable dependency card now shows a "Direct" or "Transitive" badge next to the package name.
+- **Direct/transitive dep split on Repos page** (`js/repos-page.js`, `repos.html`): each repo row now shows `(ND / MT)` next to the dependency count badge, and the CSV export includes `direct_deps` and `transitive_deps` columns.
+- **Tech-Debt Composite Scoring methodology card** (`about.html`): documents the 6 weighted sub-components, grading scale, 3x direct weighting, and SBOM-quality exclusion rationale.
+- **Chart.js added to CDN allowlist** (`about.html`): `cdn.jsdelivr.net` row now includes Chart.js.
+- **Insights Analysis Flow added to flowchart** (`flowchart.md`): documents the InsightsAggregator pipeline and its 10-section rendering.
+- **CSS: Chart.js theme variables and Insights styles** (`css/themes.css`, `css/style.css`): `--chart-text-color` / `--chart-grid-color` in dark, light, and root scopes; `.insights-mini-tooltip`, `.insights-scroll-container`, `.insights-chart-wrap`, `.insights-component-bar`, `.insights-mini-bar` classes.
+- **Workflow files updated** (`.github/workflows/deploy-github-pages.yml`, `.github/workflows/validate-deployment.yml`): `insights.html`, `js/insights-aggregator.js`, `js/insights-page.js` added to deployment copy step and validation arrays.
+
 ### Removed
 - **Malware page removed from navigation and site** (`malware.html`, `js/malware-page.js`): malware findings are already surfaced on the Findings page, making the standalone Malware page redundant. The page, its page-specific JS, and all nav links have been removed. The vuln-page malware banner now links to the Findings page instead. `malware-service.js` is retained — it still powers MAL- advisory filtering on the Vulns and Findings pages. Workflow files updated to reflect 12 HTML pages.
 - **Feeds page removed from top navigation** (`feeds.html`): the page is retained and fully functional but no longer occupies a slot in the header navbar, reducing nav clutter ahead of the upcoming Insights page. Users can still access it via direct URL.

@@ -35,6 +35,7 @@
                     <a class="nav-link" href="vuln.html">Vulns</a>
                     <a class="nav-link" href="audit.html">Audit</a>
                     <a class="nav-link" href="findings.html">Findings</a>
+                    <a class="nav-link" href="insights.html">Insights</a>
                     <a class="nav-link" href="deps.html">Deps</a>
                     <a class="nav-link" href="repos.html">Repos</a>
                     <a class="nav-link" href="authors.html">Authors</a>
@@ -370,6 +371,28 @@
             </div>
         </div>
 
+        <!-- Portfolio Snapshot (Insights KPI strip) -->
+        <div id="portfolioSnapshot" class="card mb-4 d-none">
+            <div class="card-header cursor-pointer" data-bs-toggle="collapse" data-bs-target="#portfolioSnapshotCollapse" aria-expanded="true" aria-controls="portfolioSnapshotCollapse">
+                <h5 class="mb-0 d-flex justify-content-between align-items-center">
+                    <span>
+                        <i class="fas fa-chart-line me-2"></i>Portfolio Snapshot
+                    </span>
+                    <i class="fas fa-chevron-down" id="portfolioSnapshotCollapseIcon"></i>
+                </h5>
+            </div>
+            <div class="collapse show" id="portfolioSnapshotCollapse">
+                <div class="card-body">
+                    <div id="portfolioSnapshotContent">
+                        <div class="text-center text-muted">
+                            <i class="fas fa-spinner fa-spin fa-2x mb-3"></i>
+                            <p>Computing insights...</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
         <!-- Help Section -->
         <div id="help" class="card mb-4">
             <div class="card-header">
@@ -642,9 +665,10 @@
         <script src="js/country-data.js?v=0.0.9&cb=1777494400000"></script>
         <script src="js/location-service.js?v=0.0.9&cb=1777494400000"></script>
         <script src="js/storage-manager.js?v=0.0.9&cb=1779000000000"></script>
-        <script src="js/view-manager.js?v=0.0.9&cb=1778100000000"></script>
+        <script src="js/insights-aggregator.js?v=0.0.9&cb=1780000000000"></script>
+        <script src="js/view-manager.js?v=0.0.9&cb=1780000000000"></script>
         <script src="js/common.js?v=0.0.9&cb=1777642497882"></script>
-    <script src="js/app.js?v=0.0.9&cb=1778000000000"></script>
-    <script src="js/index-page.js?v=0.0.9&cb=1777494400000"></script>
+    <script src="js/app.js?v=0.0.9&cb=1780000000000"></script>
+    <script src="js/index-page.js?v=0.0.9&cb=1780000000000"></script>
 </body>
 </html> 

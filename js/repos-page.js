@@ -500,6 +500,9 @@ document.addEventListener('DOMContentLoaded', async function() {
                 console.log(`👥 First repo lookup: repoKey="${repoKey}", authorRepoMap.has(repoKey)=${authorRepoMap.has(repoKey)}, authorCount=${authorCount}`);
             }
             
+            const directDeps = Array.isArray(repo.directDependencies) ? repo.directDependencies.length : 0;
+            const transitiveDeps = Math.max(0, depCount - directDeps);
+
             repos.push({
                 name: repoKey,
                 owner: repo.owner,
@@ -513,10 +516,12 @@ document.addEventListener('DOMContentLoaded', async function() {
                 vulnLow: vulnLow,
                 vulnCount: vulnHigh + vulnMedium + vulnLow,
                 depCount: depCount,
+                directDeps: directDeps,
+                transitiveDeps: transitiveDeps,
                 authorCount: authorCount,
                 license: repoLicense,
                 archived: isArchived,
-                hasDependencyGraph: repo.hasDependencyGraph !== false, // Default to true if not specified (for backward compat)
+                hasDependencyGraph: repo.hasDependencyGraph !== false,
                 raw: repo
             });
         });
@@ -673,9 +678,10 @@ document.addEventListener('DOMContentLoaded', async function() {
             }
             vulnCell += '</td>';
             
-            // Build dependencies cell (clickable)
+            // Build dependencies cell (clickable, with direct/transitive split)
             const depsLink = createRepoLink('deps.html', repo.name);
-            const depsCell = `<td><a href="${depsLink}" class="text-decoration-none"><span class="badge bg-primary">${repo.depCount}</span></a></td>`;
+            const depsSub = repo.directDeps > 0 ? ` <small class="text-muted">(${repo.directDeps}D / ${repo.transitiveDeps}T)</small>` : '';
+            const depsCell = `<td><a href="${depsLink}" class="text-decoration-none"><span class="badge bg-primary">${repo.depCount}</span>${depsSub}</a></td>`;
             
             // Build authors cell (clickable)
             const authorsLink = createRepoLink('authors.html', repo.name);
@@ -721,13 +727,15 @@ document.addEventListener('DOMContentLoaded', async function() {
         });
         
         const csv = [
-            ['Repository', 'SBOM Grade', 'SBOM Score', 'Vulnerabilities (H/M/L)', 'Dependencies', 'Authors', 'Repository License'].join(','),
+            ['Repository', 'SBOM Grade', 'SBOM Score', 'Vulnerabilities (H/M/L)', 'Dependencies', 'direct_deps', 'transitive_deps', 'Authors', 'Repository License'].join(','),
             ...filtered.map(repo => [
                 `"${repo.name}"`,
                 repo.sbomGrade,
                 repo.sbomScore || 'N/A',
                 `"H:${repo.vulnHigh} M:${repo.vulnMedium} L:${repo.vulnLow}"`,
                 repo.depCount,
+                repo.directDeps,
+                repo.transitiveDeps,
                 repo.authorCount,
                 repo.license || 'N/A'
             ].join(','))

@@ -29,6 +29,10 @@
   --bg-danger: rgba(214, 60, 83, 0.1);
   --bg-info: rgba(70, 111, 224, 0.1);
   --bg-success: rgba(127, 209, 185, 0.1);
+
+  /* Chart.js theming */
+  --chart-text-color: #c9d1d9;
+  --chart-grid-color: rgba(255, 255, 255, 0.08);
 }
 
 /* Dark Theme (default) */
@@ -48,6 +52,10 @@
   --bg-danger: rgba(214, 60, 83, 0.1);
   --bg-info: rgba(70, 111, 224, 0.1);
   --bg-success: rgba(127, 209, 185, 0.1);
+
+  /* Chart.js theming */
+  --chart-text-color: #c9d1d9;
+  --chart-grid-color: rgba(255, 255, 255, 0.08);
 }
 
 /* Light Theme */
@@ -67,6 +75,10 @@
   --bg-danger: #f8d7da;
   --bg-info: #d1ecf1;
   --bg-success: #d4edda;
+
+  /* Chart.js theming */
+  --chart-text-color: #24292f;
+  --chart-grid-color: rgba(0, 0, 0, 0.08);
 }
 
 /* Apply theme variables */

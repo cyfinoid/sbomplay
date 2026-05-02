@@ -75,6 +75,23 @@ document.addEventListener('DOMContentLoaded', async function() {
                 }
                 const { filteredData, malwareCount } = excludeMalwareFromVulnAnalysis(data);
 
+                // Apply reach filter (direct/transitive)
+                const reachVal = document.getElementById('reachFilter')?.value || 'all';
+                if (reachVal !== 'all' && filteredData?.data?.vulnerabilityAnalysis?.vulnerableDependencies) {
+                    const allDeps = filteredData.data.allDependencies || [];
+                    const allRepos = filteredData.data.allRepositories || [];
+                    const directMap = window.InsightsAggregator
+                        ? window.InsightsAggregator.buildDirectMap(allRepos)
+                        : buildSimpleDirectMap(allRepos);
+                    const va = filteredData.data.vulnerabilityAnalysis;
+                    va.vulnerableDependencies = va.vulnerableDependencies.filter(vd => {
+                        const key = `${vd.name}@${vd.version}`;
+                        const isDirect = directMap.has(key) && directMap.get(key).size > 0;
+                        return reachVal === 'direct' ? isDirect : !isDirect;
+                    });
+                    va.vulnerablePackages = va.vulnerableDependencies.length;
+                }
+
                 let bannerHtml = '';
                 if (malwareCount > 0) {
                     bannerHtml = `
@@ -107,6 +124,10 @@ document.addEventListener('DOMContentLoaded', async function() {
     // Setup event listeners
     document.getElementById('analysisSelector').addEventListener('change', loadVulnerabilityData);
     document.getElementById('severityFilter').addEventListener('change', loadVulnerabilityData);
+    const reachFilterEl = document.getElementById('reachFilter');
+    if (reachFilterEl) {
+        reachFilterEl.addEventListener('change', loadVulnerabilityData);
+    }
     
     // Load initial data
     await loadVulnerabilityData();
@@ -182,5 +203,17 @@ function excludeMalwareFromVulnAnalysis(data) {
     va.lowVulnerabilities = low;
 
     return { filteredData: cloned, malwareCount };
+}
+
+function buildSimpleDirectMap(allRepos) {
+    const map = new Map();
+    for (const repo of (allRepos || [])) {
+        const repoKey = `${repo.owner}/${repo.name}`;
+        for (const depKey of (repo.directDependencies || [])) {
+            if (!map.has(depKey)) map.set(depKey, new Set());
+            map.get(depKey).add(repoKey);
+        }
+    }
+    return map;
 }
 

@@ -11,7 +11,8 @@ document.addEventListener('DOMContentLoaded', function() {
         { collapseId: 'qualityCollapse', iconId: 'qualityCollapseIcon' },
         { collapseId: 'licenseDistributionCollapse', iconId: 'licenseDistributionCollapseIcon' },
         { collapseId: 'topCommonDependenciesCollapse', iconId: 'topCommonDependenciesCollapseIcon' },
-        { collapseId: 'versionSprawlCollapse', iconId: 'versionSprawlCollapseIcon' }
+        { collapseId: 'versionSprawlCollapse', iconId: 'versionSprawlCollapseIcon' },
+        { collapseId: 'portfolioSnapshotCollapse', iconId: 'portfolioSnapshotCollapseIcon' }
     ];
     
     collapseConfigs.forEach(config => {

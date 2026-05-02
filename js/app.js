@@ -2605,6 +2605,9 @@ class SBOMPlayApp {
         
         // Display license distribution
         this.displayLicenseDistribution(combinedData);
+
+        // Display Portfolio Snapshot KPI strip (Insights aggregator)
+        this.displayPortfolioSnapshot(combinedData);
     }
     
     /**
@@ -3713,6 +3716,51 @@ class SBOMPlayApp {
         this.setupLicenseCategoryHovers();
     }
     
+    /**
+     * Display Portfolio Snapshot KPI strip on the home page using InsightsAggregator
+     */
+    displayPortfolioSnapshot(data) {
+        const section = document.getElementById('portfolioSnapshot');
+        const contentEl = document.getElementById('portfolioSnapshotContent');
+        if (!section || !contentEl) return;
+
+        if (!data || !data.data || !data.data.allDependencies || data.data.allDependencies.length === 0) {
+            section.classList.add('d-none');
+            return;
+        }
+
+        if (!window.InsightsAggregator) {
+            console.warn('InsightsAggregator not loaded — skipping Portfolio Snapshot');
+            section.classList.add('d-none');
+            return;
+        }
+
+        try {
+            const ins = window.InsightsAggregator.buildInsights(data.data);
+            const linkMap = {
+                repos: 'repos.html',
+                deps: 'deps.html',
+                vulnsCH: 'vuln.html',
+                directDwell: 'insights.html#section-vulnAge',
+                eol: 'insights.html#section-eol',
+                licenses: 'licenses.html',
+                drift: 'insights.html#section-drift',
+                techDebt: 'insights.html#section-techDebt'
+            };
+            const html = window.InsightsAggregator.renderKpiStrip(ins, { linkMap });
+            if (window.safeSetHTML) {
+                window.safeSetHTML(contentEl, html + '<div class="text-center mt-2"><a href="insights.html" class="btn btn-outline-primary btn-sm"><i class="fas fa-chart-line me-1"></i>Full Insights Dashboard</a></div>');
+            } else {
+                contentEl.innerHTML = html + '<div class="text-center mt-2"><a href="insights.html" class="btn btn-outline-primary btn-sm"><i class="fas fa-chart-line me-1"></i>Full Insights Dashboard</a></div>';
+            }
+            section.classList.remove('d-none');
+            section.classList.add('d-block');
+        } catch (err) {
+            console.error('Portfolio Snapshot failed:', err);
+            section.classList.add('d-none');
+        }
+    }
+
     /**
      * Setup hover effects for license category items using event delegation
      */

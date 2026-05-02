@@ -6,8 +6,8 @@
     <title>SBOM Play - About</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
-    <link href="css/style.css?v=0.0.9&cb=1778000000000" rel="stylesheet">
-    <link href="css/themes.css?v=0.0.9&cb=1778000000000" rel="stylesheet">
+    <link href="css/style.css?v=0.0.9&cb=1780000000000" rel="stylesheet">
+    <link href="css/themes.css?v=0.0.9&cb=1780000000000" rel="stylesheet">
     <script src="js/theme-manager.js?v=0.0.9&cb=1778000000000"></script>
     <script src="js/depconfuse-service.js?v=0.0.9&cb=1778000000000"></script>
 </head>
@@ -33,6 +33,7 @@
                     <a class="nav-link" href="vuln.html">Vulns</a>
                     <a class="nav-link" href="audit.html">Audit</a>
                     <a class="nav-link" href="findings.html">Findings</a>
+                    <a class="nav-link" href="insights.html">Insights</a>
                     <a class="nav-link" href="deps.html">Deps</a>
                     <a class="nav-link" href="repos.html">Repos</a>
                     <a class="nav-link" href="authors.html">Authors</a>
@@ -164,7 +165,7 @@
                         <tr><th>Domain</th><th>Purpose</th></tr>
                     </thead>
                     <tbody>
-                        <tr><td><code>cdn.jsdelivr.net</code></td><td>Bootstrap CSS/JS, marked.js, DOMPurify, js-yaml</td></tr>
+                        <tr><td><code>cdn.jsdelivr.net</code></td><td>Bootstrap CSS/JS, marked.js, DOMPurify, js-yaml, Chart.js</td></tr>
                         <tr><td><code>cdnjs.cloudflare.com</code></td><td>Font Awesome icons</td></tr>
                         <tr><td><code>unpkg.com</code></td><td>Leaflet maps library</td></tr>
                     </tbody>
@@ -353,6 +354,69 @@
                     <li><a href="https://cyclonedx.org/docs/1.5/json/#dependencies" target="_blank" rel="noreferrer noopener">CycloneDX 1.5 — Dependency graph</a></li>
                     <li><a href="https://docs.github.com/en/rest/dependency-graph/sboms" target="_blank" rel="noreferrer noopener">GitHub Dependency Graph SBOM API</a></li>
                     <li><a href="https://docs.deps.dev/api/v3alpha/" target="_blank" rel="noreferrer noopener">deps.dev v3alpha — package versions and dependency edges</a></li>
+                </ul>
+            </div>
+        </div>
+
+        <!-- Tech-Debt Composite Scoring -->
+        <div class="card mb-4">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="fas fa-balance-scale me-2"></i>Tech-Debt Composite Scoring</h5>
+            </div>
+            <div class="card-body">
+                <p>
+                    The Insights page computes a single Tech-Debt composite score (0-100, higher is healthier) from six
+                    weighted sub-components. Direct dependencies carry <strong>3&times;</strong> weight compared to transitive
+                    ones, reflecting the higher risk and remediation urgency of code you directly control.
+                </p>
+
+                <h6 class="mt-3">Component Weights</h6>
+                <table class="table table-sm table-bordered">
+                    <thead class="table-light">
+                        <tr><th>Component</th><th>Weight</th><th>What it measures</th></tr>
+                    </thead>
+                    <tbody>
+                        <tr><td>Version Drift</td><td>30%</td><td>Major/minor updates behind, 3&times; weight for direct deps</td></tr>
+                        <tr><td>Vulnerabilities</td><td>30%</td><td>Severity-weighted CVE count (C=30, H=12, M=3 for direct; C=10, H=4, M=1 for transitive)</td></tr>
+                        <tr><td>Package Age</td><td>15%</td><td>Fraction of deps with last release &gt; 2 years ago</td></tr>
+                        <tr><td>License Risk</td><td>10%</td><td>Fraction of deps with copyleft/high-risk licenses</td></tr>
+                        <tr><td>EOL Risk</td><td>10%</td><td>Fraction of deps flagged as probable EOL (staleness heuristic or endoflife.date)</td></tr>
+                        <tr><td>Repo Hygiene</td><td>5%</td><td>Fraction of repos with D/F SBOM grade or missing SBOM</td></tr>
+                    </tbody>
+                </table>
+
+                <div class="alert alert-info py-2 mt-3">
+                    <i class="fas fa-info-circle me-2"></i>
+                    <strong>SBOM Quality excluded:</strong> the composite deliberately omits SBOM quality because users
+                    cannot control the NTIA-completeness fields that GitHub auto-generates.
+                </div>
+
+                <h6 class="mt-3">Grading Scale</h6>
+                <table class="table table-sm table-bordered">
+                    <thead class="table-light">
+                        <tr><th>Grade</th><th>Health Score Range</th></tr>
+                    </thead>
+                    <tbody>
+                        <tr><td><span class="badge bg-success">A</span></td><td>90 &ndash; 100</td></tr>
+                        <tr><td><span class="badge bg-info">B</span></td><td>75 &ndash; 89</td></tr>
+                        <tr><td><span class="badge bg-warning">C</span></td><td>55 &ndash; 74</td></tr>
+                        <tr><td><span class="badge bg-warning">D</span></td><td>35 &ndash; 54</td></tr>
+                        <tr><td><span class="badge bg-danger">F</span></td><td>0 &ndash; 34</td></tr>
+                    </tbody>
+                </table>
+
+                <h6 class="mt-3">Visualization</h6>
+                <p>
+                    Charts on the Insights page are rendered with <a href="https://www.chartjs.org/" target="_blank" rel="noreferrer noopener">Chart.js 4.4</a>,
+                    loaded from the jsdelivr CDN. Theme-aware colors are driven by <code>--chart-text-color</code>
+                    and <code>--chart-grid-color</code> CSS custom properties.
+                </p>
+
+                <h6 class="mt-3">References</h6>
+                <ul>
+                    <li><a href="https://www.chartjs.org/docs/4.4.4/" target="_blank" rel="noreferrer noopener">Chart.js 4.4 Documentation</a></li>
+                    <li><a href="https://osv.dev/docs/" target="_blank" rel="noreferrer noopener">OSV API — vulnerability severity data</a></li>
+                    <li><a href="https://endoflife.date/docs/api" target="_blank" rel="noreferrer noopener">endoflife.date API — EOL/EOS data</a></li>
                 </ul>
             </div>
         </div>

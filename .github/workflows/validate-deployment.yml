@@ -39,6 +39,7 @@ jobs:
             "debug.html"
             "findings.html"
             "feeds.html"
+            "insights.html"
           )
           
           MISSING=0
@@ -125,6 +126,8 @@ jobs:
             "js/sbom-parser.js"
             "js/findings-page.js"
             "js/upload-page.js"
+            "js/insights-aggregator.js"
+            "js/insights-page.js"
           )
           
           MISSING=0

@@ -5571,10 +5571,11 @@ class ViewManager {
                 }
                 const usageForTemplate = Array.from(usageByRepo.values());
                 
+                const isDirect = !!(fullDep?.directIn?.length > 0) || dep.depth === 1;
                 processedDeps.push({
                     name: dep.name || 'Unknown',
                     version: dep.version || 'Unknown',
-                    vulnerabilityCount: vulnerabilities.length, // Use filtered count
+                    vulnerabilityCount: vulnerabilities.length,
                     vulnerabilityPlural: vulnerabilities.length !== 1 ? 'ies' : 'y',
                     vulnerabilities: vulnerabilities,
                     depName: dep.name,
@@ -5584,10 +5585,11 @@ class ViewManager {
                     reposPlural: uniqueRepos.length !== 1 ? 'ies' : 'y',
                     reposWord: uniqueRepos.length !== 1 ? 'repositories' : 'repository',
                     usage: usageForTemplate,
-                    allVulnsJson: JSON.stringify(depVulnerabilities).replace(/"/g, '&quot;'), // Use filtered vulnerabilities
+                    allVulnsJson: JSON.stringify(depVulnerabilities).replace(/"/g, '&quot;'),
                     hasMajorUpdate: hasMajorUpdate,
                     hasMinorUpdate: hasMinorUpdate,
-                    latestVersion: latestVersion
+                    latestVersion: latestVersion,
+                    isDirect: isDirect
                 });
             }
             
@@ -5641,7 +5643,8 @@ class ViewManager {
                     return `<div class="vulnerable-dep-item mb-3" style="border-left: 3px solid #dc3545; padding-left: 15px;">
     <div class="vuln-dep-info">
         <div class="vuln-dep-name d-flex align-items-center flex-wrap" style="font-weight: bold; font-size: 1.1em;">
-            <span>${escapeHtml(depData.name)}@${escapeHtml(depData.version)}</span>${versionBadgesHTML}
+            <span>${escapeHtml(depData.name)}@${escapeHtml(depData.version)}</span>
+            <span class="badge bg-${depData.isDirect ? 'primary' : 'secondary'} ms-2">${depData.isDirect ? 'Direct' : 'Transitive'}</span>${versionBadgesHTML}
         </div>
         <div class="vuln-dep-count mb-2">${depData.vulnerabilityCount} ${depData.vulnerabilityCount !== 1 ? 'vulnerabilities' : 'vulnerability'}</div>
         <div class="vuln-severity-badges mb-2">
