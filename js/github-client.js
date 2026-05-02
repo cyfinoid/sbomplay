@@ -178,8 +178,15 @@ class GitHubClient {
             const result = await response.json();
             
             if (result.errors) {
-                // Log GraphQL errors but don't throw - let caller handle
-                console.log(`⚠️  GraphQL errors:`, result.errors);
+                console.warn(`⚠️  GraphQL partial errors (${result.errors.length}):`, result.errors.map(e => e.message));
+                // Return partial data when available — GraphQL routinely returns
+                // both `data` (successful fields) and `errors` (failed fields).
+                // Throwing here would discard 49 valid users because one login
+                // (e.g. a [bot] account) returned null.
+                if (result.data) {
+                    console.log(`   ⚠️ GraphQL Response: Partial success (${result.errors.length} error(s), returning data)`);
+                    return result.data;
+                }
                 throw new Error(`GraphQL errors: ${JSON.stringify(result.errors.map(e => e.message))}`);
             }
             
@@ -270,9 +277,14 @@ class GitHubClient {
      * Batch fetch multiple user profiles using a single GraphQL query
      * Uses field aliasing to query up to 50 users at once (GitHub complexity limits)
      * @param {Array<string>} usernames - Array of GitHub usernames to fetch
+     * @param {Function} [onProgress] - Optional callback invoked after each chunk
+     *   with `{ fetched, total, cached }` where `fetched` is the cumulative
+     *   number of usernames fetched from the network, `total` is the total
+     *   network-fetch count, and `cached` is the count served from the in-memory
+     *   user cache (no network).
      * @returns {Promise<Map<string, Object|null>>} - Map of username -> user profile data
      */
-    async getUsersBatchGraphQL(usernames) {
+    async getUsersBatchGraphQL(usernames, onProgress) {
         if (!usernames || usernames.length === 0) {
             return new Map();
         }
@@ -303,30 +315,29 @@ class GitHubClient {
             const batch = toFetch.slice(i, i + BATCH_SIZE);
             
             try {
-                // Build dynamic query with aliases for each user
-                // Query both user and organization for each username
+                // repositoryOwner is a union of User | Organization — one
+                // GraphQL point per login instead of two (user + organization).
                 const queryParts = batch.map((username, idx) => {
-                    // Sanitize username for GraphQL alias (must be valid identifier)
                     const alias = `u${idx}`;
                     return `
-                        ${alias}_user: user(login: "${username}") {
+                        ${alias}: repositoryOwner(login: "${username}") {
                             __typename
                             login
-                            name
-                            location
-                            company
-                            bio
-                            avatarUrl
-                            url
-                        }
-                        ${alias}_org: organization(login: "${username}") {
-                            __typename
-                            login
-                            name
-                            location
-                            description
-                            avatarUrl
-                            url
+                            ... on User {
+                                name
+                                location
+                                company
+                                bio
+                                avatarUrl
+                                url
+                            }
+                            ... on Organization {
+                                name
+                                location
+                                description
+                                avatarUrl
+                                url
+                            }
                         }
                     `;
                 }).join('\n');
@@ -335,41 +346,38 @@ class GitHubClient {
                 const data = await this.makeGraphQLRequest(query);
 
                 if (data) {
-                    // Process results for each user in the batch
                     batch.forEach((username, idx) => {
                         const alias = `u${idx}`;
-                        const userData = data[`${alias}_user`];
-                        const orgData = data[`${alias}_org`];
-                        
+                        const ownerData = data[alias];
+
                         let result = null;
-                        
-                        if (userData) {
+
+                        if (ownerData && ownerData.__typename === 'User') {
                             result = {
-                                login: userData.login,
-                                name: userData.name || null,
-                                location: userData.location || null,
-                                company: userData.company || null,
+                                login: ownerData.login,
+                                name: ownerData.name || null,
+                                location: ownerData.location || null,
+                                company: ownerData.company || null,
                                 email: null,
-                                bio: userData.bio || null,
-                                avatar_url: userData.avatarUrl || null,
-                                html_url: userData.url || null,
+                                bio: ownerData.bio || null,
+                                avatar_url: ownerData.avatarUrl || null,
+                                html_url: ownerData.url || null,
                                 type: 'User'
                             };
-                        } else if (orgData) {
+                        } else if (ownerData && ownerData.__typename === 'Organization') {
                             result = {
-                                login: orgData.login,
-                                name: orgData.name || null,
-                                location: orgData.location || null,
+                                login: ownerData.login,
+                                name: ownerData.name || null,
+                                location: ownerData.location || null,
                                 company: null,
                                 email: null,
-                                bio: orgData.description || null,
-                                avatar_url: orgData.avatarUrl || null,
-                                html_url: orgData.url || null,
+                                bio: ownerData.description || null,
+                                avatar_url: ownerData.avatarUrl || null,
+                                html_url: ownerData.url || null,
                                 type: 'Organization'
                             };
                         }
-                        
-                        // Cache and store result
+
                         this.userCache.set(username.toLowerCase(), result);
                         results.set(username.toLowerCase(), result);
                     });
@@ -381,6 +389,18 @@ class GitHubClient {
                     this.userCache.set(username.toLowerCase(), null);
                     results.set(username.toLowerCase(), null);
                 });
+            }
+
+            if (typeof onProgress === 'function') {
+                try {
+                    onProgress({
+                        fetched: Math.min(i + BATCH_SIZE, toFetch.length),
+                        total: toFetch.length,
+                        cached: uniqueUsernames.length - toFetch.length
+                    });
+                } catch (cbError) {
+                    console.warn('⚠️  getUsersBatchGraphQL progress callback threw:', cbError);
+                }
             }
 
             // Small delay between batches to avoid rate limiting

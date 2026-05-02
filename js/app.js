@@ -5025,6 +5025,7 @@ class SBOMPlayApp {
 
         // Batch geocode all author locations during analysis phase
         // IMPORTANT: Ensure all location data is fetched before batch geocoding
+        let locationSkippedCount = 0; // hoisted so authorAnalysis can record it
         console.log(`📍 Geocoding check: LocationService=${!!window.LocationService}, authorResults=${!!authorResults}, authorResults.size=${authorResults?.size || 0}`);
         if (window.LocationService && authorResults && authorResults.size > 0) {
             try {
@@ -5066,11 +5067,12 @@ class SBOMPlayApp {
                         }
                     }
                     
-                    // Batch fetch all author locations using single GraphQL query
+                    // Batch fetch author locations via GraphQL (budget-capped, sorted by contributions)
                     if (authorsNeedingFetch.length > 0) {
                         console.log(`📍 Batch fetching locations for ${authorsNeedingFetch.length} authors via GraphQL...`);
-                        await authorService.fetchAuthorLocationsBatch(authorsNeedingFetch);
-                        console.log(`✅ Completed batch fetching author locations`);
+                        const batchResult = await authorService.fetchAuthorLocationsBatch(authorsNeedingFetch);
+                        locationSkippedCount = batchResult.skippedCount || 0;
+                        console.log(`✅ Completed batch fetching author locations${locationSkippedCount > 0 ? ` (${locationSkippedCount} skipped — over budget)` : ''}`);
                     }
                     
                     // Collect locations that still need geocoding (missing countryCode)
@@ -5262,7 +5264,8 @@ class SBOMPlayApp {
             totalAuthors: authorReferences.length,
             totalPackages: packages.length,
             authors: authorReferences,  // References only
-            _cacheVersion: 3  // Mark as using new cache architecture
+            _cacheVersion: 3,  // Mark as using new cache architecture
+            ...(locationSkippedCount > 0 && { locationSkippedCount })
         };
         
         await this.storageManager.saveAnalysisData(identifier, data.data);

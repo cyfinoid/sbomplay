@@ -1254,16 +1254,29 @@ class AuthorService {
      * Batch fetch author locations from GitHub API using a single GraphQL query
      * Much more efficient than individual fetches when processing many authors
      * @param {Array<{authorKey: string, authorEntity: Object}>} authors - Array of author key/entity pairs
-     * @returns {Promise<Map<string, Object|null>>} - Map of authorKey -> location data
+     * @param {Function} [onProgress] - Optional callback invoked with
+     *   `{ phase, processed, total, message }` where `phase` is one of
+     *   `"geocode-existing"`, `"github-fetch"`, or `"persist-results"`,
+     *   `processed`/`total` are counts within that phase, and `message` is a
+     *   human-readable status string.
+     * @returns {Promise<{results: Map<string, Object|null>, skippedCount: number}>}
      */
-    async fetchAuthorLocationsBatch(authors) {
+    async fetchAuthorLocationsBatch(authors, onProgress) {
         const results = new Map();
-        
+
+        const emitProgress = (phase, processed, total, message) => {
+            if (typeof onProgress !== 'function') return;
+            try {
+                onProgress({ phase, processed, total, message });
+            } catch (cbError) {
+                console.warn('⚠️ fetchAuthorLocationsBatch progress callback threw:', cbError);
+            }
+        };
+
         if (!authors || authors.length === 0) {
-            return results;
+            return { results, skippedCount: 0 };
         }
 
-        // Separate authors into those needing GitHub fetch vs those that already have data
         const needsGitHubFetch = [];
         const needsGeocodeOnly = [];
         
@@ -1275,28 +1288,59 @@ class AuthorService {
             const githubUsername = authorEntity.metadata?.github;
             
             if (hasLocation && hasGeocoding) {
-                // Already complete - return cached data
                 results.set(authorKey, {
                     location: authorEntity.metadata.location || null,
                     company: authorEntity.metadata.company || null
                 });
             } else if (hasLocation && !hasGeocoding) {
-                // Has location but needs geocoding
                 needsGeocodeOnly.push({ authorKey, authorEntity });
             } else if (githubUsername) {
-                // Needs GitHub fetch
+                // Skip bot accounts — they have no location/company and their
+                // login syntax (e.g. "dependabot[bot]") causes GraphQL errors.
+                if (/\[bot\]$/i.test(githubUsername)) {
+                    results.set(authorKey, null);
+                    continue;
+                }
                 needsGitHubFetch.push({ authorKey, authorEntity, githubUsername });
             } else {
-                // No GitHub username - can't fetch
                 results.set(authorKey, null);
             }
+        }
+
+        // Budget cap: each login costs ~1 GraphQL point (repositoryOwner union
+        // query). GitHub allows 5,000 points/hr. Reserve 100 for other queries
+        // during the same scan. Sort by contributions descending so the most
+        // active authors get location data first; registry maintainers (no
+        // contributions field) sort to the top as they're the primary signal.
+        const GRAPHQL_BUDGET = 4900;
+        let skippedCount = 0;
+
+        if (needsGitHubFetch.length > GRAPHQL_BUDGET) {
+            needsGitHubFetch.sort((a, b) => {
+                const contribA = a.authorEntity.metadata?.contributions;
+                const contribB = b.authorEntity.metadata?.contributions;
+                // Registry maintainers (no contributions) first, then by contributions desc
+                const scoreA = typeof contribA === 'number' ? contribA : Infinity;
+                const scoreB = typeof contribB === 'number' ? contribB : Infinity;
+                return scoreB - scoreA;
+            });
+            skippedCount = needsGitHubFetch.length - GRAPHQL_BUDGET;
+            console.warn(`⚠️ Batch: ${needsGitHubFetch.length} authors need GraphQL fetch but budget is ${GRAPHQL_BUDGET}. Skipping ${skippedCount} lowest-contribution authors. Use Settings → "Fetch Remaining Author Locations" to fetch them later.`);
+            // Mark skipped entries so callers know they weren't fetched
+            for (let s = GRAPHQL_BUDGET; s < needsGitHubFetch.length; s++) {
+                results.set(needsGitHubFetch[s].authorKey, null);
+            }
+            needsGitHubFetch.length = GRAPHQL_BUDGET;
         }
 
         // Geocode locations that just need geocoding (no GitHub fetch)
         if (needsGeocodeOnly.length > 0 && window.LocationService) {
             console.log(`📍 Batch: Geocoding ${needsGeocodeOnly.length} existing locations...`);
+            emitProgress('geocode-existing', 0, needsGeocodeOnly.length,
+                `Geocoding ${needsGeocodeOnly.length} existing locations...`);
             const locationService = new window.LocationService();
-            
+            let geocodedDone = 0;
+
             await Promise.all(needsGeocodeOnly.map(async ({ authorKey, authorEntity }) => {
                 try {
                     const location = authorEntity.metadata.location;
@@ -1318,6 +1362,12 @@ class AuthorService {
                         location: authorEntity.metadata.location || null,
                         company: authorEntity.metadata.company || null
                     });
+                } finally {
+                    geocodedDone++;
+                    if (geocodedDone === needsGeocodeOnly.length || geocodedDone % 25 === 0) {
+                        emitProgress('geocode-existing', geocodedDone, needsGeocodeOnly.length,
+                            `Geocoded ${geocodedDone}/${needsGeocodeOnly.length} existing locations`);
+                    }
                 }
             }));
         }
@@ -1325,7 +1375,9 @@ class AuthorService {
         // Batch fetch from GitHub using single GraphQL query
         if (needsGitHubFetch.length > 0 && window.GitHubClient) {
             console.log(`📍 Batch: Fetching ${needsGitHubFetch.length} authors from GitHub via GraphQL...`);
-            
+            emitProgress('github-fetch', 0, needsGitHubFetch.length,
+                `Fetching ${needsGitHubFetch.length} authors from GitHub via GraphQL...`);
+
             const githubClient = new window.GitHubClient();
             const token = sessionStorage.getItem('github_token') || null;
             if (token) {
@@ -1340,65 +1392,84 @@ class AuthorService {
             });
 
             try {
-                const userDataMap = await githubClient.getUsersBatchGraphQL(usernames);
+                const userDataMap = await githubClient.getUsersBatchGraphQL(
+                    usernames,
+                    ({ fetched, total, cached }) => {
+                        const note = cached > 0 ? ` (${cached} from cache)` : '';
+                        emitProgress('github-fetch', fetched, total,
+                            `Fetched ${fetched}/${total} authors from GitHub${note}`);
+                    }
+                );
 
                 // Process results and update entities
                 const locationService = window.LocationService ? new window.LocationService() : null;
-                
+                const persistTotal = userDataMap.size;
+                let persistDone = 0;
+                emitProgress('persist-results', 0, persistTotal,
+                    `Saving ${persistTotal} author records...`);
+
                 for (const [username, userData] of userDataMap) {
-                    const authorInfo = usernameToAuthor.get(username);
-                    if (!authorInfo) continue;
-                    
-                    const { authorKey, authorEntity } = authorInfo;
+                    try {
+                        const authorInfo = usernameToAuthor.get(username);
+                        if (!authorInfo) continue;
 
-                    // Skip organizations
-                    if (userData && userData.type === 'Organization') {
-                        console.warn(`⚠️ Batch: Skipping org "${username}" for ${authorKey}`);
-                        if (authorEntity.metadata?.github === authorInfo.githubUsername) {
-                            const updatedMetadata = { ...authorEntity.metadata };
-                            delete updatedMetadata.github;
-                            authorEntity.metadata = Object.keys(updatedMetadata).length > 0 ? updatedMetadata : null;
-                            await window.cacheManager.saveAuthorEntity(authorKey, authorEntity);
-                        }
-                        results.set(authorKey, null);
-                        continue;
-                    }
+                        const { authorKey, authorEntity } = authorInfo;
 
-                    if (userData && (userData.location || userData.company)) {
-                        // Geocode location
-                        let countryCode = null;
-                        let country = null;
-                        if (userData.location && locationService) {
-                            try {
-                                const geocoded = await locationService.geocode(userData.location);
-                                if (geocoded && geocoded.countryCode) {
-                                    countryCode = geocoded.countryCode;
-                                    country = geocoded.country;
-                                }
-                            } catch (e) {
-                                // Geocoding failed - continue without it
+                        // Skip organizations
+                        if (userData && userData.type === 'Organization') {
+                            console.warn(`⚠️ Batch: Skipping org "${username}" for ${authorKey}`);
+                            if (authorEntity.metadata?.github === authorInfo.githubUsername) {
+                                const updatedMetadata = { ...authorEntity.metadata };
+                                delete updatedMetadata.github;
+                                authorEntity.metadata = Object.keys(updatedMetadata).length > 0 ? updatedMetadata : null;
+                                await window.cacheManager.saveAuthorEntity(authorKey, authorEntity);
                             }
+                            results.set(authorKey, null);
+                            continue;
                         }
 
-                        // Update author entity
-                        const existingMetadata = authorEntity.metadata || {};
-                        authorEntity.metadata = {
-                            ...existingMetadata,
-                            ...(userData.location && { location: userData.location }),
-                            ...(userData.company && { company: userData.company }),
-                            ...(countryCode && { countryCode }),
-                            ...(country && { country })
-                        };
-                        await window.cacheManager.saveAuthorEntity(authorKey, authorEntity);
+                        if (userData && (userData.location || userData.company)) {
+                            // Geocode location
+                            let countryCode = null;
+                            let country = null;
+                            if (userData.location && locationService) {
+                                try {
+                                    const geocoded = await locationService.geocode(userData.location);
+                                    if (geocoded && geocoded.countryCode) {
+                                        countryCode = geocoded.countryCode;
+                                        country = geocoded.country;
+                                    }
+                                } catch (e) {
+                                    // Geocoding failed - continue without it
+                                }
+                            }
 
-                        results.set(authorKey, {
-                            location: userData.location || null,
-                            company: userData.company || null,
-                            countryCode,
-                            country
-                        });
-                    } else {
-                        results.set(authorKey, null);
+                            // Update author entity
+                            const existingMetadata = authorEntity.metadata || {};
+                            authorEntity.metadata = {
+                                ...existingMetadata,
+                                ...(userData.location && { location: userData.location }),
+                                ...(userData.company && { company: userData.company }),
+                                ...(countryCode && { countryCode }),
+                                ...(country && { country })
+                            };
+                            await window.cacheManager.saveAuthorEntity(authorKey, authorEntity);
+
+                            results.set(authorKey, {
+                                location: userData.location || null,
+                                company: userData.company || null,
+                                countryCode,
+                                country
+                            });
+                        } else {
+                            results.set(authorKey, null);
+                        }
+                    } finally {
+                        persistDone++;
+                        if (persistDone === persistTotal || persistDone % 25 === 0) {
+                            emitProgress('persist-results', persistDone, persistTotal,
+                                `Saved ${persistDone}/${persistTotal} author records`);
+                        }
                     }
                 }
             } catch (error) {
@@ -1411,8 +1482,8 @@ class AuthorService {
         }
 
         const found = [...results.values()].filter(v => v !== null).length;
-        console.log(`✅ Batch: Processed ${results.size} authors, ${found} with location data`);
-        return results;
+        console.log(`✅ Batch: Processed ${results.size} authors, ${found} with location data${skippedCount > 0 ? `, ${skippedCount} skipped (budget cap)` : ''}`);
+        return { results, skippedCount };
     }
 
     /**
