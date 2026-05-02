@@ -6,10 +6,10 @@
     <title>SBOM Play - About</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
-    <link href="css/style.css?v=0.0.9&cb=1777646299546" rel="stylesheet">
-    <link href="css/themes.css?v=0.0.9&cb=1777646299546" rel="stylesheet">
-    <script src="js/theme-manager.js?v=0.0.9&cb=1777646299546"></script>
-    <script src="js/depconfuse-service.js?v=0.0.9&cb=1777646299546"></script>
+    <link href="css/style.css?v=0.0.9&cb=1777693251981" rel="stylesheet">
+    <link href="css/themes.css?v=0.0.9&cb=1777693251981" rel="stylesheet">
+    <script src="js/theme-manager.js?v=0.0.9&cb=1777693251981"></script>
+    <script src="js/depconfuse-service.js?v=0.0.9&cb=1777693251981"></script>
 </head>
 <body>
     <!-- Navigation -->
@@ -489,6 +489,122 @@
                     <li><a href="https://medium.com/@alex.birsan/dependency-confusion-4a5d60fec610" target="_blank" rel="noreferrer noopener">Dependency Confusion: How I Hacked Into Apple, Microsoft and Dozens of Other Companies</a> - Alex Birsan's original disclosure</li>
                     <li><a href="https://github.com/th3-j0k3r/DepConfuse" target="_blank" rel="noreferrer noopener">DepConfuse</a> - Original dependency confusion detection tool that inspired our implementation</li>
                     <li><a href="https://packages.ecosyste.ms/docs" target="_blank" rel="noreferrer noopener">ecosyste.ms API Documentation</a> - Registry aggregation API</li>
+                </ul>
+            </div>
+        </div>
+
+        <!-- Author Enrichment Methodology -->
+        <div class="card mb-4">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="fas fa-users me-2"></i>Author Enrichment Methodology</h5>
+            </div>
+            <div class="card-body">
+                <p>
+                    For every package in the SBOM, SBOM Play attempts to attribute a list of <em>authors</em> — the
+                    humans (and bots) whose accounts can ship code into the package. This list is what powers the
+                    Authors page, the geographic risk map, the sanctioned-country detector, and the contributor
+                    correlation in the Findings report. Because no single registry exposes all the information we
+                    need, the pipeline draws from up to three sources per package, in a fixed precedence order, and
+                    every API call is made <strong>once</strong> per package and reused.
+                </p>
+
+                <h6 class="mt-4"><i class="fas fa-layer-group me-2 text-primary"></i>1. Source Precedence</h6>
+                <table class="table table-sm table-bordered">
+                    <thead class="table-light">
+                        <tr><th>Order</th><th>Source</th><th>What it gives us</th><th>Applies to</th></tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td>1</td>
+                            <td>Native registry (npm, PyPI, crates.io, RubyGems)</td>
+                            <td>Authoritative <code>author</code> / <code>maintainers</code> field, declared by the publisher</td>
+                            <td>Ecosystems with a public per-package authors API</td>
+                        </tr>
+                        <tr>
+                            <td>2</td>
+                            <td><a href="https://packages.ecosyste.ms/" target="_blank" rel="noreferrer noopener">packages.ecosyste.ms</a></td>
+                            <td>Aggregated <code>maintainers</code> / <code>owners</code> + <code>repository_url</code> + <code>homepage</code></td>
+                            <td>Maven, NuGet, Go, Composer (no native authors API)</td>
+                        </tr>
+                        <tr>
+                            <td>3</td>
+                            <td>GitHub <code>/repos/{owner}/{repo}/contributors</code> (<strong>top 10</strong>)</td>
+                            <td>Tentative author list derived from commit-history contributors of the source repository</td>
+                            <td>Any package whose source URL points to <code>github.com</code></td>
+                        </tr>
+                    </tbody>
+                </table>
+                <p class="text-muted small">
+                    <i class="fas fa-info-circle me-1"></i>
+                    Sources 1 and 2 are mutually exclusive (we use whichever is available for the ecosystem). Source 3
+                    runs in <em>addition</em> to whichever of 1 or 2 returned data — registries publish only the
+                    maintainer-of-record, but real-world risk lives in the broader contributor population that can land
+                    code through pull requests.
+                </p>
+
+                <h6 class="mt-4"><i class="fas fa-code-branch me-2 text-info"></i>2. Why GitHub contributors?</h6>
+                <p>
+                    For a Maven artifact like <code>org.springframework.boot:spring-boot-starter-web</code>, the registry
+                    publishes a single "Pivotal" maintainer entry. The actual humans who can merge code into that
+                    package are the contributors of <code>spring-projects/spring-boot</code> on GitHub — currently
+                    around 1,000 people, of whom we capture the top 10 by contribution count. These are tentative
+                    correlations (we have no email/identity authority for them), so they're flagged with a
+                    <span class="badge bg-warning text-dark">⚠️</span> badge in the Authors page so you can distinguish
+                    them from registry-attested maintainers.
+                </p>
+
+                <h6 class="mt-4"><i class="fas fa-network-wired me-2 text-secondary"></i>3. Cost model</h6>
+                <p>
+                    Per-run we issue exactly <strong>one</strong> <code>/repos/{owner}/{repo}/contributors</code> REST
+                    call per unique GitHub repository, deduped by an in-memory cache keyed on
+                    <code>${owner}/${repo}</code>. Profile fields (location, company, GitHub user type) are filled in
+                    afterwards by a single batched GraphQL query — never per-user REST calls. So a 159-package Spring
+                    Boot SBOM where every package points at <code>spring-projects/spring-boot</code> issues
+                    <strong>1</strong> contributors call and a handful of GraphQL profile calls, not 159 + 1,590.
+                </p>
+
+                <h6 class="mt-4"><i class="fas fa-share-alt me-2 text-success"></i>4. Shared-repository attribution</h6>
+                <div class="alert alert-light border">
+                    <strong>Definition:</strong> When several packages in the SBOM ship from the <em>same</em> source
+                    repository (a monorepo: <code>spring-projects/spring-boot</code>, <code>babel/babel</code>,
+                    <code>angular/angular</code>, …), all of those packages will list the same set of contributors as
+                    authors. This is intentional, not a bug.
+                </div>
+                <p>
+                    From a threat-model perspective, those packages share a single supply-chain blast radius. A
+                    contributor with merge rights to the shared repository can land malicious code into every package
+                    that ships from it, in a single commit. Listing the contributors once per package (rather than
+                    once per repository) makes that fan-out explicit on the Authors page: an author shown as having
+                    "23 packages" across "1 repo" is actually a <em>single point of failure for 23 packages</em>, and
+                    that's exactly what the Repository Usage column on the Authors page surfaces with the
+                    <span class="badge bg-danger">High Risk</span> /
+                    <span class="badge bg-warning text-dark">Moderate Risk</span> badges.
+                </p>
+                <p class="text-muted small">
+                    <i class="fas fa-info-circle me-1"></i>
+                    The downside is visual repetition — a Spring-heavy SBOM will show the same ~10 Pivotal employees
+                    on every Spring artifact. The upside is risk fidelity: the count of packages those employees
+                    appear on directly reflects the number of packages an account compromise would compromise.
+                </p>
+
+                <h6 class="mt-4"><i class="fas fa-robot me-2 text-dark"></i>5. Bots and automated accounts</h6>
+                <p>
+                    GitHub contributors include automated accounts: <code>dependabot[bot]</code>,
+                    <code>github-actions[bot]</code>, <code>renovate[bot]</code>, <code>pre-commit-ci[bot]</code>, and
+                    similar. We do not filter them out at the enrichment stage — instead the Authors page detects bot
+                    accounts (by the canonical <code>[bot]</code> suffix, GitHub's <code>type: 'Bot'</code> profile
+                    field, and a denylist of common automation accounts) and routes them to a dedicated
+                    <strong>Active Bots in the Environments</strong> section. The human authors table stays clean,
+                    while the bot inventory remains visible — bots that can ship code through PRs are part of the
+                    threat model and worth knowing about.
+                </p>
+
+                <h6 class="mt-4"><i class="fas fa-book me-2"></i>References</h6>
+                <ul>
+                    <li><a href="https://docs.github.com/en/rest/repos/repos#list-repository-contributors" target="_blank" rel="noreferrer noopener">GitHub REST API: List repository contributors</a></li>
+                    <li><a href="https://packages.ecosyste.ms/docs" target="_blank" rel="noreferrer noopener">ecosyste.ms API Documentation</a> — aggregated package metadata for ecosystems without a native authors endpoint</li>
+                    <li><a href="https://docs.npmjs.com/cli/v10/configuring-npm/package-json#people-fields-author-contributors" target="_blank" rel="noreferrer noopener">npm package.json: <code>author</code> and <code>contributors</code> fields</a></li>
+                    <li><a href="https://packaging.python.org/en/latest/specifications/core-metadata/#author" target="_blank" rel="noreferrer noopener">PyPI core metadata: <code>Author</code> / <code>Maintainer</code> fields</a></li>
                 </ul>
             </div>
         </div>

@@ -157,11 +157,19 @@ class VersionDriftAnalyzer {
         if (!window.cacheManager) return;
         
         try {
-            // Get existing package data
+            // Get existing package data.
+            // packageKey format is `${ecosystem}:${name}` — but Maven names are
+            // themselves colon-separated (`groupId:artifactId`), so a plain
+            // `split(':')[1]` truncates the artifactId off and stores the
+            // groupId alone (which is then displayed everywhere as the package
+            // name). Strip only the leading ecosystem segment instead.
+            const _firstColon = packageKey.indexOf(':');
+            const _ecosystemSegment = _firstColon >= 0 ? packageKey.slice(0, _firstColon) : 'unknown';
+            const _nameSegment = _firstColon >= 0 ? packageKey.slice(_firstColon + 1) : packageKey;
             const packageData = await window.cacheManager.getPackage(packageKey) || {
                 packageKey: packageKey,
-                name: packageKey.split(':')[1] || packageKey,
-                ecosystem: packageKey.split(':')[0] || 'unknown'
+                name: _nameSegment || packageKey,
+                ecosystem: _ecosystemSegment || 'unknown'
             };
             
             // Initialize versionDrift object if needed
@@ -373,11 +381,19 @@ class VersionDriftAnalyzer {
         if (!window.cacheManager) return;
         
         try {
-            // Get existing package data
+            // Get existing package data.
+            // packageKey format is `${ecosystem}:${name}` — but Maven names are
+            // themselves colon-separated (`groupId:artifactId`), so a plain
+            // `split(':')[1]` truncates the artifactId off and stores the
+            // groupId alone (which is then displayed everywhere as the package
+            // name). Strip only the leading ecosystem segment instead.
+            const _firstColon = packageKey.indexOf(':');
+            const _ecosystemSegment = _firstColon >= 0 ? packageKey.slice(0, _firstColon) : 'unknown';
+            const _nameSegment = _firstColon >= 0 ? packageKey.slice(_firstColon + 1) : packageKey;
             const packageData = await window.cacheManager.getPackage(packageKey) || {
                 packageKey: packageKey,
-                name: packageKey.split(':')[1] || packageKey,
-                ecosystem: packageKey.split(':')[0] || 'unknown'
+                name: _nameSegment || packageKey,
+                ecosystem: _ecosystemSegment || 'unknown'
             };
             
             // Initialize versionDrift object if needed

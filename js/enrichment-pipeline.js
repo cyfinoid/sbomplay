@@ -250,7 +250,17 @@ class EnrichmentPipeline {
     }
 
     /**
-     * Fetch author information
+     * Fetch author information.
+     *
+     * After AuthorService finishes, also mirror the per-package
+     * `repository_url` / `homepage` / `registry_url` it captured (from
+     * ecosyste.ms in particular, which is the only source for ecosystems
+     * with no native registry fetch — Maven, NuGet, Go, …) back onto the
+     * dep array AND the sbomProcessor's dependency map. Without this step,
+     * those URLs live only in the persistent `packages` cache; the saved
+     * analysis blob (which is what feed-url-builder, findings-page, etc.
+     * read on subsequent loads) never sees them, so Maven packages keep
+     * resolving to "no GitHub source repo was found".
      */
     async fetchAuthors(dependencies, identifier, onProgress = () => {}) {
         if (!window.AuthorService) {
@@ -277,8 +287,77 @@ class EnrichmentPipeline {
                 onProgress((processed / total) * 100, `Authors: ${processed}/${total}`);
             });
             console.log('✅ Author fetching complete');
+
+            await EnrichmentPipeline.hydrateRepoUrlsFromPackageCache(dependencies, this.sbomProcessor);
         } catch (e) {
             console.warn(`⚠️ Author fetch failed: ${e.message}`);
+        }
+    }
+
+    /**
+     * Pull `repository_url` / `homepage` / `registry_url` written by AuthorService
+     * onto the dep array (and the sbomProcessor's Map) so they get persisted in
+     * the saved analysis. Skips deps that already carry a URL — the LicenseFetcher
+     * deps.dev pass and any SBOM externalRef therefore win over ecosyste.ms,
+     * matching the source-of-truth ordering the rest of the pipeline assumes.
+     *
+     * Static so the GitHub flow's `app.js::analyzeAuthors` can call it without
+     * instantiating an EnrichmentPipeline (per AGENTS.md "Never duplicate
+     * implementations" — both entry points share this hydrator).
+     *
+     * @param {Array} dependencies - dep array (will be mutated in place)
+     * @param {Object|null} sbomProcessor - optional processor whose .dependencies
+     *   Map should also be hydrated, so a later `exportData()` carries the URLs.
+     */
+    static async hydrateRepoUrlsFromPackageCache(dependencies, sbomProcessor = null) {
+        if (!window.cacheManager || typeof window.cacheManager.getPackage !== 'function') return;
+        if (!Array.isArray(dependencies) || dependencies.length === 0) return;
+
+        let repoSynced = 0;
+        let homepageSynced = 0;
+        for (const dep of dependencies) {
+            if (!dep || !dep.name) continue;
+            const ecosystem = (dep.category?.ecosystem || dep.ecosystem || '').toLowerCase();
+            if (!ecosystem) continue;
+
+            const packageKey = `${ecosystem}:${dep.name}`;
+            let cached;
+            try {
+                cached = await window.cacheManager.getPackage(packageKey);
+            } catch (_) {
+                continue;
+            }
+            if (!cached) continue;
+
+            let processorDep = null;
+            if (sbomProcessor?.dependencies) {
+                processorDep = sbomProcessor.dependencies.get(`${dep.name}@${dep.version}`);
+            }
+
+            if (cached.repositoryUrl && !dep.repositoryUrl) {
+                dep.repositoryUrl = cached.repositoryUrl;
+                if (processorDep && !processorDep.repositoryUrl) {
+                    processorDep.repositoryUrl = cached.repositoryUrl;
+                }
+                repoSynced++;
+            }
+            if (cached.homepage && !dep.homepage) {
+                dep.homepage = cached.homepage;
+                if (processorDep && !processorDep.homepage) {
+                    processorDep.homepage = cached.homepage;
+                }
+                homepageSynced++;
+            }
+            if (cached.issueTrackerUrl && !dep.issueTrackerUrl) {
+                dep.issueTrackerUrl = cached.issueTrackerUrl;
+                if (processorDep && !processorDep.issueTrackerUrl) {
+                    processorDep.issueTrackerUrl = cached.issueTrackerUrl;
+                }
+            }
+        }
+
+        if (repoSynced > 0 || homepageSynced > 0) {
+            console.log(`🔗 Hydrated ${repoSynced} repository URL(s) and ${homepageSynced} homepage(s) onto dep array from package cache`);
         }
     }
 

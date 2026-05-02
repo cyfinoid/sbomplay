@@ -1181,7 +1181,18 @@ class SBOMProcessor {
                 licenseFull: licenseFull,  // Include license (full form, from SBOM or fetched)
                 licenseAugmented: licenseAugmented,  // True if license was fetched externally
                 licenseSource: licenseSource,  // 'sbom' or 'deps.dev' or 'external'
-                repositoryLicense: repositoryLicense  // Include repository license as fallback
+                repositoryLicense: repositoryLicense,  // Include repository license as fallback
+                // Source-repository metadata captured during enrichment.
+                // Populated by LicenseFetcher (deps.dev `links[].SOURCE_REPO`)
+                // and EnrichmentPipeline.hydrateRepoUrlsFromPackageCache
+                // (ecosyste.ms `repository_url` / `homepage`). Persisted on the
+                // exported dep so feed-url-builder and findings-page can resolve
+                // GitHub feeds / dead-repo status for ecosystems whose SBOMs
+                // typically lack a SOURCE-CONTROL externalRef (Maven, NuGet, …).
+                repositoryUrl: dep.repositoryUrl || null,
+                homepage: dep.homepage || null,
+                issueTrackerUrl: dep.issueTrackerUrl || null,
+                repositoryUrlSource: dep.repositoryUrlSource || null
             };
         });
         const allRepos = Array.from(this.repositories.values()).map(repo => {
@@ -1545,6 +1556,12 @@ class SBOMProcessor {
                     licenseFull: dep.licenseFull || license,
                     licenseAugmented: licenseAugmented,
                     licenseSource: licenseSource,
+                    // Source-repository metadata captured during enrichment
+                    // (see exportData() for the same fields and their sources).
+                    repositoryUrl: dep.repositoryUrl || null,
+                    homepage: dep.homepage || null,
+                    issueTrackerUrl: dep.issueTrackerUrl || null,
+                    repositoryUrlSource: dep.repositoryUrlSource || null,
                     // Original package reference for detailed info
                     originalPackage: dep.originalPackage
                 };

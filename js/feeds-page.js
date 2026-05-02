@@ -125,6 +125,17 @@ console.log('📡 feeds-page.js loaded');
 
         const allDeps = (data.data.allDependencies || []).map(toCanonicalDep);
 
+        // Fill in missing repository URLs from the persistent package cache before
+        // resolving feeds. Author enrichment writes `repository_url` / `homepage`
+        // onto the package row for every package (including Maven / NuGet / Go,
+        // which have no native registry fetch and therefore historically arrived
+        // here with `dep.repositoryUrl === undefined`). Without this hydration
+        // step those deps fall through to "no GitHub source repo was found"
+        // even when the URL is sitting one IndexedDB read away.
+        if (typeof feedUrlBuilder.hydrateFromCache === 'function') {
+            await feedUrlBuilder.hydrateFromCache(allDeps);
+        }
+
         const resolved = feedUrlBuilder.resolveAll(allDeps);
         allEntries = resolved.entries;
         allStats = resolved.stats;

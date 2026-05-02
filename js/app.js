@@ -4585,572 +4585,13 @@ class SBOMPlayApp {
         }, 5000);
     }
 
-    /**
-     * Sleep utility
-     */
-    /**
-     * Fetch PyPI package licenses from deps.dev API and PyPI JSON API (fallback)
-     */
-    async fetchPyPILicenses(dependencies, identifier) {
-        if (!dependencies || dependencies.length === 0) return;
-        
-        // Filter PyPI packages that need licenses
-        // Check both dep.category?.ecosystem and dep.ecosystem (dependencies can have either structure)
-        const pypiDeps = dependencies.filter(dep => {
-            const ecosystem = dep.category?.ecosystem || dep.ecosystem;
-            return (ecosystem === 'PyPI' || ecosystem === 'pypi') &&
-            dep.name && 
-            dep.version &&
-            dep.version !== 'unknown' &&  // Only filter truly unknown versions (after resolution attempt)
-            (!dep.licenseFull || dep.licenseFull === 'Unknown' || dep.licenseFull === 'NOASSERTION') &&
-            (!dep.license || dep.license === 'Unknown' || dep.license === 'NOASSERTION');
-        });
-        
-        if (pypiDeps.length === 0) {
-            console.log('ℹ️ No PyPI packages need license fetching');
-            return;
-        }
-        
-        console.log(`📄 Fetching licenses for ${pypiDeps.length} PyPI packages (with PyPI API fallback)...`);
-        
-        // Process in batches to avoid overwhelming the API
-        const batchSize = 20;
-        let fetched = 0;
-        let fetchedFromPyPI = 0;
-        let saved = 0;
-        
-        for (let i = 0; i < pypiDeps.length; i += batchSize) {
-            const batch = pypiDeps.slice(i, i + batchSize);
-            await Promise.all(batch.map(async (dep) => {
-                try {
-                    // Phase 1: Try deps.dev API first
-                    const url = `https://api.deps.dev/v3alpha/systems/pypi/packages/${encodeURIComponent(dep.name)}/versions/${encodeURIComponent(dep.version)}`;
-                    debugLogUrl(`🌐 [DEBUG] Fetching URL: ${url}`);
-                    debugLogUrl(`   Reason: Fetching deps.dev API for PyPI package ${dep.name}@${dep.version} to extract license information`);
-                    
-                    const response = await fetchWithTimeout(url);
-                    if (!response.ok) {
-                        console.log(`   ❌ Response: Status ${response.status} ${response.statusText}`);
-                        return;
-                    }
-                    
-                    const data = await response.json();
-                    const licenseCount = data.licenses?.length || 0;
-                    console.log(`   ✅ Response: Status ${response.status}, Extracted: ${licenseCount} license/licenses`);
-                    
-                    let licenseFull = null;
-                    let licenseText = null;
-                    
-                    // Enhanced deps.dev parsing - filter out unhelpful values
-                    if (data.licenses && data.licenses.length > 0) {
-                        const validLicenses = data.licenses.filter(l => 
-                            l && 
-                            l !== 'non-standard' && 
-                            l !== 'NOASSERTION' && 
-                            l !== 'UNKNOWN'
-                        );
-                        
-                        if (validLicenses.length > 0) {
-                            licenseFull = validLicenses.join(' AND ');
-                        
-                        // Format license text
-                        if (licenseFull.includes(' AND ')) {
-                            const firstLicense = licenseFull.split(' AND ')[0];
-                            licenseText = firstLicense.startsWith('Apache') ? 'Apache' : (firstLicense.length > 8 ? firstLicense.substring(0, 8) + '...' : firstLicense);
-                        } else if (licenseFull.startsWith('Apache')) {
-                            licenseText = 'Apache';
-                        } else {
-                            licenseText = licenseFull.length > 8 ? licenseFull.substring(0, 8) + '...' : licenseFull;
-                            }
-                        }
-                    }
-                    
-                    // Phase 2: Fallback to PyPI JSON API if deps.dev didn't provide valid license
-                    if (!licenseFull) {
-                        try {
-                            console.log(`   🔄 Falling back to PyPI JSON API for ${dep.name}`);
-                            const pypiUrl = `https://pypi.org/pypi/${encodeURIComponent(dep.name)}/json`;
-                            const pypiResponse = await fetchWithTimeout(pypiUrl);
-                            
-                            if (pypiResponse.ok) {
-                                const pypiData = await pypiResponse.json();
-                                const info = pypiData.info;
-                                
-                                // Check license_expression first (PEP 639 - modern format)
-                                if (info.license_expression && info.license_expression.trim()) {
-                                    licenseFull = info.license_expression;
-                                    licenseText = licenseFull.length > 8 ? licenseFull.substring(0, 8) + '...' : licenseFull;
-                                    console.log(`   ✅ Found license_expression (PEP 639): ${licenseFull}`);
-                                    fetchedFromPyPI++;
-                                }
-                                // Check license field (older format)
-                                else if (info.license && info.license.trim() && info.license !== 'UNKNOWN') {
-                                    // If it's full license text (>100 chars), try to extract SPDX identifier
-                                    if (info.license.length > 100) {
-                                        const licenseTextLower = info.license.toLowerCase();
-                                        if (licenseTextLower.includes('bsd') && licenseTextLower.includes('3-clause')) {
-                                            licenseFull = 'BSD-3-Clause';
-                                        } else if (licenseTextLower.includes('bsd') && licenseTextLower.includes('2-clause')) {
-                                            licenseFull = 'BSD-2-Clause';
-                                        } else if (licenseTextLower.includes('mit license')) {
-                                            licenseFull = 'MIT';
-                                        } else if (licenseTextLower.includes('apache license')) {
-                                            licenseFull = 'Apache-2.0';
-                                        } else {
-                                            // Use first 50 chars as identifier
-                                            licenseFull = info.license.substring(0, 50).trim() + '...';
-                                        }
-                                        console.log(`   ✅ Extracted from license text: ${licenseFull}`);
-                                    } else {
-                                        licenseFull = info.license;
-                                        console.log(`   ✅ Found license field: ${licenseFull}`);
-                                    }
-                                    licenseText = licenseFull.length > 8 ? licenseFull.substring(0, 8) + '...' : licenseFull;
-                                    fetchedFromPyPI++;
-                                }
-                                // Check classifiers as last resort
-                                else if (info.classifiers && Array.isArray(info.classifiers)) {
-                                    const licenseClassifiers = info.classifiers.filter(c => 
-                                        c.startsWith('License ::') && !c.includes('DFSG approved') && !c.includes('Free For Home Use')
-                                    );
-                                    
-                                    if (licenseClassifiers.length > 0) {
-                                        const classifier = licenseClassifiers[0];
-                                        const match = classifier.match(/License :: (?:OSI Approved :: )?(.+?)(?: License)?$/);
-                                        if (match) {
-                                            licenseFull = match[1].trim();
-                                            // Convert classifier name to SPDX if possible
-                                            if (licenseFull === 'Apache Software License') licenseFull = 'Apache-2.0';
-                                            else if (licenseFull === 'Apache Software') licenseFull = 'Apache-2.0';
-                                            else if (licenseFull === 'BSD License') licenseFull = 'BSD-3-Clause';
-                                            else if (licenseFull === 'BSD') licenseFull = 'BSD-3-Clause';  // Handle "BSD" alone (from "License :: OSI Approved :: BSD License")
-                                            else if (licenseFull === 'MIT License') licenseFull = 'MIT';
-                                            else if (licenseFull === 'MIT') licenseFull = 'MIT';  // Handle "MIT" alone
-                                            else if (licenseFull.includes('GPL') && !licenseFull.includes('-')) licenseFull = licenseFull.replace(' ', '-');
-                                            
-                                            licenseText = licenseFull.length > 8 ? licenseFull.substring(0, 8) + '...' : licenseFull;
-                                            console.log(`   ✅ Found from classifiers: ${licenseFull}`);
-                                            fetchedFromPyPI++;
-                                        }
-                                    }
-                                }
-                            }
-                        } catch (pypiError) {
-                            console.log(`   ⚠️  PyPI API fallback failed: ${pypiError.message}`);
-                        }
-                    }
-                    
-                    // Only update if we found a valid license
-                    if (!licenseFull || !licenseText) {
-                        return;
-                        }
-                        
-                        // Update dependency object (both top-level and in originalPackage for persistence)
-                        dep.license = licenseText;
-                        dep.licenseFull = licenseFull;
-                        dep._licenseEnriched = true;
-                        
-                        // Also update originalPackage to ensure license persists when saved to IndexedDB
-                        if (dep.originalPackage) {
-                            dep.originalPackage.licenseConcluded = licenseFull;
-                            dep.originalPackage.licenseDeclared = licenseFull;
-                        }
-                        
-                        // Also update the original dependency object in sbomProcessor.dependencies Map
-                        // This ensures licenses persist when exportData() is called again
-                        if (this.sbomProcessor && this.sbomProcessor.dependencies) {
-                            const versionToUse = dep.displayVersion || dep.version;
-                            const packageKey = `${dep.name}@${versionToUse}`;
-                            const originalDep = this.sbomProcessor.dependencies.get(packageKey);
-                            if (originalDep) {
-                                originalDep.license = licenseText;
-                                originalDep.licenseFull = licenseFull;
-                                originalDep._licenseEnriched = true;
-                                
-                                // Also update originalPackage if it exists
-                                if (originalDep.originalPackage) {
-                                    originalDep.originalPackage.licenseConcluded = licenseFull;
-                                    originalDep.originalPackage.licenseDeclared = licenseFull;
-                                }
-                            }
-                        }
-                        
-                        fetched++;
-                        
-                        if (fetched % 10 === 0) {
-                        console.log(`📄 Licenses: ${fetched}/${pypiDeps.length} fetched (${fetchedFromPyPI} from PyPI API)`);
-                    }
-                } catch (e) {
-                    console.debug(`Failed to fetch license for ${dep.name}@${dep.version}:`, e);
-                }
-            }));
-            
-            // Small delay between batches
-            await new Promise(resolve => setTimeout(resolve, 50));
-        }
-        
-        // Note: Licenses are updated in-place in the dependencies array
-        // The caller should save the updated results to IndexedDB after this function completes
-        console.log(`✅ PyPI license fetching complete: ${fetched} licenses fetched (${fetchedFromPyPI} from PyPI API fallback)`);
-    }
-    
-    /**
-     * Fetch licenses for Go packages from deps.dev API
-     */
-    async fetchGoLicenses(dependencies, identifier) {
-        console.log('🔍 fetchGoLicenses called');
-        if (!dependencies || dependencies.length === 0) {
-            console.log('ℹ️ fetchGoLicenses: No dependencies provided');
-            return;
-        }
-        
-        // Filter Go packages that need licenses
-        // Check both dep.category?.ecosystem and dep.ecosystem (dependencies can have either structure)
-        const goDeps = dependencies.filter(dep => {
-            const ecosystem = dep.category?.ecosystem || dep.ecosystem;
-            return (ecosystem === 'Go' || ecosystem === 'golang' || ecosystem === 'go') &&
-            dep.name && 
-            dep.version &&
-            dep.version !== 'unknown' &&  // Only filter truly unknown versions (after resolution attempt)
-            (!dep.licenseFull || dep.licenseFull === 'Unknown' || dep.licenseFull === 'NOASSERTION') &&
-            (!dep.license || dep.license === 'Unknown' || dep.license === 'NOASSERTION');
-        });
-        
-        console.log(`🔍 fetchGoLicenses: Found ${goDeps.length} Go packages needing licenses (out of ${dependencies.length} total dependencies)`);
-        if (goDeps.length === 0) {
-            console.log('ℹ️ No Go packages need license fetching');
-            return;
-        }
-        
-        console.log(`📄 Fetching licenses for ${goDeps.length} Go packages...`);
-        
-        // Process in batches to avoid overwhelming the API
-        const batchSize = 20;
-        let fetched = 0;
-        let saved = 0;
-        
-        for (let i = 0; i < goDeps.length; i += batchSize) {
-            const batch = goDeps.slice(i, i + batchSize);
-            await Promise.all(batch.map(async (dep) => {
-                try {
-                    // Fetch license from deps.dev API
-                    // Go modules require "v" prefix on versions for deps.dev API
-                    let goVersion = dep.version;
-                    if (goVersion && !goVersion.startsWith('v')) {
-                        goVersion = 'v' + goVersion;
-                    }
-                    const url = `https://api.deps.dev/v3alpha/systems/go/packages/${encodeURIComponent(dep.name)}/versions/${encodeURIComponent(goVersion)}`;
-                    debugLogUrl(`🌐 [DEBUG] Fetching URL: ${url}`);
-                    debugLogUrl(`   Reason: Fetching deps.dev API for Go package ${dep.name}@${goVersion} to extract license information`);
-                    
-                    const response = await fetchWithTimeout(url);
-                    if (!response.ok) {
-                        console.log(`   ❌ Response: Status ${response.status} ${response.statusText}`);
-                        return;
-                    }
-                    
-                    const data = await response.json();
-                    const licenseCount = data.licenses?.length || 0;
-                    console.log(`   ✅ Response: Status ${response.status}, Extracted: ${licenseCount} license/licenses`);
-                    
-                    if (data.licenses && data.licenses.length > 0) {
-                        const licenseFull = data.licenses.join(' AND ');
-                        let licenseText = licenseFull;
-                        
-                        // Format license text
-                        if (licenseFull.includes(' AND ')) {
-                            const firstLicense = licenseFull.split(' AND ')[0];
-                            licenseText = firstLicense.startsWith('Apache') ? 'Apache' : (firstLicense.length > 8 ? firstLicense.substring(0, 8) + '...' : firstLicense);
-                        } else if (licenseFull.startsWith('Apache')) {
-                            licenseText = 'Apache';
-                        } else {
-                            licenseText = licenseFull.length > 8 ? licenseFull.substring(0, 8) + '...' : licenseFull;
-                        }
-                        
-                        // Update dependency object (both top-level and in originalPackage for persistence)
-                        dep.license = licenseText;
-                        dep.licenseFull = licenseFull;
-                        dep._licenseEnriched = true;
-                        
-                        // Also update originalPackage to ensure license persists when saved to IndexedDB
-                        if (dep.originalPackage) {
-                            dep.originalPackage.licenseConcluded = licenseFull;
-                            dep.originalPackage.licenseDeclared = licenseFull;
-                        }
-                        
-                        // Also update the original dependency object in sbomProcessor.dependencies Map
-                        // This ensures licenses persist when exportData() is called again
-                        if (this.sbomProcessor && this.sbomProcessor.dependencies) {
-                            const versionToUse = dep.displayVersion || dep.version;
-                            const packageKey = `${dep.name}@${versionToUse}`;
-                            const originalDep = this.sbomProcessor.dependencies.get(packageKey);
-                            if (originalDep) {
-                                originalDep.license = licenseText;
-                                originalDep.licenseFull = licenseFull;
-                                originalDep._licenseEnriched = true;
-                                
-                                // Also update originalPackage if it exists
-                                if (originalDep.originalPackage) {
-                                    originalDep.originalPackage.licenseConcluded = licenseFull;
-                                    originalDep.originalPackage.licenseDeclared = licenseFull;
-                                }
-                            }
-                        }
-                        
-                        // Save to cache via cacheManager if available
-                        if (window.cacheManager && dep.name && dep.category?.ecosystem) {
-                            try {
-                                let ecosystem = dep.category.ecosystem.toLowerCase();
-                                // Normalize ecosystem aliases
-                                if (ecosystem === 'go' || ecosystem === 'golang') {
-                                    ecosystem = 'golang';
-                                }
-                                const packageKey = `${ecosystem}:${dep.name}`;
-                                const packageData = await window.cacheManager.getPackage(packageKey) || {
-                                    packageKey: packageKey,
-                                    name: dep.name,
-                                    ecosystem: ecosystem
-                                };
-                                
-                                // Update license info in package data
-                                if (!packageData.licenses) {
-                                    packageData.licenses = {};
-                                }
-                                packageData.licenses[dep.version] = {
-                                    license: licenseText,
-                                    licenseFull: licenseFull,
-                                    _licenseEnriched: true
-                                };
-                                
-                                await window.cacheManager.savePackage(packageKey, packageData);
-                                saved++;
-                            } catch (cacheError) {
-                                console.debug(`Failed to save license to cache for ${dep.name}@${dep.version}:`, cacheError);
-                            }
-                        }
-                        
-                        fetched++;
-                        
-                        if (fetched % 10 === 0) {
-                            console.log(`📄 Licenses: ${fetched}/${goDeps.length} fetched`);
-                        }
-                    }
-                } catch (e) {
-                    console.debug(`Failed to fetch license for ${dep.name}@${dep.version}:`, e);
-                }
-            }));
-            
-            // Small delay between batches
-            await new Promise(resolve => setTimeout(resolve, 50));
-        }
-        
-        // Note: Licenses are updated in-place in the dependencies array
-        // The caller should save the updated results to IndexedDB after this function completes
-        console.log(`✅ Go license fetching complete: ${fetched} licenses fetched${saved > 0 ? `, ${saved} saved to cache` : ''}`);
-    }
-    
-    /**
-     * Fetch licenses for all ecosystems (npm, maven, cargo, composer, rubygems, nuget) from deps.dev API
-     */
-    async fetchLicensesForAllEcosystems(dependencies, identifier) {
-        console.log('🔍 fetchLicensesForAllEcosystems called');
-        if (!dependencies || dependencies.length === 0) {
-            console.log('ℹ️ fetchLicensesForAllEcosystems: No dependencies provided');
-            return;
-        }
-        
-        // Map of ecosystem names to deps.dev system names
-        const ecosystemMap = {
-            'npm': 'npm',
-            'maven': 'maven',
-            'cargo': 'cargo',
-            'composer': 'packagist',
-            'packagist': 'packagist',
-            'rubygems': 'rubygems',
-            'gem': 'rubygems',
-            'nuget': 'nuget'
-        };
-        
-        // Group dependencies by ecosystem
-        const depsByEcosystem = new Map();
-        let skippedNoEcosystem = 0;
-        let skippedHasLicense = 0;
-        let skippedNoNameVersion = 0;
-        let skippedUnsupported = 0;
-        
-        dependencies.forEach(dep => {
-            // Check both dep.category?.ecosystem and dep.ecosystem (dependencies can have either structure)
-            const ecosystem = (dep.category?.ecosystem || dep.ecosystem)?.toLowerCase();
-            if (!ecosystem) {
-                skippedNoEcosystem++;
-                return;
-            }
-            
-            // Skip PyPI and Go (already handled separately)
-            if (ecosystem === 'pypi' || ecosystem === 'go' || ecosystem === 'golang') {
-                return;
-            }
-            
-            // Skip if already has license (check both licenseFull and license fields)
-            // Also check for empty strings and null values
-            const hasLicense = (dep.licenseFull && 
-                               dep.licenseFull !== 'Unknown' && 
-                               dep.licenseFull !== 'NOASSERTION' &&
-                               dep.licenseFull !== '' &&
-                               dep.licenseFull !== null) ||
-                              (dep.license && 
-                               dep.license !== 'Unknown' && 
-                               dep.license !== 'NOASSERTION' &&
-                               dep.license !== '' &&
-                               dep.license !== null);
-            if (hasLicense) {
-                skippedHasLicense++;
-                return;
-            }
-            
-            // Skip if missing name or version
-            if (!dep.name || !dep.version || dep.version === 'unknown' || dep.version === '') {
-                skippedNoNameVersion++;
-                return;
-            }
-            
-            // Map ecosystem to deps.dev system name
-            const depsDevSystem = ecosystemMap[ecosystem];
-            if (!depsDevSystem) {
-                // Ecosystem not supported by deps.dev
-                skippedUnsupported++;
-                return;
-            }
-            
-            if (!depsByEcosystem.has(depsDevSystem)) {
-                depsByEcosystem.set(depsDevSystem, []);
-            }
-            depsByEcosystem.get(depsDevSystem).push(dep);
-        });
-        
-        // Log detailed statistics
-        if (skippedNoEcosystem > 0 || skippedHasLicense > 0 || skippedNoNameVersion > 0 || skippedUnsupported > 0) {
-            console.log(`🔍 License fetch filter stats: ${skippedNoEcosystem} no ecosystem, ${skippedHasLicense} has license, ${skippedNoNameVersion} missing name/version, ${skippedUnsupported} unsupported ecosystem`);
-        }
-        
-        console.log(`🔍 fetchLicensesForAllEcosystems: Found packages in ${depsByEcosystem.size} ecosystems needing licenses (out of ${dependencies.length} total dependencies)`);
-        if (depsByEcosystem.size === 0) {
-            console.log('ℹ️ No packages from other ecosystems need license fetching');
-            console.log(`   Detailed skip stats: ${skippedNoEcosystem} no ecosystem, ${skippedHasLicense} has license, ${skippedNoNameVersion} missing name/version, ${skippedUnsupported} unsupported`);
-            return;
-        }
-        
-        // Log ecosystem breakdown
-        for (const [ecosystem, deps] of depsByEcosystem.entries()) {
-            console.log(`   📦 ${ecosystem}: ${deps.length} packages need licenses`);
-        }
-        
-        const totalDeps = Array.from(depsByEcosystem.values()).reduce((sum, deps) => sum + deps.length, 0);
-        console.log(`📄 Fetching licenses for ${totalDeps} packages from ${depsByEcosystem.size} ecosystems...`);
-        
-        // Process each ecosystem
-        for (const [depsDevSystem, deps] of depsByEcosystem.entries()) {
-            console.log(`📄 Fetching licenses for ${deps.length} ${depsDevSystem} packages...`);
-            
-            const batchSize = 20;
-            let fetched = 0;
-            
-            for (let i = 0; i < deps.length; i += batchSize) {
-                const batch = deps.slice(i, i + batchSize);
-                await Promise.all(batch.map(async (dep) => {
-                    try {
-                        // Clean version string - remove range specifiers
-                        // e.g., "1.0.108,< 2.0.0" -> "1.0.108"
-                        // e.g., "0.5.1,< 0.6.0" -> "0.5.1"
-                        // e.g., "3.5,< 4.0" -> "3.5"
-                        let cleanVersion = dep.version;
-                        if (cleanVersion && cleanVersion.includes(',')) {
-                            cleanVersion = cleanVersion.split(',')[0].trim();
-                        }
-                        if (cleanVersion && cleanVersion.includes(' ')) {
-                            cleanVersion = cleanVersion.split(' ')[0].trim();
-                        }
-                        
-                        // Fetch license from deps.dev API
-                        const url = `https://api.deps.dev/v3alpha/systems/${depsDevSystem}/packages/${encodeURIComponent(dep.name)}/versions/${encodeURIComponent(cleanVersion)}`;
-                        debugLogUrl(`🌐 [DEBUG] Fetching URL: ${url}`);
-                        debugLogUrl(`   Reason: Fetching deps.dev API for ${depsDevSystem} package ${dep.name}@${cleanVersion} to extract license information`);
-                        
-                        const response = await fetchWithTimeout(url);
-                        if (!response.ok) {
-                            console.log(`   ❌ Response: Status ${response.status} ${response.statusText}`);
-                            return;
-                        }
-                        
-                        const data = await response.json();
-                        const licenseCount = data.licenses?.length || 0;
-                        console.log(`   ✅ Response: Status ${response.status}, Extracted: ${licenseCount} license/licenses`);
-                        
-                        if (data.licenses && data.licenses.length > 0) {
-                            const licenseFull = data.licenses.join(' AND ');
-                            let licenseText = licenseFull;
-                            
-                            // Format license text
-                            if (licenseFull.includes(' AND ')) {
-                                const firstLicense = licenseFull.split(' AND ')[0];
-                                licenseText = firstLicense.startsWith('Apache') ? 'Apache' : (firstLicense.length > 8 ? firstLicense.substring(0, 8) + '...' : firstLicense);
-                            } else if (licenseFull.startsWith('Apache')) {
-                                licenseText = 'Apache';
-                            } else {
-                                licenseText = licenseFull.length > 8 ? licenseFull.substring(0, 8) + '...' : licenseFull;
-                            }
-                            
-                            // Update dependency object (both top-level and in originalPackage for persistence)
-                            dep.license = licenseText;
-                            dep.licenseFull = licenseFull;
-                            dep._licenseEnriched = true;
-                            
-                            // Also update originalPackage to ensure license persists when saved to IndexedDB
-                            if (dep.originalPackage) {
-                                dep.originalPackage.licenseConcluded = licenseFull;
-                                dep.originalPackage.licenseDeclared = licenseFull;
-                            }
-                            
-                            // Also update the original dependency object in sbomProcessor.dependencies Map
-                            // This ensures licenses persist when exportData() is called again
-                            if (this.sbomProcessor && this.sbomProcessor.dependencies) {
-                                // Use displayVersion if available (matches sbom-processor key format)
-                                const versionToUse = dep.displayVersion || dep.version;
-                                const packageKey = `${dep.name}@${versionToUse}`;
-                                const originalDep = this.sbomProcessor.dependencies.get(packageKey);
-                                if (originalDep) {
-                                    originalDep.license = licenseText;
-                                    originalDep.licenseFull = licenseFull;
-                                    originalDep._licenseEnriched = true;
-                                    
-                                    // Also update originalPackage if it exists
-                                    if (originalDep.originalPackage) {
-                                        originalDep.originalPackage.licenseConcluded = licenseFull;
-                                        originalDep.originalPackage.licenseDeclared = licenseFull;
-                                    }
-                                }
-                            }
-                            
-                            fetched++;
-                            
-                            if (fetched % 10 === 0) {
-                                console.log(`📄 Licenses (${depsDevSystem}): ${fetched}/${deps.length} fetched`);
-                            }
-                        }
-                    } catch (e) {
-                        console.debug(`Failed to fetch license for ${dep.name}@${dep.version}:`, e);
-                    }
-                }));
-                
-                // Small delay between batches
-                await new Promise(resolve => setTimeout(resolve, 50));
-            }
-            
-            console.log(`✅ ${depsDevSystem} license fetching complete: ${fetched} licenses fetched`);
-        }
-        
-        console.log(`✅ License fetching for all ecosystems complete`);
-    }
+    // NOTE: `fetchPyPILicenses`, `fetchGoLicenses`, and `fetchLicensesForAllEcosystems`
+    // were deleted in favour of `window.licenseFetcher.fetchLicenses(deps)` which
+    // now does everything those three functions did (deps.dev license + `links[]`
+    // capture in one call, PyPI JSON fallback for PEP 639 / `info.license` /
+    // classifiers, Go `v` prefix, version-range cleaning, GitHub-API fallback for
+    // `github.com/...` Go modules) — without issuing a duplicate deps.dev request
+    // per package. See `js/license-fetcher.js`.
     
     /**
      * Fetch version drift data for all dependencies and save to IndexedDB
@@ -5375,10 +4816,35 @@ class SBOMPlayApp {
         onProgress(96, 'Fetching package licenses and version drift data...', 'fetching-metadata');
 
         try {
-            // Fetch licenses for all ecosystems
-            await this.fetchPyPILicenses(results.allDependencies, identifier);
-            await this.fetchGoLicenses(results.allDependencies, identifier);
-            await this.fetchLicensesForAllEcosystems(results.allDependencies, identifier);
+            // License + source-repo enrichment is delegated to the shared
+            // `LicenseFetcher`: ONE deps.dev GET per package, which extracts
+            // both the license SPDX list AND the `links[]` array
+            // (`SOURCE_REPO` / `HOMEPAGE` / `ISSUE_TRACKER`) in the same
+            // response, with PyPI-JSON and GitHub-API fallbacks for the
+            // cases deps.dev can't answer. The previous code path here
+            // issued THREE separate license-fetch loops
+            // (`fetchPyPILicenses`, `fetchGoLicenses`,
+            // `fetchLicensesForAllEcosystems`) AND then `LicenseFetcher`,
+            // hitting deps.dev twice for every dep without a license. Per
+            // AGENTS.md ("Never duplicate implementations") and the project
+            // rule "make each API call once, extract all useful info in one
+            // shot", we now go through `LicenseFetcher` only.
+            if (window.licenseFetcher) {
+                try {
+                    const linkResult = await window.licenseFetcher.fetchLicenses(
+                        results.allDependencies,
+                        (processed, total, msg) => onProgress(96, msg || `License + source-repo: ${processed}/${total}`, 'fetching-metadata')
+                    );
+                    window.licenseFetcher.syncToProcessor(results.allDependencies, this.sbomProcessor);
+                    if (linkResult?.total) {
+                        console.log(`✅ License + source-repo enrichment: queried ${linkResult.total} package(s) (${linkResult.fetched} license(s) captured, repo/homepage/issue-tracker links applied opportunistically)`);
+                    }
+                } catch (e) {
+                    console.warn('⚠️ License + source-repo enrichment failed:', e?.message || e);
+                }
+            } else {
+                console.warn('⚠️ window.licenseFetcher unavailable — license + source-repo enrichment skipped');
+            }
 
             // Fetch version drift for all packages
             await this.fetchVersionDriftData(results.allDependencies);
@@ -5441,49 +4907,65 @@ class SBOMPlayApp {
             return;
         }
         
-        // Extract unique packages with ecosystem info
-        console.log('🔍 Extracting PURLs from dependencies...');
+        // Extract unique packages with ecosystem info.
+        //
+        // PRIOR BUG: this used to filter `dep => dep.purl`, which silently dropped
+        // every transitive dependency (the SBOM resolver only attaches a PURL to
+        // top-level packages — for sbomplay-demo/maven-deep-deps that meant
+        // 6 of 159 deps reached author-fetch). It also called
+        // `getPackageNameFromPurl(dep.purl)`, which for Maven returns the
+        // PURL-spec slash form (`groupId/artifactId`), and ecosyste.ms's
+        // package-lookup endpoint requires the colon-form (`groupId:artifactId`)
+        // and returns 404 for the slash form. Both bugs together meant Maven
+        // packages never got `repository_url` written into the package cache.
+        //
+        // The dep array already carries `dep.name` in the canonical ecosystem-
+        // native form (e.g. `org.springframework.boot:spring-boot-starter-web`
+        // for Maven, `@scope/name` for npm) and `dep.category.ecosystem` from
+        // the SBOM parser, so we use those directly and only fall back to the
+        // PURL when one of them is missing.
+        console.log('🔍 Extracting authorable packages from dependencies...');
         console.log(`Total allDependencies: ${data.data.allDependencies.length}`);
-        
-        // Debug: Show first few dependencies
+
         if (data.data.allDependencies.length > 0) {
             console.log('Sample dependency structure:', data.data.allDependencies[0]);
         }
-        
-        // Build packages array with repository information and deduplicate by name+ecosystem
+
         const packageMap = new Map(); // Key: ecosystem:name, Value: {package info with merged repositories}
-        
-        data.data.allDependencies
-            .filter(dep => dep.purl)  // Only include dependencies with PURL
-            .forEach(dep => {
-                const ecosystem = this.getEcosystemFromPurl(dep.purl);
-                const name = this.getPackageNameFromPurl(dep.purl);
-                
-                if (!ecosystem || !name) return;
-                
-                const key = `${ecosystem}:${name}`;
-                const repositories = dep.repositories || [];
-                
-                if (packageMap.has(key)) {
-                    // Merge repositories from this occurrence
-                    const existing = packageMap.get(key);
-                    const existingRepos = new Set(existing.repositories || []);
-                    repositories.forEach(repo => existingRepos.add(repo));
-                    existing.repositories = Array.from(existingRepos);
-                } else {
-                    // First occurrence of this package
-                    packageMap.set(key, {
-                        ecosystem: ecosystem,
-                        name: name,
-                        purl: dep.purl,  // Keep first PURL encountered
-                        repositories: Array.from(new Set(repositories))  // Deduplicate repos
-                    });
-                }
-            });
-        
+
+        data.data.allDependencies.forEach(dep => {
+            let ecosystem = (dep.category?.ecosystem || dep.ecosystem || '').toLowerCase();
+            let name = dep.name || null;
+
+            if ((!ecosystem || !name) && dep.purl) {
+                ecosystem = ecosystem || (this.getEcosystemFromPurl(dep.purl) || '').toLowerCase();
+                name = name || this.getPackageNameFromPurl(dep.purl);
+            }
+
+            if (!ecosystem || !name) return;
+
+            const key = `${ecosystem}:${name}`;
+            const repositories = dep.repositories || [];
+
+            if (packageMap.has(key)) {
+                const existing = packageMap.get(key);
+                const existingRepos = new Set(existing.repositories || []);
+                repositories.forEach(repo => existingRepos.add(repo));
+                existing.repositories = Array.from(existingRepos);
+                if (!existing.purl && dep.purl) existing.purl = dep.purl;
+            } else {
+                packageMap.set(key, {
+                    ecosystem: ecosystem,
+                    name: name,
+                    purl: dep.purl || null,
+                    repositories: Array.from(new Set(repositories))
+                });
+            }
+        });
+
         const packages = Array.from(packageMap.values());
-        
-        console.log(`📦 Found ${packages.length} unique packages with valid PURLs for author analysis`);
+
+        console.log(`📦 Found ${packages.length} unique packages for author analysis`);
         
         // Debug: Show some sample packages with repo info
         if (packages.length > 0) {
@@ -5522,7 +5004,25 @@ class SBOMPlayApp {
             this.githubClient.removeEventListener('rateLimitExceeded', rateLimitHandler);
             this.githubClient.removeEventListener('rateLimitReset', rateLimitResetHandler);
         }
-        
+
+        // AuthorService writes `repository_url` / `homepage` / `registry_url`
+        // into the global package cache while fetching authors (those fields
+        // come from the same ecosyste.ms response that yields maintainers).
+        // Hydrate them back onto the in-memory dep array AND the live
+        // sbomProcessor map so the next exportData() persists them into the
+        // saved analysis blob — feeds.html / findings.html / deps.html all
+        // read those URLs from the saved blob, not from the cache.
+        if (window.EnrichmentPipeline && typeof window.EnrichmentPipeline.hydrateRepoUrlsFromPackageCache === 'function') {
+            try {
+                await window.EnrichmentPipeline.hydrateRepoUrlsFromPackageCache(
+                    data.data.allDependencies,
+                    this.sbomProcessor
+                );
+            } catch (e) {
+                console.warn('⚠️ Repo-URL hydration after author fetch failed:', e?.message || e);
+            }
+        }
+
         // Batch geocode all author locations during analysis phase
         // IMPORTANT: Ensure all location data is fetched before batch geocoding
         console.log(`📍 Geocoding check: LocationService=${!!window.LocationService}, authorResults=${!!authorResults}, authorResults.size=${authorResults?.size || 0}`);
@@ -5811,12 +5311,29 @@ class SBOMPlayApp {
     }
 
     /**
-     * Extract package name from PURL
+     * Extract package name from PURL.
+     *
+     * The PURL spec encodes Maven coordinates as `pkg:maven/<groupId>/<artifactId>@<version>`
+     * (slash-separated), but every Maven-aware lookup we issue downstream
+     * (ecosyste.ms package endpoint, deps.dev, the `dep.name` field used
+     * throughout the rest of the pipeline) expects the canonical
+     * `groupId:artifactId` colon-form. Without this normalisation, ecosyste.ms
+     * returns 404 for every Maven package and we never capture the
+     * `repository_url` / `homepage` / `registry_url` it would otherwise return,
+     * which is exactly what was happening for the maven-deep-deps demo SBOM.
+     *
+     * Other ecosystems are returned unchanged.
      */
     getPackageNameFromPurl(purl) {
         if (!purl) return null;
-        const match = purl.match(/^pkg:[^/]+\/([^@?]+)/);
-        return match ? match[1] : null;
+        const match = purl.match(/^pkg:([^/]+)\/([^@?]+)/);
+        if (!match) return null;
+        const ecosystem = (match[1] || '').toLowerCase();
+        const rawName = match[2];
+        if (ecosystem === 'maven' && rawName.includes('/')) {
+            return rawName.replace(/\//g, ':');
+        }
+        return rawName;
     }
 }
 

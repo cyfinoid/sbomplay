@@ -3247,7 +3247,7 @@ document.addEventListener('DOMContentLoaded', function() {
             URL.revokeObjectURL(url);
         }
 
-        function exportOPML() {
+        async function exportOPML() {
             if (!window.FeedUrlBuilder || !window.OPMLBuilder) {
                 console.error('FeedUrlBuilder/OPMLBuilder not loaded');
                 alert('Feed export utilities are not loaded. Please refresh the page.');
@@ -3263,6 +3263,15 @@ document.addEventListener('DOMContentLoaded', function() {
             if (!exportSet || exportSet.length === 0) {
                 alert('No dependencies available to export.');
                 return;
+            }
+
+            // Hydrate repository URLs from the package cache so the OPML export
+            // covers Maven / NuGet / Go / etc. deps whose `repositoryUrl` lives
+            // in IndexedDB (written by the author-fetch pipeline) rather than on
+            // the dep object itself. Without this, the same packages that show
+            // up correctly on feeds.html get emitted as "Uncovered" in the OPML.
+            if (typeof builder.hydrateFromCache === 'function') {
+                await builder.hydrateFromCache(exportSet);
             }
 
             const resolved = builder.resolveAll(exportSet);

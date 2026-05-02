@@ -204,14 +204,6 @@ class SettingsApp {
             });
         }
 
-        // Per-package GitHub contributor correlation toggle (T3.2). Default off so a
-        // fresh install / cleared localStorage avoids the extra GitHub API traffic.
-        const contributorCorrelationCheckbox = document.getElementById('enableContributorCorrelation');
-        if (contributorCorrelationCheckbox) {
-            contributorCorrelationCheckbox.checked =
-                localStorage.getItem('enableContributorCorrelation') === 'true';
-        }
-
         const saveAnalysisSettingsBtn = document.getElementById('saveAnalysisSettingsBtn');
         if (saveAnalysisSettingsBtn) {
             saveAnalysisSettingsBtn.addEventListener('click', () => this.saveAnalysisSettings());
@@ -331,16 +323,6 @@ class SettingsApp {
             }
         }
 
-        // Persist contributor-correlation toggle (T3.2). AuthorService reads
-        // localStorage at fetch time, so no module-level wiring is needed here.
-        const contributorCorrelationCheckbox = document.getElementById('enableContributorCorrelation');
-        if (contributorCorrelationCheckbox) {
-            localStorage.setItem(
-                'enableContributorCorrelation',
-                contributorCorrelationCheckbox.checked ? 'true' : 'false'
-            );
-        }
-
         // Update dependency tree resolver if available
         if (window.dependencyTreeResolver) {
             window.dependencyTreeResolver.maxDepth = depth;
@@ -382,10 +364,11 @@ class SettingsApp {
             if (parallelBatchSizeInput) parallelBatchSizeInput.value = '10';
             if (currentParallelBatchSizeEl) currentParallelBatchSizeEl.textContent = '10';
 
-            // Reset contributor correlation toggle (default off, T3.2)
+            // Stale: a previous build (T3.2) gated the always-on GitHub
+            // contributor enrichment behind `enableContributorCorrelation`. The
+            // setting was removed; clear it from any user's localStorage on the
+            // next "Reset to Defaults" so it doesn't accumulate.
             localStorage.removeItem('enableContributorCorrelation');
-            const contributorCorrelationCheckbox = document.getElementById('enableContributorCorrelation');
-            if (contributorCorrelationCheckbox) contributorCorrelationCheckbox.checked = false;
 
             if (window.dependencyTreeResolver) {
                 window.dependencyTreeResolver.maxDepth = 10;
@@ -807,12 +790,24 @@ class SettingsApp {
     }
 
     /**
-     * Extract package name from PURL
+     * Extract package name from PURL.
+     *
+     * Maven PURLs use slash-separated `<groupId>/<artifactId>` per the spec,
+     * but every Maven-aware lookup we issue downstream (ecosyste.ms package
+     * endpoint, deps.dev, the `dep.name` field) expects the canonical
+     * `groupId:artifactId` colon-form, so we normalise here. Other ecosystems
+     * are returned unchanged. Mirrors `SBOMPlayApp.getPackageNameFromPurl`.
      */
     getPackageNameFromPurl(purl) {
         if (!purl) return null;
-        const match = purl.match(/^pkg:[^/]+\/([^@?]+)/);
-        return match ? match[1] : null;
+        const match = purl.match(/^pkg:([^/]+)\/([^@?]+)/);
+        if (!match) return null;
+        const ecosystem = (match[1] || '').toLowerCase();
+        const rawName = match[2];
+        if (ecosystem === 'maven' && rawName.includes('/')) {
+            return rawName.replace(/\//g, ':');
+        }
+        return rawName;
     }
 
     /**

@@ -247,18 +247,26 @@ class AuthorService {
             console.log(`✅ Found ${authors.length} authors for ${packageKey} from ecosyste.ms`);
         }
         
-        // Try to fetch GitHub contributors if we have a GitHub repository URL.
-        // This provides tentative correlation (same GitHub user ID = same person), but
-        // costs a GitHub API call per unique repo and the resulting author entries are
-        // tentative (login-based, no email/name authority). Gate behind a setting that
-        // defaults to off (T3.2).
-        const enableContributorCorrelation =
-            (typeof localStorage !== 'undefined' &&
-                localStorage.getItem('enableContributorCorrelation') === 'true');
-        if (authors.length > 0 && enableContributorCorrelation) {
-            // Prefer the repository URL captured from fetchFromNativeRegistry, fall back to
-            // ecosyste.ms (covers Maven/NuGet/Go/etc. that have no native fetch), and only
-            // as a last resort hit getRepositoryUrl (which may issue another registry GET).
+        // Always fetch the top 10 GitHub contributors when we have a GitHub source
+        // repository URL — they're the most authoritative "this code is mine" signal
+        // available for ecosystems whose registries publish only a single
+        // maintainer-of-record (Maven / NuGet / Go) or no author info at all. Cost
+        // model: ONE `/repos/{owner}/{repo}/contributors` REST call per unique repo
+        // (deduped via `_contributorsRequestCache` for the run, so 159 packages all
+        // pointing at `spring-projects/spring-boot` issue exactly one call); profile
+        // fields (`location`, `company`) are filled in afterwards by
+        // `fetchAuthorLocationsBatch` via batched GraphQL, not per-user REST.
+        //
+        // Repo URL precedence: native registry first (closest to source-of-truth for
+        // npm/PyPI/Cargo/RubyGems), then ecosyste.ms (the only path for Maven /
+        // NuGet / Go), then a last-resort `getRepositoryUrl` lookup (avoided when
+        // either of the first two succeeded — see "make each API call once" rule).
+        //
+        // Bot accounts (`dependabot[bot]`, `github-actions[bot]`, `renovate[bot]`,
+        // …) are intentionally NOT filtered here. `js/authors-page.js` segregates
+        // them into a dedicated "Active Bots in the Environments" section so the
+        // human authors table stays clean while the bot inventory remains visible.
+        if (authors.length > 0) {
             const repoUrl = nativeRepositoryUrl
                 || ecosystemsRepositoryUrl
                 || ecosystemsHomepage
@@ -267,11 +275,8 @@ class AuthorService {
                 const githubMatch = repoUrl.match(/github\.com[\/:]([^\/]+)\/([^\/]+)/i);
                 if (githubMatch) {
                     const [, owner, repo] = githubMatch;
-                    // Clean up repo name (remove .git suffix, etc.)
                     const cleanRepo = repo.replace(/\.git$/, '').replace(/\/$/, '');
                     try {
-                        // Skip per-contributor /users/{login} REST calls here — the post-pipeline
-                        // fetchAuthorLocationsBatch fills user profiles via batched GraphQL.
                         const contributors = await this.fetchContributorsFromGitHub(owner, cleanRepo, false);
                         if (contributors.length > 0) {
                             authors = this.correlateWithContributors(authors, contributors);
@@ -362,12 +367,19 @@ class AuthorService {
         if (!window.cacheManager) return;
 
         // ALWAYS save package metadata to package cache (even if no funding or no authors)
-        // This ensures all packages are tracked in the normalized cache
+        // This ensures all packages are tracked in the normalized cache.
+        //
+        // packageKey format is `${ecosystem}:${name}` — but Maven names are
+        // themselves colon-separated (`groupId:artifactId`), so a naive
+        // `split(':')[1]` would truncate the artifactId off and store the
+        // groupId alone. Strip only the leading ecosystem segment instead.
         const existingPackage = await window.cacheManager.getPackage(packageKey);
+        const _firstColon = packageKey.indexOf(':');
+        const _nameSegment = _firstColon >= 0 ? packageKey.slice(_firstColon + 1) : packageKey;
         const packageData = existingPackage || {
             packageKey: packageKey,
             ecosystem: ecosystem,
-            name: packageKey.split(':')[1] || packageKey
+            name: _nameSegment || packageKey
         };
 
         // Add or update funding if available

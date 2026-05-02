@@ -7,7 +7,14 @@ console.log('📄 License Fetcher loaded');
 
 class LicenseFetcher {
     constructor() {
-        // Map ecosystem names to deps.dev system names
+        // Map ecosystem names to deps.dev system names.
+        //
+        // Composer / Packagist is intentionally absent: deps.dev does NOT serve
+        // Packagist (`/v3alpha/systems/packagist/...` and the previous mistaken
+        // `npm` fallback both 404). Including them just wastes one 404 per
+        // Composer package on every analysis. License + repo URL for Composer
+        // come from `AuthorService.fetchFromEcosystems` (ecosyste.ms covers
+        // packagist.org natively).
         this.ecosystemMap = {
             'go': 'go',
             'golang': 'go',
@@ -22,10 +29,58 @@ class LicenseFetcher {
             'nuget': 'nuget',
             'dotnet': 'nuget',
             'rubygems': 'rubygems',
-            'gem': 'rubygems',
-            'composer': 'npm', // Packagist uses npm-like API
-            'packagist': 'npm'
+            'gem': 'rubygems'
         };
+    }
+
+    /**
+     * Clean an SBOM-supplied version string into something a registry API will
+     * accept. SBOMs from `pip freeze`-style tooling sometimes carry range
+     * specifiers (`1.0.108,< 2.0.0`) or whitespace-padded ranges (`3.5,< 4.0`)
+     * in the version field; deps.dev rejects those and returns 404. Pick the
+     * lower-bound version (everything before the first `,` or space) so the
+     * fetch has a chance.
+     */
+    _cleanVersion(version) {
+        if (!version) return version;
+        let cleaned = String(version).trim();
+        if (cleaned.includes(',')) cleaned = cleaned.split(',')[0].trim();
+        if (cleaned.includes(' ')) cleaned = cleaned.split(' ')[0].trim();
+        return cleaned;
+    }
+
+    /**
+     * Build the deps.dev URL-segment version for a given system. Go module
+     * versions in deps.dev are required to carry the `v` prefix (`v1.2.3`),
+     * even when the SBOM ships them without it. Other systems use the version
+     * verbatim.
+     */
+    _depsDevVersion(system, version) {
+        if (system === 'go' && version && !version.startsWith('v')) {
+            return `v${version}`;
+        }
+        return version;
+    }
+
+    /**
+     * Format an SPDX license string for compact display (`license` field) while
+     * keeping the full string in `licenseFull`. Mirrors the legacy formatting
+     * in `app.js::fetchLicensesForAllEcosystems` so the licenses page / table
+     * cells render the same after this consolidation:
+     *   - `Apache-2.0`        → display `Apache`
+     *   - `MIT AND Apache-2.0`→ display `MIT` (first ID, truncated if needed)
+     *   - any single ID > 8 ch → first 8 chars + `...`
+     *   - shorter / non-Apache single IDs → unchanged
+     */
+    _formatLicenseDisplay(licenseFull) {
+        if (!licenseFull) return licenseFull;
+        if (licenseFull.includes(' AND ')) {
+            const first = licenseFull.split(' AND ')[0];
+            if (first.startsWith('Apache')) return 'Apache';
+            return first.length > 8 ? `${first.substring(0, 8)}...` : first;
+        }
+        if (licenseFull.startsWith('Apache')) return 'Apache';
+        return licenseFull.length > 8 ? `${licenseFull.substring(0, 8)}...` : licenseFull;
     }
 
     /**
@@ -91,12 +146,29 @@ class LicenseFetcher {
     }
 
     /**
-     * Fetch license for a single package from deps.dev API.
-     * Also captures repository / homepage links from the same response so callers
-     * (feed-url-builder, dead-source-repo validation) can reuse them without a
-     * second registry GET. Falls back to GitHub API for Go packages on github.com.
-     * @param {Object} dep - Dependency object
-     * @returns {Promise<boolean>} - True if license was fetched successfully
+     * Fetch license + source-repo metadata for a single package via deps.dev,
+     * with two scoped fallbacks for the cases deps.dev itself can't answer.
+     *
+     * One single deps.dev GET returns BOTH the license SPDX list AND the
+     * labeled `links[]` array (`SOURCE_REPO` / `HOMEPAGE` / `ISSUE_TRACKER`),
+     * so we extract every useful field from that one response — never issue a
+     * second deps.dev call to harvest the other piece. Per the AGENTS.md /
+     * "make each API call once" rule.
+     *
+     * Fallbacks (only when the dep is still missing a license after deps.dev):
+     *   - PyPI: query `pypi.org/pypi/{name}/json` for `license_expression`
+     *     (PEP 639), then `info.license`, then `classifiers[]`. This covers
+     *     the long tail of PyPI packages whose licenses deps.dev doesn't index.
+     *   - Go on `github.com/...`: query `api.github.com/repos/{owner}/{repo}`
+     *     for the SPDX ID. Covers older Go module versions deps.dev hasn't
+     *     scanned yet.
+     *
+     * Both fallbacks fire only when the cheap deps.dev call left the dep
+     * without a license — they're "free" from the duplication-budget POV
+     * because deps.dev didn't return useful license data.
+     *
+     * @param {Object} dep - Dependency object (mutated in place)
+     * @returns {Promise<boolean>} - True if a license was successfully captured
      */
     async fetchLicenseForPackage(dep) {
         try {
@@ -104,27 +176,41 @@ class LicenseFetcher {
             const system = this.ecosystemMap[ecosystem];
 
             if (!system) {
-                return false; // Unsupported ecosystem
+                return false; // Unsupported ecosystem (deps.dev would 404)
             }
 
-            const url = `https://api.deps.dev/v3alpha/systems/${system}/packages/${encodeURIComponent(dep.name)}/versions/${encodeURIComponent(dep.version)}`;
+            const cleanVersion = this._cleanVersion(dep.version);
+            if (!cleanVersion || cleanVersion === 'unknown') {
+                return false;
+            }
+            const depsDevVersion = this._depsDevVersion(system, cleanVersion);
 
-            const response = await fetch(url);
+            const url = `https://api.deps.dev/v3alpha/systems/${system}/packages/${encodeURIComponent(dep.name)}/versions/${encodeURIComponent(depsDevVersion)}`;
+            if (typeof debugLogUrl === 'function') {
+                debugLogUrl(`🌐 [DEBUG] Fetching URL: ${url}`);
+                debugLogUrl(`   Reason: deps.dev metadata for ${system} ${dep.name}@${depsDevVersion} (license + SOURCE_REPO/HOMEPAGE/ISSUE_TRACKER links in one call)`);
+            }
+
+            const response = await (typeof fetchWithTimeout === 'function' ? fetchWithTimeout(url) : fetch(url));
             let licenseFetched = false;
             if (response.ok) {
                 const data = await response.json();
                 this._applyDepsDevLinks(dep, data.links);
 
-                if (data.licenses && data.licenses.length > 0) {
-                    const licenseIds = data.licenses.map(l => l.license || l).filter(Boolean);
-                    const licenseStr = licenseIds.join(' AND ');
+                // Filter the deps.dev license list before joining: deps.dev
+                // sometimes emits sentinel values (`non-standard`, `NOASSERTION`,
+                // `UNKNOWN`) that aren't real SPDX IDs and shouldn't be
+                // displayed as if they were.
+                if (Array.isArray(data.licenses) && data.licenses.length > 0) {
+                    const licenseIds = data.licenses
+                        .map(l => (typeof l === 'string' ? l : l?.license))
+                        .filter(l => l && l !== 'non-standard' && l !== 'NOASSERTION' && l !== 'UNKNOWN');
 
-                    dep.license = licenseStr;
-                    dep.licenseFull = licenseStr;
-                    dep.licenseAugmented = true;
-                    dep.licenseSource = 'deps.dev';
-
-                    licenseFetched = true;
+                    if (licenseIds.length > 0) {
+                        const licenseStr = licenseIds.join(' AND ');
+                        this._applyLicenseToDep(dep, licenseStr, 'deps.dev');
+                        licenseFetched = true;
+                    }
                 }
             }
 
@@ -132,15 +218,21 @@ class LicenseFetcher {
                 return true;
             }
 
-            // Fallback: For Go packages hosted on github.com, try GitHub API
-            // deps.dev may not have license info for older versions
-            if ((system === 'go') && dep.name.startsWith('github.com/')) {
+            // PyPI fallback: PEP 639 `license_expression`, then `info.license`,
+            // then `classifiers[]`. Single GET, all three extracted in one shot.
+            if (system === 'pypi') {
+                const pypiLicense = await this._fetchPyPIFallbackLicense(dep.name);
+                if (pypiLicense) {
+                    this._applyLicenseToDep(dep, pypiLicense, 'pypi');
+                    return true;
+                }
+            }
+
+            // Go on github.com fallback (older versions deps.dev hasn't indexed)
+            if (system === 'go' && dep.name.startsWith('github.com/')) {
                 const githubLicense = await this.fetchLicenseFromGitHub(dep.name);
                 if (githubLicense) {
-                    dep.license = githubLicense;
-                    dep.licenseFull = githubLicense;
-                    dep.licenseAugmented = true;
-                    dep.licenseSource = 'github';
+                    this._applyLicenseToDep(dep, githubLicense, 'github');
                     return true;
                 }
             }
@@ -149,6 +241,109 @@ class LicenseFetcher {
         } catch (e) {
             console.debug(`Failed to fetch license for ${dep.name}:`, e.message);
             return false;
+        }
+    }
+
+    /**
+     * PyPI JSON API fallback for license-only lookups. Hits
+     * `pypi.org/pypi/{name}/json` once and walks the three license sources
+     * PyPI exposes, in priority order:
+     *   1. `info.license_expression` (PEP 639 — modern, SPDX-compliant)
+     *   2. `info.license` (legacy free-text — try to canonicalize to SPDX
+     *      when the text is long, otherwise pass through)
+     *   3. `info.classifiers[]` Trove classifiers (`License :: OSI Approved ::
+     *      MIT License` → `MIT`)
+     *
+     * Only invoked when deps.dev didn't return a usable license, so this is
+     * not duplicating an earlier PyPI call from this module — and the
+     * AuthorService PyPI native-registry fetch hits the SAME URL but only
+     * extracts authors / repo / funding (not license), so we can still do
+     * better here by extracting license from the same response when possible.
+     * (TODO across services: have AuthorService.fetchFromNativeRegistry write
+     * the license into the package cache too, then read from cache here.)
+     *
+     * @param {string} packageName
+     * @returns {Promise<string|null>} canonical / SPDX-ish license or null
+     */
+    async _fetchPyPIFallbackLicense(packageName) {
+        try {
+            const url = `https://pypi.org/pypi/${encodeURIComponent(packageName)}/json`;
+            const response = await (typeof fetchWithTimeout === 'function' ? fetchWithTimeout(url) : fetch(url));
+            if (!response.ok) return null;
+            const data = await response.json();
+            const info = data?.info;
+            if (!info) return null;
+
+            if (info.license_expression && String(info.license_expression).trim()) {
+                return String(info.license_expression).trim();
+            }
+
+            if (info.license && String(info.license).trim() && info.license !== 'UNKNOWN') {
+                const text = String(info.license).trim();
+                if (text.length > 100) {
+                    const lower = text.toLowerCase();
+                    if (lower.includes('bsd') && lower.includes('3-clause')) return 'BSD-3-Clause';
+                    if (lower.includes('bsd') && lower.includes('2-clause')) return 'BSD-2-Clause';
+                    if (lower.includes('mit license')) return 'MIT';
+                    if (lower.includes('apache license')) return 'Apache-2.0';
+                    return `${text.substring(0, 50).trim()}...`;
+                }
+                return text;
+            }
+
+            if (Array.isArray(info.classifiers)) {
+                const licenseClassifiers = info.classifiers.filter(c =>
+                    typeof c === 'string' &&
+                    c.startsWith('License ::') &&
+                    !c.includes('DFSG approved') &&
+                    !c.includes('Free For Home Use')
+                );
+                if (licenseClassifiers.length > 0) {
+                    const match = licenseClassifiers[0].match(/License :: (?:OSI Approved :: )?(.+?)(?: License)?$/);
+                    if (match) {
+                        let label = match[1].trim();
+                        if (label === 'Apache Software License' || label === 'Apache Software') return 'Apache-2.0';
+                        if (label === 'BSD License' || label === 'BSD') return 'BSD-3-Clause';
+                        if (label === 'MIT License' || label === 'MIT') return 'MIT';
+                        if (label.includes('GPL') && !label.includes('-')) {
+                            label = label.replace(' ', '-');
+                        }
+                        return label;
+                    }
+                }
+            }
+
+            return null;
+        } catch (e) {
+            console.debug(`PyPI fallback license fetch failed for ${packageName}:`, e?.message || e);
+            return null;
+        }
+    }
+
+    /**
+     * Write a fetched license onto a dependency, preserving the persistence
+     * paths the deleted legacy fetchers (`fetchPyPILicenses`, `fetchGoLicenses`,
+     * `fetchLicensesForAllEcosystems`) used:
+     *   - `dep.license` / `dep.licenseFull` for direct UI consumption.
+     *   - `dep._licenseEnriched = true` — read by `js/deps-page.js` to show the
+     *     green "✓ enriched" badge on the deps table.
+     *   - `dep.licenseAugmented = true` / `dep.licenseSource` — read by
+     *     `syncToProcessor` to mirror fields onto `sbomProcessor.dependencies`.
+     *   - `dep.originalPackage.licenseConcluded` / `licenseDeclared` —
+     *     `js/sbom-processor.js::exportData` reads these as a fallback when
+     *     the live `dep.license` is missing on a re-export, so writing them
+     *     here keeps licenses durable across analysis save/load cycles.
+     */
+    _applyLicenseToDep(dep, licenseFull, source) {
+        if (!dep || !licenseFull) return;
+        dep.license = this._formatLicenseDisplay(licenseFull);
+        dep.licenseFull = licenseFull;
+        dep.licenseAugmented = true;
+        dep._licenseEnriched = true;
+        dep.licenseSource = source;
+        if (dep.originalPackage) {
+            dep.originalPackage.licenseConcluded = licenseFull;
+            dep.originalPackage.licenseDeclared = licenseFull;
         }
     }
 
@@ -244,7 +439,12 @@ class LicenseFetcher {
                 processorDep.license = dep.license;
                 processorDep.licenseFull = dep.licenseFull;
                 processorDep._licenseAugmented = true;
+                processorDep._licenseEnriched = true;
                 processorDep._licenseSource = dep.licenseSource;
+                if (processorDep.originalPackage) {
+                    processorDep.originalPackage.licenseConcluded = dep.licenseFull;
+                    processorDep.originalPackage.licenseDeclared = dep.licenseFull;
+                }
                 licensesSynced++;
             }
 
