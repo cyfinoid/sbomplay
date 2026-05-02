@@ -5013,63 +5013,87 @@ class ViewManager {
     }
 
     /**
-     * Build path from parents chain in allDependencies
-     * Traces back through the parent chain to build the full dependency path
+     * Build one path per entry in `dep.parents` by walking upward through
+     * `allDeps`. Each inner walk follows `parents[0]` per hop (same single-
+     * path choice the deps-page modal makes when an intermediate step has
+     * multiple parents), but we branch on every entry in the target dep's
+     * own `parents` array so a transitive that's brought in by two different
+     * direct deps produces two distinct paths — matching the deps page's
+     * "Dependency Chains" section.
+     *
      * @param {Object} dep - The dependency object with parents array
      * @param {Array} allDeps - All dependencies array
-     * @returns {Array} - Path array from root to target, e.g., ['express@4.18.2', 'body-parser@1.20.0', 'raw-body@2.4.3']
+     * @returns {Array<Array<string>>} - Array of paths, each from root to target
+     *                                   (e.g. [['express@4', 'body-parser@1', 'raw-body@2']])
+     *                                   Returns a single-element array containing just
+     *                                   the target key when the dep has no parents.
      */
     buildPathFromParents(dep, allDeps) {
-        const path = [];
-        const visited = new Set();
-        let current = dep;
-        
-        // Build path by traversing up through parents
-        while (current) {
-            const key = `${current.name}@${current.version}`;
-            
-            // Prevent infinite loops
-            if (visited.has(key)) break;
-            visited.add(key);
-            
-            // Add current to path (at the beginning since we're traversing up)
-            path.unshift(key);
-            
-            // Get parent
-            if (current.parents && current.parents.length > 0) {
-                const parentKey = current.parents[0]; // Use first parent
-                // Parse parent key (format: "package@version")
-                const lastAtIdx = parentKey.lastIndexOf('@');
-                if (lastAtIdx > 0) {
-                    const parentName = parentKey.substring(0, lastAtIdx);
-                    const parentVersion = parentKey.substring(lastAtIdx + 1);
-                    
-                    // Find parent in allDeps
-                    current = allDeps.find(d => d.name === parentName && d.version === parentVersion);
-                    
-                    // If not found by exact version, try by name only
-                    if (!current) {
-                        current = allDeps.find(d => d.name === parentName);
-                    }
-                } else {
-                    break; // Invalid parent format
-                }
-            } else {
-                break; // No more parents
-            }
-            
-            // Safety limit to prevent infinite loops
-            if (path.length > 20) {
-                console.warn('⚠️ buildPathFromParents: path depth exceeded 20, breaking');
-                break;
-            }
+        const targetKey = `${dep.name}@${dep.version}`;
+
+        // No parents: nothing to walk, caller will render the target alone.
+        if (!dep.parents || dep.parents.length === 0) {
+            return [[targetKey]];
         }
-        
-        return path;
+
+        // Safety cap: a transitive with dozens of distinct direct-dep entry
+        // points would otherwise explode the vuln list. 10 matches the depth
+        // cap intent of the previous implementation.
+        const MAX_PATHS = 10;
+        const parentKeys = dep.parents.slice(0, MAX_PATHS);
+        const paths = [];
+
+        for (const initialParentKey of parentKeys) {
+            const path = [targetKey];
+            const visited = new Set([targetKey]);
+            let currentKey = initialParentKey;
+
+            while (currentKey && !visited.has(currentKey)) {
+                visited.add(currentKey);
+                path.unshift(currentKey);
+
+                const lastAtIdx = currentKey.lastIndexOf('@');
+                if (lastAtIdx <= 0) break;
+                const curName = currentKey.substring(0, lastAtIdx);
+                const curVersion = currentKey.substring(lastAtIdx + 1);
+
+                let currentDep = allDeps.find(d => d.name === curName && d.version === curVersion);
+                if (!currentDep) {
+                    currentDep = allDeps.find(d => d.name === curName);
+                }
+                if (!currentDep || !currentDep.parents || currentDep.parents.length === 0) {
+                    break;
+                }
+                currentKey = currentDep.parents[0];
+
+                if (path.length > 20) {
+                    console.warn('⚠️ buildPathFromParents: path depth exceeded 20, breaking');
+                    break;
+                }
+            }
+
+            paths.push(path);
+        }
+
+        return paths;
     }
 
     /**
-     * Build dependency path for a transitive dependency
+     * Build dependency path(s) for a transitive dependency inside a single
+     * repo, based on the repo's SPDX relationships.
+     *
+     * Returns an ARRAY of path objects — one per immediate SPDX parent of
+     * the target — so a transitive brought in by N distinct direct deps
+     * in the same repo produces N usage entries on the vuln page. This
+     * matches the deps page's "Dependency Chains" section, which also
+     * enumerates every immediate parent.
+     *
+     * Within each upward trace we still pick `parents[0]` per intermediate
+     * hop, matching `deps-page.js::buildDependencyChain`. Branching only on
+     * the immediate parent keeps the output bounded (no combinatorial
+     * explosion for deep diamond graphs).
+     *
+     * @returns {Array<{isDirect:boolean, path:string[], repoKey:string}>|null}
      */
     buildDependencyPath(repo, targetDep, allDependencies) {
         // Use shared normalizeVersion utility if available, otherwise inline fallback
@@ -5098,7 +5122,8 @@ class ViewManager {
         }
 
         const targetKey = `${targetDep.name}@${targetDep.version}`;
-        
+        const repoKey = `${repo.owner}/${repo.name}`;
+
         // Find the SPDXID for the target dependency
         let targetSpdxId = null;
         for (const [spdxId, pkg] of spdxToPackage.entries()) {
@@ -5112,62 +5137,84 @@ class ViewManager {
             return null;
         }
 
-        // Build reverse relationship map (child -> parent)
-        const parentMap = new Map();
+        // Build a child -> parents multi-map over ALL non-direct edges so we
+        // can (a) enumerate every immediate parent of the target and
+        // (b) trace each chain upward without re-scanning relationships.
+        const childToParents = new Map();
         repo.relationships.forEach(rel => {
-            if (!rel.isDirectFromMain && rel.to === targetSpdxId) {
-                parentMap.set(targetSpdxId, rel.from);
+            if (!rel.isDirectFromMain) {
+                if (!childToParents.has(rel.to)) {
+                    childToParents.set(rel.to, []);
+                }
+                childToParents.get(rel.to).push(rel.from);
             }
         });
 
-        // If it's a direct dependency, return early
-        const isDirect = repo.relationships.some(rel => 
-            rel.to === targetSpdxId && rel.isDirectFromMain
-        );
-        if (isDirect) {
-            return {
+        // Set of SPDXIDs that are direct (root) deps in this repo.
+        const directSpdxIds = new Set();
+        repo.relationships.forEach(rel => {
+            if (rel.isDirectFromMain) {
+                directSpdxIds.add(rel.to);
+            }
+        });
+
+        // Direct-dep early return (single entry).
+        if (directSpdxIds.has(targetSpdxId)) {
+            return [{
                 isDirect: true,
                 path: [targetKey],
-                repoKey: `${repo.owner}/${repo.name}`
-            };
+                repoKey: repoKey
+            }];
         }
 
-        // Trace back through parent dependencies
-        const path = [];
-        let currentSpdxId = targetSpdxId;
-        const visited = new Set();
+        const immediateParents = childToParents.get(targetSpdxId) || [];
+        if (immediateParents.length === 0) {
+            return null;
+        }
 
-        while (currentSpdxId && !visited.has(currentSpdxId)) {
-            visited.add(currentSpdxId);
-            const pkg = spdxToPackage.get(currentSpdxId);
-            if (pkg) {
-                path.unshift(pkg.key); // Add to front
-            }
+        // Safety cap matching buildPathFromParents.
+        const MAX_PATHS = 10;
+        const parentsToTrace = immediateParents.slice(0, MAX_PATHS);
+        const results = [];
 
-            // Find parent
-            const parentRel = repo.relationships.find(rel => 
-                rel.to === currentSpdxId && !rel.isDirectFromMain
-            );
-            
-            if (parentRel) {
-                currentSpdxId = parentRel.from;
-            } else {
-                // Check if current is a direct dependency
-                const directRel = repo.relationships.find(rel => 
-                    rel.to === currentSpdxId && rel.isDirectFromMain
-                );
-                if (directRel) {
-                    break; // Reached root
+        for (const initialParentId of parentsToTrace) {
+            const path = [targetKey];
+            const visited = new Set([targetSpdxId]);
+            let currentSpdxId = initialParentId;
+
+            while (currentSpdxId && !visited.has(currentSpdxId)) {
+                visited.add(currentSpdxId);
+                const pkg = spdxToPackage.get(currentSpdxId);
+                if (pkg) {
+                    path.unshift(pkg.key);
                 }
-                currentSpdxId = null;
+
+                if (directSpdxIds.has(currentSpdxId)) {
+                    break; // reached a root direct dep
+                }
+
+                const nextParents = childToParents.get(currentSpdxId);
+                if (!nextParents || nextParents.length === 0) {
+                    break;
+                }
+                // Pick the first parent for intermediate hops — same single-path
+                // choice that deps-page.js::buildDependencyChain makes.
+                currentSpdxId = nextParents[0];
+
+                if (path.length > 20) {
+                    console.warn('⚠️ buildDependencyPath: path depth exceeded 20, breaking');
+                    break;
+                }
             }
+
+            results.push({
+                isDirect: false,
+                path: path,
+                repoKey: repoKey
+            });
         }
 
-        return {
-            isDirect: false,
-            path: path,
-            repoKey: `${repo.owner}/${repo.name}`
-        };
+        return results;
     }
 
     /**
@@ -5246,11 +5293,15 @@ class ViewManager {
                 return;
             }
 
-            const pathInfo = this.buildDependencyPath(repo, vulnDep, allDeps);
-            if (pathInfo) {
-                // Add repository archived status
-                pathInfo.isArchived = repo.archived || false;
-                usage.push(pathInfo);
+            const pathInfos = this.buildDependencyPath(repo, vulnDep, allDeps);
+            if (pathInfos && pathInfos.length > 0) {
+                // buildDependencyPath now returns an array — one entry per
+                // immediate SPDX parent of the target — so the vuln page shows
+                // every distinct chain (matches deps-page "Dependency Chains").
+                pathInfos.forEach(pathInfo => {
+                    pathInfo.isArchived = repo.archived || false;
+                    usage.push(pathInfo);
+                });
             } else {
                 // Fallback: dependency found in repo but no SPDX path info (transitive dep added during resolution)
                 // Use parents field from allDependencies to build the path
@@ -5267,14 +5318,16 @@ class ViewManager {
                         isArchived: repo.archived || false
                     });
                 } else if (isTransitive && fullDep.parents && fullDep.parents.length > 0) {
-                    // It's a transitive dependency - build path from parents
-                    const path = this.buildPathFromParents(fullDep, allDeps);
-                    usage.push({
-                        isDirect: false,
-                        path: path,
-                        repoKey: repoKey,
-                        pathStr: path.join(' → '),
-                        isArchived: repo.archived || false
+                    // It's a transitive dependency - build one path per entry in dep.parents
+                    const paths = this.buildPathFromParents(fullDep, allDeps);
+                    paths.forEach(path => {
+                        usage.push({
+                            isDirect: false,
+                            path: path,
+                            repoKey: repoKey,
+                            pathStr: path.join(' → '),
+                            isArchived: repo.archived || false
+                        });
                     });
                 } else {
                     // Unknown - just show as transitive
@@ -5491,12 +5544,32 @@ class ViewManager {
                 const hasMinorUpdate = versionDrift?.hasMinorUpdate || false;
                 const latestVersion = versionDrift?.latestVersion || null;
                 
-                // Prepare usage paths with repository info
-                const usageForTemplate = usage.map(u => ({
-                    repoKey: u.repoKey,
-                    pathStr: u.isDirect ? u.path[0] : u.path.join(' → '),
-                    isArchived: u.isArchived || false
-                }));
+                // Prepare usage paths with repository info, grouped by repo.
+                // `getVulnerableDepUsage` now emits one entry per distinct
+                // dependency chain — a transitive brought in by two different
+                // direct deps in the same repo yields two entries with the
+                // same repoKey. Group them so the template renders one repo
+                // header followed by all the chains underneath.
+                const usageByRepo = new Map();
+                for (const u of usage) {
+                    const pathStr = u.isDirect ? u.path[0] : u.path.join(' → ');
+                    if (!usageByRepo.has(u.repoKey)) {
+                        usageByRepo.set(u.repoKey, {
+                            repoKey: u.repoKey,
+                            isArchived: u.isArchived || false,
+                            paths: []
+                        });
+                    }
+                    const group = usageByRepo.get(u.repoKey);
+                    // De-dupe identical chains in the same repo (can happen when
+                    // SPDX + resolver fallbacks both produce the same path).
+                    if (!group.paths.includes(pathStr)) {
+                        group.paths.push(pathStr);
+                    }
+                    // Preserve "archived" across multiple entries for the same repo.
+                    if (u.isArchived) group.isArchived = true;
+                }
+                const usageForTemplate = Array.from(usageByRepo.values());
                 
                 processedDeps.push({
                     name: dep.name || 'Unknown',
@@ -5541,9 +5614,20 @@ class ViewManager {
             <div class="vuln-paths" style="font-size: 0.85em;">
                 ${depData.usage.map(u => {
                     const archivedBadge = u.isArchived ? '<span class="badge bg-secondary ms-1" title="Archived Repository"><i class="fas fa-archive"></i> Archived</span>' : '';
+                    // Each repo may have multiple chains (e.g. a transitive
+                    // brought in by two distinct direct deps). Render the
+                    // repo header once, then list every chain underneath.
+                    if (u.paths.length === 1) {
+                        return `
+                <div class="mb-2" style="padding-left: 10px;">
+                    <code class="text-primary fw-bold">${escapeHtml(u.repoKey)}</code>${archivedBadge}: <code>${escapeHtml(u.paths[0])}</code>
+                </div>`;
+                    }
+                    const chainsHTML = u.paths.map(p => `
+                    <div style="padding-left: 20px;"><code>${escapeHtml(p)}</code></div>`).join('');
                     return `
                 <div class="mb-2" style="padding-left: 10px;">
-                    <code class="text-primary fw-bold">${escapeHtml(u.repoKey)}</code>${archivedBadge}: <code>${escapeHtml(u.pathStr)}</code>
+                    <div><code class="text-primary fw-bold">${escapeHtml(u.repoKey)}</code>${archivedBadge}:</div>${chainsHTML}
                 </div>`;
                 }).join('')}
             </div>

@@ -64,8 +64,7 @@ document.addEventListener('DOMContentLoaded', async function() {
                 const container = document.getElementById('vulnerability-analysis-page');
 
                 // Strip MAL- (malicious package) advisories out of the CVE
-                // view so they don't pollute severity charts. They get
-                // their own dedicated `malware.html` page. Hydrate
+                // view so they don't pollute severity charts. Hydrate
                 // `affected[]` from the per-package OSV cache first so
                 // strict version matching can correctly drop legacy
                 // false positives (e.g. importlib-metadata@2.0.0 vs
@@ -83,10 +82,10 @@ document.addEventListener('DOMContentLoaded', async function() {
                             <div>
                                 <i class="fas fa-biohazard me-2"></i>
                                 <strong>${malwareCount} malicious package advisor${malwareCount === 1 ? 'y' : 'ies'} detected.</strong>
-                                These are not listed below — see the dedicated Malware page for full details.
+                                These are not listed below — see the Findings page for full details.
                             </div>
-                            <a href="malware.html" class="btn btn-sm btn-light">
-                                <i class="fas fa-arrow-right me-1"></i>Open Malware page
+                            <a href="findings.html" class="btn btn-sm btn-light">
+                                <i class="fas fa-arrow-right me-1"></i>Open Findings page
                             </a>
                         </div>`;
                 }
