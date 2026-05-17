@@ -5463,4 +5463,5 @@ let app;
 document.addEventListener('DOMContentLoaded', () => {
     // Always initialize the app - it's needed for analysis functions
     app = new SBOMPlayApp();
+    window.app = app;
 }); 

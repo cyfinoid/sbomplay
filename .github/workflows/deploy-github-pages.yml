@@ -58,12 +58,15 @@ jobs:
           cp findings.html _site/
           cp feeds.html _site/
           cp insights.html _site/
-          echo "✅ Copied 13 HTML files"
+          cp demo.html _site/
+          echo "✅ Copied 14 HTML files"
           
-          # Copy JavaScript, CSS, and images directories (matching update-prod.sh)
+          # Copy JavaScript, CSS, images, and bundled demo SBOM JSON
           cp -r js _site/
           cp -r css _site/
           cp -r images _site/
+          mkdir -p _site/data/demo
+          cp -r data/demo/*.json _site/data/demo/
           
           echo "✅ Copied js/ directory"
           echo "✅ Copied css/ directory"
