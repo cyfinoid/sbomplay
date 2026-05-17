@@ -71,26 +71,21 @@
             </div>
         </div>
 
-        <!-- Settings tabs -->
-        <ul class="nav nav-tabs mb-3" id="settingsTabs" role="tablist">
-            <li class="nav-item" role="presentation">
-                <button class="nav-link active" id="account-tab" data-bs-toggle="tab" data-bs-target="#account-pane" type="button" role="tab" aria-controls="account-pane" aria-selected="true">
-                    <i class="fab fa-github me-1"></i>Account
-                </button>
-            </li>
-            <li class="nav-item" role="presentation">
-                <button class="nav-link" id="analysis-tab" data-bs-toggle="tab" data-bs-target="#analysis-pane" type="button" role="tab" aria-controls="analysis-pane" aria-selected="false">
-                    <i class="fas fa-sliders-h me-1"></i>Analysis
-                </button>
-            </li>
-            <li class="nav-item" role="presentation">
-                <button class="nav-link" id="data-tab" data-bs-toggle="tab" data-bs-target="#data-pane" type="button" role="tab" aria-controls="data-pane" aria-selected="false">
-                    <i class="fas fa-database me-1"></i>Data
-                </button>
-            </li>
-        </ul>
-        <div class="tab-content" id="settingsTabsContent">
-            <div class="tab-pane fade show active" id="account-pane" role="tabpanel" aria-labelledby="account-tab">
+        <!-- Section markers -->
+        <div class="d-flex flex-wrap gap-2 mb-4" id="settingsSectionNav" role="navigation" aria-label="Settings sections">
+            <a href="#account-section" class="btn btn-outline-primary">
+                <i class="fab fa-github me-1"></i>Account
+            </a>
+            <a href="#analysis-section" class="btn btn-outline-primary">
+                <i class="fas fa-sliders-h me-1"></i>Analysis
+            </a>
+            <a href="#data-section" class="btn btn-outline-primary">
+                <i class="fas fa-database me-1"></i>Data
+            </a>
+        </div>
+
+        <section id="account-section" class="settings-section">
+            <h3 class="border-bottom pb-2 mb-3"><i class="fab fa-github me-2"></i>Account</h3>
         <!-- GitHub Token Input -->
         <div class="card mb-4">
             <div class="card-header cursor-pointer" id="tokenSectionHeader">
@@ -124,8 +119,10 @@
             </div>
         </div>
 
-            </div>
-            <div class="tab-pane fade" id="analysis-pane" role="tabpanel" aria-labelledby="analysis-tab">
+        </section>
+
+        <section id="analysis-section" class="settings-section">
+            <h3 class="border-bottom pb-2 mb-3"><i class="fas fa-sliders-h me-2"></i>Analysis</h3>
         <!-- Analysis Settings -->
         <div class="card mb-4">
             <div class="card-header">
@@ -286,8 +283,10 @@
             </div>
         </div>
 
-            </div>
-            <div class="tab-pane fade" id="data-pane" role="tabpanel" aria-labelledby="data-tab">
+        </section>
+
+        <section id="data-section" class="settings-section">
+            <h3 class="border-bottom pb-2 mb-3"><i class="fas fa-database me-2"></i>Data</h3>
         <!-- Storage Management -->
         <div class="card mb-4">
             <div class="card-header">
@@ -454,8 +453,7 @@
             </div>
         </div>
 
-            </div>
-        </div>
+        </section>
 
         <!-- No Data Section -->
         <div id="noDataSection" class="card mb-4 d-none">
