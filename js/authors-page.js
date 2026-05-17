@@ -231,34 +231,14 @@
             document.getElementById('fundingFilter').addEventListener('change', loadAuthorData);
             document.getElementById('sanctionsFilter').addEventListener('change', loadAuthorData);
             
-            // Display limit radio buttons
-            const displayLimit25 = document.getElementById('displayLimit25');
-            const displayLimitAll = document.getElementById('displayLimitAll');
-            
-            // Set initial state from localStorage
-            if (displayLimit === 'all') {
-                displayLimitAll.checked = true;
-            } else {
-                displayLimit25.checked = true;
-            }
-            
-            if (displayLimit25) {
-                displayLimit25.addEventListener('change', (e) => {
-                    if (e.target.checked) {
-                        displayLimit = '25';
-                        localStorage.setItem('authorsDisplayLimit', '25');
-                        loadAuthorData();
-                    }
-                });
-            }
-            
-            if (displayLimitAll) {
-                displayLimitAll.addEventListener('change', (e) => {
-                    if (e.target.checked) {
-                        displayLimit = 'all';
-                        localStorage.setItem('authorsDisplayLimit', 'all');
-                        loadAuthorData();
-                    }
+            // Display limit select
+            const displayLimitSelect = document.getElementById('displayLimitSelect');
+            if (displayLimitSelect) {
+                displayLimitSelect.value = displayLimit;
+                displayLimitSelect.addEventListener('change', (e) => {
+                    displayLimit = e.target.value;
+                    localStorage.setItem('authorsDisplayLimit', displayLimit);
+                    loadAuthorData();
                 });
             }
             
@@ -2523,14 +2503,12 @@
                 if (showAllAuthorsBtn) {
                     showAllAuthorsBtn.addEventListener('click', function(e) {
                         e.preventDefault();
-                        // Trigger the "Show All" radio button
-                        const displayLimitAll = document.getElementById('displayLimitAll');
-                        if (displayLimitAll) {
-                            displayLimitAll.checked = true;
+                        const displayLimitSelect = document.getElementById('displayLimitSelect');
+                        if (displayLimitSelect) {
+                            displayLimitSelect.value = 'all';
                             displayLimit = 'all';
                             localStorage.setItem('authorsDisplayLimit', 'all');
                             loadAuthorData();
-                            // Scroll to top to show the toggle selection
                             window.scrollTo({ top: 0, behavior: 'smooth' });
                         }
                     });

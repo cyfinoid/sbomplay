@@ -13,6 +13,7 @@
     <script defer data-domain="cyfinoid.github.io" src="https://plausible.io/js/script.outbound-links.js"></script>
 </head>
 <body>
+    <a class="visually-hidden-focusable" href="#main">Skip to content</a>
     <nav class="navbar navbar-expand-lg navbar-dark bg-primary">
         <div class="container">
             <a class="navbar-brand" href="index.html">
@@ -44,30 +45,65 @@
         </div>
     </nav>
 
-    <div class="container mt-4">
+    <div class="container mt-4" id="main">
         <h1 class="h3 mb-3"><i class="fas fa-bolt me-2"></i>Quick demo</h1>
         <p class="text-muted">
-            Load the bundled demo SBOM from this site (same analysis path as <strong>Upload SBOM</strong> on Home). This page is not linked from the menu — share the URL for demos or workshops.
+            Run a demo analysis using pre-loaded SBOM files &mdash; no GitHub account required.
         </p>
 
         <div class="card mb-3">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="fas fa-flask me-2"></i>Demo scenarios</h5>
+            </div>
             <div class="card-body">
-                <div id="demoScenarioButtons" class="d-flex flex-wrap align-items-center"></div>
+                <div id="demoScenarioButtons" class="d-flex flex-wrap align-items-center gap-2"></div>
                 <div id="demoProgressStatus" class="mt-3"></div>
             </div>
         </div>
-
-        <p class="small text-muted mb-4">
-            Demo files live under <code>data/demo/</code>. Add more SPDX or CycloneDX JSON there and append entries to <code>DEMO_SCENARIOS</code> in <code>js/demo-page.js</code> (and the demo fixtures list in <code>validate-deployment.yml</code>).
-        </p>
     </div>
 
     <footer class="bg-light mt-5 py-4">
-        <div class="container text-center">
-            <small class="text-muted">
-                © 2025 Cyfinoid Research. All rights reserved. |
-                <a href="https://github.com/cyfinoid/sbomplay" target="_blank" rel="noreferrer noopener">View on GitHub</a>
-            </small>
+        <div class="container">
+            <div class="row">
+                <div class="col-md-4">
+                    <h6 class="text-primary">SBOM Play</h6>
+                    <p class="text-muted small mb-0">
+                        Client-side SBOM analysis from GitHub orgs, users, repos, or uploaded files. All processing happens in your browser.
+                    </p>
+                </div>
+                <div class="col-md-4">
+                    <h6 class="text-primary">Resources</h6>
+                    <div class="d-flex flex-column gap-2">
+                        <a href="https://cyfinoid.com/" target="_blank" rel="noreferrer noopener" class="btn btn-outline-primary btn-sm">
+                            <i class="fas fa-globe me-1"></i>Website
+                        </a>
+                        <a href="https://cyfinoid.com/blog/" target="_blank" rel="noreferrer noopener" class="btn btn-outline-primary btn-sm">
+                            <i class="fas fa-blog me-1"></i>Blog
+                        </a>
+                        <a href="https://cyfinoid.com/trainings/#upcoming-trainings" target="_blank" rel="noreferrer noopener" class="btn btn-outline-primary btn-sm">
+                            <i class="fas fa-graduation-cap me-1"></i>Upcoming Trainings
+                        </a>
+                        <a href="https://cyfinoid.com/opensource-by-cyfinoid/" target="_blank" rel="noreferrer noopener" class="btn btn-outline-primary btn-sm">
+                            <i class="fab fa-github me-1"></i>Open Source by Cyfinoid
+                        </a>
+                    </div>
+                </div>
+                <div class="col-md-4">
+                    <h6 class="text-primary">About Cyfinoid Research</h6>
+                    <p class="text-muted small mb-0">
+                        Cyfinoid Research works on software supply-chain, cloud security, AI usage and security. SBOM Play is one of our open-source tools.
+                    </p>
+                </div>
+            </div>
+            <hr class="my-3">
+            <div class="text-center">
+                <small class="text-muted">
+                    &copy; <time datetime="2026">2026</time> Cyfinoid Research. All rights reserved. |
+                    <a href="https://github.com/cyfinoid/sbomplay" target="_blank" rel="noreferrer noopener" class="text-muted">
+                        <i class="fab fa-github me-1"></i>View on GitHub
+                    </a>
+                </small>
+            </div>
         </div>
     </footer>
 
