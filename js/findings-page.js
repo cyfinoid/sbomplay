@@ -783,42 +783,42 @@ document.addEventListener('DOMContentLoaded', async function() {
         html += '<div class="card-header"><h5 class="mb-0"><i class="fas fa-shield-alt me-2"></i>Security Findings Summary</h5></div>';
         html += '<div class="card-body">';
         
-        // Statistics cards
-        html += '<div class="row mb-4">';
-        html += `<div class="col-md-2">
-            <div class="card bg-light">
+        // Severity stats
+        html += '<div class="row row-cols-2 row-cols-md-5 g-3 mb-3">';
+        html += `<div class="col">
+            <div class="card bg-light h-100">
                 <div class="card-body text-center py-2">
                     <h3 class="mb-0">${stats.total}</h3>
                     <small class="text-muted">Total Findings</small>
                 </div>
             </div>
         </div>`;
-        html += `<div class="col-md-2">
-            <div class="card ${stats.critical > 0 ? 'bg-danger text-white' : 'bg-light'}">
+        html += `<div class="col">
+            <div class="card h-100 ${stats.critical > 0 ? 'bg-danger text-white' : 'bg-light'}">
                 <div class="card-body text-center py-2">
                     <h3 class="mb-0">${stats.critical}</h3>
                     <small class="${stats.critical > 0 ? '' : 'text-muted'}">Critical</small>
                 </div>
             </div>
         </div>`;
-        html += `<div class="col-md-2">
-            <div class="card ${stats.high > 0 ? 'bg-danger text-white' : 'bg-light'}">
+        html += `<div class="col">
+            <div class="card h-100 ${stats.high > 0 ? 'bg-danger text-white' : 'bg-light'}">
                 <div class="card-body text-center py-2">
                     <h3 class="mb-0">${stats.high}</h3>
                     <small class="${stats.high > 0 ? '' : 'text-muted'}">High</small>
                 </div>
             </div>
         </div>`;
-        html += `<div class="col-md-2">
-            <div class="card ${stats.medium > 0 ? 'bg-warning' : 'bg-light'}">
+        html += `<div class="col">
+            <div class="card h-100 ${stats.medium > 0 ? 'bg-warning' : 'bg-light'}">
                 <div class="card-body text-center py-2">
                     <h3 class="mb-0">${stats.medium}</h3>
                     <small class="${stats.medium > 0 ? '' : 'text-muted'}">Medium</small>
                 </div>
             </div>
         </div>`;
-        html += `<div class="col-md-2">
-            <div class="card ${stats.warning > 0 ? 'bg-info' : 'bg-light'}">
+        html += `<div class="col">
+            <div class="card h-100 ${stats.warning > 0 ? 'bg-info' : 'bg-light'}">
                 <div class="card-body text-center py-2">
                     <h3 class="mb-0">${stats.warning}</h3>
                     <small class="${stats.warning > 0 ? '' : 'text-muted'}">Warning</small>
@@ -827,44 +827,44 @@ document.addEventListener('DOMContentLoaded', async function() {
         </div>`;
         html += '</div>';
 
-        // Second row: Category breakdown
-        html += '<div class="row">';
-        html += `<div class="col-md-3">
-            <div class="card ${stats.malware > 0 ? 'bg-danger text-white' : 'bg-light'}">
+        // Category breakdown
+        html += '<div class="row row-cols-2 row-cols-md-5 g-3">';
+        html += `<div class="col">
+            <div class="card h-100 ${stats.malware > 0 ? 'bg-danger text-white' : 'bg-light'}">
                 <div class="card-body text-center py-2">
-                    <h3 class="mb-0"><i class="fas fa-biohazard"></i> ${stats.malware}</h3>
+                    <h3 class="mb-0"><i class="fas fa-biohazard me-1"></i>${stats.malware}</h3>
                     <small class="${stats.malware > 0 ? '' : 'text-muted'}">Malware</small>
                 </div>
             </div>
         </div>`;
-        html += `<div class="col-md-3">
-            <div class="card bg-light">
+        html += `<div class="col">
+            <div class="card bg-light h-100">
                 <div class="card-body text-center py-2">
-                    <h3 class="mb-0"><i class="fab fa-github"></i> ${stats.githubActions}</h3>
+                    <h3 class="mb-0"><i class="fab fa-github me-1"></i>${stats.githubActions}</h3>
                     <small class="text-muted">GitHub Actions</small>
                 </div>
             </div>
         </div>`;
-        html += `<div class="col-md-3">
-            <div class="card bg-light">
+        html += `<div class="col">
+            <div class="card bg-light h-100">
                 <div class="card-body text-center py-2">
-                    <h3 class="mb-0"><i class="fas fa-box"></i> ${stats.dependencyConfusion}</h3>
+                    <h3 class="mb-0"><i class="fas fa-box me-1"></i>${stats.dependencyConfusion}</h3>
                     <small class="text-muted">Dependency Confusion</small>
                 </div>
             </div>
         </div>`;
-        html += `<div class="col-md-3">
-            <div class="card ${stats.eox > 0 ? 'bg-secondary text-white' : 'bg-light'}">
+        html += `<div class="col">
+            <div class="card h-100 ${stats.eox > 0 ? 'bg-secondary text-white' : 'bg-light'}">
                 <div class="card-body text-center py-2">
-                    <h3 class="mb-0"><i class="fas fa-hourglass-end"></i> ${stats.eox}</h3>
+                    <h3 class="mb-0"><i class="fas fa-hourglass-end me-1"></i>${stats.eox}</h3>
                     <small class="${stats.eox > 0 ? '' : 'text-muted'}">EOX</small>
                 </div>
             </div>
         </div>`;
-        html += `<div class="col-md-3">
-            <div class="card ${stats.sourceRepo > 0 ? 'bg-warning' : 'bg-light'}">
+        html += `<div class="col">
+            <div class="card h-100 ${stats.sourceRepo > 0 ? 'bg-warning' : 'bg-light'}">
                 <div class="card-body text-center py-2">
-                    <h3 class="mb-0"><i class="fas fa-unlink"></i> ${stats.sourceRepo}</h3>
+                    <h3 class="mb-0"><i class="fas fa-unlink me-1"></i>${stats.sourceRepo}</h3>
                     <small class="${stats.sourceRepo > 0 ? '' : 'text-muted'}">Dead Source Repos</small>
                 </div>
             </div>
