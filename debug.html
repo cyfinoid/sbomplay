@@ -245,6 +245,55 @@
             </div>
         </div>
 
+        <!-- Findings Re-analysis -->
+        <div class="card mb-4">
+            <div class="card-header">
+                <h5><i class="fas fa-shield-alt me-2"></i>Findings Re-analysis</h5>
+            </div>
+            <div class="card-body">
+                <div class="alert alert-info">
+                    <i class="fas fa-info-circle me-2"></i>
+                    <strong>Refresh the Findings page</strong> for a previously-scanned analysis. Pick one of the two modes depending on what you need:
+                    <ul class="mb-0 mt-2">
+                        <li><strong>Normalize Stored Findings</strong> &mdash; schema-only fix-up. Renames legacy <code>UNPINNED_ACTION_REFERENCE</code> rows to <code>MUTABLE_TAG_REFERENCE</code> and dedups duplicates left by the older double-fire bug. No network calls, completes in seconds.</li>
+                        <li><strong>Re-analyze (re-fetch from GitHub)</strong> &mdash; full refresh. Re-downloads every workflow YAML and every referenced action's metadata from GitHub, then re-runs the analyzer end-to-end. Catches real upstream drift (workflow edits, new action versions, Dockerfile changes) but is slow and consumes GitHub API quota; only GitHub-backed repos are processed (uploaded SBOMs are skipped).</li>
+                    </ul>
+                </div>
+
+                <div class="row mb-3">
+                    <div class="col-md-12">
+                        <label for="findingsRedoOrgSelect" class="form-label">Analysis to refresh</label>
+                        <select class="form-select" id="findingsRedoOrgSelect">
+                            <option value="">-- Select an organization or repository --</option>
+                        </select>
+                        <small class="text-muted">Pick the org/user/repo whose Findings you want to refresh.</small>
+                    </div>
+                </div>
+
+                <div class="d-flex flex-wrap gap-2">
+                    <button class="btn btn-outline-primary" id="normalizeFindingsBtn" disabled>
+                        <i class="fas fa-broom me-2"></i>Normalize Stored Findings
+                        <small class="ms-1 opacity-75">(no network)</small>
+                    </button>
+                    <button class="btn btn-warning" id="reanalyzeFindingsBtn" disabled>
+                        <i class="fas fa-sync me-2"></i>Re-analyze (re-fetch from GitHub)
+                    </button>
+                </div>
+
+                <div id="findingsRedoProgress" class="mt-3 d-none">
+                    <div class="mb-2">
+                        <strong id="findingsRedoStatus">Preparing...</strong>
+                    </div>
+                    <div class="progress author-detection-progress">
+                        <div class="progress-bar progress-bar-striped progress-bar-animated author-detection-progress-bar"
+                             role="progressbar" id="findingsRedoProgressBar"
+                             aria-valuenow="0" aria-valuemin="0" aria-valuemax="100">0%</div>
+                    </div>
+                    <div id="findingsRedoDetails" class="mt-2 small text-muted"></div>
+                </div>
+            </div>
+        </div>
+
         <!-- Debug Settings -->
         <div class="card mb-4">
             <div class="card-header">
@@ -357,6 +406,7 @@
     <script src="js/dependency-tree-resolver.js?v=0.0.9&cb=1777646299546"></script>
     <script src="js/github-client.js?v=0.0.9&cb=1778000000000"></script>
     <script src="js/sbom-processor.js?v=0.0.9&cb=1779000000000"></script>
+    <script src="js/github-actions-analyzer.js?v=0.0.9&cb=1780200000000"></script>
     <script src="js/license-processor.js?v=0.0.9&cb=1778000000000"></script>
     <script src="js/osv-service.js?v=0.0.9&cb=1777800000000"></script>
     <script src="js/author-service.js?v=0.0.9&cb=1777714413667"></script>
@@ -364,7 +414,7 @@
     <script src="js/storage-manager.js?v=0.0.9&cb=1779000000000"></script>
     <script src="js/view-manager.js?v=0.0.9&cb=1780000000000"></script>
     <script src="js/app.js?v=0.0.9&cb=1780100000000"></script>
-    <script src="js/settings.js?v=0.0.9&cb=1777714413667"></script>
+    <script src="js/settings.js?v=0.0.9&cb=1780200000000"></script>
 </body>
 </html>
 

@@ -230,19 +230,39 @@ class SettingsApp {
         // Redo author detection
         const redoOrgSelect = document.getElementById('redoOrgSelect');
         const redoAuthorDetectionBtn = document.getElementById('redoAuthorDetectionBtn');
-        
+
         if (redoOrgSelect) {
             // Populate dropdown with saved organizations/repositories
             this.populateRedoOrgDropdown();
-            
+
             // Enable/disable button based on selection
             redoOrgSelect.addEventListener('change', (e) => {
                 redoAuthorDetectionBtn.disabled = !e.target.value;
             });
         }
-        
+
         if (redoAuthorDetectionBtn) {
             redoAuthorDetectionBtn.addEventListener('click', () => this.redoAuthorDetection());
+        }
+
+        // Findings re-analysis (debug.html)
+        const findingsRedoSelect = document.getElementById('findingsRedoOrgSelect');
+        const normalizeFindingsBtn = document.getElementById('normalizeFindingsBtn');
+        const reanalyzeFindingsBtn = document.getElementById('reanalyzeFindingsBtn');
+
+        if (findingsRedoSelect) {
+            this.populateFindingsRedoDropdown();
+            findingsRedoSelect.addEventListener('change', (e) => {
+                const enabled = !!e.target.value;
+                if (normalizeFindingsBtn) normalizeFindingsBtn.disabled = !enabled;
+                if (reanalyzeFindingsBtn) reanalyzeFindingsBtn.disabled = !enabled;
+            });
+        }
+        if (normalizeFindingsBtn) {
+            normalizeFindingsBtn.addEventListener('click', () => this.normalizeFindings());
+        }
+        if (reanalyzeFindingsBtn) {
+            reanalyzeFindingsBtn.addEventListener('click', () => this.reanalyzeFindings());
         }
     }
 
@@ -286,6 +306,287 @@ class SettingsApp {
             option.textContent = 'Error loading entries';
             option.disabled = true;
             select.appendChild(option);
+        }
+    }
+
+    /**
+     * Populate the findings re-analysis dropdown.
+     */
+    async populateFindingsRedoDropdown() {
+        const select = document.getElementById('findingsRedoOrgSelect');
+        if (!select) return;
+        try {
+            const storageInfo = await this.storageManager.getStorageInfo();
+            const allEntries = [...storageInfo.organizations, ...storageInfo.repositories];
+            select.innerHTML = '<option value="">-- Select an organization or repository --</option>';
+            if (allEntries.length === 0) {
+                const option = document.createElement('option');
+                option.value = '';
+                option.textContent = 'No saved analyses found';
+                option.disabled = true;
+                select.appendChild(option);
+                return;
+            }
+            allEntries.sort((a, b) => a.name.localeCompare(b.name));
+            allEntries.forEach(entry => {
+                const option = document.createElement('option');
+                option.value = entry.name;
+                option.textContent = `${entry.name} (${entry.repositories} repos, ${entry.dependencies} deps)`;
+                select.appendChild(option);
+            });
+        } catch (error) {
+            console.error('Failed to populate findings redo dropdown:', error);
+            const option = document.createElement('option');
+            option.value = '';
+            option.textContent = 'Error loading entries';
+            option.disabled = true;
+            select.appendChild(option);
+        }
+    }
+
+    /**
+     * Show / update / hide the shared progress UI used by the findings re-analysis card.
+     */
+    _setFindingsRedoProgress(percent, status, details) {
+        const container = document.getElementById('findingsRedoProgress');
+        const bar = document.getElementById('findingsRedoProgressBar');
+        const statusEl = document.getElementById('findingsRedoStatus');
+        const detailsEl = document.getElementById('findingsRedoDetails');
+        if (!container || !bar || !statusEl || !detailsEl) return;
+        container.classList.remove('d-none');
+        const pct = Math.max(0, Math.min(100, percent));
+        bar.style.width = `${pct}%`;
+        bar.setAttribute('aria-valuenow', pct);
+        bar.textContent = `${Math.round(pct)}%`;
+        statusEl.textContent = status;
+        detailsEl.textContent = details || '';
+    }
+    _hideFindingsRedoProgress() {
+        const container = document.getElementById('findingsRedoProgress');
+        if (container) container.classList.add('d-none');
+    }
+    _setFindingsRedoButtonsDisabled(disabled) {
+        const a = document.getElementById('normalizeFindingsBtn');
+        const b = document.getElementById('reanalyzeFindingsBtn');
+        if (a) a.disabled = disabled;
+        if (b) b.disabled = disabled;
+    }
+
+    /**
+     * Schema-only normalizer for stored Findings data. No network.
+     *
+     * Walks the stored `githubActionsAnalysis` for the selected analysis and
+     *   1) renames legacy `UNPINNED_ACTION_REFERENCE` rule ids to
+     *      `MUTABLE_TAG_REFERENCE` (they describe the same underlying issue;
+     *      the analyzer no longer emits the old id);
+     *   2) drops duplicate findings keyed by `(rule_id, action, repository,
+     *      file, line)` left behind by the previous double-fire bug;
+     *   3) recomputes `findingsByType` to match the deduped findings list.
+     * Saves the analysis back to IndexedDB. Existing data in cache for newly
+     * scanned analyses is unaffected.
+     */
+    async normalizeFindings() {
+        const select = document.getElementById('findingsRedoOrgSelect');
+        const name = select?.value?.trim();
+        if (!name) {
+            this.showAlert('Please select an organization or repository', 'warning');
+            return;
+        }
+        if (!confirm(`Normalize stored Findings data for "${name}"? This rewrites the cached analysis in place (no network calls).`)) {
+            return;
+        }
+        this._setFindingsRedoButtonsDisabled(true);
+        this._setFindingsRedoProgress(5, 'Loading analysis...', name);
+        try {
+            const analysisData = await this.storageManager.loadAnalysisDataForOrganization(name);
+            if (!analysisData?.data) {
+                this.showAlert(`No analysis data found for "${name}"`, 'warning');
+                this._hideFindingsRedoProgress();
+                return;
+            }
+            const gaa = analysisData.data.githubActionsAnalysis;
+            if (!gaa) {
+                this.showAlert(`No GitHub Actions findings stored for "${name}". Re-analyze first if you want findings.`, 'info');
+                this._hideFindingsRedoProgress();
+                return;
+            }
+
+            this._setFindingsRedoProgress(40, 'Normalizing findings...', '');
+
+            const stats = { renamed: 0, dedupedRepoLevel: 0, dedupedTopLevel: 0 };
+            const dedupKey = (f) => `${f.rule_id || ''}|${f.action || ''}|${f.repository || ''}|${f.file || ''}|${f.line || ''}`;
+            const rewriteList = (list) => {
+                if (!Array.isArray(list)) return list;
+                const seen = new Set();
+                const out = [];
+                for (const f of list) {
+                    if (f && f.rule_id === 'UNPINNED_ACTION_REFERENCE') {
+                        f.rule_id = 'MUTABLE_TAG_REFERENCE';
+                        stats.renamed++;
+                    }
+                    const key = dedupKey(f);
+                    if (seen.has(key)) continue;
+                    seen.add(key);
+                    out.push(f);
+                }
+                return out;
+            };
+
+            if (Array.isArray(gaa.repositories)) {
+                gaa.repositories.forEach(r => {
+                    if (Array.isArray(r.findings)) {
+                        const before = r.findings.length;
+                        r.findings = rewriteList(r.findings);
+                        stats.dedupedRepoLevel += before - r.findings.length;
+                    }
+                });
+            }
+            if (Array.isArray(gaa.findings)) {
+                const before = gaa.findings.length;
+                gaa.findings = rewriteList(gaa.findings);
+                stats.dedupedTopLevel += before - gaa.findings.length;
+            }
+
+            // Recompute findingsByType from the canonical findings list.
+            const source = Array.isArray(gaa.findings) && gaa.findings.length > 0
+                ? gaa.findings
+                : (Array.isArray(gaa.repositories) ? gaa.repositories.flatMap(r => r.findings || []) : []);
+            const tally = {};
+            source.forEach(f => {
+                const id = f?.rule_id || 'UNKNOWN';
+                tally[id] = (tally[id] || 0) + 1;
+            });
+            gaa.findingsByType = tally;
+            gaa.normalizedAt = new Date().toISOString();
+
+            this._setFindingsRedoProgress(80, 'Saving...', '');
+            await this.storageManager.saveAnalysisData(name, analysisData.data);
+
+            this._setFindingsRedoProgress(100, 'Done.',
+                `Renamed ${stats.renamed} legacy rule id(s); dropped ${stats.dedupedRepoLevel + stats.dedupedTopLevel} duplicate row(s).`);
+            this.showAlert(`Findings normalized for "${name}": ${stats.renamed} renamed, ${stats.dedupedRepoLevel + stats.dedupedTopLevel} duplicates removed.`, 'success');
+        } catch (error) {
+            console.error('Findings normalization failed:', error);
+            this.showAlert(`Failed to normalize findings: ${error.message || error}`, 'danger');
+            this._hideFindingsRedoProgress();
+        } finally {
+            this._setFindingsRedoButtonsDisabled(false);
+        }
+    }
+
+    /**
+     * Full GitHub-Actions re-analysis for the selected analysis. Re-fetches
+     * workflow YAMLs and every referenced action's metadata from GitHub.
+     * Skips repos whose owner is `upload` (uploaded SBOMs aren't backed by
+     * a GitHub repo we can fetch workflows from).
+     */
+    async reanalyzeFindings() {
+        const select = document.getElementById('findingsRedoOrgSelect');
+        const name = select?.value?.trim();
+        if (!name) {
+            this.showAlert('Please select an organization or repository', 'warning');
+            return;
+        }
+        if (!window.GitHubActionsAnalyzer) {
+            this.showAlert('GitHubActionsAnalyzer is not loaded on this page.', 'danger');
+            return;
+        }
+        this._setFindingsRedoButtonsDisabled(true);
+        this._setFindingsRedoProgress(2, 'Loading analysis...', name);
+
+        try {
+            const analysisData = await this.storageManager.loadAnalysisDataForOrganization(name);
+            if (!analysisData?.data) {
+                this.showAlert(`No analysis data found for "${name}"`, 'warning');
+                this._hideFindingsRedoProgress();
+                return;
+            }
+            const repos = (analysisData.data.allRepositories || [])
+                .filter(r => r && r.owner && r.name && r.owner !== 'upload');
+
+            if (repos.length === 0) {
+                this.showAlert(`No GitHub-backed repositories found for "${name}" (uploaded SBOMs cannot be re-analyzed).`, 'info');
+                this._hideFindingsRedoProgress();
+                return;
+            }
+
+            // Rate-limit / token check before kicking off N fetches per repo.
+            let rateLimitInfo;
+            try {
+                rateLimitInfo = await this.githubClient.getRateLimitInfo();
+            } catch (e) {
+                rateLimitInfo = { remaining: 60, limit: 60 };
+            }
+            const hasToken = !!this.githubClient.token || !!sessionStorage.getItem('github_token');
+            // Each repo costs roughly a handful of API calls (list workflows,
+            // fetch each workflow's YAML, then fetch metadata for every
+            // referenced action). A 20× budget is a defensible lower bound
+            // for the warning threshold.
+            const estimatedCalls = repos.length * 20;
+            if (!hasToken && estimatedCalls > rateLimitInfo.remaining) {
+                this.showAlert(`Estimated ${estimatedCalls} GitHub API calls for ${repos.length} repo(s) exceeds unauthenticated rate limit (${rateLimitInfo.remaining} remaining). Set a GitHub token in Settings and try again.`, 'warning');
+                this._hideFindingsRedoProgress();
+                return;
+            }
+
+            if (!confirm(`Re-analyze ${repos.length} repo(s) for "${name}"? This will re-fetch workflow YAMLs and action metadata from GitHub.`)) {
+                this._hideFindingsRedoProgress();
+                return;
+            }
+
+            const analyzer = new window.GitHubActionsAnalyzer(this.githubClient, window.authorService || null);
+            const allResults = {
+                repositories: [],
+                totalActions: 0,
+                uniqueActions: 0,
+                allFindings: [],
+                findingsByType: {}
+            };
+
+            for (let i = 0; i < repos.length; i++) {
+                const r = repos[i];
+                const repoKey = `${r.owner}/${r.name}`;
+                const pct = 5 + (i / repos.length) * 90;
+                this._setFindingsRedoProgress(pct, `Analyzing ${repoKey}...`, `Repository ${i + 1} of ${repos.length}`);
+                try {
+                    const result = await analyzer.analyzeRepository(r.owner, r.name, 'HEAD');
+                    if (result && Array.isArray(result.findings)) {
+                        allResults.repositories.push({ repository: repoKey, ...result });
+                        allResults.totalActions += result.totalActions || 0;
+                        allResults.uniqueActions += result.uniqueActions || 0;
+                        allResults.allFindings.push(...result.findings);
+                        if (result.findingsByType) {
+                            Object.entries(result.findingsByType).forEach(([ruleId, count]) => {
+                                allResults.findingsByType[ruleId] = (allResults.findingsByType[ruleId] || 0) + count;
+                            });
+                        }
+                    }
+                } catch (e) {
+                    console.warn(`Re-analysis failed for ${repoKey}:`, e);
+                }
+            }
+
+            analysisData.data.githubActionsAnalysis = {
+                totalActions: allResults.totalActions,
+                uniqueActions: allResults.uniqueActions,
+                repositories: allResults.repositories,
+                findings: allResults.allFindings,
+                findingsByType: allResults.findingsByType,
+                timestamp: new Date().toISOString()
+            };
+
+            this._setFindingsRedoProgress(97, 'Saving...', '');
+            await this.storageManager.saveAnalysisData(name, analysisData.data);
+
+            this._setFindingsRedoProgress(100, 'Done.',
+                `${allResults.allFindings.length} finding(s) across ${allResults.repositories.length} repo(s).`);
+            this.showAlert(`Re-analysis complete for "${name}": ${allResults.allFindings.length} findings.`, 'success');
+        } catch (error) {
+            console.error('Findings re-analysis failed:', error);
+            this.showAlert(`Failed to re-analyze findings: ${error.message || error}`, 'danger');
+            this._hideFindingsRedoProgress();
+        } finally {
+            this._setFindingsRedoButtonsDisabled(false);
         }
     }
 
