@@ -13,6 +13,7 @@
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
 </head>
 <body>
+    <a class="visually-hidden-focusable" href="#main">Skip to content</a>
     <!-- Navigation -->
     <nav class="navbar navbar-expand-lg navbar-dark bg-primary">
         <div class="container">
@@ -37,7 +38,7 @@
                     <a class="nav-link" href="insights.html">Insights</a>
                     <a class="nav-link" href="deps.html">Deps</a>
                     <a class="nav-link" href="repos.html">Repos</a>
-                    <a class="nav-link active" href="authors.html">Authors</a>
+                    <a class="nav-link active" href="authors.html" aria-current="page">Authors</a>
                     <a class="nav-link" href="settings.html">Settings</a>
                     <a class="nav-link" href="about.html">About</a>
                 </div>
@@ -45,43 +46,18 @@
         </div>
     </nav>
 
-    <div class="container mt-4">
+    <div class="container mt-4" id="main">
         <h2 class="text-center mb-3">
             <i class="fas fa-cubes me-2"></i>SBOM Play
         </h2>
 
-        <!-- Badges Section -->
-        <div class="text-center mb-3 d-flex flex-wrap justify-content-center gap-2">
-            <a href="about.html#showcased" title="Presented at BlackHat — view all events">
-                <img src="images/badge-blackhat.svg" alt="Presented @ BlackHat">
-            </a>
-            <a href="about.html#showcased" title="Presented at Defcon — view all events">
-                <img src="images/badge-defcon.svg" alt="Presented @ Defcon">
-            </a>
-            <a href="https://peerlist.io/anantshri/project/sbom-play" target="_blank" rel="noreferrer noopener" title="Launched on Peerlist">
-                <img src="images/badge-peerlist.svg" alt="Peerlist Launchpad">
-            </a>
-            <a href="https://github.com/sponsors/anantshri" target="_blank" rel="noreferrer noopener" title="Sponsor on GitHub">
-                <img src="images/badge-github-sponsors.svg" alt="GitHub Sponsors">
-            </a>
-            <a href="https://buymeacoffee.com/anantshri" target="_blank" rel="noreferrer noopener" title="Buy Me A Coffee">
-                <img src="images/badge-buymeacoffee.svg" alt="Buy Me A Coffee">
-            </a>
-        </div>
-
-        <div class="alert alert-warning alert-dismissible fade show" role="alert">
-            <i class="fas fa-flask me-2"></i>
-            <strong>Experimental Feature:</strong> This page is currently experimental and may have limitations or incomplete data.
-            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
-        </div>
-        
         <!-- Header -->
         <div class="row mb-4">
             <div class="col-12">
                 <div class="d-flex justify-content-between align-items-center">
                     <div>
-                        <h1><i class="fas fa-users me-2"></i>Author Analysis <span class="badge bg-warning text-dark">Experimental</span></h1>
-                        <p class="text-muted">View package authors and maintainers from third-party dependencies ranked by contribution across your supply chain</p>
+                        <h1><i class="fas fa-users me-2"></i>Author Analysis</h1>
+                        <p class="text-muted">Maintainers of the third-party packages your repos depend on &mdash; ranked by contribution.</p>
                     </div>
                     <div>
                         <a href="index.html" class="btn btn-outline-primary">
@@ -91,13 +67,11 @@
                 </div>
             </div>
         </div>
-        
-        <div class="alert alert-info alert-dismissible fade show mb-4" role="alert">
-            <i class="fas fa-info-circle me-2"></i>
-            <strong>Important:</strong> The authors, contributors, and maintainers listed here are from 
-            <strong>third-party packages and dependencies</strong> used by your repositories, not the 
-            repository authors themselves. This shows who maintains the external libraries your project depends on.
-            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+
+        <div class="alert alert-warning alert-dismissible fade show mb-4" role="alert">
+            <i class="fas fa-flask me-2"></i>
+            <strong>Beta:</strong> Authors here are package maintainers (not repo authors). Coverage and metadata may be incomplete.
+            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Dismiss"></button>
         </div>
         
         <!-- View Selector -->
@@ -105,13 +79,13 @@
             <div class="card-body">
                 <div class="row">
                     <div class="col-md-4">
-                        <label class="form-label">Select Analysis</label>
+                        <label class="form-label" for="analysisSelector">Analysis</label>
                         <select class="form-select" id="analysisSelector">
                             <option value="combined">Combined (All Scans)</option>
                         </select>
                     </div>
                     <div class="col-md-4">
-                        <label class="form-label">Filter by Ecosystem</label>
+                        <label class="form-label" for="ecosystemFilter">Ecosystem</label>
                         <select class="form-select" id="ecosystemFilter">
                             <option value="all">All Ecosystems</option>
                             <option value="npm">NPM</option>
@@ -125,7 +99,7 @@
                         </select>
                     </div>
                     <div class="col-md-4">
-                        <label class="form-label">Filter by Location</label>
+                        <label class="form-label" for="locationFilter">Author location</label>
                         <select class="form-select" id="locationFilter">
                             <option value="all">All Locations</option>
                         </select>
@@ -136,29 +110,23 @@
                         <div class="form-check mb-2">
                             <input class="form-check-input" type="checkbox" id="fundingFilter" value="funding">
                             <label class="form-check-label" for="fundingFilter">
-                                <i class="fas fa-heart me-1 text-danger"></i>Show only authors looking for sponsorship
+                                <i class="fas fa-heart me-1 text-danger"></i>Seeking sponsorship
                             </label>
                         </div>
                         <div class="form-check">
                             <input class="form-check-input" type="checkbox" id="sanctionsFilter" value="sanctions">
                             <label class="form-check-label" for="sanctionsFilter">
-                                <i class="fas fa-ban me-1 text-danger"></i>Show only authors from sanctioned countries
+                                <i class="fas fa-ban me-1 text-danger"></i>From sanctioned countries
                             </label>
                         </div>
                     </div>
                     <div class="col-md-6">
-                        <label class="form-label"><i class="fas fa-list-ol me-1"></i>Display Limit</label>
-                        <div class="btn-group w-100" role="group" aria-label="Author display limit">
-                            <input type="radio" class="btn-check" name="displayLimit" id="displayLimit25" value="25" checked>
-                            <label class="btn btn-outline-primary" for="displayLimit25">
-                                <i class="fas fa-filter me-1"></i>Top 25 Authors
-                            </label>
-                            
-                            <input type="radio" class="btn-check" name="displayLimit" id="displayLimitAll" value="all">
-                            <label class="btn btn-outline-primary" for="displayLimitAll">
-                                <i class="fas fa-list me-1"></i>All Authors
-                            </label>
-                        </div>
+                        <label class="form-label" for="displayLimitSelect"><i class="fas fa-list-ol me-1"></i>Show</label>
+                        <select class="form-select" id="displayLimitSelect">
+                            <option value="25" selected>Top 25</option>
+                            <option value="100">Top 100</option>
+                            <option value="all">All</option>
+                        </select>
                     </div>
                 </div>
             </div>
@@ -173,10 +141,10 @@
                 </button>
             </div>
             <div class="card-body">
-                <div class="alert alert-warning alert-dismissible fade show mb-3" role="alert">
-                    <i class="fas fa-exclamation-triangle me-2"></i>
-                    <strong>Location Data Disclaimer:</strong> Author locations shown on this map are based on voluntarily provided information from authors themselves (typically from their GitHub profiles, package registry profiles, or other public sources). This information may be incomplete, outdated, or inaccurate. Locations are geocoded automatically and may not reflect the actual current location of authors.
-                    <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+                <div class="alert alert-light alert-dismissible fade show mb-3" role="alert">
+                    <i class="fas fa-info-circle me-2"></i>
+                    Locations are self-reported by package authors; accuracy varies.
+                    <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Dismiss"></button>
                 </div>
                 <div id="authorMap" class="author-map"></div>
             </div>
@@ -256,15 +224,8 @@
                 <!-- First Column: SBOM Play Tool -->
                 <div class="col-md-4">
                     <h6 class="text-primary">SBOM Play</h6>
-                    <p class="text-muted small mb-3">
-                        A client-side tool for analyzing Software Bill of Materials from GitHub organizations and users.
-                        All processing happens in your browser for maximum privacy and security.
-                    </p>
                     <p class="text-muted small mb-0">
-                        <strong>Privacy-First:</strong> All processing happens in your browser<br>
-                        <strong>No Server Required:</strong> Works entirely client-side<br>
-                        <strong>Persistent Storage:</strong> Results saved in browser storage<br>
-                        <strong>Rate Limit Aware:</strong> Handles GitHub API limits intelligently
+                        Client-side SBOM analysis from GitHub orgs, users, repos, or uploaded files. All processing happens in your browser.
                     </p>
                 </div>
                 
@@ -291,16 +252,14 @@
                 <div class="col-md-4">
                     <h6 class="text-primary">About Cyfinoid Research</h6>
                     <p class="text-muted small mb-3">
-                        Leading cybersecurity research company specializing in software supply chain security, 
-                        Android security, and cloud security. Our expertise spans across comprehensive software 
-                        supply chain protection.
+                        Cyfinoid Research works on software supply-chain, cloud security, AI usage and security. SBOM Play is one of our open-source tools.
                     </p>
                 </div>
             </div>
             <hr class="my-3">
             <div class="text-center">
                 <small class="text-muted">
-                    © 2025 Cyfinoid Research. All rights reserved. | 
+                    &copy; <time datetime="2026">2026</time> Cyfinoid Research. All rights reserved. | 
                     <a href="https://github.com/cyfinoid/sbomplay" target="_blank" class="text-muted">
                         <i class="fab fa-github me-1"></i>View on GitHub
                     </a>

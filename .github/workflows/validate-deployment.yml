@@ -40,6 +40,7 @@ jobs:
             "findings.html"
             "feeds.html"
             "insights.html"
+            "demo.html"
           )
           
           MISSING=0
@@ -75,6 +76,26 @@ jobs:
           
           if [ $MISSING -gt 0 ]; then
             echo "::error::Missing $MISSING required directories"
+            exit 1
+          fi
+      
+      - name: Check demo SBOM fixtures
+        run: |
+          echo "🔍 Checking bundled demo SBOM JSON..."
+          DEMO_JSON=(
+            "data/demo/sbomplay-demo.json"
+          )
+          MISSING=0
+          for file in "${DEMO_JSON[@]}"; do
+            if [ ! -f "$file" ]; then
+              echo "❌ Missing: $file"
+              MISSING=$((MISSING + 1))
+            else
+              echo "✅ Found: $file"
+            fi
+          done
+          if [ $MISSING -gt 0 ]; then
+            echo "::error::Missing $MISSING demo JSON files"
             exit 1
           fi
       
@@ -128,6 +149,7 @@ jobs:
             "js/upload-page.js"
             "js/insights-aggregator.js"
             "js/insights-page.js"
+            "js/demo-page.js"
           )
           
           MISSING=0

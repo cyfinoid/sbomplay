@@ -12,7 +12,21 @@
   --font-size-body: 16px;
   --font-size-quote: 16px;
   --font-size-caption: 14px;
-  
+
+  /* Spacing scale (6 steps, geometric-ish) */
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 1rem;
+  --space-4: 1.5rem;
+  --space-5: 2rem;
+  --space-6: 3rem;
+
+  /* Severity tokens — map to brand colors */
+  --severity-critical: var(--color-red);
+  --severity-high: var(--color-dirty-yellow);
+  --severity-medium: var(--color-yellow);
+  --severity-low: var(--color-green);
+
   /* Default theme colors (dark theme as default, before JS runs) */
   --bg-primary: #121212;
   --bg-secondary: #1e1e1e;
@@ -97,15 +111,13 @@ h4 { font-size: var(--font-size-subheading); }
 h5 { font-size: var(--font-size-section); }
 h6 { font-size: var(--font-size-body); }
 
+.text-quote { font-size: var(--font-size-quote); font-style: italic; }
+.text-caption { font-size: var(--font-size-caption); color: var(--text-secondary); }
+
 /* Card styles - consolidated with style.css base styles */
 .card {
   background-color: var(--bg-secondary) !important;
   color: var(--text-primary) !important;
-  border-color: var(--border-color) !important;
-}
-
-.card {
-  background-color: var(--bg-primary) !important;
   border-color: var(--border-color) !important;
 }
 
@@ -194,7 +206,7 @@ h6 { font-size: var(--font-size-body); }
   background-color: var(--bg-secondary) !important;
   color: var(--text-primary) !important;
   border-color: var(--color-green) !important;
-  box-shadow: 0 0 0 0.25rem rgba(127, 209, 185, 0.25);
+  box-shadow: 0 0 0 0.25rem var(--bg-success);
 }
 
 .table {
@@ -218,8 +230,9 @@ h6 { font-size: var(--font-size-body); }
 }
 
 .btn-primary:hover {
-  background-color: #6fb8a0 !important;
-  border-color: #6fb8a0 !important;
+  background-color: var(--color-green) !important;
+  border-color: var(--color-green) !important;
+  filter: brightness(0.9);
 }
 
 .btn-warning {
