@@ -839,8 +839,7 @@ document.addEventListener('DOMContentLoaded', async function() {
      */
     function getFindingDescription(ruleId) {
         const descriptions = {
-            'UNPINNED_ACTION_REFERENCE': 'Actions referenced without a commit SHA are mutable and can change, posing security risks. Always pin actions to a full 40-character commit SHA.',
-            'MUTABLE_TAG_REFERENCE': 'Tags like "latest", "main", or version ranges can change over time. Use immutable commit SHAs instead.',
+            'MUTABLE_TAG_REFERENCE': 'Action is referenced by a mutable tag instead of a commit SHA. This covers branch-style tags (e.g. `main`, `master`, `latest`) and version tags (e.g. `v2`, `v2.3.4`) — both can be re-pointed by the publisher. Pin to a full 40-character commit SHA.',
             'DOCKER_FLOATING_TAG': 'Docker images using floating tags (e.g., "latest", version ranges) are not immutable and can introduce unexpected changes.',
             'DOCKER_IMPLICIT_LATEST': 'Docker images without explicit tags default to "latest", which is mutable and insecure.',
             'DOCKERFILE_FLOATING_BASE_IMAGE': 'Dockerfile base images using floating tags can change, affecting build reproducibility and security.',
@@ -2020,7 +2019,6 @@ document.addEventListener('DOMContentLoaded', async function() {
      */
     function getFindingName(ruleId) {
         const findingNames = {
-            'UNPINNED_ACTION_REFERENCE': 'Unpinned Action Reference',
             'MUTABLE_TAG_REFERENCE': 'Mutable Tag Reference',
             'DOCKER_FLOATING_TAG': 'Docker Floating Tag',
             'DOCKER_IMPLICIT_LATEST': 'Docker Implicit Latest Tag',

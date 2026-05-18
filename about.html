@@ -164,6 +164,66 @@
             </div>
         </div>
 
+        <!-- Security Findings Catalog -->
+        <div class="card mb-4" id="security-findings">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="fas fa-shield-alt me-2"></i>Security Findings the Tool Detects</h5>
+            </div>
+            <div class="card-body">
+                <p class="text-muted">
+                    Issues surfaced on the <a href="findings.html">Findings page</a> fall into the categories below. Each category groups one or more rule ids; severity is set per rule based on the underlying risk and how recoverable it is.
+                </p>
+
+                <h6 class="mt-3"><i class="fas fa-biohazard me-2 text-danger"></i>Malicious Packages <span class="badge bg-danger">critical</span></h6>
+                <ul class="small mb-3">
+                    <li><code>KNOWN_MALICIOUS_PACKAGE</code> — a dependency matches an OSV <code>MAL-*</code> advisory or the OpenSSF Malicious Packages dataset. Remove or replace immediately and rotate any secrets that may have been exposed.</li>
+                </ul>
+
+                <h6 class="mt-3"><i class="fab fa-github me-2"></i>GitHub Actions &mdash; workflow-level (fixable in your repo)</h6>
+                <ul class="small mb-3">
+                    <li><code>MUTABLE_TAG_REFERENCE</code> — action referenced by a mutable tag instead of a 40-char commit SHA. <span class="badge bg-danger">high</span> for branch/<code>latest</code>-style tags (<code>main</code>, <code>master</code>, <code>latest</code>); <span class="badge bg-warning text-dark">medium</span> for version tags (<code>v2</code>, <code>v2.3.4</code>) &mdash; both can be re-pointed by the publisher.</li>
+                    <li><code>PULL_REQUEST_TARGET_CHECKOUT</code> — workflow uses <code>pull_request_target</code> <em>and</em> checks out PR code, which executes untrusted code with the elevated permissions of the target branch.</li>
+                    <li><code>EXCESSIVE_WORKFLOW_PERMISSIONS</code> / <code>EXCESSIVE_JOB_PERMISSIONS</code> — workflow or job grants broad <code>write-all</code> instead of least-privilege scoping.</li>
+                    <li><code>POTENTIAL_HARDCODED_SECRET</code> — environment variable value looks like an API key or token. Should be a GitHub Secret reference, not a literal.</li>
+                </ul>
+
+                <h6 class="mt-3"><i class="fas fa-thumbtack me-2 text-warning"></i>Unpinnable Actions &mdash; not fixable by SHA-pinning alone</h6>
+                <p class="small">
+                    Patterns from <a href="https://www.paloaltonetworks.com/blog/cloud-security/unpinnable-actions-github-security/" target="_blank" rel="noreferrer noopener">Palo Alto's "Unpinnable Actions" research</a>. Even when your workflow pins the action by commit SHA, the action's runtime still pulls mutable resources from elsewhere, so the SHA pin alone does not protect you. Remediation usually means picking a different action or asking the maintainer to pin their own runtime dependencies.
+                </p>
+                <ul class="small mb-3">
+                    <li><code>DOCKER_IMPLICIT_LATEST</code> / <code>DOCKER_FLOATING_TAG</code> — the action's <code>action.yml</code> references a Docker image by a floating tag (no <code>@sha256:</code> digest), so an attacker who pushes a new image to the same tag is automatically picked up by the next run.</li>
+                    <li><code>DOCKERFILE_FLOATING_BASE_IMAGE</code> — the action ships a Dockerfile whose <code>FROM</code> is a floating tag (e.g. <code>ubuntu:22.04</code> with no digest). Findings link directly to the offending <code>FROM</code> line at the commit your workflow pins.</li>
+                    <li><code>DOCKER_UNPINNED_DEPENDENCIES</code> / <code>DOCKER_REMOTE_CODE_NO_INTEGRITY</code> — the action's Dockerfile <code>apt/pip/npm install</code>s unpinned versions, or <code>curl | bash</code>es remote code without checksum verification.</li>
+                    <li><code>COMPOSITE_NESTED_UNPINNED_ACTION</code> — a composite action's internal <code>uses:</code> references a child action by tag instead of SHA, breaking the pinning chain.</li>
+                    <li><code>COMPOSITE_UNPINNED_DEPENDENCIES</code> / <code>COMPOSITE_REMOTE_CODE_NO_INTEGRITY</code> — composite action's <code>run:</code> steps install unpinned packages or fetch remote scripts without integrity checks.</li>
+                    <li><code>UNPINNED_PACKAGE_INSTALL</code> / <code>REMOTE_CODE_NO_INTEGRITY</code> — a JavaScript action installs unpinned npm packages or downloads scripts at runtime without checksum verification.</li>
+                    <li><code>INDIRECT_UNPINNABLE_ACTION</code> — an action you pinned transitively pulls in one of the patterns above through a nested action.</li>
+                </ul>
+
+                <h6 class="mt-3"><i class="fas fa-box me-2"></i>Dependency Confusion / Hijacking</h6>
+                <ul class="small mb-3">
+                    <li><code>NAMESPACE_NOT_IN_REGISTRY</code> <span class="badge bg-danger">high</span> — the package's namespace/scope/group is not registered on the public registry. An attacker could claim the whole namespace and any package under it.</li>
+                    <li><code>PACKAGE_NOT_IN_REGISTRY</code> — the package name itself is not present in the public registry; likely a private/internal package that is vulnerable to confusion attacks if an attacker registers the same name publicly.</li>
+                </ul>
+                <p class="small text-muted">See the Dependency Confusion methodology section below for how each ecosystem is checked and which registries are queried.</p>
+
+                <h6 class="mt-3"><i class="fas fa-hourglass-end me-2"></i>End-of-Life / End-of-Support</h6>
+                <ul class="small mb-3">
+                    <li><code>EOL</code> <span class="badge bg-danger">high</span> — confirmed end-of-life via endoflife.date. No security updates of any kind.</li>
+                    <li><code>EOS</code> <span class="badge bg-warning text-dark">medium</span> — end of regular support (often security-only patches remain).</li>
+                    <li><code>HIGHLY_LIKELY_EOL</code> <span class="badge bg-danger">high</span> — staleness heuristic: no new release in 3+ years.</li>
+                    <li><code>PROBABLE_EOL</code> <span class="badge bg-warning text-dark">medium</span> — staleness heuristic: no new release in 2&ndash;3 years.</li>
+                </ul>
+                <p class="small text-muted">See the EOX Detection Methodology section below for thresholds, data sources, and the ecosystem-aware product-mapping logic.</p>
+
+                <h6 class="mt-3"><i class="fas fa-unlink me-2"></i>Abandoned / Dead Source Repos</h6>
+                <ul class="small mb-3">
+                    <li><code>REPO_NOT_FOUND</code> <span class="badge bg-warning text-dark">medium</span> — the source repository URL recorded in the SBOM 404s. The repo was deleted, renamed, or never published. If the slot is later re-registered by someone else, the package can be hijacked through release infrastructure tied to that repo.</li>
+                </ul>
+            </div>
+        </div>
+
         <!-- Privacy & Security -->
         <div class="card mb-4" id="privacy-security">
             <div class="card-header">
