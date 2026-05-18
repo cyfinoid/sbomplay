@@ -5948,7 +5948,6 @@ class ViewManager {
      */
     getFindingName(ruleId) {
         const findingNames = {
-            'UNPINNED_ACTION_REFERENCE': 'Unpinned Action Reference',
             'MUTABLE_TAG_REFERENCE': 'Mutable Tag Reference',
             'DOCKER_FLOATING_TAG': 'Docker Floating Tag',
             'DOCKER_IMPLICIT_LATEST': 'Docker Implicit Latest Tag',

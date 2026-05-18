@@ -12,6 +12,7 @@
     <script src="js/depconfuse-service.js?v=0.0.9&cb=1778000000000"></script>
 </head>
 <body>
+    <a class="visually-hidden-focusable" href="#main">Skip to content</a>
     <!-- Navigation -->
     <nav class="navbar navbar-expand-lg navbar-dark bg-primary">
         <div class="container">
@@ -38,19 +39,19 @@
                     <a class="nav-link" href="repos.html">Repos</a>
                     <a class="nav-link" href="authors.html">Authors</a>
                     <a class="nav-link" href="settings.html">Settings</a>
-                    <a class="nav-link active" href="about.html">About</a>
+                    <a class="nav-link active" href="about.html" aria-current="page">About</a>
                 </div>
             </div>
         </div>
     </nav>
 
-    <div class="container mt-4">
+    <div class="container mt-4" id="main">
         <h2 class="text-center mb-3">
             <i class="fas fa-cubes me-2"></i>SBOM Play
         </h2>
 
         <!-- Badges Section -->
-        <div class="text-center mb-3 d-flex flex-wrap justify-content-center gap-2">
+        <aside class="text-center mb-3 d-flex flex-wrap justify-content-center gap-2" aria-label="Recognition">
             <a href="about.html#showcased" title="Presented at BlackHat — view all events">
                 <img src="images/badge-blackhat.svg" alt="Presented @ BlackHat">
             </a>
@@ -66,18 +67,56 @@
             <a href="https://buymeacoffee.com/anantshri" target="_blank" rel="noreferrer noopener" title="Buy Me A Coffee">
                 <img src="images/badge-buymeacoffee.svg" alt="Buy Me A Coffee">
             </a>
-        </div>
+        </aside>
 
         <!-- Header -->
         <div class="row mb-4">
             <div class="col-12">
                 <h1><i class="fas fa-info-circle me-2"></i>About SBOM Play</h1>
-                <p class="text-muted">Learn more about this client-side SBOM analysis tool</p>
+                <p class="text-muted">Methodology, compliance standards, and how every metric is computed.</p>
             </div>
         </div>
 
+        <!-- Table of Contents -->
+        <details class="card mb-4" id="about-toc" open>
+            <summary class="card-header" style="cursor: pointer; list-style: none;">
+                <h5 class="mb-0 d-flex justify-content-between align-items-center">
+                    <span><i class="fas fa-list me-2"></i>Contents</span>
+                    <small class="text-muted">click to collapse</small>
+                </h5>
+            </summary>
+            <div class="card-body">
+                <div class="row">
+                    <div class="col-md-6">
+                        <ol class="mb-0">
+                            <li><a href="#project-overview">Project overview</a></li>
+                            <li><a href="#features">Features</a></li>
+                            <li><a href="#privacy-security">Privacy &amp; security</a></li>
+                            <li><a href="#self-host">Self-hosted &amp; offline deployment</a></li>
+                            <li><a href="#how-it-works">How it works</a></li>
+                            <li><a href="#direct-vs-transitive">Direct vs transitive</a></li>
+                            <li><a href="#tech-debt">Tech-debt scoring</a></li>
+                            <li><a href="#eol-detection">End-of-life detection</a></li>
+                        </ol>
+                    </div>
+                    <div class="col-md-6">
+                        <ol class="mb-0" start="9">
+                            <li><a href="#dependency-confusion">Dependency confusion</a></li>
+                            <li><a href="#author-enrichment">Author enrichment</a></li>
+                            <li><a href="#compliance">SBOM compliance standards</a></li>
+                            <li><a href="#quality-methodology">Dependency quality methodology</a></li>
+                            <li><a href="#showcased">Showcased</a></li>
+                            <li><a href="#version-info">Version info</a></li>
+                            <li><a href="#credits">Credits</a></li>
+                            <li><a href="#links">Links</a></li>
+                        </ol>
+                    </div>
+                </div>
+            </div>
+        </details>
+
         <!-- Project Overview -->
-        <div class="card mb-4">
+        <div class="card mb-4" id="project-overview">
             <div class="card-header">
                 <h5 class="mb-0"><i class="fas fa-cubes me-2"></i>Project Overview</h5>
             </div>
@@ -99,7 +138,7 @@
         </div>
 
         <!-- Features -->
-        <div class="card mb-4">
+        <div class="card mb-4" id="features">
             <div class="card-header">
                 <h5 class="mb-0"><i class="fas fa-star me-2"></i>Features</h5>
             </div>
@@ -125,8 +164,68 @@
             </div>
         </div>
 
+        <!-- Security Findings Catalog -->
+        <div class="card mb-4" id="security-findings">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="fas fa-shield-alt me-2"></i>Security Findings the Tool Detects</h5>
+            </div>
+            <div class="card-body">
+                <p class="text-muted">
+                    Issues surfaced on the <a href="findings.html">Findings page</a> fall into the categories below. Each category groups one or more rule ids; severity is set per rule based on the underlying risk and how recoverable it is.
+                </p>
+
+                <h6 class="mt-3"><i class="fas fa-biohazard me-2 text-danger"></i>Malicious Packages <span class="badge bg-danger">critical</span></h6>
+                <ul class="small mb-3">
+                    <li><code>KNOWN_MALICIOUS_PACKAGE</code> — a dependency matches an OSV <code>MAL-*</code> advisory or the OpenSSF Malicious Packages dataset. Remove or replace immediately and rotate any secrets that may have been exposed.</li>
+                </ul>
+
+                <h6 class="mt-3"><i class="fab fa-github me-2"></i>GitHub Actions &mdash; workflow-level (fixable in your repo)</h6>
+                <ul class="small mb-3">
+                    <li><code>MUTABLE_TAG_REFERENCE</code> — action referenced by a mutable tag instead of a 40-char commit SHA. <span class="badge bg-danger">high</span> for branch/<code>latest</code>-style tags (<code>main</code>, <code>master</code>, <code>latest</code>); <span class="badge bg-warning text-dark">medium</span> for version tags (<code>v2</code>, <code>v2.3.4</code>) &mdash; both can be re-pointed by the publisher.</li>
+                    <li><code>PULL_REQUEST_TARGET_CHECKOUT</code> — workflow uses <code>pull_request_target</code> <em>and</em> checks out PR code, which executes untrusted code with the elevated permissions of the target branch.</li>
+                    <li><code>EXCESSIVE_WORKFLOW_PERMISSIONS</code> / <code>EXCESSIVE_JOB_PERMISSIONS</code> — workflow or job grants broad <code>write-all</code> instead of least-privilege scoping.</li>
+                    <li><code>POTENTIAL_HARDCODED_SECRET</code> — environment variable value looks like an API key or token. Should be a GitHub Secret reference, not a literal.</li>
+                </ul>
+
+                <h6 class="mt-3"><i class="fas fa-thumbtack me-2 text-warning"></i>Unpinnable Actions &mdash; not fixable by SHA-pinning alone</h6>
+                <p class="small">
+                    Patterns from <a href="https://www.paloaltonetworks.com/blog/cloud-security/unpinnable-actions-github-security/" target="_blank" rel="noreferrer noopener">Palo Alto's "Unpinnable Actions" research</a>. Even when your workflow pins the action by commit SHA, the action's runtime still pulls mutable resources from elsewhere, so the SHA pin alone does not protect you. Remediation usually means picking a different action or asking the maintainer to pin their own runtime dependencies.
+                </p>
+                <ul class="small mb-3">
+                    <li><code>DOCKER_IMPLICIT_LATEST</code> / <code>DOCKER_FLOATING_TAG</code> — the action's <code>action.yml</code> references a Docker image by a floating tag (no <code>@sha256:</code> digest), so an attacker who pushes a new image to the same tag is automatically picked up by the next run.</li>
+                    <li><code>DOCKERFILE_FLOATING_BASE_IMAGE</code> — the action ships a Dockerfile whose <code>FROM</code> is a floating tag (e.g. <code>ubuntu:22.04</code> with no digest). Findings link directly to the offending <code>FROM</code> line at the commit your workflow pins.</li>
+                    <li><code>DOCKER_UNPINNED_DEPENDENCIES</code> / <code>DOCKER_REMOTE_CODE_NO_INTEGRITY</code> — the action's Dockerfile <code>apt/pip/npm install</code>s unpinned versions, or <code>curl | bash</code>es remote code without checksum verification.</li>
+                    <li><code>COMPOSITE_NESTED_UNPINNED_ACTION</code> — a composite action's internal <code>uses:</code> references a child action by tag instead of SHA, breaking the pinning chain.</li>
+                    <li><code>COMPOSITE_UNPINNED_DEPENDENCIES</code> / <code>COMPOSITE_REMOTE_CODE_NO_INTEGRITY</code> — composite action's <code>run:</code> steps install unpinned packages or fetch remote scripts without integrity checks.</li>
+                    <li><code>UNPINNED_PACKAGE_INSTALL</code> / <code>REMOTE_CODE_NO_INTEGRITY</code> — a JavaScript action installs unpinned npm packages or downloads scripts at runtime without checksum verification.</li>
+                    <li><code>INDIRECT_UNPINNABLE_ACTION</code> — an action you pinned transitively pulls in one of the patterns above through a nested action.</li>
+                </ul>
+
+                <h6 class="mt-3"><i class="fas fa-box me-2"></i>Dependency Confusion / Hijacking</h6>
+                <ul class="small mb-3">
+                    <li><code>NAMESPACE_NOT_IN_REGISTRY</code> <span class="badge bg-danger">high</span> — the package's namespace/scope/group is not registered on the public registry. An attacker could claim the whole namespace and any package under it.</li>
+                    <li><code>PACKAGE_NOT_IN_REGISTRY</code> — the package name itself is not present in the public registry; likely a private/internal package that is vulnerable to confusion attacks if an attacker registers the same name publicly.</li>
+                </ul>
+                <p class="small text-muted">See the Dependency Confusion methodology section below for how each ecosystem is checked and which registries are queried.</p>
+
+                <h6 class="mt-3"><i class="fas fa-hourglass-end me-2"></i>End-of-Life / End-of-Support</h6>
+                <ul class="small mb-3">
+                    <li><code>EOL</code> <span class="badge bg-danger">high</span> — confirmed end-of-life via endoflife.date. No security updates of any kind.</li>
+                    <li><code>EOS</code> <span class="badge bg-warning text-dark">medium</span> — end of regular support (often security-only patches remain).</li>
+                    <li><code>HIGHLY_LIKELY_EOL</code> <span class="badge bg-danger">high</span> — staleness heuristic: no new release in 3+ years.</li>
+                    <li><code>PROBABLE_EOL</code> <span class="badge bg-warning text-dark">medium</span> — staleness heuristic: no new release in 2&ndash;3 years.</li>
+                </ul>
+                <p class="small text-muted">See the EOX Detection Methodology section below for thresholds, data sources, and the ecosystem-aware product-mapping logic.</p>
+
+                <h6 class="mt-3"><i class="fas fa-unlink me-2"></i>Abandoned / Dead Source Repos</h6>
+                <ul class="small mb-3">
+                    <li><code>REPO_NOT_FOUND</code> <span class="badge bg-warning text-dark">medium</span> — the source repository URL recorded in the SBOM 404s. The repo was deleted, renamed, or never published. If the slot is later re-registered by someone else, the package can be hijacked through release infrastructure tied to that repo.</li>
+                </ul>
+            </div>
+        </div>
+
         <!-- Privacy & Security -->
-        <div class="card mb-4">
+        <div class="card mb-4" id="privacy-security">
             <div class="card-header">
                 <h5 class="mb-0"><i class="fas fa-shield-alt me-2"></i>Privacy & Security</h5>
             </div>
@@ -148,10 +247,10 @@
             </div>
         </div>
 
-        <!-- Paranoid Self-Host / Airgapped Deployment -->
-        <div class="card mb-4">
+        <!-- Self-hosted &amp; offline deployment -->
+        <div class="card mb-4" id="self-host">
             <div class="card-header">
-                <h5 class="mb-0"><i class="fas fa-server me-2"></i>Paranoid Self-Host / Airgapped Deployment</h5>
+                <h5 class="mb-0"><i class="fas fa-server me-2"></i>Self-hosted &amp; offline deployment</h5>
             </div>
             <div class="card-body">
                 <p>
@@ -239,7 +338,7 @@
         </div>
 
         <!-- How It Works -->
-        <div class="card mb-4">
+        <div class="card mb-4" id="how-it-works">
             <div class="card-header">
                 <h5 class="mb-0"><i class="fas fa-cogs me-2"></i>How It Works</h5>
             </div>
@@ -268,7 +367,7 @@
         </div>
 
         <!-- Direct vs Transitive Classification & Dependency Depth -->
-        <div class="card mb-4">
+        <div class="card mb-4" id="direct-vs-transitive">
             <div class="card-header">
                 <h5 class="mb-0"><i class="fas fa-sitemap me-2"></i>Direct vs Transitive Classification &amp; Dependency Depth</h5>
             </div>
@@ -359,7 +458,7 @@
         </div>
 
         <!-- Tech-Debt Composite Scoring -->
-        <div class="card mb-4">
+        <div class="card mb-4" id="tech-debt">
             <div class="card-header">
                 <h5 class="mb-0"><i class="fas fa-balance-scale me-2"></i>Tech-Debt Composite Scoring</h5>
             </div>
@@ -422,7 +521,7 @@
         </div>
 
         <!-- EOX Detection Methodology -->
-        <div class="card mb-4">
+        <div class="card mb-4" id="eol-detection">
             <div class="card-header">
                 <h5 class="mb-0"><i class="fas fa-skull-crossbones me-2"></i>End-of-Life (EOX) Detection Methodology</h5>
             </div>
@@ -498,7 +597,7 @@
         </div>
 
         <!-- Dependency Confusion Detection -->
-        <div class="card mb-4">
+        <div class="card mb-4" id="dependency-confusion">
             <div class="card-header">
                 <h5 class="mb-0"><i class="fas fa-box me-2"></i>Dependency Confusion Detection Methodology</h5>
             </div>
@@ -647,7 +746,7 @@
         </div>
 
         <!-- Author Enrichment Methodology -->
-        <div class="card mb-4">
+        <div class="card mb-4" id="author-enrichment">
             <div class="card-header">
                 <h5 class="mb-0"><i class="fas fa-users me-2"></i>Author Enrichment Methodology</h5>
             </div>
@@ -763,7 +862,7 @@
         </div>
 
         <!-- SBOM Compliance Standards -->
-        <div class="card mb-4">
+        <div class="card mb-4" id="compliance">
             <div class="card-header">
                 <h5 class="mb-0"><i class="fas fa-clipboard-check me-2"></i>SBOM Compliance Standards</h5>
             </div>
@@ -828,7 +927,7 @@
         </div>
 
         <!-- SBOM Quality Assessment -->
-        <div class="card mb-4">
+        <div class="card mb-4" id="quality-methodology">
             <div class="card-header">
                 <h5 class="mb-0"><i class="fas fa-chart-bar me-2"></i>SBOM Quality Assessment Methodology</h5>
             </div>
@@ -944,7 +1043,7 @@
         </div>
 
         <!-- Version Info -->
-        <div class="card mb-4">
+        <div class="card mb-4" id="version-info">
             <div class="card-header">
                 <h5 class="mb-0"><i class="fas fa-tag me-2"></i>Version Information</h5>
             </div>
@@ -961,7 +1060,7 @@
         </div>
 
         <!-- Credits -->
-        <div class="card mb-4">
+        <div class="card mb-4" id="credits">
             <div class="card-header">
                 <h5 class="mb-0"><i class="fas fa-heart me-2"></i>Credits & Technologies</h5>
             </div>
@@ -997,7 +1096,7 @@
         </div>
 
         <!-- Links -->
-        <div class="card mb-4">
+        <div class="card mb-4" id="links">
             <div class="card-header">
                 <h5 class="mb-0"><i class="fas fa-link me-2"></i>Links & Resources</h5>
             </div>
@@ -1027,15 +1126,8 @@
                 <!-- First Column: SBOM Play Tool -->
                 <div class="col-md-4">
                     <h6 class="text-primary">SBOM Play</h6>
-                    <p class="text-muted small mb-3">
-                        A client-side tool for analyzing Software Bill of Materials from GitHub organizations and users.
-                        All processing happens in your browser for maximum privacy and security.
-                    </p>
                     <p class="text-muted small mb-0">
-                        <strong>Privacy-First:</strong> All processing happens in your browser<br>
-                        <strong>No Server Required:</strong> Works entirely client-side<br>
-                        <strong>Persistent Storage:</strong> Results saved in browser storage<br>
-                        <strong>Rate Limit Aware:</strong> Handles GitHub API limits intelligently
+                        Client-side SBOM analysis from GitHub orgs, users, repos, or uploaded files. All processing happens in your browser.
                     </p>
                 </div>
                 
@@ -1062,16 +1154,14 @@
                 <div class="col-md-4">
                     <h6 class="text-primary">About Cyfinoid Research</h6>
                     <p class="text-muted small mb-3">
-                        Leading cybersecurity research company specializing in software supply chain security, 
-                        Android security, and cloud security. Our expertise spans across comprehensive software 
-                        supply chain protection.
+                        Cyfinoid Research works on software supply-chain, cloud security, AI usage and security. SBOM Play is one of our open-source tools.
                     </p>
                 </div>
             </div>
             <hr class="my-3">
             <div class="text-center">
                 <small class="text-muted">
-                    © 2025 Cyfinoid Research. All rights reserved. | 
+                    &copy; <time datetime="2026">2026</time> Cyfinoid Research. All rights reserved. | 
                     <a href="https://github.com/cyfinoid/sbomplay" target="_blank" class="text-muted">
                         <i class="fab fa-github me-1"></i>View on GitHub
                     </a>

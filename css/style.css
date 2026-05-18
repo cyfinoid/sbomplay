@@ -1,14 +1,14 @@
 /* SBOM Play - Client-Side Application Styles */
 
 :root {
-    --primary-color: #50c878;
-    --secondary-color: #121212;
-    --success-color: #28a745;
-    --warning-color: #fdcb52;
-    --danger-color: #d63c53;
-    --info-color: #466fe0;
-    --light-bg: #f8f9fa;
-    --border-color: #dee2e6;
+    --primary-color: var(--text-primary);
+    --secondary-color: var(--bg-primary);
+    --success-color: var(--color-green);
+    --warning-color: var(--color-yellow);
+    --danger-color: var(--color-red);
+    --info-color: var(--color-blue);
+    --light-bg: var(--bg-tertiary);
+    --border-color: var(--border-color);
 }
 
 body {
@@ -28,12 +28,12 @@ body {
 
 /* Mobile Navigation - Hamburger Menu */
 .navbar-toggler {
-    border: 1px solid var(--text-primary, #50c878);
+    border: 1px solid var(--text-primary, var(--text-primary));
     padding: 0.4rem 0.6rem;
 }
 
 .navbar-toggler:focus {
-    box-shadow: 0 0 0 0.2rem rgba(127, 209, 185, 0.3);
+    box-shadow: 0 0 0 0.2rem var(--bg-success);
 }
 
 /* Dark theme hamburger icon (white lines) */
@@ -89,7 +89,7 @@ body {
     }
     
     .navbar-collapse {
-        background-color: var(--bg-secondary, #1e1e1e);
+        background-color: var(--bg-secondary, var(--text-primary));
         padding: 1rem;
         border-radius: 0.5rem;
         margin-top: 0.5rem;
@@ -142,17 +142,12 @@ body {
     flex-shrink: 0;
 }
 
-/* Cards */
+/* Cards — base. Hover lift moved to .card.is-interactive (Phase 4.1). */
 .card {
     border: none;
     box-shadow: 0 0.125rem 0.25rem rgba(0, 0, 0, 0.075);
     border-radius: 0.5rem;
-    transition: all 0.3s ease;
-}
-
-.card:hover {
-    box-shadow: 0 0.5rem 1rem rgba(0, 0, 0, 0.15);
-    transform: translateY(-2px);
+    transition: box-shadow 0.3s ease;
 }
 
 .card-header {
@@ -185,8 +180,8 @@ body {
 }
 
 .form-control:focus {
-    border-color: var(--primary-color);
-    box-shadow: 0 0 0 0.2rem rgba(102, 126, 234, 0.25);
+    border-color: var(--color-green);
+    box-shadow: 0 0 0 0.2rem var(--bg-success);
 }
 
 /* Progress Bar - Consolidated */
@@ -274,7 +269,7 @@ body {
     transform: translate(-50%, -50%);
     width: 120px;
     height: 120px;
-    background: var(--bg-color, #fff);
+    background: var(--bg-secondary);
     border-radius: 50%;
     display: flex;
     align-items: center;
@@ -342,7 +337,7 @@ body {
 }
 
 .dependency-bar:hover {
-    background-color: #e9ecef;
+    background-color: var(--bg-tertiary);
     transform: translateX(5px);
 }
 
@@ -356,7 +351,7 @@ body {
 .dependency-name {
     font-family: 'Courier New', monospace;
     font-weight: 600;
-    color: #495057;
+    color: var(--text-secondary);
     flex: 1;
 }
 
@@ -371,7 +366,7 @@ body {
 
 .dependency-progress {
     height: 8px;
-    background-color: #e9ecef;
+    background-color: var(--bg-tertiary);
     border-radius: 4px;
     overflow: hidden;
 }
@@ -394,7 +389,7 @@ body {
     background-color: var(--bg-tertiary, var(--light-bg));
     border-bottom: 2px solid var(--border-color);
     font-weight: 600;
-    color: var(--text-primary, #495057);
+    color: var(--text-primary, var(--text-secondary));
 }
 
 .table td {
@@ -629,7 +624,7 @@ body {
     padding: 0.5rem;
     background-color: var(--bg-tertiary);
     border-radius: 0.375rem;
-    border: 1px solid #dee2e6;
+    border: 1px solid var(--border-color);
 }
 
 .dependency-info {
@@ -642,17 +637,17 @@ body {
 .dependency-name {
     font-family: monospace;
     font-size: 0.875rem;
-    color: #495057;
+    color: var(--text-secondary);
 }
 
 .dependency-count {
     font-weight: bold;
-    color: #0d6efd;
+    color: var(--color-blue);
 }
 
 .dependency-progress {
     height: 0.5rem;
-    background-color: #e9ecef;
+    background-color: var(--bg-tertiary);
     border-radius: 0.25rem;
     overflow: hidden;
 }
@@ -675,7 +670,7 @@ body {
 
 /* Organizations Overview */
 .organization-card {
-    border: 1px solid #dee2e6;
+    border: 1px solid var(--border-color);
     border-radius: 0.375rem;
     padding: 1rem;
     margin-bottom: 1rem;
@@ -696,12 +691,12 @@ body {
 
 .organization-name {
     font-weight: bold;
-    color: #495057;
+    color: var(--text-secondary);
 }
 
 .organization-date {
     font-size: 0.875rem;
-    color: #6c757d;
+    color: var(--text-secondary);
 }
 
 .organization-stats {
@@ -720,13 +715,13 @@ body {
 
 .stat-label {
     font-size: 0.75rem;
-    color: #6c757d;
+    color: var(--text-secondary);
     text-transform: uppercase;
 }
 
 .stat-value {
     font-weight: bold;
-    color: #495057;
+    color: var(--text-secondary);
 }
 
 .organization-actions {
@@ -746,11 +741,11 @@ body {
 
 .view-header h2 {
     margin-bottom: 0.5rem;
-    color: #495057;
+    color: var(--text-secondary);
 }
 
 .text-muted {
-    color: #6c757d !important;
+    color: var(--text-secondary) !important;
 }
 
 .stats-grid {
@@ -770,20 +765,20 @@ body {
 
 .stat-card h3 {
     font-size: 1rem;
-    color: #6c757d;
+    color: var(--text-secondary);
     margin-bottom: 0.5rem;
 }
 
 .stat-number {
     font-size: 2rem;
     font-weight: bold;
-    color: #0d6efd;
+    color: var(--color-blue);
     margin-bottom: 0.25rem;
 }
 
 .stat-detail {
     font-size: 0.875rem;
-    color: #6c757d;
+    color: var(--text-secondary);
 }
 
 .view-sections {
@@ -801,7 +796,7 @@ body {
 
 .section h3 {
     margin-bottom: 1rem;
-    color: #495057;
+    color: var(--text-secondary);
     font-size: 1.25rem;
 }
 
@@ -812,7 +807,7 @@ body {
     justify-content: space-between;
     align-items: center;
     padding: 0.75rem;
-    border: 1px solid #dee2e6;
+    border: 1px solid var(--border-color);
     border-radius: 0.375rem;
     margin-bottom: 0.5rem;
     cursor: pointer;
@@ -838,17 +833,17 @@ body {
 .dep-name {
     font-family: monospace;
     font-weight: 500;
-    color: #495057;
+    color: var(--text-secondary);
 }
 
 .dep-version {
     font-size: 0.875rem;
-    color: #6c757d;
+    color: var(--text-secondary);
 }
 
 .dep-count {
     font-weight: bold;
-    color: #0d6efd;
+    color: var(--color-blue);
     font-size: 0.875rem;
 }
 
@@ -863,7 +858,7 @@ body {
     justify-content: space-between;
     align-items: center;
     padding: 0.75rem;
-    border: 1px solid #dee2e6;
+    border: 1px solid var(--border-color);
     border-radius: 0.375rem;
     margin-bottom: 0.5rem;
     cursor: pointer;
@@ -877,11 +872,11 @@ body {
 /* Archived Repository Styling */
 .repository-item.archived-repo {
     opacity: 0.7;
-    background-color: #f8f9fa;
+    background-color: var(--bg-tertiary);
 }
 
 .repository-item.archived-repo .repo-name {
-    color: #6c757d;
+    color: var(--text-secondary);
 }
 
 .repository-item.archived-repo:hover {
@@ -891,12 +886,12 @@ body {
 .repo-name {
     font-family: monospace;
     font-weight: 500;
-    color: #495057;
+    color: var(--text-secondary);
 }
 
 .repo-deps {
     font-size: 0.875rem;
-    color: #6c757d;
+    color: var(--text-secondary);
 }
 
 /* Search Box */
@@ -907,7 +902,7 @@ body {
 .search-box input {
     width: 100%;
     padding: 0.5rem;
-    border: 1px solid #dee2e6;
+    border: 1px solid var(--border-color);
     border-radius: 0.375rem;
     font-size: 0.875rem;
 }
@@ -923,7 +918,7 @@ body {
     background-color: var(--bg-tertiary);
     padding: 1rem;
     border-radius: 0.375rem;
-    border: 1px solid #dee2e6;
+    border: 1px solid var(--border-color);
     cursor: pointer;
     transition: all 0.2s ease;
     display: flex;
@@ -932,7 +927,7 @@ body {
 }
 
 .dependency-card:hover {
-    background-color: #e9ecef;
+    background-color: var(--bg-tertiary);
     transform: translateY(-1px);
     box-shadow: 0 0.125rem 0.25rem rgba(0, 0, 0, 0.075);
 }
@@ -956,12 +951,12 @@ body {
 
 .dependency-card .dep-version {
     font-size: 0.875rem;
-    color: #6c757d;
+    color: var(--text-secondary);
 }
 
 .dependency-card .dep-count {
     font-size: 0.75rem;
-    color: #0d6efd;
+    color: var(--color-blue);
     font-weight: 500;
     margin-top: 0.25rem;
 }
@@ -985,7 +980,7 @@ body {
 
 .detail-section h3 {
     margin-bottom: 1rem;
-    color: #495057;
+    color: var(--text-secondary);
     font-size: 1.25rem;
 }
 
@@ -1006,12 +1001,12 @@ body {
 
 .info-item label {
     font-weight: 500;
-    color: #495057;
+    color: var(--text-secondary);
 }
 
 .info-item span {
     font-family: monospace;
-    color: #6c757d;
+    color: var(--text-secondary);
 }
 
 /* Enhancement List */
@@ -1028,7 +1023,7 @@ body {
     padding: 0.75rem;
     background-color: var(--bg-tertiary);
     border-radius: 0.375rem;
-    border: 1px solid #dee2e6;
+    border: 1px solid var(--border-color);
 }
 
 .enhancement-icon {
@@ -1061,13 +1056,13 @@ body {
 /* Button Styles - Consolidated (base styles already defined above) */
 
 .btn-secondary {
-    background-color: #6c757d;
-    border-color: #6c757d;
+    background-color: var(--text-secondary);
+    border-color: var(--text-secondary);
 }
 
 .btn-secondary:hover {
-    background-color: #5a6268;
-    border-color: #545b62;
+    background-color: var(--text-secondary);
+    border-color: var(--text-secondary);
 }
 
 /* Loading States */
@@ -1093,14 +1088,14 @@ body {
 .dependency-list::-webkit-scrollbar-thumb,
 .repository-list::-webkit-scrollbar-thumb,
 .dependency-grid::-webkit-scrollbar-thumb {
-    background: #c1c1c1;
+    background: var(--text-secondary);
     border-radius: 3px;
 }
 
 .dependency-list::-webkit-scrollbar-thumb:hover,
 .repository-list::-webkit-scrollbar-thumb:hover,
 .dependency-grid::-webkit-scrollbar-thumb:hover {
-    background: #a8a8a8;
+    background: var(--text-secondary);
 }
 
 /* Category Breakdown */
@@ -1127,22 +1122,22 @@ body {
 }
 
 .category-card.code {
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    background: linear-gradient(135deg, var(--color-blue) 0%, var(--color-blue) 100%);
     color: white;
 }
 
 .category-card.workflow {
-    background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+    background: linear-gradient(135deg, var(--color-red) 0%, var(--color-red) 100%);
     color: white;
 }
 
 .category-card.infrastructure {
-    background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
+    background: linear-gradient(135deg, var(--color-blue) 0%, var(--color-blue) 100%);
     color: white;
 }
 
 .category-card.unknown {
-    background: linear-gradient(135deg, #43e97b 0%, #38f9d7 100%);
+    background: linear-gradient(135deg, var(--color-green) 0%, var(--color-green) 100%);
     color: white;
 }
 
@@ -1178,19 +1173,19 @@ body {
     border-radius: 8px;
     text-align: center;
     box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-    border-left: 4px solid #007bff;
+    border-left: 4px solid var(--color-blue);
 }
 
 .language-number {
     font-size: 1.5rem;
     font-weight: bold;
-    color: #007bff;
+    color: var(--color-blue);
     margin: 0.5rem 0;
 }
 
 .language-detail {
     font-size: 0.8rem;
-    color: #6c757d;
+    color: var(--text-secondary);
 }
 
 /* Filter Buttons */
@@ -1211,33 +1206,33 @@ body {
     font-size: 0.7rem;
     padding: 0.2rem 0.5rem;
     border-radius: 12px;
-    background: #e9ecef;
-    color: #495057;
+    background: var(--bg-tertiary);
+    color: var(--text-secondary);
     text-transform: uppercase;
     font-weight: bold;
 }
 
 .dependency-item.code .dep-category,
 .dependency-card.code .dep-category {
-    background: #667eea;
+    background: var(--color-blue);
     color: white;
 }
 
 .dependency-item.workflow .dep-category,
 .dependency-card.workflow .dep-category {
-    background: #f093fb;
+    background: var(--color-red);
     color: white;
 }
 
 .dependency-item.infrastructure .dep-category,
 .dependency-card.infrastructure .dep-category {
-    background: #4facfe;
+    background: var(--color-blue);
     color: white;
 }
 
 .dependency-item.unknown .dep-category,
 .dependency-card.unknown .dep-category {
-    background: #43e97b;
+    background: var(--color-green);
     color: white;
 }
 
@@ -1256,60 +1251,60 @@ body {
 }
 
 .badge-code {
-    background: #667eea;
+    background: var(--color-blue);
     color: white;
 }
 
 .badge-workflow {
-    background: #f093fb;
+    background: var(--color-red);
     color: white;
 }
 
 .badge-infrastructure {
-    background: #4facfe;
+    background: var(--color-blue);
     color: white;
 }
 
 /* Dependency Details Badges */
 .badge-code {
-    background: #667eea;
+    background: var(--color-blue);
     color: white;
 }
 
 .badge-workflow {
-    background: #f093fb;
+    background: var(--color-red);
     color: white;
 }
 
 .badge-infrastructure {
-    background: #4facfe;
+    background: var(--color-blue);
     color: white;
 }
 
 .badge-unknown {
-    background: #43e97b;
+    background: var(--color-green);
     color: white;
 }
 
 /* Enhanced dependency items with category styling */
 .dependency-item.code,
 .dependency-card.code {
-    border-left: 4px solid #667eea;
+    border-left: 4px solid var(--color-blue);
 }
 
 .dependency-item.workflow,
 .dependency-card.workflow {
-    border-left: 4px solid #f093fb;
+    border-left: 4px solid var(--color-red);
 }
 
 .dependency-item.infrastructure,
 .dependency-card.infrastructure {
-    border-left: 4px solid #4facfe;
+    border-left: 4px solid var(--color-blue);
 }
 
 .dependency-item.unknown,
 .dependency-card.unknown {
-    border-left: 4px solid #43e97b;
+    border-left: 4px solid var(--color-green);
 }
 
 /* Responsive adjustments */
@@ -1335,14 +1330,14 @@ body {
 .vulnerability-breakdown {
     margin: 2rem 0;
     background: var(--bg-tertiary);
-    border: 1px solid #dee2e6;
+    border: 1px solid var(--border-color);
     border-radius: 12px;
     padding: 1.5rem;
 }
 
 .vulnerability-breakdown h3 {
     margin: 0 0 1rem 0;
-    color: #495057;
+    color: var(--text-secondary);
     font-size: 1.2rem;
 }
 
@@ -1367,7 +1362,7 @@ body {
 
 .vuln-stat-card {
     background: var(--bg-secondary);
-    border: 1px solid #dee2e6;
+    border: 1px solid var(--border-color);
     border-radius: 8px;
     padding: 1rem;
     text-align: center;
@@ -1380,44 +1375,44 @@ body {
 }
 
 .vuln-stat-card.critical {
-    border-left: 4px solid #dc3545;
+    border-left: 4px solid var(--color-red);
 }
 
 .vuln-stat-card.high {
-    border-left: 4px solid #fd7e14;
+    border-left: 4px solid var(--color-dirty-yellow);
 }
 
 .vuln-stat-card.medium {
-    border-left: 4px solid #ffc107;
+    border-left: 4px solid var(--color-yellow);
 }
 
 .vuln-stat-card.low {
-    border-left: 4px solid #20c997;
+    border-left: 4px solid var(--color-green);
 }
 
 .vuln-stat-card.total {
-    border-left: 4px solid #6c757d;
+    border-left: 4px solid var(--text-secondary);
 }
 
 .vuln-stat-card.rate {
-    border-left: 4px solid #17a2b8;
+    border-left: 4px solid var(--color-blue);
 }
 
 .vuln-stat-card h4 {
     margin: 0 0 0.5rem 0;
     font-size: 0.9rem;
-    color: #6c757d;
+    color: var(--text-secondary);
 }
 
 .vuln-number {
     font-size: 1.5rem;
     font-weight: bold;
-    color: #007bff;
+    color: var(--color-blue);
 }
 
 .vuln-detail {
     font-size: 0.8rem;
-    color: #6c757d;
+    color: var(--text-secondary);
     margin-top: 0.25rem;
 }
 
@@ -1427,7 +1422,7 @@ body {
 
 .vulnerable-dependencies h4 {
     margin: 0 0 1rem 0;
-    color: #495057;
+    color: var(--text-secondary);
     font-size: 1rem;
 }
 
@@ -1438,7 +1433,7 @@ body {
 
 .vulnerable-dep-item {
     background: var(--bg-secondary);
-    border: 1px solid #dee2e6;
+    border: 1px solid var(--border-color);
     border-radius: 6px;
     padding: 0.75rem;
     display: flex;
@@ -1452,7 +1447,7 @@ body {
 .vulnerable-dep-item:hover {
     transform: translateY(-1px);
     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
-    border-color: #007bff;
+    border-color: var(--color-blue);
 }
 
 .vuln-dep-info {
@@ -1466,13 +1461,13 @@ body {
 
 .vuln-dep-name {
     font-weight: 500;
-    color: #495057;
+    color: var(--text-secondary);
     font-family: 'Courier New', monospace;
 }
 
 .vuln-dep-count {
     font-size: 0.8rem;
-    color: #6c757d;
+    color: var(--text-secondary);
 }
 
 .vuln-severity-badges {
@@ -1482,33 +1477,33 @@ body {
 }
 
 .badge.severity-critical {
-    background-color: #dc3545;
+    background-color: var(--color-red);
     color: white;
 }
 
 .badge.severity-high {
-    background-color: #fd7e14;
+    background-color: var(--color-dirty-yellow);
     color: white;
 }
 
 .badge.severity-medium,
 .badge.severity-moderate {
-    background-color: #ffc107;
-    color: #212529;
+    background-color: var(--color-yellow);
+    color: var(--text-primary);
 }
 
 .badge.severity-low {
-    background-color: #20c997;
+    background-color: var(--color-green);
     color: white;
 }
 
 .badge.severity-unknown {
-    background-color: #6c757d;
+    background-color: var(--text-secondary);
     color: white;
 }
 
 .badge.severity-informational {
-    background-color: #17a2b8;
+    background-color: var(--color-blue);
     color: white;
 }
 
@@ -1578,14 +1573,14 @@ body {
 .top-dependencies {
     margin: 2rem 0;
     background: var(--bg-tertiary);
-    border: 1px solid #dee2e6;
+    border: 1px solid var(--border-color);
     border-radius: 12px;
     padding: 1.5rem;
 }
 
 .top-dependencies h3 {
     margin: 0 0 1rem 0;
-    color: #495057;
+    color: var(--text-secondary);
     font-size: 1.2rem;
 }
 
@@ -1593,14 +1588,14 @@ body {
 .top-repositories {
     margin: 2rem 0;
     background: var(--bg-tertiary);
-    border: 1px solid #dee2e6;
+    border: 1px solid var(--border-color);
     border-radius: 12px;
     padding: 1.5rem;
 }
 
 .top-repositories h3 {
     margin: 0 0 1rem 0;
-    color: #495057;
+    color: var(--text-secondary);
     font-size: 1.2rem;
 }
 
@@ -1614,7 +1609,7 @@ body {
 
 .repository-item {
     background: var(--bg-secondary);
-    border: 1px solid #dee2e6;
+    border: 1px solid var(--border-color);
     border-radius: 8px;
     padding: 1rem;
     cursor: pointer;
@@ -1627,32 +1622,32 @@ body {
 .repository-item:hover {
     transform: translateY(-2px);
     box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
-    border-color: #007bff;
+    border-color: var(--color-blue);
 }
 
 .repository-item .repo-name {
     font-weight: 500;
-    color: #495057;
+    color: var(--text-secondary);
     font-family: 'Courier New', monospace;
 }
 
 .repository-item .repo-deps {
     font-size: 0.875rem;
-    color: #6c757d;
+    color: var(--text-secondary);
 }
 
 /* All Dependencies Section */
 .all-dependencies {
     margin: 2rem 0;
     background: var(--bg-tertiary);
-    border: 1px solid #dee2e6;
+    border: 1px solid var(--border-color);
     border-radius: 12px;
     padding: 1.5rem;
 }
 
 .all-dependencies h3 {
     margin: 0 0 1rem 0;
-    color: #495057;
+    color: var(--text-secondary);
     font-size: 1.2rem;
 }
 
@@ -1736,7 +1731,7 @@ body {
     top: 100%;
     left: 50%;
     transform: translateX(-50%) translateY(-10px);
-    background: linear-gradient(135deg, #2c3e50 0%, #34495e 100%);
+    background: linear-gradient(135deg, var(--bg-tertiary) 0%, var(--bg-secondary) 100%);
     color: white;
     padding: 20px;
     border-radius: 12px;
@@ -1761,7 +1756,7 @@ body {
     transform: translateX(-50%);
     border-left: 8px solid transparent;
     border-right: 8px solid transparent;
-    border-bottom: 8px solid #2c3e50;
+    border-bottom: 8px solid var(--bg-tertiary);
 }
 
 .license-tooltip::after {
@@ -1784,7 +1779,7 @@ body {
 .license-tooltip-header {
     font-weight: 600;
     font-size: 1.1em;
-    color: #ecf0f1;
+    color: var(--text-primary);
     border-bottom: 1px solid rgba(255,255,255,0.2);
     padding-bottom: 8px;
     margin-bottom: 8px;
@@ -1808,12 +1803,12 @@ body {
 .license-tooltip-stat-value {
     font-weight: 600;
     font-size: 1.2em;
-    color: #3498db;
+    color: var(--color-blue);
     display: block;
 }
 
 .license-tooltip-stat-label {
-    color: #bdc3c7;
+    color: var(--text-secondary);
     font-size: 0.8em;
     text-transform: uppercase;
     letter-spacing: 0.5px;
@@ -1832,8 +1827,8 @@ body {
     border-radius: 4px;
     margin-bottom: 4px;
     font-size: 0.85em;
-    color: #ecf0f1;
-    border-left: 3px solid #3498db;
+    color: var(--text-primary);
+    border-left: 3px solid var(--color-blue);
 }
 
 .license-tooltip-repo:last-child {
@@ -1848,7 +1843,7 @@ body {
 }
 
 .license-tooltip-click {
-    background: linear-gradient(135deg, #3498db 0%, #2980b9 100%);
+    background: linear-gradient(135deg, var(--color-blue) 0%, var(--color-blue) 100%);
     color: white;
     padding: 8px 16px;
     border-radius: 6px;
@@ -1862,7 +1857,7 @@ body {
 }
 
 .license-tooltip-click:hover {
-    background: linear-gradient(135deg, #2980b9 0%, #1f5f8b 100%);
+    background: linear-gradient(135deg, var(--color-blue) 0%, var(--color-blue) 100%);
     transform: translateY(-1px);
     box-shadow: 0 4px 12px rgba(52, 152, 219, 0.3);
 }
@@ -1963,7 +1958,7 @@ body {
     padding: 1rem;
     background: var(--bg-tertiary);
     border-radius: 0.5rem;
-    border-left: 4px solid #dc3545;
+    border-left: 4px solid var(--color-red);
     transition: all 0.3s ease;
 }
 
@@ -1980,12 +1975,12 @@ body {
 
 .conflict-type {
     font-weight: 600;
-    color: #dc3545;
+    color: var(--color-red);
     font-size: 0.9rem;
 }
 
 .conflict-description {
-    color: #495057;
+    color: var(--text-secondary);
     font-size: 0.9rem;
 }
 
@@ -1996,7 +1991,7 @@ body {
 }
 
 .badge-license {
-    background-color: #6c757d;
+    background-color: var(--text-secondary);
     color: white;
     font-size: 0.75rem;
     padding: 0.25rem 0.5rem;
@@ -2041,17 +2036,17 @@ body {
 
 .risk-name {
     font-weight: 600;
-    color: #495057;
+    color: var(--text-secondary);
     font-family: 'Courier New', monospace;
 }
 
 .risk-license {
-    color: #ffc107;
+    color: var(--color-yellow);
     font-size: 0.9rem;
 }
 
 .risk-category {
-    color: #6c757d;
+    color: var(--text-secondary);
     font-size: 0.9em;
 }
 
@@ -2063,8 +2058,8 @@ body {
 }
 
 .badge-warning {
-    background-color: #ffc107;
-    color: #212529;
+    background-color: var(--color-yellow);
+    color: var(--text-primary);
     font-size: 0.75rem;
     padding: 0.25rem 0.5rem;
     border-radius: 0.25rem;
@@ -2076,7 +2071,7 @@ body {
 }
 
 .license-recommendations h4 {
-    color: #17a2b8;
+    color: var(--color-blue);
     margin-bottom: 1rem;
     font-weight: 600;
 }
@@ -2120,22 +2115,22 @@ body {
 }
 
 .recommendation-item.warning .rec-priority {
-    background-color: #ffc107;
-    color: #212529;
+    background-color: var(--color-yellow);
+    color: var(--text-primary);
 }
 
 .recommendation-item.error .rec-priority {
-    background-color: #dc3545;
+    background-color: var(--color-red);
     color: white;
 }
 
 .recommendation-item.info .rec-priority {
-    background-color: #17a2b8;
+    background-color: var(--color-blue);
     color: white;
 }
 
 .rec-message {
-    color: #495057;
+    color: var(--text-secondary);
     font-size: 0.9rem;
     flex: 1;
 }
@@ -2169,7 +2164,7 @@ body {
 }
 
 .license-warnings li {
-    color: #dc3545;
+    color: var(--color-red);
     font-size: 0.9rem;
 }
 
@@ -2264,25 +2259,25 @@ body {
 }
 
 .badge-permissive {
-    background: #28a745;
+    background: var(--color-green);
     color: white;
     font-size: 0.75rem;
 }
 
 .badge-copyleft {
-    background: #dc3545;
+    background: var(--color-red);
     color: white;
     font-size: 0.75rem;
 }
 
 .badge-proprietary {
-    background: #ffc107;
+    background: var(--color-yellow);
     color: var(--bs-dark);
     font-size: 0.75rem;
 }
 
 .badge-unknown {
-    background: #6c757d;
+    background: var(--text-secondary);
     color: white;
     font-size: 0.75rem;
 }
@@ -2362,7 +2357,7 @@ body {
 
 .dependency-item {
     background: var(--bg-tertiary);
-    border: 1px solid #dee2e6;
+    border: 1px solid var(--border-color);
     border-radius: 8px;
     padding: 15px;
     transition: all 0.2s ease;
@@ -2381,17 +2376,17 @@ body {
 
 .dep-name {
     font-weight: 600;
-    color: #495057;
+    color: var(--text-secondary);
     font-family: 'Courier New', monospace;
 }
 
 .dep-license {
-    color: #6c757d;
+    color: var(--text-secondary);
     font-size: 0.9em;
 }
 
 .dep-category {
-    color: #6c757d;
+    color: var(--text-secondary);
     font-size: 0.85em;
     font-style: italic;
 }
@@ -2414,7 +2409,7 @@ body {
 
 .repository-item {
     background: var(--bg-secondary);
-    border: 1px solid #dee2e6;
+    border: 1px solid var(--border-color);
     border-radius: 8px;
     padding: 20px;
     box-shadow: 0 1px 3px rgba(0,0,0,0.1);
@@ -2432,12 +2427,12 @@ body {
     align-items: center;
     margin-bottom: 15px;
     padding-bottom: 10px;
-    border-bottom: 1px solid #e9ecef;
+    border-bottom: 1px solid var(--bg-tertiary);
 }
 
 .repo-header h5 {
     margin: 0;
-    color: #495057;
+    color: var(--text-secondary);
     font-weight: 600;
 }
 
@@ -2454,13 +2449,13 @@ body {
     padding: 8px 12px;
     background: var(--bg-tertiary);
     border-radius: 6px;
-    border-left: 3px solid #007bff;
+    border-left: 3px solid var(--color-blue);
 }
 
 .repo-dep-item .dep-name {
     font-family: 'Courier New', monospace;
     font-size: 0.9em;
-    color: #495057;
+    color: var(--text-secondary);
 }
 
 .repo-actions {
@@ -2483,17 +2478,17 @@ body {
 
 .recommendation-item.warning {
     background: var(--bg-warning);
-    border-left-color: #ffc107;
+    border-left-color: var(--color-yellow);
 }
 
 .recommendation-item.info {
-    background: #d1ecf1;
-    border-left-color: #17a2b8;
+    background: var(--bg-info);
+    border-left-color: var(--color-blue);
 }
 
 .recommendation-item.error {
-    background: #f8d7da;
-    border-left-color: #dc3545;
+    background: var(--bg-danger);
+    border-left-color: var(--color-red);
 }
 
 .rec-priority {
@@ -2502,7 +2497,7 @@ body {
 }
 
 .rec-message {
-    color: #495057;
+    color: var(--text-secondary);
     line-height: 1.5;
 }
 
@@ -2514,42 +2509,42 @@ body {
 }
 
 .btn-outline-danger {
-    border-color: #dc3545;
-    color: #dc3545;
+    border-color: var(--color-red);
+    color: var(--color-red);
 }
 
 .btn-outline-danger:hover {
-    background-color: #dc3545;
-    border-color: #dc3545;
+    background-color: var(--color-red);
+    border-color: var(--color-red);
     color: white;
 }
 
 .btn-outline-warning {
-    border-color: #ffc107;
-    color: #856404;
+    border-color: var(--color-yellow);
+    color: var(--color-dirty-yellow);
 }
 
 .btn-outline-warning:hover {
-    background-color: #ffc107;
-    border-color: #ffc107;
-    color: #212529;
+    background-color: var(--color-yellow);
+    border-color: var(--color-yellow);
+    color: var(--text-primary);
 }
 
 .btn-outline-info {
-    border-color: #17a2b8;
-    color: #17a2b8;
+    border-color: var(--color-blue);
+    color: var(--color-blue);
 }
 
 .btn-outline-info:hover {
-    background-color: #17a2b8;
-    border-color: #17a2b8;
+    background-color: var(--color-blue);
+    border-color: var(--color-blue);
     color: white;
 }
 
 /* License conflict item enhancements */
 .license-conflict-item {
     background: var(--bg-secondary);
-    border: 1px solid #dee2e6;
+    border: 1px solid var(--border-color);
     border-radius: 8px;
     padding: 20px;
     margin-bottom: 15px;
@@ -2570,12 +2565,12 @@ body {
 
 .conflict-type {
     font-weight: 600;
-    color: #dc3545;
+    color: var(--color-red);
     font-size: 1.1em;
 }
 
 .conflict-description {
-    color: #495057;
+    color: var(--text-secondary);
     line-height: 1.5;
 }
 
@@ -2588,7 +2583,7 @@ body {
 /* High-risk license item enhancements */
 .high-risk-item {
     background: var(--bg-secondary);
-    border: 1px solid #dee2e6;
+    border: 1px solid var(--border-color);
     border-radius: 8px;
     padding: 20px;
     margin-bottom: 15px;
@@ -2613,17 +2608,17 @@ body {
 
 .risk-name {
     font-weight: 600;
-    color: #495057;
+    color: var(--text-secondary);
     font-family: 'Courier New', monospace;
 }
 
 .risk-license {
-    color: #ffc107;
+    color: var(--color-yellow);
     font-weight: 500;
 }
 
 .risk-category {
-    color: #6c757d;
+    color: var(--text-secondary);
     font-size: 0.9em;
 }
 
@@ -2715,23 +2710,23 @@ body {
 }
 
 .license-change-item {
-    background: white;
-    border: 2px solid #ffc107;
+    background: var(--bg-secondary);
+    border: 2px solid var(--color-yellow);
     border-radius: 8px;
-    padding: 20px;
-    box-shadow: 0 2px 8px rgba(255, 193, 7, 0.2);
+    padding: var(--space-4);
+    box-shadow: 0 2px 8px var(--bg-warning);
     transition: all 0.2s ease;
 }
 
 .license-change-item:hover {
-    box-shadow: 0 4px 12px rgba(255, 193, 7, 0.3);
+    box-shadow: 0 4px 12px var(--bg-warning);
     transform: translateY(-2px);
 }
 
 .license-change-header {
-    margin-bottom: 15px;
-    padding-bottom: 15px;
-    border-bottom: 2px solid #ffc107;
+    margin-bottom: var(--space-3);
+    padding-bottom: var(--space-3);
+    border-bottom: 2px solid var(--color-yellow);
 }
 
 .license-change-header h5 {
@@ -2751,18 +2746,18 @@ body {
 }
 
 .dependency-name code {
-    background: rgba(255, 193, 7, 0.1);
+    background: var(--bg-warning);
     padding: 4px 8px;
     border-radius: 4px;
-    font-size: 1rem;
-    color: #856404;
+    font-size: var(--font-size-body);
+    color: var(--color-dirty-yellow);
 }
 
 .version-comparison {
-    background: #f8f9fa;
+    background: var(--bg-tertiary);
     border-radius: 6px;
-    padding: 15px;
-    border-left: 4px solid #ffc107;
+    padding: var(--space-3);
+    border-left: 4px solid var(--color-yellow);
 }
 
 .version-item {
@@ -2774,8 +2769,8 @@ body {
 }
 
 .version-arrow {
-    font-size: 1.5rem;
-    color: #007bff;
+    font-size: var(--font-size-section);
+    color: var(--color-blue);
 }
 
 .affected-repositories {
@@ -2792,24 +2787,24 @@ body {
 
 .repo-item {
     padding: 8px 12px;
-    background: #f8f9fa;
+    background: var(--bg-tertiary);
     border-radius: 4px;
-    border-left: 3px solid #007bff;
+    border-left: 3px solid var(--color-blue);
     transition: all 0.2s ease;
 }
 
 .repo-item:hover {
-    background: #e9ecef;
+    background: var(--bg-secondary);
     transform: translateX(5px);
 }
 
 .repo-link {
-    color: #007bff;
+    color: var(--color-blue);
     transition: all 0.2s ease;
 }
 
 .repo-link:hover {
-    color: #0056b3;
+    color: var(--color-blue);
     text-decoration: underline !important;
 }
 
@@ -2818,13 +2813,13 @@ body {
 }
 
 .dependency-link {
-    color: #007bff;
+    color: var(--color-blue);
     text-decoration: none;
     transition: all 0.2s ease;
 }
 
 .dependency-link:hover {
-    color: #0056b3;
+    color: var(--color-blue);
     text-decoration: underline;
 }
 
@@ -2833,18 +2828,18 @@ body {
     padding: 2px 6px;
     border-radius: 4px;
     font-size: 1rem;
-    color: #007bff;
+    color: var(--color-blue);
     transition: all 0.2s ease;
 }
 
 .dependency-link:hover code {
     background: rgba(0, 123, 255, 0.2);
-    color: #0056b3;
+    color: var(--color-blue);
 }
 
 .license-issue-group {
     background: var(--bg-secondary);
-    border: 1px solid #dee2e6;
+    border: 1px solid var(--border-color);
     border-radius: 8px;
     padding: 20px;
     margin-bottom: 20px;
@@ -2859,7 +2854,7 @@ body {
 .license-issue-header {
     margin-bottom: 15px;
     padding-bottom: 15px;
-    border-bottom: 2px solid #dee2e6;
+    border-bottom: 2px solid var(--border-color);
 }
 
 .license-issue-header h5 {
@@ -2877,22 +2872,22 @@ body {
 }
 
 .badge-copyleft {
-    background-color: #dc3545;
+    background-color: var(--color-red);
     color: white;
 }
 
 .badge-proprietary {
-    background-color: #6c757d;
+    background-color: var(--text-secondary);
     color: white;
 }
 
 .badge-unknown {
-    background-color: #ffc107;
-    color: #212529;
+    background-color: var(--color-yellow);
+    color: var(--text-primary);
 }
 
 .badge-unlicensed {
-    background-color: #dc3545;
+    background-color: var(--color-red);
     color: white;
 }
 
@@ -2906,7 +2901,7 @@ body {
     background: var(--bg-tertiary);
     border-radius: 6px;
     padding: 15px;
-    border-left: 3px solid #007bff;
+    border-left: 3px solid var(--color-blue);
 }
 
 .repo-name {
@@ -2917,7 +2912,7 @@ body {
 }
 
 .repo-name i {
-    color: #007bff;
+    color: var(--color-blue);
 }
 
 .packages-list {
@@ -2941,7 +2936,7 @@ body {
 
 .package-link:hover {
     text-decoration: underline;
-    color: #0056b3 !important;
+    color: var(--color-blue) !important;
 }
 
 .package-link code {
@@ -2949,7 +2944,7 @@ body {
     padding: 2px 6px;
     border-radius: 4px;
     font-size: 0.9em;
-    color: #007bff;
+    color: var(--color-blue);
 }
 
 .package-link:hover code {
@@ -2959,7 +2954,7 @@ body {
 /* Recommendation item enhancements */
 .recommendation-item {
     background: var(--bg-secondary);
-    border: 1px solid #dee2e6;
+    border: 1px solid var(--border-color);
     border-radius: 8px;
     padding: 20px;
     margin-bottom: 15px;
@@ -2977,11 +2972,11 @@ body {
 
 .rec-priority {
     font-weight: 600;
-    color: #495057;
+    color: var(--text-secondary);
 }
 
 .rec-message {
-    color: #6c757d;
+    color: var(--text-secondary);
     line-height: 1.5;
     flex: 1;
     margin-right: 15px;
@@ -3025,7 +3020,7 @@ body {
     width: 400px;
     height: 100vh;
     background: var(--bg-secondary);
-    border-left: 1px solid #dee2e6;
+    border-left: 1px solid var(--border-color);
     box-shadow: -5px 0 15px rgba(0,0,0,0.1);
     z-index: 1050;
     transition: right 0.3s cubic-bezier(0.4, 0, 0.2, 1);
@@ -3041,7 +3036,7 @@ body {
     justify-content: space-between;
     align-items: center;
     padding: 20px;
-    border-bottom: 1px solid #dee2e6;
+    border-bottom: 1px solid var(--border-color);
     background: var(--bg-tertiary);
     position: sticky;
     top: 0;
@@ -3050,7 +3045,7 @@ body {
 
 .panel-header h4 {
     margin: 0;
-    color: #495057;
+    color: var(--text-secondary);
     font-weight: 600;
 }
 
@@ -3070,20 +3065,20 @@ body {
     padding: 15px;
     background: var(--bg-tertiary);
     border-radius: 8px;
-    border: 1px solid #dee2e6;
+    border: 1px solid var(--border-color);
 }
 
 .license-panel-stats .stat-value {
     display: block;
     font-size: 1.5rem;
     font-weight: 700;
-    color: #495057;
+    color: var(--text-secondary);
     margin-bottom: 5px;
 }
 
 .license-panel-stats .stat-label {
     font-size: 0.85rem;
-    color: #6c757d;
+    color: var(--text-secondary);
     text-transform: uppercase;
     letter-spacing: 0.5px;
 }
@@ -3096,9 +3091,9 @@ body {
 .license-panel-repositories h5,
 .license-panel-dependencies h5 {
     margin-bottom: 15px;
-    color: #495057;
+    color: var(--text-secondary);
     font-weight: 600;
-    border-bottom: 2px solid #e9ecef;
+    border-bottom: 2px solid var(--bg-tertiary);
     padding-bottom: 8px;
 }
 
@@ -3124,7 +3119,7 @@ body {
     margin-bottom: 8px;
     background: var(--bg-tertiary);
     border-radius: 6px;
-    border: 1px solid #dee2e6;
+    border: 1px solid var(--border-color);
 }
 
 .modal-body .repo-header {
@@ -3137,7 +3132,7 @@ body {
 .modal-body .repo-header h6 {
     margin: 0;
     font-weight: 600;
-    color: #495057;
+    color: var(--text-secondary);
 }
 
 .modal-body .repo-dependencies {
@@ -3232,23 +3227,23 @@ body {
 }
 
 .badge-direct {
-    background: var(--color-blue, #0d6efd);
-    color: #ffffff;
+    background: var(--color-blue, var(--color-blue));
+    color: var(--text-primary);
 }
 
 .badge-transitive {
-    background: var(--text-secondary, #6c757d);
-    color: #ffffff;
+    background: var(--text-secondary, var(--text-secondary));
+    color: var(--text-primary);
 }
 
 .clickable-cell {
     cursor: pointer;
-    color: var(--color-blue, #0d6efd);
+    color: var(--color-blue, var(--color-blue));
     text-decoration: underline;
 }
 
 .clickable-cell:hover {
-    color: var(--color-blue, #0a58ca);
+    color: var(--color-blue, var(--color-blue));
     opacity: 0.8;
 }
 
@@ -3273,12 +3268,12 @@ body {
 
 .stat-box h3 {
     margin: 0;
-    color: var(--color-blue, #0d6efd);
+    color: var(--color-blue, var(--color-blue));
 }
 
 .stat-box p {
     margin: 5px 0 0 0;
-    color: var(--text-secondary, #6c757d);
+    color: var(--text-secondary, var(--text-secondary));
     font-size: 0.9em;
 }
 
@@ -3306,7 +3301,7 @@ body {
 .load-more-container {
     text-align: center;
     padding: 20px;
-    border-top: 1px solid #dee2e6;
+    border-top: 1px solid var(--border-color);
 }
 
 [data-theme="dark"] .load-more-container {
@@ -3410,28 +3405,28 @@ body {
 
 .vulnerability-summary a,
 .vulnerability-details a {
-    color: var(--color-blue, #0d6efd);
+    color: var(--color-blue, var(--color-blue));
     text-decoration: underline;
 }
 
 .vulnerability-summary a:hover,
 .vulnerability-details a:hover {
-    color: var(--color-blue, #0a58ca);
+    color: var(--color-blue, var(--color-blue));
     opacity: 0.8;
 }
 
 .vulnerability-summary blockquote,
 .vulnerability-details blockquote {
-    border-left: 3px solid #dee2e6;
+    border-left: 3px solid var(--border-color);
     padding-left: 1rem;
     margin: 0.75rem 0;
-    color: #6c757d;
+    color: var(--text-secondary);
 }
 
 [data-theme="dark"] .vulnerability-summary blockquote,
 [data-theme="dark"] .vulnerability-details blockquote {
     border-left-color: rgba(255, 255, 255, 0.2);
-    color: #adb5bd;
+    color: var(--text-secondary);
 }
 
 /* Authors Page Dark Mode Styles */
@@ -3470,13 +3465,13 @@ body {
 [data-theme="dark"] .alert-info {
     background-color: rgba(13, 110, 253, 0.2);
     border-color: rgba(13, 110, 253, 0.4);
-    color: #9db4ff;
+    color: var(--color-blue);
 }
 
 [data-theme="dark"] .alert-warning {
     background-color: rgba(255, 193, 7, 0.2);
     border-color: rgba(255, 193, 7, 0.4);
-    color: #ffecb3;
+    color: var(--color-yellow);
 }
 
 [data-theme="dark"] .btn-outline-primary,
@@ -3641,20 +3636,20 @@ body {
 
 /* Upload Drop Zone Styles */
 .upload-drop-zone {
-    border: 2px dashed var(--border-color, #dee2e6);
+    border: 2px dashed var(--border-color, var(--border-color));
     border-radius: 0.5rem;
-    background-color: var(--bg-secondary, #f8f9fa);
+    background-color: var(--bg-secondary, var(--bg-tertiary));
     cursor: pointer;
     transition: all 0.2s ease-in-out;
 }
 
 .upload-drop-zone:hover {
-    border-color: var(--primary-color, #50c878);
-    background-color: var(--bg-tertiary, #e9ecef);
+    border-color: var(--primary-color, var(--text-primary));
+    background-color: var(--bg-tertiary, var(--bg-tertiary));
 }
 
 .upload-drop-zone.drag-over {
-    border-color: var(--primary-color, #50c878);
+    border-color: var(--primary-color, var(--text-primary));
     background-color: rgba(80, 200, 120, 0.1);
     border-style: solid;
 }
@@ -3669,7 +3664,7 @@ body {
 
 .upload-drop-zone.drag-over i {
     transform: scale(1.2);
-    color: var(--primary-color, #50c878);
+    color: var(--primary-color, var(--text-primary));
 }
 
 /* Upload Queue Styles */
@@ -3678,7 +3673,7 @@ body {
 }
 
 .queue-item:hover {
-    background-color: var(--bg-tertiary, #f8f9fa);
+    background-color: var(--bg-tertiary, var(--bg-tertiary));
 }
 
 .queue-item:last-child {
@@ -3729,11 +3724,11 @@ body {
 /* Option cards in modal */
 #rateLimitWarningModal .card {
     transition: all 0.2s ease;
-    border-color: var(--border-color, #dee2e6);
+    border-color: var(--border-color, var(--border-color));
 }
 
 #rateLimitWarningModal .card:hover {
-    border-color: var(--primary-color, #50c878);
+    border-color: var(--primary-color, var(--text-primary));
     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
 }
 
@@ -3741,7 +3736,7 @@ body {
 #backgroundAnalysisBanner {
     border-radius: 0.5rem;
     backdrop-filter: blur(8px);
-    border-left: 4px solid var(--info-color, #466fe0);
+    border-left: 4px solid var(--info-color, var(--color-blue));
 }
 
 #backgroundAnalysisBanner .progress {
@@ -3769,11 +3764,11 @@ body {
 
 /* Modal warning message styling */
 #rateLimitWarningMessage {
-    border-left: 4px solid var(--warning-color, #fdcb52);
+    border-left: 4px solid var(--warning-color, var(--color-yellow));
 }
 
 #rateLimitWarningMessage strong {
-    color: var(--warning-color, #b88c00);
+    color: var(--warning-color, var(--color-dirty-yellow));
 }
 
 /* Rate limit status alert icon alignment */
@@ -3788,7 +3783,7 @@ body {
     padding: 6px 10px;
     font-size: 0.75rem;
     line-height: 1.4;
-    color: var(--text-primary, #c9d1d9);
+    color: var(--text-primary, var(--text-primary));
     background: var(--bg-tertiary, #2a2a2a);
     border: 1px solid var(--border-color, #333);
     border-radius: 4px;
@@ -3831,3 +3826,150 @@ body {
     border-radius: 2px;
     min-width: 2px;
 } 
+/* ============================================================
+   Phase 1.5 / 4 — shared components
+   ============================================================ */
+
+/* Empty state — used on data pages when no analysis exists */
+.empty-state {
+    text-align: center;
+    padding: var(--space-6) var(--space-4);
+    color: var(--text-secondary);
+}
+.empty-state .empty-state-icon {
+    font-size: 48px;
+    color: var(--color-dirty-yellow);
+    margin-bottom: var(--space-3);
+}
+.empty-state h3 {
+    font-size: var(--font-size-heading);
+    color: var(--text-primary);
+    margin-bottom: var(--space-2);
+}
+.empty-state p {
+    font-size: var(--font-size-body);
+    color: var(--text-secondary);
+    margin-bottom: var(--space-4);
+    max-width: 480px;
+    margin-left: auto;
+    margin-right: auto;
+}
+
+/* App toast — promoted from the background-analysis banner */
+.app-toast {
+    position: fixed;
+    bottom: 0;
+    left: 50%;
+    transform: translateX(-50%);
+    margin-bottom: var(--space-3);
+    z-index: 1050;
+    max-width: 500px;
+    box-shadow: 0 0.5rem 1rem rgba(0, 0, 0, 0.15);
+}
+@media (max-width: 575.98px) {
+    .app-toast {
+        left: 0.5rem;
+        right: 0.5rem;
+        transform: none;
+        max-width: calc(100% - 1rem);
+    }
+}
+
+/* Tab strip — styled to match the rounded card system */
+.nav-tabs {
+    border-bottom: 1px solid var(--border-color);
+}
+.nav-tabs .nav-link {
+    border-radius: 0.5rem 0.5rem 0 0;
+    border: 1px solid transparent;
+    color: var(--text-secondary);
+    padding: var(--space-2) var(--space-3);
+}
+.nav-tabs .nav-link:hover {
+    color: var(--text-primary);
+    border-color: transparent;
+    background: var(--bg-tertiary);
+}
+.nav-tabs .nav-link.active {
+    color: var(--text-primary);
+    background: var(--bg-secondary);
+    border-color: var(--border-color) var(--border-color) var(--bg-secondary);
+    font-weight: 700;
+}
+
+/* Card hover — only on interactive cards (Phase 4.1) */
+.card { transition: box-shadow 0.3s ease; }
+.card:hover { transform: none; box-shadow: 0 0.125rem 0.25rem rgba(0, 0, 0, 0.075); }
+.card.is-interactive { cursor: pointer; }
+.card.is-interactive:hover {
+    box-shadow: 0 0.5rem 1rem rgba(0, 0, 0, 0.15);
+    transform: translateY(-2px);
+}
+
+/* Tables — hover + zebra (Phase 4.5) */
+.table tbody tr:hover { background: var(--bg-tertiary); }
+.table tbody tr:nth-child(even) td {
+    background-color: rgba(127, 127, 127, 0.04);
+}
+
+/* Sortable table header affordance */
+.table th[aria-sort] { cursor: pointer; user-select: none; }
+.table th[aria-sort="ascending"]::after { content: " \25B2"; opacity: 0.6; }
+.table th[aria-sort="descending"]::after { content: " \25BC"; opacity: 0.6; }
+.table th[aria-sort="none"]::after { content: " \2195"; opacity: 0.3; }
+
+/* Tablet breakpoint — filter strips reflow 2x2 (Phase 5) */
+@media (min-width: 768px) and (max-width: 991.98px) {
+    .filter-strip > [class*="col-"] {
+        flex: 0 0 50%;
+        max-width: 50%;
+        margin-bottom: var(--space-2);
+    }
+}
+
+/* Recommended modifier for modal option cards */
+.card.is-recommended {
+    border: 2px solid var(--color-yellow);
+    position: relative;
+}
+.card.is-recommended::before {
+    content: "Recommended";
+    position: absolute;
+    top: -10px;
+    right: 12px;
+    background: var(--color-yellow);
+    color: #000;
+    font-size: var(--font-size-caption);
+    font-weight: 700;
+    padding: 2px 8px;
+    border-radius: 4px;
+}
+
+/* Skip to content — visually hidden until focused */
+.visually-hidden-focusable {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    padding: 0;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    border: 0;
+}
+.visually-hidden-focusable:focus,
+.visually-hidden-focusable:focus-within {
+    position: fixed;
+    top: 10px;
+    left: 10px;
+    width: auto;
+    height: auto;
+    margin: 0;
+    padding: var(--space-2) var(--space-3);
+    overflow: visible;
+    clip: auto;
+    background: var(--bg-secondary);
+    color: var(--text-primary);
+    border: 2px solid var(--color-green);
+    border-radius: 4px;
+    z-index: 2000;
+}

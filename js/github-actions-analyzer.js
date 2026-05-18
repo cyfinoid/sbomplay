@@ -469,10 +469,6 @@ class GitHubActionsAnalyzer {
                     const jsFindings = await this.checkJavaScriptAction(owner, repo, ref, path, metadata);
                     findings.push(...jsFindings);
                 }
-
-                // Apply general heuristics
-                const heuristicFindings = this.applyHeuristics(metadata, owner, repo, ref, path);
-                findings.push(...heuristicFindings);
             }
 
             // Recursively analyze nested actions
@@ -1450,30 +1446,26 @@ class GitHubActionsAnalyzer {
 
     /**
      * Check workflow-level unpinned references
+     *
+     * Any ref that is not a 40-character commit SHA is a mutable tag, whether
+     * it's a branch/`latest`-style tag (`main`, `master`, `latest`) or a
+     * version tag (`v2`, `v2.3.4`). Both can be re-pointed by the action
+     * publisher, so they collapse into a single rule.
      */
     checkWorkflowLevel(owner, repo, ref, path) {
         const findings = [];
 
-        // Check if ref is unpinned
         if (!this.isPinned(ref)) {
-            const mutableTagCheck = this.checkMutableTag(ref);
-            if (mutableTagCheck) {
-                findings.push({
-                    rule_id: 'UNPINNED_ACTION_REFERENCE',
-                    severity: 'high',
-                    message: mutableTagCheck.message,
-                    action: `${owner}/${repo}${path ? '/' + path : ''}@${ref}`,
-                    details: `Action reference '${ref}' is not pinned to a commit SHA. Use a full 40-character commit SHA for immutability.`
-                });
-            } else {
-                findings.push({
-                    rule_id: 'UNPINNED_ACTION_REFERENCE',
-                    severity: 'medium',
-                    message: `Action reference is not a commit SHA: ${ref}`,
-                    action: `${owner}/${repo}${path ? '/' + path : ''}@${ref}`,
-                    details: `Action reference '${ref}' should be pinned to a commit SHA for immutability.`
-                });
-            }
+            const isLatestStyle = this.isMutableTag(ref);
+            findings.push({
+                rule_id: 'MUTABLE_TAG_REFERENCE',
+                severity: isLatestStyle ? 'high' : 'medium',
+                message: isLatestStyle
+                    ? `Action uses mutable tag reference: ${ref}`
+                    : `Action reference uses a version tag, not a commit SHA: ${ref}`,
+                action: `${owner}/${repo}${path ? '/' + path : ''}@${ref}`,
+                details: `Action reference '${ref}' is not pinned to a commit SHA. Pin to a full 40-character commit SHA for immutability.`
+            });
         }
 
         return findings;
@@ -1494,28 +1486,6 @@ class GitHubActionsAnalyzer {
         }
 
         return null;
-    }
-
-    /**
-     * Apply general heuristics to action metadata
-     */
-    applyHeuristics(metadata, owner, repo, ref, path) {
-        const findings = [];
-
-        // Check for mutable tags in metadata
-        if (ref && !this.isPinned(ref)) {
-            const mutableCheck = this.checkMutableTag(ref);
-            if (mutableCheck) {
-                findings.push({
-                    rule_id: 'MUTABLE_TAG_REFERENCE',
-                    severity: mutableCheck.severity,
-                    message: mutableCheck.message,
-                    action: `${owner}/${repo}${path ? '/' + path : ''}@${ref}`
-                });
-            }
-        }
-
-        return findings;
     }
 
     /**

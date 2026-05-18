@@ -5,6 +5,31 @@
  *             EOX (End-of-Life/Support) issues, and dead source repository detection
  */
 
+// Rule ids that describe patterns where pinning the action's SHA at the
+// workflow level does NOT protect against mutable runtime resources.
+// See Palo Alto "Unpinnable Actions" research:
+// https://www.paloaltonetworks.com/blog/cloud-security/unpinnable-actions-github-security/
+// Declared at module scope so the binding is initialized before the
+// DOMContentLoaded handler awaits anything that ends up calling
+// generateSecurityFindingsHTML.
+const UNPINNABLE_ACTION_RULES = new Set([
+    'INDIRECT_UNPINNABLE_ACTION',
+    'DOCKER_IMPLICIT_LATEST',
+    'DOCKER_FLOATING_TAG',
+    'DOCKER_UNPINNED_DEPENDENCIES',
+    'DOCKER_REMOTE_CODE_NO_INTEGRITY',
+    'DOCKERFILE_FLOATING_BASE_IMAGE',
+    'COMPOSITE_NESTED_UNPINNED_ACTION',
+    'COMPOSITE_UNPINNED_DEPENDENCIES',
+    'COMPOSITE_REMOTE_CODE_NO_INTEGRITY',
+    'UNPINNED_PACKAGE_INSTALL',
+    'REMOTE_CODE_NO_INTEGRITY',
+    // Older/alternate rule ids preserved so legacy stored analyses
+    // route into the same category on next page load.
+    'JS_REMOTE_CODE_NO_INTEGRITY',
+    'JS_RUNTIME_UNPINNED_DEPENDENCIES'
+]);
+
 document.addEventListener('DOMContentLoaded', async function() {
     // Wait for required classes to be available
     if (typeof StorageManager === 'undefined') {
@@ -365,11 +390,21 @@ document.addEventListener('DOMContentLoaded', async function() {
         }
 
         // === Collect GitHub Actions findings ===
-        if (findingTypeFilter === 'all' || findingTypeFilter === 'github-actions') {
+        // Splits into two categories so the page can separate things a
+        // workflow author can fix in their own repo (mutable-tag refs,
+        // dangerous PR target patterns, excessive permissions, hardcoded
+        // secrets) from "unpinnable" patterns inside third-party actions
+        // (Docker mutable image tags, composite child actions referenced
+        // by tag, runtime installs without integrity checks) that remain
+        // mutable even when the workflow pins the action by SHA. See
+        // https://www.paloaltonetworks.com/blog/cloud-security/unpinnable-actions-github-security/
+        const wantsGithubActions = findingTypeFilter === 'all' || findingTypeFilter === 'github-actions';
+        const wantsUnpinnable = findingTypeFilter === 'all' || findingTypeFilter === 'unpinnable-action';
+        if (wantsGithubActions || wantsUnpinnable) {
             const githubActionsAnalysis = orgData?.data?.githubActionsAnalysis;
             if (githubActionsAnalysis) {
                 let gaFindings = [];
-                
+
                 // Collect findings from repositories (they have repository context)
                 if (githubActionsAnalysis.repositories && Array.isArray(githubActionsAnalysis.repositories)) {
                     githubActionsAnalysis.repositories.forEach(repoResult => {
@@ -383,17 +418,17 @@ document.addEventListener('DOMContentLoaded', async function() {
                         }
                     });
                 }
-                
+
                 // Fallback: use top-level findings if repositories structure not available
                 if (gaFindings.length === 0 && githubActionsAnalysis.findings && githubActionsAnalysis.findings.length > 0) {
                     gaFindings = githubActionsAnalysis.findings;
                 }
-                
+
                 // Filter by repository if specified
                 if (repoFilter && repoFilter !== 'all') {
                     gaFindings = gaFindings.filter(f => f.repository === repoFilter);
                 }
-                
+
                 // Filter by severity
                 if (severityFilter && severityFilter !== 'all') {
                     gaFindings = gaFindings.filter(f => {
@@ -401,13 +436,17 @@ document.addEventListener('DOMContentLoaded', async function() {
                         return severity.toLowerCase() === severityFilter.toLowerCase();
                     });
                 }
-                
+
                 gaFindings.forEach(finding => {
+                    const ruleId = finding.rule_id || 'UNKNOWN';
+                    const category = UNPINNABLE_ACTION_RULES.has(ruleId) ? 'unpinnable-action' : 'github-actions';
+                    if (category === 'unpinnable-action' && !wantsUnpinnable) return;
+                    if (category === 'github-actions' && !wantsGithubActions) return;
                     allFindings.push({
-                        category: 'github-actions',
-                        type: finding.rule_id || 'UNKNOWN',
-                        typeName: getFindingName(finding.rule_id || 'UNKNOWN'),
-                        description: getFindingDescription(finding.rule_id || 'UNKNOWN'),
+                        category,
+                        type: ruleId,
+                        typeName: getFindingName(ruleId),
+                        description: getFindingDescription(ruleId),
                         severity: finding.severity || 'warning',
                         action: finding.action,
                         repository: finding.repository || null,
@@ -774,6 +813,7 @@ document.addEventListener('DOMContentLoaded', async function() {
             uniqueTypes: sortedTypes.length,
             malware: allFindings.filter(f => f.category === 'malware').length,
             githubActions: allFindings.filter(f => f.category === 'github-actions').length,
+            unpinnableAction: allFindings.filter(f => f.category === 'unpinnable-action').length,
             dependencyConfusion: allFindings.filter(f => f.category === 'dependency-confusion').length,
             eox: allFindings.filter(f => f.category === 'eox').length,
             sourceRepo: allFindings.filter(f => f.category === 'source-repo').length
@@ -783,42 +823,42 @@ document.addEventListener('DOMContentLoaded', async function() {
         html += '<div class="card-header"><h5 class="mb-0"><i class="fas fa-shield-alt me-2"></i>Security Findings Summary</h5></div>';
         html += '<div class="card-body">';
         
-        // Statistics cards
-        html += '<div class="row mb-4">';
-        html += `<div class="col-md-2">
-            <div class="card bg-light">
+        // Severity stats
+        html += '<div class="row row-cols-2 row-cols-md-5 g-3 mb-3">';
+        html += `<div class="col">
+            <div class="card bg-light h-100">
                 <div class="card-body text-center py-2">
                     <h3 class="mb-0">${stats.total}</h3>
                     <small class="text-muted">Total Findings</small>
                 </div>
             </div>
         </div>`;
-        html += `<div class="col-md-2">
-            <div class="card ${stats.critical > 0 ? 'bg-danger text-white' : 'bg-light'}">
+        html += `<div class="col">
+            <div class="card h-100 ${stats.critical > 0 ? 'bg-danger text-white' : 'bg-light'}">
                 <div class="card-body text-center py-2">
                     <h3 class="mb-0">${stats.critical}</h3>
                     <small class="${stats.critical > 0 ? '' : 'text-muted'}">Critical</small>
                 </div>
             </div>
         </div>`;
-        html += `<div class="col-md-2">
-            <div class="card ${stats.high > 0 ? 'bg-danger text-white' : 'bg-light'}">
+        html += `<div class="col">
+            <div class="card h-100 ${stats.high > 0 ? 'bg-danger text-white' : 'bg-light'}">
                 <div class="card-body text-center py-2">
                     <h3 class="mb-0">${stats.high}</h3>
                     <small class="${stats.high > 0 ? '' : 'text-muted'}">High</small>
                 </div>
             </div>
         </div>`;
-        html += `<div class="col-md-2">
-            <div class="card ${stats.medium > 0 ? 'bg-warning' : 'bg-light'}">
+        html += `<div class="col">
+            <div class="card h-100 ${stats.medium > 0 ? 'bg-warning' : 'bg-light'}">
                 <div class="card-body text-center py-2">
                     <h3 class="mb-0">${stats.medium}</h3>
                     <small class="${stats.medium > 0 ? '' : 'text-muted'}">Medium</small>
                 </div>
             </div>
         </div>`;
-        html += `<div class="col-md-2">
-            <div class="card ${stats.warning > 0 ? 'bg-info' : 'bg-light'}">
+        html += `<div class="col">
+            <div class="card h-100 ${stats.warning > 0 ? 'bg-info' : 'bg-light'}">
                 <div class="card-body text-center py-2">
                     <h3 class="mb-0">${stats.warning}</h3>
                     <small class="${stats.warning > 0 ? '' : 'text-muted'}">Warning</small>
@@ -827,44 +867,52 @@ document.addEventListener('DOMContentLoaded', async function() {
         </div>`;
         html += '</div>';
 
-        // Second row: Category breakdown
-        html += '<div class="row">';
-        html += `<div class="col-md-3">
-            <div class="card ${stats.malware > 0 ? 'bg-danger text-white' : 'bg-light'}">
+        // Category breakdown
+        html += '<div class="row row-cols-2 row-cols-md-3 row-cols-xl-6 g-3">';
+        html += `<div class="col">
+            <div class="card h-100 ${stats.malware > 0 ? 'bg-danger text-white' : 'bg-light'}">
                 <div class="card-body text-center py-2">
-                    <h3 class="mb-0"><i class="fas fa-biohazard"></i> ${stats.malware}</h3>
+                    <h3 class="mb-0"><i class="fas fa-biohazard me-1"></i>${stats.malware}</h3>
                     <small class="${stats.malware > 0 ? '' : 'text-muted'}">Malware</small>
                 </div>
             </div>
         </div>`;
-        html += `<div class="col-md-3">
-            <div class="card bg-light">
+        html += `<div class="col">
+            <div class="card bg-light h-100">
                 <div class="card-body text-center py-2">
-                    <h3 class="mb-0"><i class="fab fa-github"></i> ${stats.githubActions}</h3>
+                    <h3 class="mb-0"><i class="fab fa-github me-1"></i>${stats.githubActions}</h3>
                     <small class="text-muted">GitHub Actions</small>
                 </div>
             </div>
         </div>`;
-        html += `<div class="col-md-3">
-            <div class="card bg-light">
+        html += `<div class="col">
+            <div class="card h-100 ${stats.unpinnableAction > 0 ? 'bg-warning' : 'bg-light'}">
                 <div class="card-body text-center py-2">
-                    <h3 class="mb-0"><i class="fas fa-box"></i> ${stats.dependencyConfusion}</h3>
-                    <small class="text-muted">Dependency Confusion</small>
+                    <h3 class="mb-0"><i class="fas fa-thumbtack me-1"></i>${stats.unpinnableAction}</h3>
+                    <small class="${stats.unpinnableAction > 0 ? '' : 'text-muted'}">Unpinnable Actions</small>
                 </div>
             </div>
         </div>`;
-        html += `<div class="col-md-3">
-            <div class="card ${stats.eox > 0 ? 'bg-secondary text-white' : 'bg-light'}">
+        html += `<div class="col">
+            <div class="card bg-light h-100">
                 <div class="card-body text-center py-2">
-                    <h3 class="mb-0"><i class="fas fa-hourglass-end"></i> ${stats.eox}</h3>
+                    <h3 class="mb-0"><i class="fas fa-box me-1"></i>${stats.dependencyConfusion}</h3>
+                    <small class="text-muted">Dep. Confusion</small>
+                </div>
+            </div>
+        </div>`;
+        html += `<div class="col">
+            <div class="card h-100 ${stats.eox > 0 ? 'bg-secondary text-white' : 'bg-light'}">
+                <div class="card-body text-center py-2">
+                    <h3 class="mb-0"><i class="fas fa-hourglass-end me-1"></i>${stats.eox}</h3>
                     <small class="${stats.eox > 0 ? '' : 'text-muted'}">EOX</small>
                 </div>
             </div>
         </div>`;
-        html += `<div class="col-md-3">
-            <div class="card ${stats.sourceRepo > 0 ? 'bg-warning' : 'bg-light'}">
+        html += `<div class="col">
+            <div class="card h-100 ${stats.sourceRepo > 0 ? 'bg-warning' : 'bg-light'}">
                 <div class="card-body text-center py-2">
-                    <h3 class="mb-0"><i class="fas fa-unlink"></i> ${stats.sourceRepo}</h3>
+                    <h3 class="mb-0"><i class="fas fa-unlink me-1"></i>${stats.sourceRepo}</h3>
                     <small class="${stats.sourceRepo > 0 ? '' : 'text-muted'}">Dead Source Repos</small>
                 </div>
             </div>
@@ -883,6 +931,9 @@ document.addEventListener('DOMContentLoaded', async function() {
             } else if (typeData.category === 'github-actions') {
                 categoryIcon = 'fab fa-github';
                 categoryLabel = 'GitHub Actions';
+            } else if (typeData.category === 'unpinnable-action') {
+                categoryIcon = 'fas fa-thumbtack';
+                categoryLabel = 'Unpinnable Action';
             } else if (typeData.category === 'eox') {
                 categoryIcon = 'fas fa-hourglass-end';
                 categoryLabel = 'EOX (End-of-Life/Support)';
@@ -917,7 +968,7 @@ document.addEventListener('DOMContentLoaded', async function() {
                                     <tr>
                                         ${typeData.category === 'malware' ?
                                             '<th>Package</th><th>Ecosystem</th><th>Advisor(ies)</th><th>Used In</th>' :
-                                            typeData.category === 'github-actions' ?
+                                            (typeData.category === 'github-actions' || typeData.category === 'unpinnable-action') ?
                                             '<th>Action</th><th>Location</th><th>Message</th>' :
                                             typeData.category === 'eox' ?
                                             '<th>Package</th><th>Ecosystem</th><th>Repositories</th><th>Details</th>' :
@@ -959,7 +1010,7 @@ document.addEventListener('DOMContentLoaded', async function() {
                                                 <td>${advisoryLinks}${overflow}${malwarePageLink}</td>
                                                 <td>${repos.length > 0 ? generateRepoListHTML(repos) : '<span class="text-muted">-</span>'}</td>
                                             </tr>`;
-                                        } else if (typeData.category === 'github-actions') {
+                                        } else if (typeData.category === 'github-actions' || typeData.category === 'unpinnable-action') {
                                             // Build action cell with link to action repository
                                             let actionCell = '-';
                                             if (instance.action) {

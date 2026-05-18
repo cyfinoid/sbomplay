@@ -13,6 +13,7 @@
     <script defer data-domain="cyfinoid.github.io" src="https://plausible.io/js/script.outbound-links.js"></script>
 </head>
 <body>
+    <a class="visually-hidden-focusable" href="#main">Skip to content</a>
     <!-- Navigation -->
     <nav class="navbar navbar-expand-lg navbar-dark bg-primary">
         <div class="container">
@@ -34,7 +35,7 @@
                     <a class="nav-link" href="vuln.html">Vulns</a>
                     <a class="nav-link" href="audit.html">Audit</a>
                     <a class="nav-link" href="findings.html">Findings</a>
-                    <a class="nav-link active" href="insights.html">Insights</a>
+                    <a class="nav-link active" href="insights.html" aria-current="page">Insights</a>
                     <a class="nav-link" href="deps.html">Deps</a>
                     <a class="nav-link" href="repos.html">Repos</a>
                     <a class="nav-link" href="authors.html">Authors</a>
@@ -45,13 +46,14 @@
         </div>
     </nav>
 
-    <div class="container mt-3">
-        <div class="alert alert-warning text-center py-3 mb-0 border-0 rounded-0" role="alert">
+    <div class="container mt-3" id="main">
+        <div class="alert alert-warning text-center py-3 mb-0 border-0 rounded-0 alert-dismissible fade show" id="insightsBetaBanner" role="alert">
             <i class="fas fa-flask me-2 fs-5"></i>
-            <strong class="fs-5">Experimental</strong>
+            <strong class="fs-5">Beta</strong>
             <span class="d-block d-md-inline mt-1 mt-md-0 ms-md-2">
-                This dashboard is under active development — information shown here may be inaccurate or incomplete.
+                Numbers may change as we tune the scoring.
             </span>
+            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Dismiss beta notice"></button>
         </div>
     </div>
 
@@ -66,7 +68,7 @@
                 <div class="row align-items-center">
                     <div class="col-md-4">
                         <label for="analysisSelector" class="form-label fw-bold">
-                            <i class="fas fa-chart-line me-1"></i>Insights Dashboard
+                            <i class="fas fa-chart-line me-1"></i>Analysis
                         </label>
                     </div>
                     <div class="col-md-8">
@@ -88,11 +90,11 @@
             <div class="spinner-border text-primary" role="status">
                 <span class="visually-hidden">Loading...</span>
             </div>
-            <p class="mt-2 text-muted">Computing insights...</p>
+            <p class="mt-2 text-muted">Crunching the data&hellip;</p>
         </div>
 
         <!-- Insights Content -->
-        <div id="insights-page-content" class="d-none"></div>
+        <div id="insights-page-content" class="d-none" aria-live="polite"></div>
     </div>
 
     <!-- Footer -->
@@ -101,15 +103,8 @@
             <div class="row">
                 <div class="col-md-4">
                     <h6 class="text-primary">SBOM Play</h6>
-                    <p class="text-muted small mb-3">
-                        A client-side tool for analyzing Software Bill of Materials from GitHub organizations and users.
-                        All processing happens in your browser for maximum privacy and security.
-                    </p>
                     <p class="text-muted small mb-0">
-                        <strong>Privacy-First:</strong> All processing happens in your browser<br>
-                        <strong>No Server Required:</strong> Works entirely client-side<br>
-                        <strong>Persistent Storage:</strong> Results saved in browser storage<br>
-                        <strong>Rate Limit Aware:</strong> Handles GitHub API limits intelligently
+                        Client-side SBOM analysis from GitHub orgs, users, repos, or uploaded files. All processing happens in your browser.
                     </p>
                 </div>
                 <div class="col-md-4">
@@ -132,16 +127,14 @@
                 <div class="col-md-4">
                     <h6 class="text-primary">About Cyfinoid Research</h6>
                     <p class="text-muted small mb-3">
-                        Leading cybersecurity research company specializing in software supply chain security, 
-                        Android security, and cloud security. Our expertise spans across comprehensive software 
-                        supply chain protection.
+                        Cyfinoid Research works on software supply-chain, cloud security, AI usage and security. SBOM Play is one of our open-source tools.
                     </p>
                 </div>
             </div>
             <hr class="my-3">
             <div class="text-center">
                 <small class="text-muted">
-                    &copy; 2025 Cyfinoid Research. All rights reserved. | 
+                    &copy; <time datetime="2026">2026</time> Cyfinoid Research. All rights reserved. | 
                     <a href="https://github.com/cyfinoid/sbomplay" target="_blank" rel="noreferrer noopener" class="text-muted">
                         <i class="fab fa-github me-1"></i>View on GitHub
                     </a>
