@@ -1,0 +1,319 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SBOM Play — AI Chat</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <link href="css/style.css?v=0.0.9" rel="stylesheet">
+    <link href="css/themes.css?v=0.0.9" rel="stylesheet">
+    <script src="js/theme-manager.js?v=0.0.9&cb=1777494400000"></script>
+    <script src="js/analytics.js?v=0.0.9&cb=1777494400000"></script>
+    <script defer data-domain="cyfinoid.github.io" src="https://plausible.io/js/script.outbound-links.js"></script>
+    <style>
+        .chat-layout {
+            display: flex;
+            flex-direction: column;
+            height: calc(100vh - 250px);
+            min-height: 500px;
+            max-width: 860px;
+            margin: 0 auto;
+        }
+
+        /* Header */
+        .chat-header {
+            text-align: center;
+            padding: var(--space-2) 0 var(--space-3);
+            flex-shrink: 0;
+        }
+        .chat-header h2 { font-size: var(--font-size-heading); font-weight: 700; }
+        .chat-header .sub { font-size: var(--font-size-caption); color: var(--text-secondary); }
+
+        /* AI Status */
+        .chat-ai-status {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: var(--space-2);
+            font-size: 0.75rem;
+            padding: 0.25rem 0;
+            flex-shrink: 0;
+        }
+        .chat-ai-status .dot {
+            width: 7px; height: 7px; border-radius: 50%;
+            display: inline-block;
+        }
+        .chat-ai-status .dot.ready { background: var(--color-green); }
+        .chat-ai-status .dot.downloading { background: var(--color-yellow); }
+        .chat-ai-status .dot.unavailable { background: var(--color-red); }
+
+        /* Selector row */
+        .chat-toolbar {
+            display: flex;
+            gap: var(--space-2);
+            align-items: center;
+            flex-shrink: 0;
+            margin-bottom: var(--space-3);
+        }
+        .chat-toolbar select { flex: 1; }
+        .chat-toolbar .btn-new {
+            white-space: nowrap;
+            font-size: var(--font-size-caption);
+        }
+
+        /* Metrics strip */
+        .chat-metrics {
+            display: flex;
+            gap: var(--space-2);
+            flex-wrap: wrap;
+            flex-shrink: 0;
+            margin-bottom: var(--space-3);
+        }
+        .chat-metric {
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border-color);
+            border-radius: 0.5rem;
+            padding: var(--space-1) var(--space-3);
+            font-size: 0.75rem;
+            text-align: center;
+            flex: 1;
+            min-width: 70px;
+        }
+        .chat-metric .v { font-weight: 800; font-size: 1rem; }
+        .chat-metric .l { font-size: 0.6rem; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.04em; }
+
+        /* Messages area */
+        .chat-messages {
+            flex: 1;
+            overflow-y: auto;
+            padding: var(--space-3) var(--space-2);
+            margin: 0 calc(-1 * var(--space-2));
+            scroll-behavior: smooth;
+        }
+        .chat-messages::-webkit-scrollbar { width: 6px; }
+        .chat-messages::-webkit-scrollbar-thumb { background: var(--border-color); border-radius: 3px; }
+
+        .chat-msg {
+            display: flex;
+            gap: var(--space-3);
+            margin-bottom: var(--space-4);
+            animation: fadeIn 0.25s ease;
+        }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+
+        .chat-msg .avatar {
+            width: 34px; height: 34px; border-radius: 50%;
+            display: flex; align-items: center; justify-content: center;
+            flex-shrink: 0; font-size: 0.9rem; margin-top: 0.15rem;
+        }
+        .chat-msg.user { flex-direction: row-reverse; }
+        .chat-msg.user .avatar { background: var(--color-blue); color: #fff; }
+        .chat-msg.assistant .avatar { background: var(--bg-tertiary); color: var(--text-primary); border: 1px solid var(--border-color); }
+        .chat-msg.system .avatar { background: transparent; color: var(--text-secondary); font-size: 1.2rem; }
+
+        .chat-msg .bubble {
+            max-width: 80%;
+            padding: var(--space-3) var(--space-4);
+            border-radius: 1.2rem;
+            font-size: var(--font-size-body);
+            line-height: 1.7;
+            word-wrap: break-word;
+        }
+        .chat-msg.user .bubble {
+            background: var(--color-blue);
+            color: #fff;
+            border-bottom-right-radius: 0.3rem;
+        }
+        .chat-msg.assistant .bubble {
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border-color);
+            border-bottom-left-radius: 0.3rem;
+        }
+        .chat-msg.system .bubble {
+            background: transparent;
+            color: var(--text-secondary);
+            text-align: center;
+            max-width: 100%;
+            font-size: var(--font-size-caption);
+            padding: var(--space-2);
+        }
+
+        .chat-msg .bubble p { margin-bottom: var(--space-2); }
+        .chat-msg .bubble p:last-child { margin-bottom: 0; }
+        .chat-msg .bubble ul { padding-left: var(--space-4); margin-bottom: var(--space-2); }
+        .chat-msg .bubble li { margin-bottom: var(--space-1); }
+        .chat-msg .bubble strong { font-weight: 700; }
+        .chat-msg .bubble code {
+            background: rgba(255,255,255,0.1);
+            padding: 0.1rem 0.4rem;
+            border-radius: 0.3rem;
+            font-size: 0.85em;
+        }
+
+        .chat-cursor {
+            display: inline-block;
+            width: 2px; height: 1em;
+            background: var(--color-blue);
+            margin-left: 2px;
+            animation: blink 0.8s step-end infinite;
+            vertical-align: text-bottom;
+        }
+        @keyframes blink { 50% { opacity: 0; } }
+
+        /* Suggestions */
+        .chat-suggestions {
+            display: flex;
+            flex-wrap: wrap;
+            gap: var(--space-2);
+            justify-content: center;
+            flex-shrink: 0;
+            margin-bottom: var(--space-3);
+        }
+        .chat-suggestion {
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border-color);
+            border-radius: 2rem;
+            padding: var(--space-1) var(--space-3);
+            font-size: 0.75rem;
+            cursor: pointer;
+            transition: all .15s ease;
+            color: var(--text-secondary);
+        }
+        .chat-suggestion:hover {
+            border-color: var(--color-blue);
+            color: var(--color-blue);
+            background: var(--bg-info);
+        }
+
+        /* Input area */
+        .chat-input-wrap {
+            display: flex;
+            gap: var(--space-2);
+            flex-shrink: 0;
+            padding-top: var(--space-3);
+            border-top: 1px solid var(--border-color);
+        }
+        .chat-input-wrap input {
+            flex: 1;
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border-color);
+            border-radius: 2rem;
+            padding: var(--space-2) var(--space-4);
+            color: var(--text-primary);
+            font-size: var(--font-size-body);
+            outline: none;
+            transition: border-color .15s ease;
+        }
+        .chat-input-wrap input:focus { border-color: var(--color-blue); }
+        .chat-input-wrap input::placeholder { color: var(--text-secondary); }
+        .chat-input-wrap input:disabled { opacity: 0.4; }
+
+        .chat-input-wrap button {
+            width: 44px; height: 44px; border-radius: 50%;
+            border: none;
+            background: var(--color-blue);
+            color: #fff;
+            font-size: 1.1rem;
+            cursor: pointer;
+            transition: all .15s ease;
+            flex-shrink: 0;
+            display: flex; align-items: center; justify-content: center;
+        }
+        .chat-input-wrap button:hover { opacity: 0.85; }
+        .chat-input-wrap button:disabled { opacity: 0.3; cursor: not-allowed; }
+
+        /* Empty state */
+        .chat-empty {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100%;
+            color: var(--text-secondary);
+            text-align: center;
+            padding: var(--space-4);
+        }
+        .chat-empty .icon { font-size: 3rem; margin-bottom: var(--space-3); opacity: 0.3; }
+        .chat-empty h5 { font-weight: 600; margin-bottom: var(--space-1); color: var(--text-primary); }
+        .chat-empty p { font-size: var(--font-size-caption); max-width: 360px; }
+
+        /* Error state */
+        .chat-unavailable {
+            text-align: center;
+            padding: var(--space-6);
+            max-width: 500px;
+            margin: var(--space-6) auto;
+        }
+        .chat-unavailable .icon { font-size: 3rem; margin-bottom: var(--space-3); opacity: 0.5; }
+
+        /* Source data popout */
+        .chat-data-ref {
+            font-size: 0.65rem;
+            color: var(--text-secondary);
+            text-align: center;
+            padding: var(--space-1) 0;
+            opacity: 0.5;
+            flex-shrink: 0;
+        }
+
+        /* Mobile */
+        @media (max-width: 576px) {
+            .chat-layout { height: calc(100vh - 200px); min-height: 400px; }
+            .chat-metrics { gap: var(--space-1); }
+            .chat-metric { padding: var(--space-1) var(--space-2); min-width: 50px; }
+            .chat-metric .v { font-size: 0.85rem; }
+            .chat-msg .bubble { max-width: 90%; }
+        }
+    </style>
+</head>
+<body>
+    <a class="visually-hidden-focusable" href="#main">Skip to content</a>
+    <nav class="navbar navbar-expand-lg navbar-dark bg-primary">
+        <div class="container">
+            <a class="navbar-brand" href="index.html"><i class="fas fa-cubes me-2"></i>SBOM Play</a>
+            <div class="navbar-actions">
+                <button class="btn btn-outline-secondary btn-sm theme-toggle" title="Toggle theme"><i class="fas fa-sun"></i></button>
+                <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav"><span class="navbar-toggler-icon"></span></button>
+            </div>
+            <div class="collapse navbar-collapse" id="navbarNav">
+                <div class="navbar-nav ms-auto">
+                    <a class="nav-link" href="index.html">Home</a>
+                    <a class="nav-link" href="insights.html">Insights</a>
+                    <a class="nav-link" href="insights2.html">Pulse</a>
+                    <a class="nav-link" href="insights3.html">Portfolio</a>
+                    <a class="nav-link" href="insights4.html">Report</a>
+                    <a class="nav-link" href="insights5.html">Snapshot</a>
+                    <a class="nav-link" href="insights-ai.html">AI</a>
+                    <a class="nav-link active" href="insights-chat.html">Chat</a>
+                    <a class="nav-link" href="deps.html">Deps</a>
+                    <a class="nav-link" href="repos.html">Repos</a>
+                    <a class="nav-link" href="settings.html">Settings</a>
+                    <a class="nav-link" href="about.html">About</a>
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <main id="main" class="container mt-2">
+        <div id="noDataMessage" class="alert alert-info d-none text-center">
+            <i class="fas fa-info-circle me-2"></i>No analysis data found. <a href="index.html">Run a scan</a> first.
+        </div>
+        <div id="loading" class="text-center py-5 d-none"><div class="spinner-border text-primary mb-3" role="status"></div><p class="text-muted">Loading data&hellip;</p></div>
+        <div id="content" class="d-none"></div>
+    </main>
+
+    <footer class="bg-light mt-4 py-2">
+        <div class="container"><div class="text-center"><small class="text-muted">&copy; <time datetime="2026">2026</time> Cyfinoid Research. &middot; All AI processing runs on-device via Gemini Nano.</small></div></div>
+    </footer>
+
+    <script src="js/indexeddb-manager.js?v=0.0.9&cb=1777494400000"></script>
+    <script src="js/common.js?v=0.0.9&cb=1777642497882"></script>
+    <script src="js/version-utils.js?v=0.0.9&cb=1777494400000"></script>
+    <script src="js/cache-manager.js?v=0.0.9&cb=1777494400000"></script>
+    <script src="js/storage-manager.js?v=0.0.9&cb=1779000000000"></script>
+    <script src="js/insights-aggregator.js?v=0.0.9&cb=1780000000003"></script>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="js/insights-chat.js?v=0.0.9&cb=1780000000003"></script>
+</body>
+</html>
