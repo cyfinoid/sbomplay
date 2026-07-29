@@ -79,7 +79,7 @@ Cover: 1) Overall risk rating (Low/Medium/High) for the acquisition context 2) K
         try {
             if (!window.AiNano || !window.AiNano.isSupported()) {
                 statusDot.className = 'dot unavailable';
-                statusTxt.textContent = 'Chrome Prompt API not found';
+                statusTxt.textContent = 'AI not available';
                 aiCapabilities = { available: 'no' };
                 return false;
             }
@@ -96,12 +96,12 @@ Cover: 1) Overall risk rating (Low/Medium/High) for the acquisition context 2) K
                 return true;
             }
             statusDot.className = 'dot unavailable';
-            statusTxt.textContent = 'Gemini Nano not available on this browser';
+            statusTxt.textContent = 'AI not available';
             return false;
         } catch (e) {
             console.warn('AI check failed:', e);
             statusDot.className = 'dot unavailable';
-            statusTxt.textContent = 'AI unavailable';
+            statusTxt.textContent = 'AI not available';
             aiCapabilities = { available: 'no' };
             return false;
         }
@@ -384,30 +384,27 @@ Cover: 1) Overall risk rating (Low/Medium/High) for the acquisition context 2) K
 
         const aiAvailable = aiCapabilities && aiCapabilities.available !== 'no';
 
+        if (!aiAvailable) {
+            safe(content, kpiHtml + `
+                <div class="alert alert-warning text-center py-3 mb-4 ai-unavailable-msg">
+                    <i class="fas fa-info-circle me-2"></i>AI not available
+                </div>`);
+            return;
+        }
+
         const modeBtns = Object.entries(MODES).map(([key, m]) =>
-            `<button class="ai-mode-btn" data-mode="${key}" ${aiAvailable ? '' : 'disabled'} onclick="document.getElementById('aiOutput').dispatchEvent(new CustomEvent('generate', {detail:{mode:'${key}'}}))">
+            `<button class="ai-mode-btn" data-mode="${key}" onclick="document.getElementById('aiOutput').dispatchEvent(new CustomEvent('generate', {detail:{mode:'${key}'}}))">
                 <i class="${m.icon}"></i>${esc(m.label)}
             </button>`
         ).join('');
-
-        const controlsHtml = aiAvailable
-            ? `<div class="ai-modes">${modeBtns}</div>`
-            : `<div class="alert alert-warning text-center py-2 mb-4" style="max-width:500px;margin:0 auto;">
-                <i class="fas fa-info-circle me-2"></i>
-                AI analysis requires Chrome 128+ with <code>chrome://flags/#prompt-api-for-gemini-nano</code> enabled.
-                <br><small class="text-muted">The deterministic dashboards (Pulse, Portfolio, Report, Snapshot) work without AI.</small>
-               </div>`;
-
+        const controlsHtml = `<div class="ai-modes">${modeBtns}</div>`;
         const outputHtml = `<div class="ai-output empty" id="aiOutput">
             <div class="text-center">
                 <div class="placeholder-icon"><i class="fas fa-robot"></i></div>
                 <div class="placeholder-text">Select an analysis type above to generate AI insights</div>
             </div>
         </div>`;
-
-        const detectNotice = aiAvailable
-            ? `<div class="ai-detection-notice"><i class="fas fa-microchip me-1"></i>Analysis runs entirely on-device via Gemini Nano — zero data leaves your browser.</div>`
-            : '';
+        const detectNotice = `<div class="ai-detection-notice"><i class="fas fa-microchip me-1"></i>Analysis runs entirely on-device via Gemini Nano — zero data leaves your browser.</div>`;
 
         safe(content, kpiHtml + controlsHtml + outputHtml + detectNotice);
 

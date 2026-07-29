@@ -18,6 +18,16 @@
     const loading  = document.getElementById('loading');
     const noData   = document.getElementById('noDataMessage');
 
+    // Bail out gracefully if the page scaffolding is missing (prevents
+    // "Cannot read properties of null" crashes when a required element,
+    // e.g. #analysisSelector, is absent from the DOM).
+    if (!selector || !content || !loading || !noData) {
+        console.error('Chat: required page elements missing — aborting init', {
+            selector: !!selector, content: !!content, loading: !!loading, noData: !!noData
+        });
+        return;
+    }
+
     /* ---- State ---- */
     let currentInsights = null;
     let aiSession = null;
@@ -254,7 +264,7 @@ Start each response by addressing what was asked. If someone asks "how are we do
         } else if (aiStatus === 'download') {
             statusHtml = `<span class="dot downloading"></span> Gemini Nano available (download on first message)`;
         } else {
-            statusHtml = `<span class="dot unavailable"></span> Gemini Nano not available`;
+            statusHtml = `<span class="dot unavailable"></span> AI not available`;
         }
 
         const metrics = currentInsights ? buildMetricsHtml(currentInsights) : '';
@@ -262,12 +272,7 @@ Start each response by addressing what was asked. If someone asks "how are we do
         const unavailableHtml = !aiAvailable ? `
             <div class="chat-unavailable">
                 <div class="icon"><i class="fas fa-robot"></i></div>
-                <h5>AI Chat Unavailable</h5>
-                <p class="text-muted">Chrome's built-in Gemini Nano is not available on this browser. You need Chrome 128+ with <code>chrome://flags/#prompt-api-for-gemini-nano</code> enabled.</p>
-                <div class="mt-3 d-flex gap-2 justify-content-center flex-wrap">
-                    <a href="insights2.html" class="btn btn-outline-primary btn-sm">Try Pulse Dashboard</a>
-                    <a href="insights-ai.html" class="btn btn-outline-primary btn-sm">AI Reports</a>
-                </div>
+                <h5>AI not available</h5>
             </div>` : '';
 
         const suggestedQuestions = [
@@ -424,16 +429,16 @@ Start each response by addressing what was asked. If someone asks "how are we do
         // Add user message
         addUserMessage(text);
 
-        // Add AI placeholder
+        // Add AI placeholder (no fixed id — each turn needs its own bubble reference)
         const msgDiv = document.createElement('div');
         msgDiv.className = 'chat-msg assistant';
         msgDiv.innerHTML = `
             <div class="avatar"><i class="fas fa-robot"></i></div>
-            <div class="bubble" id="aiResponse"><span class="chat-cursor"></span></div>`;
+            <div class="bubble"><span class="chat-cursor"></span></div>`;
         msgArea.appendChild(msgDiv);
         scrollToBottom();
 
-        const bubble = document.getElementById('aiResponse');
+        const bubble = msgDiv.querySelector('.bubble');
 
         try {
             const stream = await aiSession.promptStreaming(text);

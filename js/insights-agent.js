@@ -308,33 +308,51 @@
         }
     }
 
-    /* ---- Build function declarations for the Prompt API ---- */
-    function buildFunctionDeclarations() {
-        // We expose a SINGLE unified function with a 'type' enum.
-        // This is simpler for the model and more reliable.
+    const QUERY_SBOM_SCHEMA = {
+        type: 'object',
+        properties: {
+            type: {
+                type: 'string',
+                enum: ['overview', 'vulnerabilities', 'dependencies', 'repositories', 'licenses', 'eol', 'versionDrift', 'malware', 'techDebt', 'supplyChain', 'perRepo', 'hygiene', 'vulnAge'],
+                description: 'The category of SBOM data to fetch'
+            },
+            filter: {
+                type: 'string',
+                description: 'Optional filter. For vulnerabilities: "critical" or "high". For repositories: "archived", "active", "no-sbom". For versionDrift: "major" or "minor". For dependencies/perRepo: a name to search for.'
+            },
+            limit: {
+                type: 'number',
+                description: 'Maximum items to return (default: 20, max: 100)',
+                default: 20
+            }
+        },
+        required: ['type']
+    };
+
+    const QUERY_SBOM_DESCRIPTION = 'Query SBOM analysis data. Call this to fetch any data you need to answer the user\'s question. Available data types: overview, vulnerabilities, dependencies, repositories, licenses, eol, versionDrift, malware, techDebt, supplyChain, perRepo, hygiene, vulnAge.';
+
+    /* ---- Modern Prompt API tools (name/description/inputSchema/execute) ---- */
+    function buildTools() {
         return [{
             name: 'query_sbom',
-            description: 'Query SBOM analysis data. Call this to fetch any data you need to answer the user\'s question. Available data types: overview, vulnerabilities, dependencies, repositories, licenses, eol, versionDrift, malware, techDebt, supplyChain, perRepo, hygiene, vulnAge.',
-            parameters: {
-                type: 'object',
-                properties: {
-                    type: {
-                        type: 'string',
-                        enum: ['overview', 'vulnerabilities', 'dependencies', 'repositories', 'licenses', 'eol', 'versionDrift', 'malware', 'techDebt', 'supplyChain', 'perRepo', 'hygiene', 'vulnAge'],
-                        description: 'The category of SBOM data to fetch'
-                    },
-                    filter: {
-                        type: 'string',
-                        description: 'Optional filter. For vulnerabilities: "critical" or "high". For repositories: "archived", "active", "no-sbom". For versionDrift: "major" or "minor". For dependencies/perRepo: a name to search for.'
-                    },
-                    limit: {
-                        type: 'number',
-                        description: 'Maximum items to return (default: 20, max: 100)',
-                        default: 20
-                    }
-                },
-                required: ['type']
+            description: QUERY_SBOM_DESCRIPTION,
+            inputSchema: QUERY_SBOM_SCHEMA,
+            async execute(args) {
+                const a = args || {};
+                try {
+                    addToolCallMsg(`query_sbom(${a.type}${a.filter ? ', filter: ' + a.filter : ''}${a.limit ? ', limit: ' + a.limit : ''})`);
+                } catch (_) { /* DOM may not be ready during early probes */ }
+                return JSON.stringify(executeQuery(a.type, a));
             }
+        }];
+    }
+
+    /* ---- Legacy functionDeclarations shape (older window.ai.languageModel) ---- */
+    function buildFunctionDeclarations() {
+        return [{
+            name: 'query_sbom',
+            description: QUERY_SBOM_DESCRIPTION,
+            parameters: QUERY_SBOM_SCHEMA
         }];
     }
 
@@ -367,34 +385,46 @@
         destroySession();
         if (!currentData || !aiAvailable) return false;
 
-        try {
-            const decls = buildFunctionDeclarations();
+        // The app always pre-fetches query_sbom() results and injects them into the
+        // user prompt. The model is a summarizer — native tool-calling is optional.
+        const systemPrompt = `You are a supply-chain security analyst AI.
 
-            aiSession = await window.AiNano.createSession({
-                systemPrompt: `You are a supply-chain security analyst AI. You can query SBOM analysis data using the query_sbom() function whenever you need information.
+The application will provide authoritative SBOM query results (JSON) with each question.
+Your job is to answer using ONLY those numbers.
 
 RULES:
-1. Use query_sbom() to fetch data — don't make up numbers.
-2. Call query_sbom() with the appropriate type for what you need.
-3. After receiving data, synthesize a clear answer for the user.
-4. Use plain language suitable for executives and M&A professionals.
-5. If you need more detail, call query_sbom() again with different parameters.
-6. Be concise but thorough — reference specific numbers.`,
-                tools: [{ functionDeclarations: decls }],
-                temperature: 0.2,
-                topK: 15
-            });
+1. Cite specific counts, grades, and medians from the provided query results.
+2. If something is not in the provided data, say it is not in the loaded analysis.
+3. Never invent packages, CVEs, countries, or OpenSSL-style lookups.
+4. Never emit tool_code, print(), query_sbom(), Python, or code fences.
+5. Write clear executive language in 2–4 short paragraphs.`;
 
-            return true;
-        } catch (err) {
-            console.error('Agent session creation failed:', err);
-            // If tools aren't supported, the create() might fail
-            if (err.message && (err.message.includes('tools') || err.message.includes('function'))) {
-                toolsSupport = false;
+        // Prefer a tools-enabled session when the browser supports it; always fall
+        // back to a plain session so pre-fetched-data answers still work.
+        const attempts = [
+            { tools: buildTools() },
+            { tools: [{ functionDeclarations: buildFunctionDeclarations() }] },
+            { tools: null }
+        ];
+
+        for (const opts of attempts) {
+            try {
+                const createOpts = {
+                    systemPrompt,
+                    temperature: 0.2,
+                    topK: 15
+                };
+                if (opts.tools) createOpts.tools = opts.tools;
+                aiSession = await window.AiNano.createSession(createOpts);
+                if (!opts.tools) toolsSupport = false;
+                return true;
+            } catch (err) {
+                console.warn('Agent session create attempt failed:', err);
+                aiSession = null;
             }
-            aiSession = null;
-            return false;
         }
+
+        return false;
     }
 
     function destroySession() {
@@ -475,17 +505,24 @@ RULES:
     async function initAgent() {
         const aiStatus = await checkToolsSupport();
 
+        // Session is required; native tool-calling is optional because we pre-fetch
+        // query_sbom() results in-app and ask the model only to summarize them.
+        let available = aiAvailable;
+        if (available) {
+            const ok = await createAgentSession();
+            if (!ok) available = false;
+        }
+
         let statusHtml = '';
-        if (aiStatus === 'ready') {
-            statusHtml = `<span class="dot ready"></span> Gemini Nano <span class="ag-cap-badge">tools: ${toolsSupport ? '✓' : '✗'}</span>`;
-        } else if (aiStatus === 'download') {
-            statusHtml = `<span class="dot loading"></span> Gemini Nano (download on first use) <span class="ag-cap-badge">tools: ${toolsSupport ? '✓' : '✗'}</span>`;
+        if (!available) {
+            statusHtml = `<span class="dot unsupported"></span> AI not available`;
+        } else if (aiStatus === 'ready') {
+            statusHtml = `<span class="dot ready"></span> Gemini Nano <span class="ag-cap-badge">queries: app-driven</span>`;
         } else {
-            statusHtml = `<span class="dot unsupported"></span> Gemini Nano not available`;
+            statusHtml = `<span class="dot loading"></span> Gemini Nano (download on first use) <span class="ag-cap-badge">queries: app-driven</span>`;
         }
 
         const metrics = currentIns ? buildMetrics(currentIns) : '';
-        const available = aiAvailable && toolsSupport;
         const suggested = [
             'How is our overall security posture?',
             'List all critical vulnerabilities',
@@ -508,23 +545,17 @@ RULES:
                 <button class="btn btn-outline-secondary btn-sm btn-new" id="btnNewChat" ${!available ? 'disabled' : ''}><i class="fas fa-plus me-1"></i>New</button>
             </div>
             <div class="ag-metrics">${metrics}</div>
-            ${!aiAvailable ? `
+            ${!available ? `
                 <div class="ag-unavailable">
                     <div class="icon"><i class="fas fa-robot"></i></div>
-                    <h5>AI Agent Unavailable</h5>
-                    <p class="text-muted">Chrome's built-in Gemini Nano is not available on this browser.</p>
-                </div>` : !toolsSupport ? `
-                <div class="ag-unavailable">
-                    <div class="icon"><i class="fas fa-tools"></i></div>
-                    <h5>Tool-Use Not Supported</h5>
-                    <p class="text-muted">Your Chrome version doesn't support function calling in the Prompt API. Try the <a href="insights-chat.html">Chat</a> page instead (uses pre-digested context).</p>
+                    <h5>AI not available</h5>
                 </div>` : ''}
             <div class="ag-layout" id="agentLayout" style="display:${available ? 'flex' : 'none'}">
                 <div class="ag-messages" id="agMessages">
                     <div class="ag-empty" id="agEmpty">
                         <div class="icon"><i class="fas fa-database"></i></div>
                         <h5>Agent ready — data loaded</h5>
-                        <p>The AI can query 12 data categories. Ask anything about your SBOM analysis.</p>
+                        <p>Each question runs real SBOM queries first, then the on-device model summarizes the numbers.</p>
                     </div>
                 </div>
                 <div class="ag-suggestions" id="agSuggestions">
@@ -532,7 +563,7 @@ RULES:
                 </div>
                 <div class="ag-input-wrap">
                     <input type="text" id="agInput" placeholder="Ask the agent..." autocomplete="off" ${!available ? 'disabled' : ''}>
-                    <button id="agSend" ${!available ? 'disabled' : ''}><i class="fas fa-arrow-up"></i></button>
+                    <button type="button" id="agSend" ${!available ? 'disabled' : ''}><i class="fas fa-arrow-up"></i></button>
                 </div>
             </div>`;
 
@@ -580,14 +611,23 @@ RULES:
     async function sendMessage() {
         const input = document.getElementById('agInput');
         const send  = document.getElementById('agSend');
-        const msgArea = document.getElementById('agMessages');
         const empty   = document.getElementById('agEmpty');
         const text = input?.value.trim();
-        if (!text || isGenerating || !aiSession) return;
+        if (!text || isGenerating || !aiAvailable) return;
+
+        // Lazily create the session if init skipped it or it was destroyed
+        if (!aiSession) {
+            const ok = await createAgentSession();
+            if (!ok) {
+                toolsSupport = false;
+                await initAgent();
+                return;
+            }
+        }
 
         input.value = '';
         input.disabled = true;
-        send.disabled = true;
+        if (send) send.disabled = true;
         isGenerating = true;
         if (empty) empty.style.display = 'none';
 
@@ -598,62 +638,66 @@ RULES:
         const thinkBubble = thinkDiv.querySelector('.bubble');
 
         try {
-            // Agent loop: handle AI ↔ function call turns
-            let responseText = '';
-            const MAX_TOOL_TURNS = 6;
-            let turn = 0;
-            let currentPrompt = text;
+            // App-driven queries: always fetch real SBOM slices first, then ask Nano
+            // only to summarize. On-device models often skip tools and invent vague
+            // answers ("lots of data indicates…") if we wait for them to call query_sbom.
+            thinkBubble.innerHTML = '<span class="text-muted"><i class="fas fa-database me-2"></i>Querying SBOM data...</span>';
+            scrollBottom();
 
-            while (turn < MAX_TOOL_TURNS) {
+            const queryTypes = selectQueriesForQuestion(text);
+            const gathered = [];
+            for (const type of queryTypes) {
+                addToolCallMsg(`query_sbom(${type})`);
+                gathered.push({ type, result: executeQuery(type, {}) });
+            }
+
+            let responseText = '';
+            let currentPrompt = buildDataPrompt(text, gathered);
+            const MAX_TURNS = 3;
+            let turn = 0;
+
+            while (turn < MAX_TURNS) {
                 turn++;
                 thinkBubble.innerHTML = turn === 1
-                    ? '<span class="text-muted"><i class="fas fa-spinner fa-spin me-2"></i>Thinking...</span>'
-                    : `<span class="text-muted"><i class="fas fa-spinner fa-spin me-2"></i>Analyzing data (turn ${turn})...</span>`;
+                    ? '<span class="text-muted"><i class="fas fa-spinner fa-spin me-2"></i>Summarizing query results...</span>'
+                    : `<span class="text-muted"><i class="fas fa-spinner fa-spin me-2"></i>Refining answer (turn ${turn})...</span>`;
                 scrollBottom();
 
                 const result = await aiSession.prompt(currentPrompt);
+                const resultStr = typeof result === 'string'
+                    ? result
+                    : (result?.text || (result ? JSON.stringify(result) : ''));
 
-                // Check if result is a function call
-                const fc = extractFunctionCall(result);
-                if (!fc) {
-                    // Normal text response — we're done
-                    responseText = typeof result === 'string' ? result : (result.text || JSON.stringify(result));
-                    break;
+                let fc = extractFunctionCall(result);
+                if (!fc && looksLikeToolDump(resultStr)) {
+                    fc = parseTextToolCall(resultStr);
                 }
 
-                // Log the function call
-                addToolCallMsg(`query_sbom(${fc.args.type}${fc.args.filter ? ', filter: ' + fc.args.filter : ''}${fc.args.limit ? ', limit: ' + fc.args.limit : ''})`);
-
-                // Execute the query
-                thinkBubble.innerHTML = `<span class="text-muted"><i class="fas fa-database me-2"></i>Querying ${fc.args.type}...</span>`;
-                scrollBottom();
-
-                const queryResult = executeQuery(fc.args.type, fc.args);
-                const resultStr = JSON.stringify(queryResult);
-
-                // Feed result back — next loop turn
-                currentPrompt = `Here is the data from query_sbom("${fc.args.type}"):\n${resultStr}\n\nUse this data to answer the user's question. If you need more data, call query_sbom() again.`;
-            }
-
-            if (turn >= MAX_TOOL_TURNS) {
-                responseText = 'I\'ve reached the maximum number of queries for this response. Based on what I\'ve gathered so far, here\'s my analysis...';
-            }
-
-            // Stream the final response
-            thinkBubble.innerHTML = '<span class="chat-cursor"></span>';
-            try {
-                const stream = await aiSession.promptStreaming(responseText);
-                let full = '';
-                for await (const chunk of stream) {
-                    full = chunk;
-                    thinkBubble.innerHTML = renderText(full) + '<span class="ag-cursor"></span>';
-                    scrollBottom();
+                // Optional follow-up query if the model still asks for another slice
+                if (fc && fc.name === 'query_sbom') {
+                    const args = normalizeQueryArgs(fc.args, text);
+                    const already = gathered.some(g => g.type === args.type);
+                    if (!already) {
+                        addToolCallMsg(`query_sbom(${args.type}${args.filter ? ', filter: ' + args.filter : ''})`);
+                        gathered.push({ type: args.type, result: executeQuery(args.type, args) });
+                        currentPrompt = buildDataPrompt(text, gathered);
+                        continue;
+                    }
                 }
-                thinkBubble.innerHTML = renderText(full || responseText);
-            } catch (e) {
-                // If streaming fails, just show the text we already have
-                thinkBubble.innerHTML = renderText(responseText);
+
+                if (looksLikeToolDump(resultStr) || looksLikeVagueAnswer(resultStr)) {
+                    responseText = formatGatheredFallback(gathered, text);
+                } else {
+                    responseText = resultStr;
+                }
+                break;
             }
+
+            if (!responseText || looksLikeToolDump(responseText) || looksLikeVagueAnswer(responseText)) {
+                responseText = formatGatheredFallback(gathered, text);
+            }
+
+            thinkBubble.innerHTML = renderText(responseText || 'No response generated.');
 
         } catch (err) {
             console.error('Agent error:', err);
@@ -669,14 +713,182 @@ RULES:
             }
         }
 
-        input.disabled = false;
-        send.disabled = false;
+        if (input) input.disabled = false;
+        if (send) send.disabled = false;
         isGenerating = false;
         input?.focus();
         scrollBottom();
     }
 
-    /** Extract function call from AI response — handles multiple API shapes */
+    const VALID_QUERY_TYPES = new Set([
+        'overview', 'vulnerabilities', 'dependencies', 'repositories', 'licenses',
+        'eol', 'versionDrift', 'malware', 'techDebt', 'supplyChain', 'perRepo',
+        'hygiene', 'vulnAge'
+    ]);
+
+    /** True when the model emitted fake tool/Python syntax instead of an answer */
+    function looksLikeToolDump(text) {
+        if (typeof text !== 'string' || !text.trim()) return false;
+        return /tool_code|function_call|print\s*\(\s*query_sbom|query_sbom\s*\(/i.test(text);
+    }
+
+    /** Infer a query_sbom type from the user's natural-language question */
+    function inferQueryType(userText) {
+        const t = (userText || '').toLowerCase();
+        if (/supply\s*chain|red\s*flag|malware|dep(?:endency)?\s*confusion|unpinned/.test(t)) return 'supplyChain';
+        if (/vulnerab|cve|crit(?:ical)?|severity/.test(t)) return 'vulnerabilities';
+        if (/eol|end[\s-]?of[\s-]?life|end[\s-]?of[\s-]?support/.test(t)) return 'eol';
+        if (/license|copyleft|compliance/.test(t)) return 'licenses';
+        if (/drift|outdated|stale|major\s+update/.test(t)) return 'versionDrift';
+        if (/hygiene|sbom\s*qual|archived/.test(t)) return 'hygiene';
+        if (/tech[-\s]?debt|health\s*score|grade/.test(t)) return 'techDebt';
+        if (/dwell|time\s*bomb|vuln\s*age/.test(t)) return 'vulnAge';
+        if (/per[-\s]?repo|which\s+repos|worst\s+repo/.test(t)) return 'perRepo';
+        if (/\brepos?\b/.test(t)) return 'repositories';
+        if (/dependenc/.test(t)) return 'dependencies';
+        if (/overview|overall|posture|how\s+.*(doing|we)/.test(t)) return 'overview';
+        if (/m&a|due\s*diligence|diligence/.test(t)) return 'overview';
+        return 'overview';
+    }
+
+    /** Which query_sbom slices to run before asking the model to summarize */
+    function selectQueriesForQuestion(userText) {
+        const primary = inferQueryType(userText) || 'overview';
+        const types = [primary];
+        if (primary === 'supplyChain') {
+            types.push('malware', 'eol', 'techDebt');
+        } else if (primary === 'vulnerabilities') {
+            types.push('vulnAge', 'techDebt');
+        } else if (primary === 'overview') {
+            types.push('techDebt', 'supplyChain', 'vulnerabilities');
+        } else if (primary === 'licenses') {
+            types.push('techDebt');
+        } else if (primary === 'versionDrift') {
+            types.push('eol', 'techDebt');
+        } else if (primary === 'perRepo' || primary === 'hygiene') {
+            types.push('techDebt');
+        }
+        return [...new Set(types)];
+    }
+
+    /** Build the summarization prompt with authoritative query JSON */
+    function buildDataPrompt(userText, gathered) {
+        const blocks = gathered.map(g => {
+            const summary = g.result?.summary || 'No summary.';
+            const data = g.result?.data != null ? JSON.stringify(g.result.data) : 'null';
+            return `### query_sbom("${g.type}")\nsummary: ${summary}\ndata: ${data}`;
+        }).join('\n\n');
+
+        return `USER QUESTION:
+${userText}
+
+SBOM QUERY RESULTS (authoritative — use these numbers only):
+${blocks}
+
+INSTRUCTIONS:
+- Answer the question using ONLY the query results above.
+- Cite specific numbers from the data (counts, grades, medians).
+- If a detail is missing, say it is not in the loaded analysis.
+- Do NOT invent packages, CVEs, or tool calls. No tool_code / print() / query_sbom().
+- Write 2–4 short paragraphs in plain executive language.`;
+    }
+
+    /** Vague/hallucinated answers that ignore the provided query JSON */
+    function looksLikeVagueAnswer(text) {
+        if (typeof text !== 'string' || !text.trim()) return true;
+        const t = text.toLowerCase();
+        // Hedging without digits usually means the model skipped the data
+        const vague = /lots of data|data indicates|available (?:data|information) (?:suggests|indicates)|based on (?:the )?(?:available |provided )?data|cannot determine|insufficient data|as an ai/i.test(t);
+        const hasDigit = /\d/.test(text);
+        if (vague && !hasDigit) return true;
+        // Extremely short non-answers
+        if (text.trim().length < 40 && !hasDigit) return true;
+        return false;
+    }
+
+    /** Coerce model-invented args into a valid query_sbom payload */
+    function normalizeQueryArgs(args, userText) {
+        const a = { ...(args || {}) };
+        if (!a.type && a.query) a.type = a.query;
+        if (!a.type && a.category) a.type = a.category;
+        if (!a.type && a.data_type) a.type = a.data_type;
+        if (!a.type && a.dataType) a.type = a.dataType;
+        if (typeof a.type === 'string') a.type = a.type.trim();
+        if (a.type && !VALID_QUERY_TYPES.has(a.type)) {
+            // e.g. model passed type="OpenSSL" — drop and infer from the question
+            delete a.type;
+        }
+        // Invented package lookups are not supported; fall back to question heuristics
+        if (!a.type && (a.package_name || a.package || a.version || a.platform)) {
+            a.type = inferQueryType(userText) || 'overview';
+        }
+        if (!a.type) a.type = inferQueryType(userText) || 'overview';
+        return a;
+    }
+
+    /**
+     * Parse text-form tool invocations Nano sometimes emits, e.g.
+     * ``tool_code print(query_sbom(package_name='OpenSSL', ...)) ``
+     */
+    function parseTextToolCall(text) {
+        if (typeof text !== 'string') return null;
+        let s = text.trim();
+        s = s.replace(/^`{1,3}(?:tool_code|python|javascript|js)?\s*/i, '');
+        s = s.replace(/`{1,3}\s*$/g, '').trim();
+
+        const printWrapped = s.match(/print\s*\(\s*(query_sbom\s*\([\s\S]*\))\s*\)\s*;?\s*$/i);
+        if (printWrapped) s = printWrapped[1];
+
+        const call = s.match(/query_sbom\s*\(([\s\S]*)\)\s*;?\s*$/i)
+            || text.match(/query_sbom\s*\(([\s\S]*?)\)/);
+        if (!call) return null;
+
+        const inner = call[1].trim();
+        const args = {};
+
+        if (inner.startsWith('{')) {
+            try {
+                Object.assign(args, JSON.parse(inner));
+            } catch (_) { /* ignore */ }
+        } else if (inner) {
+            const kv = /(\w+)\s*=\s*(['"])(.*?)\2|(\w+)\s*=\s*(-?\d+(?:\.\d+)?)/g;
+            let m;
+            while ((m = kv.exec(inner)) !== null) {
+                if (m[1]) args[m[1]] = m[3];
+                else if (m[4]) args[m[4]] = Number(m[5]);
+            }
+            if (!Object.keys(args).length) {
+                const positional = inner.match(/^(['"])(.*?)\1$/);
+                if (positional) args.type = positional[2];
+            }
+        }
+
+        return { name: 'query_sbom', args };
+    }
+
+    /** Deterministic summary when the model fails to use the provided query JSON */
+    function formatGatheredFallback(gathered, userText) {
+        const parts = [
+            `Here are the SBOM query results for: "${userText}"`,
+            '',
+            'I could not produce a clean narrative summary, so here are the authoritative numbers from the loaded analysis:'
+        ];
+        for (const g of gathered) {
+            const summary = g.result?.summary || 'No summary.';
+            parts.push('');
+            parts.push(`**${g.type}** — ${summary}`);
+            if (g.result?.data && typeof g.result.data === 'object') {
+                for (const [k, v] of Object.entries(g.result.data)) {
+                    if (v !== null && typeof v !== 'object') {
+                        parts.push(`- ${k}: ${v}`);
+                    }
+                }
+            }
+        }
+        return parts.join('\n');
+    }
+
+    /** Extract function call from AI response — structured API shapes + text dumps */
     function extractFunctionCall(result) {
         if (!result) return null;
 
@@ -687,18 +899,25 @@ RULES:
         // Shape 2: { functionCalls: [...] }
         if (result.functionCalls && result.functionCalls.length > 0) {
             const fc = result.functionCalls[0];
-            return { name: fc.name, args: fc.args || {} };
+            return { name: fc.name, args: fc.args || fc.arguments || {} };
         }
-        // Shape 3: String containing a function call marker (fallback parsing)
+        // Shape 2b: modern tool-call objects { name, arguments } / { toolCalls: [...] }
+        if (result.name && (result.arguments || result.args)) {
+            return { name: result.name, args: result.arguments || result.args || {} };
+        }
+        if (Array.isArray(result.toolCalls) && result.toolCalls.length > 0) {
+            const tc = result.toolCalls[0];
+            return { name: tc.name, args: tc.arguments || tc.args || {} };
+        }
+        // Shape 3: string JSON or text tool dump
         if (typeof result === 'string') {
-            // Check if the response is JUST a function call (some API versions return it as text)
             try {
                 const parsed = JSON.parse(result);
-                if (parsed.functionCall || parsed.functionCalls) {
+                if (parsed && typeof parsed === 'object') {
                     return extractFunctionCall(parsed);
                 }
             } catch (e) { /* not JSON */ }
-            return null;
+            return parseTextToolCall(result);
         }
         return null;
     }
@@ -710,7 +929,7 @@ RULES:
         if (msgArea) { while (msgArea.firstChild) msgArea.removeChild(msgArea.firstChild); }
         if (empty) { empty.style.display = 'flex'; msgArea?.appendChild(empty); }
         destroySession();
-        if (currentData && aiAvailable && toolsSupport) {
+        if (currentData && aiAvailable) {
             await createAgentSession();
         }
         document.getElementById('agInput')?.focus();
