@@ -1,203 +1,199 @@
-     1|<!DOCTYPE html>
-     2|<html lang="en">
-     3|<head>
-     4|    <meta charset="UTF-8">
-     5|    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-     6|    <title>SBOM Play — Snapshot</title>
-     7|    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
-     8|    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
-     9|    <link href="css/style.css?v=0.0.9" rel="stylesheet">
-    10|    <link href="css/themes.css?v=0.0.9" rel="stylesheet">
-    11|    <script src="js/theme-manager.js?v=0.0.9&cb=1777494400000"></script>
-    12|    <script src="js/analytics.js?v=0.0.9&cb=1777494400000"></script>
-    13|    <script defer data-domain="cyfinoid.github.io" src="https://plausible.io/js/script.outbound-links.js"></script>
-    14|    <style>
-    15|        .snap-page {
-    16|            min-height: calc(100vh - 200px);
-    17|            display: flex;
-    18|            flex-direction: column;
-    19|            justify-content: center;
-    20|        }
-    21|        .snap-header {
-    22|            text-align: center;
-    23|            margin-bottom: var(--space-5);
-    24|        }
-    25|        .snap-header h2 {
-    26|            font-size: 1.6rem;
-    27|            font-weight: 700;
-    28|            margin-bottom: var(--space-1);
-    29|        }
-    30|        .snap-header .tagline {
-    31|            font-size: var(--font-size-caption);
-    32|            color: var(--text-secondary);
-    33|        }
-    34|
-    35|        .snap-verdict {
-    36|            text-align: center;
-    37|            margin-bottom: var(--space-5);
-    38|            padding-bottom: var(--space-4);
-    39|            border-bottom: 1px solid var(--border-color);
-    40|        }
-    41|        .snap-verdict .grade-big {
-    42|            font-size: 4.5rem;
-    43|            font-weight: 800;
-    44|            line-height: 1;
-    45|        }
-    46|        .snap-verdict .grade-big.grade-a { color: var(--color-green); }
-    47|        .snap-verdict .grade-big.grade-b { color: var(--color-blue); }
-    48|        .snap-verdict .grade-big.grade-c { color: var(--color-yellow); }
-    49|        .snap-verdict .grade-big.grade-d { color: var(--color-dirty-yellow); }
-    50|        .snap-verdict .grade-big.grade-f { color: var(--color-red); }
-    51|        .snap-verdict .score-text {
-    52|            font-size: 1.1rem;
-    53|            color: var(--text-secondary);
-    54|            margin-top: var(--space-1);
-    55|        }
-    56|        .snap-verdict .summary-line {
-    57|            font-size: 1rem;
-    58|            font-weight: 600;
-    59|            margin-top: var(--space-2);
-    60|        }
-    61|
-    62|        .snap-metrics {
-    63|            display: grid;
-    64|            grid-template-columns: repeat(3, 1fr);
-    65|            gap: var(--space-3);
-    66|            max-width: 720px;
-    67|            margin: 0 auto;
-    68|        }
-    69|        .snap-metric {
-    70|            background: var(--bg-tertiary);
-    71|            border: 1px solid var(--border-color);
-    72|            border-radius: 1.25rem;
-    73|            padding: var(--space-3) var(--space-2);
-    74|            text-align: center;
-    75|            transition: transform .15s ease;
-    76|        }
-    77|        .snap-metric:hover { transform: translateY(-2px); }
-    78|        .snap-metric .value {
-    79|            font-size: 1.8rem;
-    80|            font-weight: 800;
-    81|            line-height: 1.2;
-    82|        }
-    83|        .snap-metric .label {
-    84|            font-size: 0.7rem;
-    85|            color: var(--text-secondary);
-    86|            text-transform: uppercase;
-    87|            letter-spacing: 0.05em;
-    88|            margin-top: var(--space-1);
-    89|        }
-    90|        .snap-metric .icon {
-    91|            font-size: 1.2rem;
-    92|            margin-bottom: var(--space-1);
-    93|        }
-    94|        .snap-metric.good { border-left: 4px solid var(--color-green); }
-    95|        .snap-metric.warn { border-left: 4px solid var(--color-yellow); }
-    96|        .snap-metric.bad  { border-left: 4px solid var(--color-red); }
-    97|        .snap-metric.neutral { border-left: 4px solid var(--text-secondary); }
-    98|
-    99|        .snap-concerns {
-   100|            max-width: 720px;
-   101|            margin: var(--space-4) auto 0;
-   102|            text-align: center;
-   103|        }
-   104|        .snap-concerns .heading {
-   105|            font-size: var(--font-size-caption);
-   106|            color: var(--text-secondary);
-   107|            margin-bottom: var(--space-2);
-   108|            font-weight: 600;
-   109|            text-transform: uppercase;
-   110|            letter-spacing: 0.05em;
-   111|        }
-   112|        .snap-concerns .list {
-   113|            display: flex;
-   114|            flex-wrap: wrap;
-   115|            gap: var(--space-2);
-   116|            justify-content: center;
-   117|        }
-   118|        .snap-concerns .item {
-   119|            background: var(--bg-danger);
-   120|            color: var(--color-red);
-   121|            font-size: 0.75rem;
-   122|            padding: 0.3rem 0.75rem;
-   123|            border-radius: 1rem;
-   124|            font-weight: 600;
-   125|            border: 1px solid transparent;
-   126|        }
-   127|        .snap-concerns .all-clear {
-   128|            font-size: 0.85rem;
-   129|            color: var(--color-green);
-   130|            font-weight: 600;
-   131|        }
-   132|
-   133|        .snap-selector-wrap { max-width: 300px; margin: 0 auto var(--space-4); }
-   134|        .snap-loading { text-align: center; padding: var(--space-6); color: var(--text-secondary); }
-   135|
-   136|        @media (max-width: 576px) {
-   137|            .snap-metrics { grid-template-columns: repeat(2, 1fr); }
-   138|            .snap-verdict .grade-big { font-size: 3.5rem; }
-   139|            .snap-metric .value { font-size: 1.4rem; }
-   140|        }
-   141|    </style>
-   142|</head>
-   143|<body>
-   144|    <a class="visually-hidden-focusable" href="#main">Skip to content</a>
-   145|    <nav class="navbar navbar-expand-lg navbar-dark bg-primary">
-   146|        <div class="container">
-   147|            <a class="navbar-brand" href="index.html"><i class="fas fa-cubes me-2"></i>SBOM Play</a>
-   148|            <div class="navbar-actions">
-   149|                <button class="btn btn-outline-secondary btn-sm theme-toggle" title="Toggle theme"><i class="fas fa-sun"></i></button>
-   150|                <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav"><span class="navbar-toggler-icon"></span></button>
-   151|            </div>
-   152|            <div class="collapse navbar-collapse" id="navbarNav">
-   153|                <div class="navbar-nav ms-auto">
-   154|                    <a class="nav-link" href="index.html">Home</a>
-   155|                    <a class="nav-link" href="licenses.html">License</a>
-   156|                    <a class="nav-link" href="vuln.html">Vulns</a>
-   157|                    <a class="nav-link" href="insights.html">Insights</a>
-   158|                    <a class="nav-link" href="insights2.html">Pulse</a>
-   159|                    <a class="nav-link" href="insights3.html">Portfolio</a>
-   160|                    <a class="nav-link" href="insights4.html">Report</a>
-   161|                    <a class="nav-link active" href="insights5.html">Snapshot</a>
-   <a class="nav-link" href="insights-ai.html">AI</a>
-   162|                    <a class="nav-link" href="insights-chat.html">Chat</a>
-                    <a class="nav-link" href="insights-agent.html">Agent</a>
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SBOM Play — Snapshot</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <link href="css/style.css?v=0.0.9" rel="stylesheet">
+    <link href="css/themes.css?v=0.0.9" rel="stylesheet">
+    <script src="js/theme-manager.js?v=0.0.9&cb=1777494400000"></script>
+    <script src="js/analytics.js?v=0.0.9&cb=1777494400000"></script>
+    <script defer data-domain="cyfinoid.github.io" src="https://plausible.io/js/script.outbound-links.js"></script>
+    <style>
+        .snap-page {
+            min-height: calc(100vh - 200px);
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+        }
+        .snap-header {
+            text-align: center;
+            margin-bottom: var(--space-5);
+        }
+        .snap-header h2 {
+            font-size: 1.6rem;
+            font-weight: 700;
+            margin-bottom: var(--space-1);
+        }
+        .snap-header .tagline {
+            font-size: var(--font-size-caption);
+            color: var(--text-secondary);
+        }
+
+        .snap-verdict {
+            text-align: center;
+            margin-bottom: var(--space-5);
+            padding-bottom: var(--space-4);
+            border-bottom: 1px solid var(--border-color);
+        }
+        .snap-verdict .grade-big {
+            font-size: 4.5rem;
+            font-weight: 800;
+            line-height: 1;
+        }
+        .snap-verdict .grade-big.grade-a { color: var(--color-green); }
+        .snap-verdict .grade-big.grade-b { color: var(--color-blue); }
+        .snap-verdict .grade-big.grade-c { color: var(--color-yellow); }
+        .snap-verdict .grade-big.grade-d { color: var(--color-dirty-yellow); }
+        .snap-verdict .grade-big.grade-f { color: var(--color-red); }
+        .snap-verdict .score-text {
+            font-size: 1.1rem;
+            color: var(--text-secondary);
+            margin-top: var(--space-1);
+        }
+        .snap-verdict .summary-line {
+            font-size: 1rem;
+            font-weight: 600;
+            margin-top: var(--space-2);
+        }
+
+        .snap-metrics {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: var(--space-3);
+            max-width: 720px;
+            margin: 0 auto;
+        }
+        .snap-metric {
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border-color);
+            border-radius: 1.25rem;
+            padding: var(--space-3) var(--space-2);
+            text-align: center;
+            transition: transform .15s ease;
+        }
+        .snap-metric:hover { transform: translateY(-2px); }
+        .snap-metric .value {
+            font-size: 1.8rem;
+            font-weight: 800;
+            line-height: 1.2;
+        }
+        .snap-metric .label {
+            font-size: 0.7rem;
+            color: var(--text-secondary);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            margin-top: var(--space-1);
+        }
+        .snap-metric .icon {
+            font-size: 1.2rem;
+            margin-bottom: var(--space-1);
+        }
+        .snap-metric.good { border-left: 4px solid var(--color-green); }
+        .snap-metric.warn { border-left: 4px solid var(--color-yellow); }
+        .snap-metric.bad  { border-left: 4px solid var(--color-red); }
+        .snap-metric.neutral { border-left: 4px solid var(--text-secondary); }
+
+        .snap-concerns {
+            max-width: 720px;
+            margin: var(--space-4) auto 0;
+            text-align: center;
+        }
+        .snap-concerns .heading {
+            font-size: var(--font-size-caption);
+            color: var(--text-secondary);
+            margin-bottom: var(--space-2);
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+        .snap-concerns .list {
+            display: flex;
+            flex-wrap: wrap;
+            gap: var(--space-2);
+            justify-content: center;
+        }
+        .snap-concerns .item {
+            background: var(--bg-danger);
+            color: var(--color-red);
+            font-size: 0.75rem;
+            padding: 0.3rem 0.75rem;
+            border-radius: 1rem;
+            font-weight: 600;
+            border: 1px solid transparent;
+        }
+        .snap-concerns .all-clear {
+            font-size: 0.85rem;
+            color: var(--color-green);
+            font-weight: 600;
+        }
+
+        .snap-selector-wrap { max-width: 300px; margin: 0 auto var(--space-4); }
+        .snap-loading { text-align: center; padding: var(--space-6); color: var(--text-secondary); }
+
+        @media (max-width: 576px) {
+            .snap-metrics { grid-template-columns: repeat(2, 1fr); }
+            .snap-verdict .grade-big { font-size: 3.5rem; }
+            .snap-metric .value { font-size: 1.4rem; }
+        }
+    </style>
+</head>
+<body>
+    <a class="visually-hidden-focusable" href="#main">Skip to content</a>
+    <nav class="navbar navbar-expand-lg navbar-dark bg-primary">
+        <div class="container">
+            <a class="navbar-brand" href="index.html"><i class="fas fa-cubes me-2"></i>SBOM Play</a>
+            <div class="navbar-actions">
+                <button class="btn btn-outline-secondary btn-sm theme-toggle" title="Toggle theme"><i class="fas fa-sun"></i></button>
+                <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav"><span class="navbar-toggler-icon"></span></button>
+            </div>
+            <div class="collapse navbar-collapse" id="navbarNav">
+                <div class="navbar-nav ms-auto">
+                    <a class="nav-link" href="index.html">Home</a>
+                    <a class="nav-link" href="licenses.html">License</a>
+                    <a class="nav-link" href="vuln.html">Vulns</a>
+                    <a class="nav-link" href="insights.html">Insights</a>
+                    <a class="nav-link" href="insights2.html">Pulse</a>
+                    <a class="nav-link" href="insights3.html">Portfolio</a>
+                    <a class="nav-link" href="insights4.html">Report</a>
+                    <a class="nav-link active" href="insights5.html">Snapshot</a>
                     <a class="nav-link" href="deps.html">Deps</a>
-   163|                    <a class="nav-link" href="repos.html">Repos</a>
-   164|                    <a class="nav-link" href="settings.html">Settings</a>
-   165|                    <a class="nav-link" href="about.html">About</a>
-   166|                </div>
-   167|            </div>
-   168|        </div>
-   169|    </nav>
-   170|
-   171|    <main id="main" class="container mt-4 snap-page">
-   172|        <div class="snap-selector-wrap">
-   173|            <select id="analysisSelector" class="form-select">
-   174|                <option value="">Loading...</option>
-   175|            </select>
-   176|        </div>
-   177|
-   178|        <div id="noDataMessage" class="alert alert-info d-none text-center">
-   179|            <i class="fas fa-info-circle me-2"></i>No analysis data found. <a href="index.html">Run a scan</a> first.
-   180|        </div>
-   181|
-   182|        <div id="loading" class="snap-loading d-none"><div class="spinner-border text-primary mb-3" role="status"></div><p>Taking snapshot&hellip;</p></div>
-   183|        <div id="content" class="d-none"></div>
-   184|    </main>
-   185|
-   186|    <footer class="bg-light mt-4 py-3">
-   187|        <div class="container"><div class="text-center"><small class="text-muted">&copy; <time datetime="2026">2026</time> Cyfinoid Research.</small></div></div>
-   188|    </footer>
-   189|
-   190|    <script src="js/indexeddb-manager.js?v=0.0.9&cb=1777494400000"></script>
-   191|    <script src="js/common.js?v=0.0.9&cb=1777642497882"></script>
-   192|    <script src="js/version-utils.js?v=0.0.9&cb=1777494400000"></script>
-   193|    <script src="js/cache-manager.js?v=0.0.9&cb=1777494400000"></script>
-   194|    <script src="js/storage-manager.js?v=0.0.9&cb=1779000000000"></script>
-   195|    <script src="js/insights-aggregator.js?v=0.0.9&cb=1780000000003"></script>
-   196|    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
-   197|    <script src="js/insights5-page.js?v=0.0.9&cb=1780000000003"></script>
-   198|</body>
-   199|</html>
-   200|
+                    <a class="nav-link" href="repos.html">Repos</a>
+                    <a class="nav-link" href="settings.html">Settings</a>
+                    <a class="nav-link" href="about.html">About</a>
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <main id="main" class="container mt-4 snap-page">
+        <div class="snap-selector-wrap">
+            <select id="analysisSelector" class="form-select">
+                <option value="">Loading...</option>
+            </select>
+        </div>
+
+        <div id="noDataMessage" class="alert alert-info d-none text-center">
+            <i class="fas fa-info-circle me-2"></i>No analysis data found. <a href="index.html">Run a scan</a> first.
+        </div>
+
+        <div id="loading" class="snap-loading d-none"><div class="spinner-border text-primary mb-3" role="status"></div><p>Taking snapshot&hellip;</p></div>
+        <div id="content" class="d-none"></div>
+    </main>
+
+    <footer class="bg-light mt-4 py-3">
+        <div class="container"><div class="text-center"><small class="text-muted">&copy; <time datetime="2026">2026</time> Cyfinoid Research.</small></div></div>
+    </footer>
+
+    <script src="js/indexeddb-manager.js?v=0.0.9&cb=1777494400000"></script>
+    <script src="js/common.js?v=0.0.9&cb=1777642497882"></script>
+    <script src="js/version-utils.js?v=0.0.9&cb=1777494400000"></script>
+    <script src="js/cache-manager.js?v=0.0.9&cb=1777494400000"></script>
+    <script src="js/storage-manager.js?v=0.0.9&cb=1779000000000"></script>
+    <script src="js/insights-aggregator.js?v=0.0.9&cb=1781000000000"></script>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="js/insights5-page.js?v=0.0.9&cb=1781000000000"></script>
+</body>
+</html>

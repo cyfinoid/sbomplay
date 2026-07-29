@@ -341,30 +341,20 @@
     /* ---- Check tools support ---- */
     async function checkToolsSupport() {
         try {
-            if (window.ai && window.ai.languageModel) {
-                const caps = await window.ai.languageModel.capabilities();
-                if (caps.available === 'no') {
-                    aiAvailable = false;
-                    toolsSupport = false;
-                    return 'unavailable';
-                }
-                aiAvailable = true;
-                // The Prompt API supports tools if we can pass them to create().
-                // Chrome 130+ supports tools. We check by attempting a capability
-                // or just trying. For now, we assume if the model is available,
-                // tools may be supported. We'll detect at session creation.
-                // Check if there's a specific capability flag
-                // @ts-ignore - newer API
-                if (caps.supportsTools !== undefined) {
-                    toolsSupport = caps.supportsTools;
-                } else {
-                    // Assume true for Chrome 130+; will fail gracefully
-                    toolsSupport = true;
-                }
-                return caps.available === 'readily' ? 'ready' : 'download';
+            if (!window.AiNano || !window.AiNano.isSupported()) {
+                aiAvailable = false;
+                toolsSupport = false;
+                return 'unavailable';
             }
-            aiAvailable = false;
-            return 'unavailable';
+            const caps = await window.AiNano.getAvailability();
+            if (caps.available === 'no') {
+                aiAvailable = false;
+                toolsSupport = false;
+                return 'unavailable';
+            }
+            aiAvailable = true;
+            toolsSupport = caps.supportsTools;
+            return caps.available === 'readily' ? 'ready' : 'download';
         } catch (e) {
             console.warn('Tools check:', e);
             aiAvailable = false;
@@ -380,7 +370,7 @@
         try {
             const decls = buildFunctionDeclarations();
 
-            aiSession = await window.ai.languageModel.create({
+            aiSession = await window.AiNano.createSession({
                 systemPrompt: `You are a supply-chain security analyst AI. You can query SBOM analysis data using the query_sbom() function whenever you need information.
 
 RULES:

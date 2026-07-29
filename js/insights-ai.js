@@ -27,34 +27,82 @@
     let aiCapabilities  = null;  // null = unavailable
     let abortController = null;
 
+    const MODES = {
+        executive: {
+            label: 'Executive Summary',
+            icon: 'fas fa-file-lines',
+            system: 'You are an expert cybersecurity advisor writing a concise executive brief for a CISO. Use clear, plain language. Avoid jargon. Be direct about risks but constructive in tone. Maximum 250 words.',
+            prompt: (data) => `Analyze this SBOM org health data and write a 2-3 paragraph executive summary.
+
+DATA:
+${data}
+
+Cover: 1) Overall health assessment 2) Top 2-3 risks that need attention 3) One sentence of encouragement if things look good or a call to action if they don't.`
+        },
+        risks: {
+            label: 'Risk Deep-Dive',
+            icon: 'fas fa-exclamation-triangle',
+            system: 'You are a risk analyst specializing in software supply-chain security. Be specific, reference the numbers, and prioritize by severity. Maximum 200 words.',
+            prompt: (data) => `Analyze these SBOM risk indicators and provide a focused risk assessment.
+
+DATA:
+${data}
+
+Identify: 1) The single biggest risk and why 2) 2-3 secondary risks ranked by severity 3) Which risks are urgent vs which can be monitored. Be specific about counts and thresholds.`
+        },
+        recommendations: {
+            label: 'Recommendations',
+            icon: 'fas fa-list-check',
+            system: 'You are a remediation advisor. Give actionable, prioritized recommendations. Each recommendation must be specific and reference the data. Maximum 250 words.',
+            prompt: (data) => `Based on this SBOM org health data, provide prioritized remediation recommendations.
+
+DATA:
+${data}
+
+Give 3-5 recommendations ordered by impact. For each: what to do, why (reference the data), and the expected outcome. Use bullet points for readability.`
+        },
+        ma: {
+            label: 'M&A Due Diligence',
+            icon: 'fas fa-handshake',
+            system: 'You are an M&A technical due diligence analyst. Assess the target organization\'s software supply-chain health for an acquisition context. Be balanced — note both strengths and liabilities. Maximum 250 words.',
+            prompt: (data) => `Assess this organization's software supply-chain posture from an M&A due diligence perspective.
+
+DATA:
+${data}
+
+Cover: 1) Overall risk rating (Low/Medium/High) for the acquisition context 2) Key liabilities being inherited (be specific) 3) Strengths that reduce risk 4) Estimated remediation effort (minimal/moderate/significant) 5) Deal recommendation — proceed as-is, proceed with conditions, or flag for deeper review.`
+        }
+    };
+
     /* ---- Check AI availability ---- */
     async function checkAi() {
         try {
-            if (window.ai && window.ai.languageModel) {
-                const caps = await window.ai.languageModel.capabilities();
-                aiCapabilities = caps;
-                if (caps.available === 'readily') {
-                    statusDot.className = 'dot ready';
-                    statusTxt.textContent = 'Gemini Nano ready';
-                    return true;
-                } else if (caps.available === 'after-download') {
-                    statusDot.className = 'dot downloading';
-                    statusTxt.textContent = 'Gemini Nano — download needed (click generate to start)';
-                    return true;
-                } else {
-                    statusDot.className = 'dot unavailable';
-                    statusTxt.textContent = 'Gemini Nano not available on this browser';
-                    return false;
-                }
-            } else {
+            if (!window.AiNano || !window.AiNano.isSupported()) {
                 statusDot.className = 'dot unavailable';
                 statusTxt.textContent = 'Chrome Prompt API not found';
+                aiCapabilities = { available: 'no' };
                 return false;
             }
+            const caps = await window.AiNano.getAvailability();
+            aiCapabilities = caps;
+            if (caps.available === 'readily') {
+                statusDot.className = 'dot ready';
+                statusTxt.textContent = 'Gemini Nano ready';
+                return true;
+            }
+            if (caps.available === 'after-download') {
+                statusDot.className = 'dot downloading';
+                statusTxt.textContent = 'Gemini Nano — download needed (click generate to start)';
+                return true;
+            }
+            statusDot.className = 'dot unavailable';
+            statusTxt.textContent = 'Gemini Nano not available on this browser';
+            return false;
         } catch (e) {
             console.warn('AI check failed:', e);
             statusDot.className = 'dot unavailable';
             statusTxt.textContent = 'AI unavailable';
+            aiCapabilities = { available: 'no' };
             return false;
         }
     }
@@ -115,10 +163,6 @@
         loading.classList.add('d-none');
         content.classList.remove('d-none');
     }
-
-    selector.addEventListener('change', loadAnalysis);
-    await checkAi();
-    await loadAnalysesList();
 
     /* ---- Build compact data for AI ---- */
     function buildAiContext(ins) {
@@ -189,53 +233,6 @@
     }
 
     /* ---- AI generation ---- */
-    const MODES = {
-        executive: {
-            label: 'Executive Summary',
-            icon: 'fas fa-file-lines',
-            system: 'You are an expert cybersecurity advisor writing a concise executive brief for a CISO. Use clear, plain language. Avoid jargon. Be direct about risks but constructive in tone. Maximum 250 words.',
-            prompt: (data) => `Analyze this SBOM org health data and write a 2-3 paragraph executive summary.
-
-DATA:
-${data}
-
-Cover: 1) Overall health assessment 2) Top 2-3 risks that need attention 3) One sentence of encouragement if things look good or a call to action if they don't.`
-        },
-        risks: {
-            label: 'Risk Deep-Dive',
-            icon: 'fas fa-exclamation-triangle',
-            system: 'You are a risk analyst specializing in software supply-chain security. Be specific, reference the numbers, and prioritize by severity. Maximum 200 words.',
-            prompt: (data) => `Analyze these SBOM risk indicators and provide a focused risk assessment.
-
-DATA:
-${data}
-
-Identify: 1) The single biggest risk and why 2) 2-3 secondary risks ranked by severity 3) Which risks are urgent vs which can be monitored. Be specific about counts and thresholds.`
-        },
-        recommendations: {
-            label: 'Recommendations',
-            icon: 'fas fa-list-check',
-            system: 'You are a remediation advisor. Give actionable, prioritized recommendations. Each recommendation must be specific and reference the data. Maximum 250 words.',
-            prompt: (data) => `Based on this SBOM org health data, provide prioritized remediation recommendations.
-
-DATA:
-${data}
-
-Give 3-5 recommendations ordered by impact. For each: what to do, why (reference the data), and the expected outcome. Use bullet points for readability.`
-        },
-        ma: {
-            label: 'M&A Due Diligence',
-            icon: 'fas fa-handshake',
-            system: 'You are an M&A technical due diligence analyst. Assess the target organization\'s software supply-chain health for an acquisition context. Be balanced — note both strengths and liabilities. Maximum 250 words.',
-            prompt: (data) => `Assess this organization's software supply-chain posture from an M&A due diligence perspective.
-
-DATA:
-${data}
-
-Cover: 1) Overall risk rating (Low/Medium/High) for the acquisition context 2) Key liabilities being inherited (be specific) 3) Strengths that reduce risk 4) Estimated remediation effort (minimal/moderate/significant) 5) Deal recommendation — proceed as-is, proceed with conditions, or flag for deeper review.`
-        }
-    };
-
     async function generateAi(modeKey) {
         if (!currentInsights || !aiCapabilities) return;
 
@@ -272,7 +269,7 @@ Cover: 1) Overall risk rating (Low/Medium/High) for the acquisition context 2) K
                 </div>`);
             }
 
-            const session = await window.ai.languageModel.create({
+            const session = await window.AiNano.createSession({
                 systemPrompt: mode.system,
                 temperature: 0.3,
                 topK: 20
@@ -424,5 +421,9 @@ Cover: 1) Overall risk rating (Low/Medium/High) for the acquisition context 2) K
             if (active) generateAi(active.dataset.mode);
         });
     }
+
+    selector.addEventListener('change', loadAnalysis);
+    await checkAi();
+    await loadAnalysesList();
 
 })();

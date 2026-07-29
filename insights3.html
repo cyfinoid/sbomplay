@@ -1,186 +1,182 @@
-     1|<!DOCTYPE html>
-     2|<html lang="en">
-     3|<head>
-     4|    <meta charset="UTF-8">
-     5|    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-     6|    <title>SBOM Play — Risk Portfolio</title>
-     7|    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
-     8|    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
-     9|    <link href="css/style.css?v=0.0.9" rel="stylesheet">
-    10|    <link href="css/themes.css?v=0.0.9" rel="stylesheet">
-    11|    <script src="js/theme-manager.js?v=0.0.9&cb=1777494400000"></script>
-    12|    <script src="js/analytics.js?v=0.0.9&cb=1777494400000"></script>
-    13|    <script defer data-domain="cyfinoid.github.io" src="https://plausible.io/js/script.outbound-links.js"></script>
-    14|    <style>
-    15|        .rpf-header { text-align: center; padding: var(--space-4) 0 var(--space-3); }
-    16|        .rpf-overall {
-    17|            display: inline-flex; align-items: center; gap: var(--space-4);
-    18|            background: var(--bg-tertiary); border: 1px solid var(--border-color);
-    19|            border-radius: 1.5rem; padding: var(--space-3) var(--space-5);
-    20|        }
-    21|        .rpf-overall .grade {
-    22|            font-size: 2.8rem; font-weight: 800; line-height: 1;
-    23|        }
-    24|        .rpf-overall .score {
-    25|            font-size: var(--font-size-section); color: var(--text-secondary);
-    26|        }
-    27|        .rpf-overall .score strong { font-size: 1.6rem; display: block; color: var(--text-primary); }
-    28|
-    29|        .rpf-domain {
-    30|            background: var(--bg-secondary);
-    31|            border: 1px solid var(--border-color);
-    32|            border-radius: 1.25rem;
-    33|            padding: var(--space-4);
-    34|            height: 100%;
-    35|        }
-    36|        .rpf-domain h3 {
-    37|            font-size: var(--font-size-subheading);
-    38|            font-weight: 700;
-    39|            margin-bottom: var(--space-3);
-    40|        }
-    41|        .rpf-domain h3 i { margin-right: var(--space-2); width: 1.8rem; text-align: center; }
-    42|
-    43|        .rpf-scorebar-wrap {
-    44|            margin-bottom: var(--space-4);
-    45|            text-align: center;
-    46|        }
-    47|        .rpf-scorebar {
-    48|            height: 10px;
-    49|            border-radius: 5px;
-    50|            background: var(--bg-tertiary);
-    51|            overflow: hidden;
-    52|            margin-bottom: var(--space-1);
-    53|        }
-    54|        .rpf-scorebar .fill {
-    55|            height: 100%;
-    56|            border-radius: 5px;
-    57|            transition: width 0.6s ease;
-    58|        }
-    59|        .rpf-scorebar-label {
-    60|            display: flex;
-    61|            justify-content: space-between;
-    62|            font-size: var(--font-size-caption);
-    63|            color: var(--text-secondary);
-    64|        }
-    65|
-    66|        .rpf-stat {
-    67|            display: flex;
-    68|            justify-content: space-between;
-    69|            align-items: center;
-    70|            padding: var(--space-2) 0;
-    71|            border-bottom: 1px solid var(--border-color);
-    72|            font-size: var(--font-size-body);
-    73|        }
-    74|        .rpf-stat:last-child { border-bottom: none; }
-    75|        .rpf-stat .value { font-weight: 700; }
-    76|        .rpf-stat .label { color: var(--text-secondary); }
-    77|
-    78|        .rpf-badge {
-    79|            display: inline-block;
-    80|            padding: 0.15rem 0.6rem;
-    81|            border-radius: 0.5rem;
-    82|            font-size: 0.75rem;
-    83|            font-weight: 700;
-    84|        }
-    85|        .rpf-badge.good { background: var(--bg-success); color: var(--color-green); }
-    86|        .rpf-badge.warn { background: var(--bg-warning); color: var(--color-yellow); }
-    87|        .rpf-badge.bad  { background: var(--bg-danger); color: var(--color-red); }
-    88|
-    89|        .rpf-legend {
-    90|            display: flex; gap: var(--space-4); justify-content: center;
-    91|            margin-bottom: var(--space-4);
-    92|            font-size: var(--font-size-caption);
-    93|            color: var(--text-secondary);
-    94|        }
-    95|        .rpf-legend span { display: flex; align-items: center; gap: var(--space-1); }
-    96|        .rpf-legend i { font-size: 0.6rem; }
-    97|
-    98|        .rpf-verdict {
-    99|            text-align: center;
-   100|            padding: var(--space-4);
-   101|            background: var(--bg-tertiary);
-   102|            border-radius: 1rem;
-   103|            border: 1px solid var(--border-color);
-   104|            margin-top: var(--space-4);
-   105|        }
-   106|        .rpf-verdict .text {
-   107|            font-size: var(--font-size-section);
-   108|            font-weight: 600;
-   109|        }
-   110|        .rpf-verdict .sub {
-   111|            font-size: var(--font-size-caption);
-   112|            color: var(--text-secondary);
-   113|            margin-top: var(--space-1);
-   114|        }
-   115|
-   116|        .rpf-selector-wrap { max-width: 400px; margin: 0 auto var(--space-3); }
-   117|        .rpf-loading { text-align: center; padding: var(--space-6); color: var(--text-secondary); }
-   118|    </style>
-   119|</head>
-   120|<body>
-   121|    <a class="visually-hidden-focusable" href="#main">Skip to content</a>
-   122|    <nav class="navbar navbar-expand-lg navbar-dark bg-primary">
-   123|        <div class="container">
-   124|            <a class="navbar-brand" href="index.html"><i class="fas fa-cubes me-2"></i>SBOM Play</a>
-   125|            <div class="navbar-actions">
-   126|                <button class="btn btn-outline-secondary btn-sm theme-toggle" title="Toggle theme"><i class="fas fa-sun"></i></button>
-   127|                <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav"><span class="navbar-toggler-icon"></span></button>
-   128|            </div>
-   129|            <div class="collapse navbar-collapse" id="navbarNav">
-   130|                <div class="navbar-nav ms-auto">
-   131|                    <a class="nav-link" href="index.html">Home</a>
-   132|                    <a class="nav-link" href="licenses.html">License</a>
-   133|                    <a class="nav-link" href="vuln.html">Vulns</a>
-   134|                    <a class="nav-link" href="audit.html">Audit</a>
-   135|                    <a class="nav-link" href="findings.html">Findings</a>
-   136|                    <a class="nav-link" href="insights.html">Insights</a>
-   137|                    <a class="nav-link" href="insights2.html">Pulse</a>
-   138|                    <a class="nav-link active" href="insights3.html">Portfolio</a>
-   139|                    <a class="nav-link" href="insights4.html">Report</a>
-   140|                    <a class="nav-link" href="insights5.html">Snapshot</a>
-   <a class="nav-link" href="insights-ai.html">AI</a>
-   141|                    <a class="nav-link" href="insights-chat.html">Chat</a>
-                    <a class="nav-link" href="insights-agent.html">Agent</a>
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SBOM Play — Risk Portfolio</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <link href="css/style.css?v=0.0.9" rel="stylesheet">
+    <link href="css/themes.css?v=0.0.9" rel="stylesheet">
+    <script src="js/theme-manager.js?v=0.0.9&cb=1777494400000"></script>
+    <script src="js/analytics.js?v=0.0.9&cb=1777494400000"></script>
+    <script defer data-domain="cyfinoid.github.io" src="https://plausible.io/js/script.outbound-links.js"></script>
+    <style>
+        .rpf-header { text-align: center; padding: var(--space-4) 0 var(--space-3); }
+        .rpf-overall {
+            display: inline-flex; align-items: center; gap: var(--space-4);
+            background: var(--bg-tertiary); border: 1px solid var(--border-color);
+            border-radius: 1.5rem; padding: var(--space-3) var(--space-5);
+        }
+        .rpf-overall .grade {
+            font-size: 2.8rem; font-weight: 800; line-height: 1;
+        }
+        .rpf-overall .score {
+            font-size: var(--font-size-section); color: var(--text-secondary);
+        }
+        .rpf-overall .score strong { font-size: 1.6rem; display: block; color: var(--text-primary); }
+
+        .rpf-domain {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-color);
+            border-radius: 1.25rem;
+            padding: var(--space-4);
+            height: 100%;
+        }
+        .rpf-domain h3 {
+            font-size: var(--font-size-subheading);
+            font-weight: 700;
+            margin-bottom: var(--space-3);
+        }
+        .rpf-domain h3 i { margin-right: var(--space-2); width: 1.8rem; text-align: center; }
+
+        .rpf-scorebar-wrap {
+            margin-bottom: var(--space-4);
+            text-align: center;
+        }
+        .rpf-scorebar {
+            height: 10px;
+            border-radius: 5px;
+            background: var(--bg-tertiary);
+            overflow: hidden;
+            margin-bottom: var(--space-1);
+        }
+        .rpf-scorebar .fill {
+            height: 100%;
+            border-radius: 5px;
+            transition: width 0.6s ease;
+        }
+        .rpf-scorebar-label {
+            display: flex;
+            justify-content: space-between;
+            font-size: var(--font-size-caption);
+            color: var(--text-secondary);
+        }
+
+        .rpf-stat {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: var(--space-2) 0;
+            border-bottom: 1px solid var(--border-color);
+            font-size: var(--font-size-body);
+        }
+        .rpf-stat:last-child { border-bottom: none; }
+        .rpf-stat .value { font-weight: 700; }
+        .rpf-stat .label { color: var(--text-secondary); }
+
+        .rpf-badge {
+            display: inline-block;
+            padding: 0.15rem 0.6rem;
+            border-radius: 0.5rem;
+            font-size: 0.75rem;
+            font-weight: 700;
+        }
+        .rpf-badge.good { background: var(--bg-success); color: var(--color-green); }
+        .rpf-badge.warn { background: var(--bg-warning); color: var(--color-yellow); }
+        .rpf-badge.bad  { background: var(--bg-danger); color: var(--color-red); }
+
+        .rpf-legend {
+            display: flex; gap: var(--space-4); justify-content: center;
+            margin-bottom: var(--space-4);
+            font-size: var(--font-size-caption);
+            color: var(--text-secondary);
+        }
+        .rpf-legend span { display: flex; align-items: center; gap: var(--space-1); }
+        .rpf-legend i { font-size: 0.6rem; }
+
+        .rpf-verdict {
+            text-align: center;
+            padding: var(--space-4);
+            background: var(--bg-tertiary);
+            border-radius: 1rem;
+            border: 1px solid var(--border-color);
+            margin-top: var(--space-4);
+        }
+        .rpf-verdict .text {
+            font-size: var(--font-size-section);
+            font-weight: 600;
+        }
+        .rpf-verdict .sub {
+            font-size: var(--font-size-caption);
+            color: var(--text-secondary);
+            margin-top: var(--space-1);
+        }
+
+        .rpf-selector-wrap { max-width: 400px; margin: 0 auto var(--space-3); }
+        .rpf-loading { text-align: center; padding: var(--space-6); color: var(--text-secondary); }
+    </style>
+</head>
+<body>
+    <a class="visually-hidden-focusable" href="#main">Skip to content</a>
+    <nav class="navbar navbar-expand-lg navbar-dark bg-primary">
+        <div class="container">
+            <a class="navbar-brand" href="index.html"><i class="fas fa-cubes me-2"></i>SBOM Play</a>
+            <div class="navbar-actions">
+                <button class="btn btn-outline-secondary btn-sm theme-toggle" title="Toggle theme"><i class="fas fa-sun"></i></button>
+                <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav"><span class="navbar-toggler-icon"></span></button>
+            </div>
+            <div class="collapse navbar-collapse" id="navbarNav">
+                <div class="navbar-nav ms-auto">
+                    <a class="nav-link" href="index.html">Home</a>
+                    <a class="nav-link" href="licenses.html">License</a>
+                    <a class="nav-link" href="vuln.html">Vulns</a>
+                    <a class="nav-link" href="audit.html">Audit</a>
+                    <a class="nav-link" href="findings.html">Findings</a>
+                    <a class="nav-link" href="insights.html">Insights</a>
+                    <a class="nav-link" href="insights2.html">Pulse</a>
+                    <a class="nav-link active" href="insights3.html">Portfolio</a>
+                    <a class="nav-link" href="insights4.html">Report</a>
+                    <a class="nav-link" href="insights5.html">Snapshot</a>
                     <a class="nav-link" href="deps.html">Deps</a>
-   142|                    <a class="nav-link" href="repos.html">Repos</a>
-   143|                    <a class="nav-link" href="authors.html">Authors</a>
-   144|                    <a class="nav-link" href="settings.html">Settings</a>
-   145|                    <a class="nav-link" href="about.html">About</a>
-   146|                </div>
-   147|            </div>
-   148|        </div>
-   149|    </nav>
-   150|
-   151|    <main id="main" class="container mt-4">
-   152|        <h2 class="text-center mb-2"><i class="fas fa-chart-pie me-2"></i>Risk Portfolio</h2>
-   153|        <p class="text-center text-muted mb-3" style="font-size:var(--font-size-caption);">Risk-domain segmentation for due-diligence reviews</p>
-   154|
-   155|        <div class="rpf-selector-wrap">
-   156|            <select id="analysisSelector" class="form-select">
-   157|                <option value="">Loading...</option>
-   158|            </select>
-   159|        </div>
-   160|
-   161|        <div id="noDataMessage" class="alert alert-info d-none text-center">
-   162|            <i class="fas fa-info-circle me-2"></i>No analysis data found. <a href="index.html">Run a scan</a> first.
-   163|        </div>
-   164|
-   165|        <div id="loading" class="rpf-loading d-none"><div class="spinner-border text-primary mb-3" role="status"></div><p>Assessing risk portfolio&hellip;</p></div>
-   166|        <div id="content" class="d-none"></div>
-   167|    </main>
-   168|
-   169|    <footer class="bg-light mt-5 py-4">
-   170|        <div class="container"><div class="text-center"><small class="text-muted">&copy; <time datetime="2026">2026</time> Cyfinoid Research.</small></div></div>
-   171|    </footer>
-   172|
-   173|    <script src="js/indexeddb-manager.js?v=0.0.9&cb=1777494400000"></script>
-   174|    <script src="js/common.js?v=0.0.9&cb=1777642497882"></script>
-   175|    <script src="js/version-utils.js?v=0.0.9&cb=1777494400000"></script>
-   176|    <script src="js/cache-manager.js?v=0.0.9&cb=1777494400000"></script>
-   177|    <script src="js/storage-manager.js?v=0.0.9&cb=1779000000000"></script>
-   178|    <script src="js/insights-aggregator.js?v=0.0.9&cb=1780000000003"></script>
-   179|    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
-   180|    <script src="js/insights3-page.js?v=0.0.9&cb=1780000000003"></script>
-   181|</body>
-   182|</html>
-   183|
+                    <a class="nav-link" href="repos.html">Repos</a>
+                    <a class="nav-link" href="authors.html">Authors</a>
+                    <a class="nav-link" href="settings.html">Settings</a>
+                    <a class="nav-link" href="about.html">About</a>
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <main id="main" class="container mt-4">
+        <h2 class="text-center mb-2"><i class="fas fa-chart-pie me-2"></i>Risk Portfolio</h2>
+        <p class="text-center text-muted mb-3" style="font-size:var(--font-size-caption);">Risk-domain segmentation for due-diligence reviews</p>
+
+        <div class="rpf-selector-wrap">
+            <select id="analysisSelector" class="form-select">
+                <option value="">Loading...</option>
+            </select>
+        </div>
+
+        <div id="noDataMessage" class="alert alert-info d-none text-center">
+            <i class="fas fa-info-circle me-2"></i>No analysis data found. <a href="index.html">Run a scan</a> first.
+        </div>
+
+        <div id="loading" class="rpf-loading d-none"><div class="spinner-border text-primary mb-3" role="status"></div><p>Assessing risk portfolio&hellip;</p></div>
+        <div id="content" class="d-none"></div>
+    </main>
+
+    <footer class="bg-light mt-5 py-4">
+        <div class="container"><div class="text-center"><small class="text-muted">&copy; <time datetime="2026">2026</time> Cyfinoid Research.</small></div></div>
+    </footer>
+
+    <script src="js/indexeddb-manager.js?v=0.0.9&cb=1777494400000"></script>
+    <script src="js/common.js?v=0.0.9&cb=1777642497882"></script>
+    <script src="js/version-utils.js?v=0.0.9&cb=1777494400000"></script>
+    <script src="js/cache-manager.js?v=0.0.9&cb=1777494400000"></script>
+    <script src="js/storage-manager.js?v=0.0.9&cb=1779000000000"></script>
+    <script src="js/insights-aggregator.js?v=0.0.9&cb=1781000000000"></script>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="js/insights3-page.js?v=0.0.9&cb=1781000000000"></script>
+</body>
+</html>

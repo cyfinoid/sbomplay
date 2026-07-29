@@ -19,6 +19,7 @@ This document provides comprehensive flowcharts documenting how SBOM Play perfor
 12. [Rate Limit Handling Flow](#rate-limit-handling-flow)
 13. [Feed Export Flow (OPML)](#feed-export-flow-opml)
 14. [Insights Analysis Flow](#insights-analysis-flow)
+15. [Insights Agent (Tool-Use) Flow](#insights-agent-tool-use-flow)
 
 ---
 
@@ -1073,6 +1074,36 @@ flowchart TD
 - **InsightsPage** (`insights-page.js`): Page bootstrap + 10 section renderers + Chart.js integration
 - **Tech-Debt Composite**: 6 weighted sub-components (drift 30%, vulns 30%, age 15%, license 10%, EOL 10%, hygiene 5%), with 3× direct weighting
 - **Chart.js**: CDN-loaded (4.4.4), theme-aware via `--chart-text-color` / `--chart-grid-color` CSS variables
+
+---
+
+## Insights Agent (Tool-Use) Flow
+
+The Agent page (`insights-agent.html`) keeps raw analysis in memory and lets Gemini Nano request slices via `query_sbom()` instead of embedding the full dataset in every prompt.
+
+```mermaid
+flowchart TD
+    A[User opens insights-agent.html] --> B[Load analysis from StorageManager]
+    B --> C[InsightsAggregator.buildInsights + store currentData]
+    C --> D[AiNano.createSession with tool declarations]
+    D --> E[User sends question]
+    E --> F[session.prompt user text]
+    F --> G{Function call in response?}
+    G -->|Yes| H[executeQuery type filter limit]
+    H --> I[Feed JSON result as next prompt turn]
+    I --> F
+    G -->|No| J[session.promptStreaming final answer]
+    J --> K[Render escaped markdown in chat UI]
+    
+    style A fill:#e1f5ff
+    style K fill:#c8e6c9
+    style H fill:#fff9c4
+```
+
+**Key Components:**
+- **AiNano** (`ai-nano.js`): `LanguageModel` API with legacy fallback; streaming yields cumulative text for the UI
+- **DATA_QUERIES** (`insights-agent.js`): typed handlers (overview, vulnerabilities, dependencies, licenses, drift, EOL, repos, …)
+- **Agent loop**: capped at six tool turns per user message to bound latency and API cost
 
 ---
 

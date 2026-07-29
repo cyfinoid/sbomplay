@@ -99,19 +99,19 @@
     /* ---- AI Availability ---- */
     async function checkAi() {
         try {
-            if (window.ai && window.ai.languageModel) {
-                const caps = await window.ai.languageModel.capabilities();
-                if (caps.available === 'readily') {
-                    aiAvailable = true;
-                    return 'ready';
-                } else if (caps.available === 'after-download') {
-                    aiAvailable = true;
-                    aiDownloading = true;
-                    return 'download';
-                } else {
-                    aiAvailable = false;
-                    return 'unavailable';
-                }
+            if (!window.AiNano || !window.AiNano.isSupported()) {
+                aiAvailable = false;
+                return 'unavailable';
+            }
+            const caps = await window.AiNano.getAvailability();
+            if (caps.available === 'readily') {
+                aiAvailable = true;
+                return 'ready';
+            }
+            if (caps.available === 'after-download') {
+                aiAvailable = true;
+                aiDownloading = true;
+                return 'download';
             }
             aiAvailable = false;
             return 'unavailable';
@@ -222,7 +222,7 @@ Start each response by addressing what was asked. If someone asks "how are we do
                 aiSession = 'downloading'; // placeholder
             }
 
-            aiSession = await window.ai.languageModel.create({
+            aiSession = await window.AiNano.createSession({
                 systemPrompt: systemPrompt,
                 temperature: 0.3,
                 topK: 20
