@@ -67,6 +67,7 @@
             if (!va) return { data: null, summary: 'No vulnerability analysis found.' };
             const filter = (args?.filter || '').toLowerCase();
             const limit  = args?.limit || 50;
+            const sevFilters = new Set(['critical', 'high', 'medium', 'moderate', 'low']);
             let deps = va.vulnerableDependencies || [];
             let totalCrit = va.criticalVulnerabilities || 0;
             let totalHigh = va.highVulnerabilities || 0;
@@ -77,7 +78,16 @@
             for (const vDep of deps) {
                 for (const v of (vDep.vulnerabilities || [])) {
                     const sev = (v.severity || '').toUpperCase();
-                    if (filter && !sev.includes(filter) && !(v.id || '').toLowerCase().includes(filter)) continue;
+                    const sevLower = sev.toLowerCase();
+                    if (filter) {
+                        if (sevFilters.has(filter)) {
+                            // Severity filter must match severity (case-insensitive)
+                            if (!sevLower.includes(filter)) continue;
+                        } else if (!sevLower.includes(filter) && !(v.id || '').toLowerCase().includes(filter)
+                            && !(vDep.name || '').toLowerCase().includes(filter)) {
+                            continue;
+                        }
+                    }
                     items.push({
                         package: vDep.name,
                         version: vDep.version,
@@ -94,8 +104,21 @@
             const order = { CRITICAL: 0, HIGH: 1, MEDIUM: 2, MODERATE: 3, LOW: 4 };
             items.sort((a, b) => (order[a.severity] ?? 99) - (order[b.severity] ?? 99));
 
-            const summary = `${totalCrit} critical, ${totalHigh} high, ${totalMed} medium vulnerabilities across ${deps.length} packages`;
-            return { summary, data: { totalCrit, totalHigh, totalMed, totalPackages: deps.length, items: items.slice(0, limit) } };
+            const filteredCount = items.length;
+            const shown = items.slice(0, limit);
+            const summary = filter && sevFilters.has(filter)
+                ? `${filteredCount} ${filter} vulnerabilities (showing ${shown.length}) across ${deps.length} vulnerable packages; portfolio totals: ${totalCrit} critical, ${totalHigh} high, ${totalMed} medium`
+                : `${totalCrit} critical, ${totalHigh} high, ${totalMed} medium vulnerabilities across ${deps.length} packages (showing ${shown.length} items)`;
+            return {
+                summary,
+                data: {
+                    totalCrit, totalHigh, totalMed,
+                    totalPackages: deps.length,
+                    filter: filter || null,
+                    matchedCount: filteredCount,
+                    items: shown
+                }
+            };
         },
 
         /** Dependencies search */
@@ -638,63 +661,73 @@ RULES:
         const thinkBubble = thinkDiv.querySelector('.bubble');
 
         try {
-            // App-driven queries: always fetch real SBOM slices first, then ask Nano
-            // only to summarize. On-device models often skip tools and invent vague
-            // answers ("lots of data indicates…") if we wait for them to call query_sbom.
+            // App-driven queries: always fetch real SBOM slices first.
+            // List-style questions ("List all critical vulnerabilities") get a
+            // deterministic enumerated answer — Nano tends to narrate aggregates
+            // instead of listing CVEs/packages when asked to summarize JSON.
             thinkBubble.innerHTML = '<span class="text-muted"><i class="fas fa-database me-2"></i>Querying SBOM data...</span>';
             scrollBottom();
 
-            const queryTypes = selectQueriesForQuestion(text);
+            const queries = buildQueriesForQuestion(text);
             const gathered = [];
-            for (const type of queryTypes) {
-                addToolCallMsg(`query_sbom(${type})`);
-                gathered.push({ type, result: executeQuery(type, {}) });
+            for (const q of queries) {
+                const label = q.filter ? `${q.type}, filter: ${q.filter}` : q.type;
+                addToolCallMsg(`query_sbom(${label})`);
+                gathered.push({ type: q.type, args: q, result: executeQuery(q.type, q) });
             }
 
             let responseText = '';
-            let currentPrompt = buildDataPrompt(text, gathered);
-            const MAX_TURNS = 3;
-            let turn = 0;
 
-            while (turn < MAX_TURNS) {
-                turn++;
-                thinkBubble.innerHTML = turn === 1
-                    ? '<span class="text-muted"><i class="fas fa-spinner fa-spin me-2"></i>Summarizing query results...</span>'
-                    : `<span class="text-muted"><i class="fas fa-spinner fa-spin me-2"></i>Refining answer (turn ${turn})...</span>`;
+            if (isListQuestion(text)) {
+                thinkBubble.innerHTML = '<span class="text-muted"><i class="fas fa-list me-2"></i>Building list from query results...</span>';
                 scrollBottom();
+                responseText = formatListAnswer(gathered, text);
+            } else {
+                let currentPrompt = buildDataPrompt(text, gathered);
+                const MAX_TURNS = 3;
+                let turn = 0;
 
-                const result = await aiSession.prompt(currentPrompt);
-                const resultStr = typeof result === 'string'
-                    ? result
-                    : (result?.text || (result ? JSON.stringify(result) : ''));
+                while (turn < MAX_TURNS) {
+                    turn++;
+                    thinkBubble.innerHTML = turn === 1
+                        ? '<span class="text-muted"><i class="fas fa-spinner fa-spin me-2"></i>Summarizing query results...</span>'
+                        : `<span class="text-muted"><i class="fas fa-spinner fa-spin me-2"></i>Refining answer (turn ${turn})...</span>`;
+                    scrollBottom();
 
-                let fc = extractFunctionCall(result);
-                if (!fc && looksLikeToolDump(resultStr)) {
-                    fc = parseTextToolCall(resultStr);
-                }
+                    const result = await aiSession.prompt(currentPrompt);
+                    const resultStr = typeof result === 'string'
+                        ? result
+                        : (result?.text || (result ? JSON.stringify(result) : ''));
 
-                // Optional follow-up query if the model still asks for another slice
-                if (fc && fc.name === 'query_sbom') {
-                    const args = normalizeQueryArgs(fc.args, text);
-                    const already = gathered.some(g => g.type === args.type);
-                    if (!already) {
-                        addToolCallMsg(`query_sbom(${args.type}${args.filter ? ', filter: ' + args.filter : ''})`);
-                        gathered.push({ type: args.type, result: executeQuery(args.type, args) });
-                        currentPrompt = buildDataPrompt(text, gathered);
-                        continue;
+                    let fc = extractFunctionCall(result);
+                    if (!fc && looksLikeToolDump(resultStr)) {
+                        fc = parseTextToolCall(resultStr);
                     }
+
+                    if (fc && fc.name === 'query_sbom') {
+                        const args = normalizeQueryArgs(fc.args, text);
+                        const already = gathered.some(g => g.type === args.type && (g.args?.filter || '') === (args.filter || ''));
+                        if (!already) {
+                            addToolCallMsg(`query_sbom(${args.type}${args.filter ? ', filter: ' + args.filter : ''})`);
+                            gathered.push({ type: args.type, args, result: executeQuery(args.type, args) });
+                            currentPrompt = buildDataPrompt(text, gathered);
+                            continue;
+                        }
+                    }
+
+                    if (looksLikeToolDump(resultStr) || looksLikeVagueAnswer(resultStr, text)) {
+                        responseText = formatGatheredFallback(gathered, text);
+                    } else {
+                        responseText = resultStr;
+                    }
+                    break;
                 }
 
-                if (looksLikeToolDump(resultStr) || looksLikeVagueAnswer(resultStr)) {
-                    responseText = formatGatheredFallback(gathered, text);
-                } else {
-                    responseText = resultStr;
+                if (!responseText || looksLikeToolDump(responseText) || looksLikeVagueAnswer(responseText, text)) {
+                    responseText = isListQuestion(text)
+                        ? formatListAnswer(gathered, text)
+                        : formatGatheredFallback(gathered, text);
                 }
-                break;
-            }
-
-            if (!responseText || looksLikeToolDump(responseText) || looksLikeVagueAnswer(responseText)) {
-                responseText = formatGatheredFallback(gathered, text);
             }
 
             thinkBubble.innerHTML = renderText(responseText || 'No response generated.');
@@ -751,33 +784,67 @@ RULES:
         return 'overview';
     }
 
-    /** Which query_sbom slices to run before asking the model to summarize */
-    function selectQueriesForQuestion(userText) {
+    function isListQuestion(userText) {
+        return /\b(list|enumerate|show\s+all|name\s+all|which\s+packages|what\s+are\s+the)\b/i.test(userText || '');
+    }
+
+    function extractSeverityFilter(userText) {
+        const t = (userText || '').toLowerCase();
+        if (/\bcritical\b/.test(t)) return 'critical';
+        if (/\bhigh\b/.test(t)) return 'high';
+        if (/\bmedium\b|\bmoderate\b/.test(t)) return 'medium';
+        if (/\blow\b/.test(t)) return 'low';
+        return '';
+    }
+
+    /**
+     * Build concrete query_sbom calls (type + filter/limit) for a question.
+     * List questions get a focused filtered query — not a grab-bag of techDebt/vulnAge.
+     */
+    function buildQueriesForQuestion(userText) {
         const primary = inferQueryType(userText) || 'overview';
-        const types = [primary];
-        if (primary === 'supplyChain') {
-            types.push('malware', 'eol', 'techDebt');
-        } else if (primary === 'vulnerabilities') {
-            types.push('vulnAge', 'techDebt');
-        } else if (primary === 'overview') {
-            types.push('techDebt', 'supplyChain', 'vulnerabilities');
-        } else if (primary === 'licenses') {
-            types.push('techDebt');
-        } else if (primary === 'versionDrift') {
-            types.push('eol', 'techDebt');
-        } else if (primary === 'perRepo' || primary === 'hygiene') {
-            types.push('techDebt');
+        const sev = extractSeverityFilter(userText);
+        const list = isListQuestion(userText);
+
+        if (primary === 'vulnerabilities') {
+            return [{
+                type: 'vulnerabilities',
+                filter: sev || undefined,
+                limit: list ? 100 : 40
+            }];
         }
-        return [...new Set(types)];
+
+        if (list && (primary === 'eol' || primary === 'dependencies' || primary === 'repositories' || primary === 'perRepo')) {
+            return [{ type: primary, filter: sev || undefined, limit: 100 }];
+        }
+
+        const queries = [{ type: primary }];
+        if (primary === 'supplyChain') {
+            queries.push({ type: 'malware' }, { type: 'eol' });
+        } else if (primary === 'overview') {
+            queries.push({ type: 'techDebt' }, { type: 'supplyChain' }, { type: 'vulnerabilities', filter: 'critical', limit: 15 });
+        } else if (primary === 'versionDrift') {
+            queries.push({ type: 'eol' });
+        }
+        return queries;
     }
 
     /** Build the summarization prompt with authoritative query JSON */
     function buildDataPrompt(userText, gathered) {
         const blocks = gathered.map(g => {
             const summary = g.result?.summary || 'No summary.';
-            const data = g.result?.data != null ? JSON.stringify(g.result.data) : 'null';
-            return `### query_sbom("${g.type}")\nsummary: ${summary}\ndata: ${data}`;
+            // For large item lists, keep items but cap serialization noise
+            let data = g.result?.data;
+            if (data && Array.isArray(data.items) && data.items.length > 40) {
+                data = { ...data, items: data.items.slice(0, 40), truncated: true };
+            }
+            const dataStr = data != null ? JSON.stringify(data) : 'null';
+            return `### query_sbom("${g.type}")\nsummary: ${summary}\ndata: ${dataStr}`;
         }).join('\n\n');
+
+        const listHint = isListQuestion(userText)
+            ? '- This is a LIST question: enumerate the concrete items (package, version, vuln id, severity). Do not write a general essay.'
+            : '- Write 2–4 short paragraphs in plain executive language.';
 
         return `USER QUESTION:
 ${userText}
@@ -787,23 +854,72 @@ ${blocks}
 
 INSTRUCTIONS:
 - Answer the question using ONLY the query results above.
-- Cite specific numbers from the data (counts, grades, medians).
+- Cite specific packages / CVE or GHSA ids when items are present.
 - If a detail is missing, say it is not in the loaded analysis.
 - Do NOT invent packages, CVEs, or tool calls. No tool_code / print() / query_sbom().
-- Write 2–4 short paragraphs in plain executive language.`;
+${listHint}`;
     }
 
     /** Vague/hallucinated answers that ignore the provided query JSON */
-    function looksLikeVagueAnswer(text) {
+    function looksLikeVagueAnswer(text, userText) {
         if (typeof text !== 'string' || !text.trim()) return true;
         const t = text.toLowerCase();
-        // Hedging without digits usually means the model skipped the data
-        const vague = /lots of data|data indicates|available (?:data|information) (?:suggests|indicates)|based on (?:the )?(?:available |provided )?data|cannot determine|insufficient data|as an ai/i.test(t);
+        const vague = /lots of data|data indicates|available (?:data|information) (?:suggests|indicates)|based on (?:the )?(?:available |provided )?data|cannot determine|insufficient data|as an ai|concerning number|prevalence of vulnerabilities/i.test(t);
         const hasDigit = /\d/.test(text);
         if (vague && !hasDigit) return true;
-        // Extremely short non-answers
         if (text.trim().length < 40 && !hasDigit) return true;
+        // List questions that never mention a package/CVE id are not helpful
+        if (isListQuestion(userText) && inferQueryType(userText) === 'vulnerabilities') {
+            if (!/(cve-|ghsa-|mal-)/i.test(text) && !/\b[\w.-]+@\d/.test(text)) return true;
+        }
         return false;
+    }
+
+    /** Deterministic list answer for "list/show all …" questions */
+    function formatListAnswer(gathered, userText) {
+        const vulnGathered = gathered.find(g => g.type === 'vulnerabilities');
+        if (vulnGathered) {
+            const items = vulnGathered.result?.data?.items || [];
+            const filter = vulnGathered.args?.filter || extractSeverityFilter(userText) || 'matching';
+            const matched = vulnGathered.result?.data?.matchedCount ?? items.length;
+            if (!items.length) {
+                return `No ${filter} vulnerabilities found in the loaded analysis.`;
+            }
+            const lines = [
+                `**${matched} ${filter} vulnerabilit${matched === 1 ? 'y' : 'ies'}** in the loaded analysis (showing ${items.length}):`,
+                ''
+            ];
+            items.forEach((it, i) => {
+                const pkg = it.version ? `${it.package}@${it.version}` : (it.package || 'unknown');
+                lines.push(`${i + 1}. **${pkg}** — \`${it.vulnId}\` (${it.severity || 'UNKNOWN'})`);
+            });
+            if (matched > items.length) {
+                lines.push('');
+                lines.push(`_…and ${matched - items.length} more not shown. Open the Vulns page for the full table._`);
+            }
+            return lines.join('\n');
+        }
+
+        // Generic list fallback for other query types that return items[]
+        for (const g of gathered) {
+            const items = g.result?.data?.items;
+            if (!Array.isArray(items)) continue;
+            if (!items.length) return `No ${g.type} items found in the loaded analysis.`;
+            const lines = [`**${items.length} ${g.type} item(s):**`, ''];
+            items.slice(0, 100).forEach((it, i) => {
+                if (it.package || it.name || it.repoKey) {
+                    const label = it.package
+                        ? `${it.package}${it.version ? '@' + it.version : ''}`
+                        : (it.name || it.repoKey);
+                    lines.push(`${i + 1}. **${label}**${it.severity ? ' — ' + it.severity : ''}${it.vulnId ? ' (`' + it.vulnId + '`)' : ''}`);
+                } else {
+                    lines.push(`${i + 1}. \`${JSON.stringify(it)}\``);
+                }
+            });
+            return lines.join('\n');
+        }
+
+        return formatGatheredFallback(gathered, userText);
     }
 
     /** Coerce model-invented args into a valid query_sbom payload */
