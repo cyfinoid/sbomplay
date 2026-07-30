@@ -32,6 +32,8 @@
     let aiAvailable  = false;
     let toolsSupport = false;
     let isGenerating = false;
+    /** Active per-turn tool panel (queries shown before the assistant summary). */
+    let activeToolPanel = null;
 
     /* ================================================================== */
     /*  FUNCTION DECLARATIONS — exposed to the AI as callable tools        */
@@ -362,10 +364,15 @@
             inputSchema: QUERY_SBOM_SCHEMA,
             async execute(args) {
                 const a = args || {};
+                const label = `query_sbom(${a.type}${a.filter ? ', filter: ' + a.filter : ''}${a.limit ? ', limit: ' + a.limit : ''})`;
+                let item = null;
                 try {
-                    addToolCallMsg(`query_sbom(${a.type}${a.filter ? ', filter: ' + a.filter : ''}${a.limit ? ', limit: ' + a.limit : ''})`);
+                    if (!activeToolPanel) beginToolPanel();
+                    item = addToolCallItem(label);
                 } catch (_) { /* DOM may not be ready during early probes */ }
-                return JSON.stringify(executeQuery(a.type, a));
+                const result = executeQuery(a.type, a);
+                try { completeToolCallItem(item, result); } catch (_) { /* ignore */ }
+                return JSON.stringify(result);
             }
         }];
     }
@@ -656,30 +663,34 @@ RULES:
 
         addUserMsg(text);
 
-        // Show thinking indicator
-        const thinkDiv = addAssistantMsg('');
-        const thinkBubble = thinkDiv.querySelector('.bubble');
+        // Tool calls first (before summary); assistant bubble comes after queries finish.
+        beginToolPanel();
+        let thinkDiv = null;
+        let thinkBubble = null;
 
         try {
             // App-driven queries: always fetch real SBOM slices first.
             // List-style questions ("List all critical vulnerabilities") get a
             // deterministic enumerated answer — Nano tends to narrate aggregates
             // instead of listing CVEs/packages when asked to summarize JSON.
-            thinkBubble.innerHTML = '<span class="text-muted"><i class="fas fa-database me-2"></i>Querying SBOM data...</span>';
-            scrollBottom();
-
             const queries = buildQueriesForQuestion(text);
             const gathered = [];
             for (const q of queries) {
-                const label = q.filter ? `${q.type}, filter: ${q.filter}` : q.type;
-                addToolCallMsg(`query_sbom(${label})`);
-                gathered.push({ type: q.type, args: q, result: executeQuery(q.type, q) });
+                const label = q.filter ? `query_sbom(${q.type}, filter: ${q.filter})` : `query_sbom(${q.type})`;
+                const item = addToolCallItem(label);
+                const result = executeQuery(q.type, q);
+                completeToolCallItem(item, result);
+                gathered.push({ type: q.type, args: q, result });
             }
+            collapseToolPanel();
+
+            thinkDiv = addAssistantMsg('');
+            thinkBubble = thinkDiv.querySelector('.bubble');
 
             let responseText = '';
 
             if (isListQuestion(text)) {
-                thinkBubble.innerHTML = '<span class="text-muted"><i class="fas fa-list me-2"></i>Building list from query results...</span>';
+                safe(thinkBubble, '<span class="text-muted"><i class="fas fa-list me-2"></i>Building list from query results...</span>');
                 scrollBottom();
                 responseText = formatListAnswer(gathered, text);
             } else {
@@ -689,9 +700,9 @@ RULES:
 
                 while (turn < MAX_TURNS) {
                     turn++;
-                    thinkBubble.innerHTML = turn === 1
+                    safe(thinkBubble, turn === 1
                         ? '<span class="text-muted"><i class="fas fa-spinner fa-spin me-2"></i>Summarizing query results...</span>'
-                        : `<span class="text-muted"><i class="fas fa-spinner fa-spin me-2"></i>Refining answer (turn ${turn})...</span>`;
+                        : `<span class="text-muted"><i class="fas fa-spinner fa-spin me-2"></i>Refining answer (turn ${turn})...</span>`);
                     scrollBottom();
 
                     const result = await aiSession.prompt(currentPrompt);
@@ -708,8 +719,13 @@ RULES:
                         const args = normalizeQueryArgs(fc.args, text);
                         const already = gathered.some(g => g.type === args.type && (g.args?.filter || '') === (args.filter || ''));
                         if (!already) {
-                            addToolCallMsg(`query_sbom(${args.type}${args.filter ? ', filter: ' + args.filter : ''})`);
-                            gathered.push({ type: args.type, args, result: executeQuery(args.type, args) });
+                            expandToolPanel();
+                            const label = `query_sbom(${args.type}${args.filter ? ', filter: ' + args.filter : ''})`;
+                            const item = addToolCallItem(label);
+                            const qResult = executeQuery(args.type, args);
+                            completeToolCallItem(item, qResult);
+                            collapseToolPanel();
+                            gathered.push({ type: args.type, args, result: qResult });
                             currentPrompt = buildDataPrompt(text, gathered);
                             continue;
                         }
@@ -730,13 +746,17 @@ RULES:
                 }
             }
 
-            thinkBubble.innerHTML = renderText(responseText || 'No response generated.');
+            safe(thinkBubble, renderText(responseText || 'No response generated.'));
 
         } catch (err) {
             console.error('Agent error:', err);
-            const bubble = document.querySelector('#agMessages .ag-msg.assistant:last-child .bubble');
-            if (bubble) {
-                bubble.innerHTML = `<span class="text-danger"><i class="fas fa-exclamation-circle me-2"></i>${esc(err.message || 'Agent error')}</span>`;
+            collapseToolPanel();
+            if (!thinkBubble) {
+                thinkDiv = addAssistantMsg('');
+                thinkBubble = thinkDiv.querySelector('.bubble');
+            }
+            if (thinkBubble) {
+                safe(thinkBubble, `<span class="text-danger"><i class="fas fa-exclamation-circle me-2"></i>${esc(err.message || 'Agent error')}</span>`);
             }
             // Try to recover session
             if (err.message?.includes('session') || err.message?.includes('context')) {
@@ -744,6 +764,8 @@ RULES:
                 const ok = await createAgentSession();
                 if (ok) addSystemMsg('Session re-created. Please try again.');
             }
+        } finally {
+            activeToolPanel = null;
         }
 
         if (input) input.disabled = false;
@@ -784,8 +806,31 @@ RULES:
         return 'overview';
     }
 
+    /** Parse "top 5" / "first 10" / "5 critical vulnerabilities" into a capped limit */
+    function extractLimit(userText) {
+        const t = userText || '';
+        const m = t.match(/\b(?:top|first)\s+(\d{1,3})\b/i)
+            || t.match(/\b(?:show|give|list|name)\s+(?:me\s+)?(\d{1,3})\b/i)
+            || t.match(/\b(\d{1,3})\s+(?:critical|high|medium|low)?\s*(?:vulnerabilit|cve|ghsa|package|eol|repos?)/i);
+        if (!m) return null;
+        const n = parseInt(m[1], 10);
+        if (!Number.isFinite(n) || n < 1) return null;
+        return Math.min(n, 100);
+    }
+
     function isListQuestion(userText) {
-        return /\b(list|enumerate|show\s+all|name\s+all|which\s+packages|what\s+are\s+the)\b/i.test(userText || '');
+        const t = userText || '';
+        if (/\b(list|enumerate|show\s+(?:me\s+)?all|name\s+all|which\s+packages|what\s+are\s+the|most\s+vulns?)\b/i.test(t)) {
+            return true;
+        }
+        // "top 5 …", "first 10 …", "5 critical vulnerabilities"
+        if (extractLimit(t) != null) return true;
+        // "give/show me the critical vulnerabilities" — but not summary/overview asks
+        if (/\b(?:give|show)\s+me\b/i.test(t)
+            && !/\b(summary|overview|diligence|posture|assessment|grade)\b/i.test(t)) {
+            return true;
+        }
+        return false;
     }
 
     function extractSeverityFilter(userText) {
@@ -805,17 +850,18 @@ RULES:
         const primary = inferQueryType(userText) || 'overview';
         const sev = extractSeverityFilter(userText);
         const list = isListQuestion(userText);
+        const askedLimit = extractLimit(userText);
 
         if (primary === 'vulnerabilities') {
             return [{
                 type: 'vulnerabilities',
                 filter: sev || undefined,
-                limit: list ? 100 : 40
+                limit: askedLimit || (list ? 100 : 40)
             }];
         }
 
         if (list && (primary === 'eol' || primary === 'dependencies' || primary === 'repositories' || primary === 'perRepo')) {
-            return [{ type: primary, filter: sev || undefined, limit: 100 }];
+            return [{ type: primary, filter: sev || undefined, limit: askedLimit || 100 }];
         }
 
         const queries = [{ type: primary }];
@@ -875,45 +921,68 @@ ${listHint}`;
         return false;
     }
 
-    /** Deterministic list answer for "list/show all …" questions */
+    /** Build deps.html URL filtered to a package (name@version), scoped to current analysis when set */
+    function depsPackageUrl(packageName, version) {
+        if (!packageName) return null;
+        const params = new URLSearchParams();
+        const org = selector?.value;
+        if (org) params.set('org', org);
+        params.set('search', version ? `${packageName}@${version}` : packageName);
+        return `deps.html?${params.toString()}`;
+    }
+
+    function packageListLabel(packageName, version) {
+        const label = version ? `${packageName}@${version}` : (packageName || 'unknown');
+        const href = depsPackageUrl(packageName, version);
+        return href ? `[${label}](${href})` : `**${label}**`;
+    }
+
+    /** Deterministic bullet list for "list / top N / give me …" questions */
     function formatListAnswer(gathered, userText) {
+        const askedLimit = extractLimit(userText);
         const vulnGathered = gathered.find(g => g.type === 'vulnerabilities');
         if (vulnGathered) {
-            const items = vulnGathered.result?.data?.items || [];
+            const allItems = vulnGathered.result?.data?.items || [];
+            const items = askedLimit ? allItems.slice(0, askedLimit) : allItems;
             const filter = vulnGathered.args?.filter || extractSeverityFilter(userText) || 'matching';
-            const matched = vulnGathered.result?.data?.matchedCount ?? items.length;
+            const matched = vulnGathered.result?.data?.matchedCount ?? allItems.length;
             if (!items.length) {
                 return `No ${filter} vulnerabilities found in the loaded analysis.`;
             }
-            const lines = [
-                `**${matched} ${filter} vulnerabilit${matched === 1 ? 'y' : 'ies'}** in the loaded analysis (showing ${items.length}):`,
-                ''
-            ];
-            items.forEach((it, i) => {
-                const pkg = it.version ? `${it.package}@${it.version}` : (it.package || 'unknown');
-                lines.push(`${i + 1}. **${pkg}** — \`${it.vulnId}\` (${it.severity || 'UNKNOWN'})`);
+            const header = askedLimit
+                ? `**Top ${items.length} ${filter} vulnerabilit${items.length === 1 ? 'y' : 'ies'}** (${matched} total in the loaded analysis):`
+                : `**${matched} ${filter} vulnerabilit${matched === 1 ? 'y' : 'ies'}** in the loaded analysis (showing ${items.length}):`;
+            const lines = [header, ''];
+            items.forEach((it) => {
+                lines.push(`- ${packageListLabel(it.package, it.version)} — \`${it.vulnId}\` (${it.severity || 'UNKNOWN'})`);
             });
-            if (matched > items.length) {
+            if (!askedLimit && matched > items.length) {
                 lines.push('');
                 lines.push(`_…and ${matched - items.length} more not shown. Open the Vulns page for the full table._`);
+            } else if (askedLimit && matched > items.length) {
+                lines.push('');
+                lines.push(`_${matched - items.length} more ${filter} vulnerabilities not shown._`);
             }
             return lines.join('\n');
         }
 
         // Generic list fallback for other query types that return items[]
         for (const g of gathered) {
-            const items = g.result?.data?.items;
-            if (!Array.isArray(items)) continue;
-            if (!items.length) return `No ${g.type} items found in the loaded analysis.`;
-            const lines = [`**${items.length} ${g.type} item(s):**`, ''];
-            items.slice(0, 100).forEach((it, i) => {
-                if (it.package || it.name || it.repoKey) {
-                    const label = it.package
-                        ? `${it.package}${it.version ? '@' + it.version : ''}`
-                        : (it.name || it.repoKey);
-                    lines.push(`${i + 1}. **${label}**${it.severity ? ' — ' + it.severity : ''}${it.vulnId ? ' (`' + it.vulnId + '`)' : ''}`);
+            const allItems = g.result?.data?.items;
+            if (!Array.isArray(allItems)) continue;
+            if (!allItems.length) return `No ${g.type} items found in the loaded analysis.`;
+            const items = (askedLimit ? allItems.slice(0, askedLimit) : allItems).slice(0, 100);
+            const header = askedLimit
+                ? `**Top ${items.length} ${g.type} item(s):**`
+                : `**${allItems.length} ${g.type} item(s):**`;
+            const lines = [header, ''];
+            items.forEach((it) => {
+                if (it.package) {
+                    lines.push(`- ${packageListLabel(it.package, it.version)}${it.severity ? ' — ' + it.severity : ''}${it.vulnId ? ' (`' + it.vulnId + '`)' : ''}`);
+                } else if (it.name || it.repoKey) {
+                    lines.push(`- **${it.name || it.repoKey}**${it.severity ? ' — ' + it.severity : ''}`);
                 } else {
-                    lines.push(`${i + 1}. \`${JSON.stringify(it)}\``);
+                    lines.push(`- \`${JSON.stringify(it)}\``);
                 }
             });
             return lines.join('\n');
@@ -1071,20 +1140,145 @@ ${listHint}`;
         return div;
     }
 
-    function addToolCallMsg(label) {
+    const TOOL_RESULT_MAX_CHARS = 12000;
+
+    function formatToolResult(result) {
+        let text;
+        try {
+            text = typeof result === 'string' ? result : JSON.stringify(result, null, 2);
+        } catch (_) {
+            text = String(result);
+        }
+        if (!text) return '(empty result)';
+        if (text.length > TOOL_RESULT_MAX_CHARS) {
+            return text.slice(0, TOOL_RESULT_MAX_CHARS) + '\n… (truncated)';
+        }
+        return text;
+    }
+
+    function updateToolPanelSummary() {
+        if (!activeToolPanel) return;
+        const count = activeToolPanel.queryCount || 0;
+        const running = activeToolPanel.runningCount || 0;
+        const labelEl = activeToolPanel.root.querySelector('.ag-tools-summary');
+        if (!labelEl) return;
+        if (running > 0) {
+            labelEl.textContent = count === 1
+                ? 'Running 1 query…'
+                : `Running ${count} queries…`;
+        } else {
+            labelEl.textContent = count === 1
+                ? '1 query · click to expand'
+                : `${count} queries · click to expand`;
+        }
+    }
+
+    function beginToolPanel() {
         const area = document.getElementById('agMessages');
         const div = document.createElement('div');
-        div.className = 'ag-msg tool-call';
-        div.innerHTML = `<div class="avatar"><i class="fas fa-database"></i></div><div class="bubble"><span class="ag-tool-chip">QUERY</span> ${esc(label)}</div>`;
+        div.className = 'ag-msg tool-calls';
+        safe(div, `
+            <div class="avatar"><i class="fas fa-database"></i></div>
+            <div class="bubble ag-tools-panel">
+                <button type="button" class="ag-tools-toggle" aria-expanded="true">
+                    <span class="ag-tools-toggle-left">
+                        <span class="ag-tool-chip">QUERIES</span>
+                        <span class="ag-tools-summary">Running queries…</span>
+                    </span>
+                    <i class="fas fa-chevron-down ag-tools-chevron" aria-hidden="true"></i>
+                </button>
+                <div class="ag-tools-list"></div>
+            </div>
+        `);
         area.appendChild(div);
+
+        const toggle = div.querySelector('.ag-tools-toggle');
+        const list = div.querySelector('.ag-tools-list');
+        toggle.addEventListener('click', () => {
+            const open = toggle.getAttribute('aria-expanded') === 'true';
+            toggle.setAttribute('aria-expanded', open ? 'false' : 'true');
+            list.classList.toggle('collapsed', open);
+        });
+
+        activeToolPanel = {
+            root: div,
+            list,
+            toggle,
+            queryCount: 0,
+            runningCount: 0
+        };
         scrollBottom();
+        return activeToolPanel;
+    }
+
+    function expandToolPanel() {
+        if (!activeToolPanel) beginToolPanel();
+        const { toggle, list } = activeToolPanel;
+        toggle.setAttribute('aria-expanded', 'true');
+        list.classList.remove('collapsed');
+    }
+
+    function collapseToolPanel() {
+        if (!activeToolPanel) return;
+        const { toggle, list, root } = activeToolPanel;
+        toggle.setAttribute('aria-expanded', 'false');
+        list.classList.add('collapsed');
+        root.querySelectorAll('.ag-tool-item').forEach(el => { el.open = false; });
+        updateToolPanelSummary();
+    }
+
+    function addToolCallItem(label) {
+        if (!activeToolPanel) beginToolPanel();
+        expandToolPanel();
+
+        const details = document.createElement('details');
+        details.className = 'ag-tool-item';
+        details.open = true;
+
+        const summary = document.createElement('summary');
+        summary.className = 'ag-tool-summary';
+        safe(summary, `
+            <span class="ag-tool-chip">QUERY</span>
+            <span class="ag-tool-label">${esc(label)}</span>
+            <span class="ag-tool-status running"><i class="fas fa-spinner fa-spin" aria-hidden="true"></i></span>
+        `);
+
+        const pre = document.createElement('pre');
+        pre.className = 'ag-tool-result';
+        pre.textContent = 'Waiting for result…';
+
+        details.appendChild(summary);
+        details.appendChild(pre);
+        activeToolPanel.list.appendChild(details);
+        activeToolPanel.queryCount += 1;
+        activeToolPanel.runningCount += 1;
+        updateToolPanelSummary();
+        scrollBottom();
+        return details;
+    }
+
+    function completeToolCallItem(itemEl, result) {
+        if (!itemEl) return;
+        const status = itemEl.querySelector('.ag-tool-status');
+        if (status) {
+            status.classList.remove('running');
+            status.classList.add('done');
+            safe(status, '<i class="fas fa-check" aria-hidden="true"></i>');
+        }
+        const pre = itemEl.querySelector('.ag-tool-result');
+        if (pre) pre.textContent = formatToolResult(result);
+        itemEl.open = false;
+        if (activeToolPanel && activeToolPanel.runningCount > 0) {
+            activeToolPanel.runningCount -= 1;
+        }
+        updateToolPanelSummary();
     }
 
     function addSystemMsg(text) {
         const area = document.getElementById('agMessages');
         const div = document.createElement('div');
         div.className = 'ag-msg tool-call';
-        div.innerHTML = `<div class="avatar"><i class="fas fa-info-circle"></i></div><div class="bubble">${text}</div>`;
+        safe(div, `<div class="avatar"><i class="fas fa-info-circle"></i></div><div class="bubble">${text}</div>`);
         area.appendChild(div);
         scrollBottom();
     }
@@ -1098,8 +1292,14 @@ ${listHint}`;
     function renderText(text) {
         if (!text) return '';
         let html = esc(text);
+        // Markdown links — only relative deps.html deep-links (built by the agent, not model text)
+        html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_, label, url) => {
+            if (!/^deps\.html\?[^\s"'<>]*$/i.test(url)) return `[${label}](${url})`;
+            return `<a class="ag-pkg-link" href="${url}">${label}</a>`;
+        });
         html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
         html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
+        html = html.replace(/(^|[\s(])_([^_\n]+)_([\s).,]|$)/g, '$1<em>$2</em>$3');
         html = html.replace(/^[\*\-] (.+)$/gm, '<li>$1</li>');
         html = html.replace(/(<li>.*<\/li>\n?)+/g, '<ul>$&</ul>');
         html = html.replace(/^\d+\.\s+(.+)$/gm, '<li>$1</li>');

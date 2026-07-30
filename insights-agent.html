@@ -38,20 +38,39 @@
         .ag-msg.user { flex-direction: row-reverse; }
         .ag-msg.user .avatar { background: var(--color-blue); color: #fff; }
         .ag-msg.assistant .avatar { background: var(--bg-tertiary); color: var(--text-primary); border: 1px solid var(--border-color); }
-        .ag-msg.tool-call .avatar { background: var(--bg-warning); color: var(--color-yellow); font-size: 0.8rem; }
+        .ag-msg.tool-call .avatar,
+        .ag-msg.tool-calls .avatar { background: var(--bg-warning); color: var(--color-yellow); font-size: 0.8rem; }
         .ag-msg .bubble { max-width: 80%; padding: var(--space-3) var(--space-4); border-radius: 1.2rem; font-size: var(--font-size-body); line-height: 1.7; word-wrap: break-word; }
         .ag-msg.user .bubble { background: var(--color-blue); color: #fff; border-bottom-right-radius: 0.3rem; }
         .ag-msg.assistant .bubble { background: var(--bg-tertiary); border: 1px solid var(--border-color); border-bottom-left-radius: 0.3rem; }
-        .ag-msg.tool-call .bubble { background: var(--bg-tertiary); border: 1px dashed var(--color-yellow); border-bottom-left-radius: 0.3rem; font-size: var(--font-size-caption); max-width: 90%; }
+        .ag-msg.tool-call .bubble,
+        .ag-msg.tool-calls .bubble { background: var(--bg-tertiary); border: 1px dashed var(--color-yellow); border-bottom-left-radius: 0.3rem; font-size: var(--font-size-caption); max-width: 90%; padding: var(--space-2) var(--space-3); }
         .ag-msg .bubble p { margin-bottom: var(--space-2); }
         .ag-msg .bubble p:last-child { margin-bottom: 0; }
         .ag-msg .bubble ul { padding-left: var(--space-4); margin-bottom: var(--space-2); }
         .ag-msg .bubble li { margin-bottom: var(--space-1); }
         .ag-msg .bubble strong { font-weight: 700; }
         .ag-msg .bubble code { background: rgba(255,255,255,0.1); padding: 0.1rem 0.4rem; border-radius: 0.3rem; font-size: 0.85em; }
+        .ag-msg .bubble a.ag-pkg-link { color: var(--color-blue); font-weight: 700; text-decoration: none; border-bottom: 1px solid transparent; }
+        .ag-msg .bubble a.ag-pkg-link:hover { border-bottom-color: var(--color-blue); }
         .ag-cursor { display: inline-block; width: 2px; height: 1em; background: var(--color-blue); margin-left: 2px; animation: blink 0.8s step-end infinite; vertical-align: text-bottom; }
         @keyframes blink { 50% { opacity: 0; } }
         .ag-tool-chip { display: inline-block; font-size: 0.65rem; background: var(--bg-warning); color: var(--color-yellow); padding: 0.1rem 0.6rem; border-radius: 0.4rem; margin-right: var(--space-1); font-weight: 600; }
+        .ag-tools-panel { width: 100%; }
+        .ag-tools-toggle { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); width: 100%; background: transparent; border: none; color: var(--text-primary); padding: 0; cursor: pointer; font-size: var(--font-size-caption); text-align: left; }
+        .ag-tools-toggle-left { display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-1); min-width: 0; }
+        .ag-tools-summary { color: var(--text-secondary); }
+        .ag-tools-chevron { color: var(--text-secondary); transition: transform .15s ease; flex-shrink: 0; }
+        .ag-tools-toggle[aria-expanded="false"] .ag-tools-chevron { transform: rotate(-90deg); }
+        .ag-tools-list { margin-top: var(--space-2); display: flex; flex-direction: column; gap: var(--space-1); }
+        .ag-tools-list.collapsed { display: none; }
+        .ag-tool-item { border: 1px solid var(--border-color); border-radius: 0.5rem; background: var(--bg-primary); overflow: hidden; }
+        .ag-tool-summary { display: flex; align-items: center; gap: var(--space-1); padding: var(--space-1) var(--space-2); cursor: pointer; list-style: none; }
+        .ag-tool-summary::-webkit-details-marker { display: none; }
+        .ag-tool-label { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 0.7rem; color: var(--text-primary); flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .ag-tool-status { font-size: 0.7rem; color: var(--text-secondary); flex-shrink: 0; }
+        .ag-tool-status.done { color: var(--color-green); }
+        .ag-tool-result { margin: 0; padding: var(--space-2); border-top: 1px solid var(--border-color); background: var(--bg-secondary, var(--bg-tertiary)); color: var(--text-secondary); font-size: 0.65rem; line-height: 1.45; max-height: 220px; overflow: auto; white-space: pre-wrap; word-break: break-word; }
         .ag-query-log { display: block; font-size: 0.7rem; color: var(--text-secondary); margin-top: var(--space-1); font-family: monospace; }
         .ag-suggestions { display: flex; flex-wrap: wrap; gap: var(--space-2); justify-content: center; flex-shrink: 0; margin-bottom: var(--space-2); }
         .ag-suggestion { background: var(--bg-tertiary); border: 1px solid var(--border-color); border-radius: 2rem; padding: var(--space-1) var(--space-3); font-size: 0.75rem; cursor: pointer; transition: all .15s ease; color: var(--text-secondary); }
@@ -117,6 +136,6 @@
     <script src="js/insights-aggregator.js?v=0.0.9&cb=1781000000000"></script>
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
     <script src="js/ai-nano.js?v=0.0.9&cb=1781000000000"></script>
-    <script src="js/insights-agent.js?v=0.0.9&cb=1785355785500"></script>
+    <script src="js/insights-agent.js?v=0.0.9&cb=1785358600000"></script>
 </body>
 </html>
