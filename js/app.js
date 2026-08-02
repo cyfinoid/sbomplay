@@ -1643,7 +1643,7 @@ class SBOMPlayApp {
             const repositories = await this.githubClient.getRepositories(ownerName);
             
             if (repositories.length === 0) {
-                this.showAlert('No public repositories found for this organization or user', 'info');
+                this.showAlert('No public or internal repositories found for this organization or user', 'info');
                 this.finishAnalysis();
                 return;
             }

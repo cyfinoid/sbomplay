@@ -759,13 +759,16 @@ class GitHubClient {
             
             if (response.ok) {
             const repos = await this.getAllPages(url, response);
-                // Filter: Only include public repos AND repos owned by this organization
+                // Filter: Only include public/internal repos AND repos owned by this organization.
+                // GitHub Enterprise orgs can have "internal" repositories (visible to all
+                // enterprise members but not public). The API only returns internal repos to
+                // authenticated callers with access, so no extra auth gate is needed here.
                 const filteredRepos = repos.filter(repo => {
-                    const isPublic = repo.visibility === 'public';
+                    const isIncluded = repo.visibility === 'public' || repo.visibility === 'internal';
                     const ownerMatch = repo.owner && 
                         (repo.owner.login?.toLowerCase() === normalizedOwnerName || 
                          repo.full_name?.toLowerCase().startsWith(`${normalizedOwnerName}/`));
-                    return isPublic && ownerMatch;
+                    return isIncluded && ownerMatch;
                 });
                 
                 if (filteredRepos.length < repos.length) {
@@ -818,13 +821,14 @@ class GitHubClient {
             if (response.ok) {
                 console.log(`✅ Found user (REST): ${ownerName}`);
                 const repos = await this.getAllPages(url, response);
-                // Filter: Only include public repos AND repos owned by this user
+                // Filter: Only include public/internal repos AND repos owned by this user
+                // (internal visibility is org-only on GitHub Enterprise, included here for parity)
                 const filteredRepos = repos.filter(repo => {
-                    const isPublic = repo.visibility === 'public';
+                    const isIncluded = repo.visibility === 'public' || repo.visibility === 'internal';
                     const ownerMatch = repo.owner && 
                         (repo.owner.login?.toLowerCase() === normalizedOwnerName || 
                          repo.full_name?.toLowerCase().startsWith(`${normalizedOwnerName}/`));
-                    return isPublic && ownerMatch;
+                    return isIncluded && ownerMatch;
                 });
                 
                 if (filteredRepos.length < repos.length) {
