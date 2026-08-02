@@ -56,34 +56,81 @@
         }
 
         const fileName = scenario.path.split('/').pop();
-        if (!app.sbomParser.isValidExtension(fileName)) {
-            throw new Error('Unsupported demo file name');
-        }
 
         const res = await fetch(scenario.path, { credentials: 'same-origin' });
         if (!res.ok) {
             throw new Error('Could not load demo file (' + res.status + ')');
         }
         const text = await res.text();
-        const parsed = app.sbomParser.parse(text, fileName);
-        if (!parsed.success || !parsed.data || !parsed.format || parsed.format.format === 'unknown') {
-            throw new Error(parsed.error || 'Failed to parse demo SBOM');
-        }
-
-        const item = {
-            file: { name: fileName },
-            parsedData: parsed
-        };
 
         app.isAnalyzing = true;
         setDemoButtonsDisabled(true);
         setStatusHtml(
-            '<p class="mb-0 text-muted"><i class="fas fa-spinner fa-spin me-2"></i>Running analysis for <strong>' +
+            '<p class="mb-0 text-muted"><i class="fas fa-spinner fa-spin me-2"></i>Loading <strong>' +
                 escapeHtml(fileName) +
                 '</strong>…</p>'
         );
 
         try {
+            // Bundled demo fixtures are full analysis exports produced by
+            // StorageManager.exportAllData() (e.g. { type: 'all', entries: [...] }).
+            // Detect that shape and restore the pre-computed scan results through
+            // StorageManager.importAllData() so nothing has to be re-parsed or
+            // re-enriched. The SBOM parser only understands SPDX/CycloneDX and
+            // rejects exports with "Unknown SBOM format", so this branch is what
+            // makes the bundled full-scan demo data loadable at all.
+            let parsedExport = null;
+            try {
+                const candidate = JSON.parse(text);
+                if (
+                    candidate &&
+                    typeof candidate === 'object' &&
+                    typeof candidate.type === 'string' &&
+                    Array.isArray(candidate.entries)
+                ) {
+                    parsedExport = candidate;
+                }
+            } catch (jsonError) {
+                // Not JSON — fall through to the raw-SBOM path below.
+            }
+
+            if (parsedExport) {
+                const result = await app.storageManager.importAllData(parsedExport);
+                if (!result || result.success === false) {
+                    throw new Error((result && result.error) || 'Failed to import demo analysis');
+                }
+                const imported = (result.importedEntries != null) ? result.importedEntries : parsedExport.entries.length;
+                setStatusHtml(
+                    '<div class="alert alert-success mb-0">' +
+                        '<i class="fas fa-check-circle me-2"></i>Demo analysis imported (<code>' +
+                        escapeHtml(String(imported)) +
+                        '</code> ' + (imported === 1 ? 'entry' : 'entries') + '). Open ' +
+                        '<a href="index.html">Home</a>, ' +
+                        '<a href="vuln.html">Vulns</a>, ' +
+                        '<a href="deps.html">Deps</a>, or ' +
+                        '<a href="licenses.html">Licenses</a> to explore results.' +
+                        '</div>'
+                );
+                return;
+            }
+
+            if (!app.sbomParser) {
+                throw new Error('SBOM parser is not available');
+            }
+            if (!app.sbomParser.isValidExtension(fileName)) {
+                throw new Error('Unsupported demo file name');
+            }
+
+            const parsed = app.sbomParser.parse(text, fileName);
+            if (!parsed.success || !parsed.data || !parsed.format || parsed.format.format === 'unknown') {
+                throw new Error(parsed.error || 'Failed to parse demo SBOM');
+            }
+
+            const item = {
+                file: { name: fileName },
+                parsedData: parsed
+            };
+
             await app.processUploadedSBOM(item, function (_phase, _pct, message) {
                 setStatusHtml(
                     '<p class="mb-0 text-muted"><i class="fas fa-spinner fa-spin me-2"></i>' +
