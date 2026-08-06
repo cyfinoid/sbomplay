@@ -3825,6 +3825,108 @@ body {
     height: 14px;
     border-radius: 2px;
     min-width: 2px;
+}
+
+/* Insights — Risk Portfolio (overall score + risk-domain cards) */
+.rpf-header { text-align: center; padding: var(--space-4) 0 var(--space-3); }
+.rpf-overall {
+    display: inline-flex; align-items: center; gap: var(--space-4);
+    background: var(--bg-tertiary); border: 1px solid var(--border-color);
+    border-radius: 1.5rem; padding: var(--space-3) var(--space-5);
+}
+.rpf-overall .grade {
+    font-size: 2.8rem; font-weight: 800; line-height: 1;
+}
+.rpf-overall .score {
+    font-size: var(--font-size-section); color: var(--text-secondary);
+}
+.rpf-overall .score strong { font-size: 1.6rem; display: block; color: var(--text-primary); }
+
+.rpf-domain {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: 1.25rem;
+    padding: var(--space-4);
+    height: 100%;
+}
+.rpf-domain h3 {
+    font-size: var(--font-size-subheading);
+    font-weight: 700;
+    margin-bottom: var(--space-3);
+}
+.rpf-domain h3 i { margin-right: var(--space-2); width: 1.8rem; text-align: center; }
+
+.rpf-scorebar-wrap {
+    margin-bottom: var(--space-4);
+    text-align: center;
+}
+.rpf-scorebar {
+    height: 10px;
+    border-radius: 5px;
+    background: var(--bg-tertiary);
+    overflow: hidden;
+    margin-bottom: var(--space-1);
+}
+.rpf-scorebar .fill {
+    height: 100%;
+    border-radius: 5px;
+    transition: width 0.6s ease;
+}
+.rpf-scorebar-label {
+    display: flex;
+    justify-content: space-between;
+    font-size: var(--font-size-caption);
+    color: var(--text-secondary);
+}
+
+.rpf-stat {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: var(--space-2) 0;
+    border-bottom: 1px solid var(--border-color);
+    font-size: var(--font-size-body);
+}
+.rpf-stat:last-child { border-bottom: none; }
+.rpf-stat .value { font-weight: 700; }
+.rpf-stat .label { color: var(--text-secondary); }
+
+.rpf-badge {
+    display: inline-block;
+    padding: 0.15rem 0.6rem;
+    border-radius: 0.5rem;
+    font-size: 0.75rem;
+    font-weight: 700;
+}
+.rpf-badge.good { background: var(--bg-success); color: var(--color-green); }
+.rpf-badge.warn { background: var(--bg-warning); color: var(--color-yellow); }
+.rpf-badge.bad  { background: var(--bg-danger); color: var(--color-red); }
+
+.rpf-legend {
+    display: flex; gap: var(--space-4); justify-content: center;
+    margin-bottom: var(--space-4);
+    font-size: var(--font-size-caption);
+    color: var(--text-secondary);
+}
+.rpf-legend span { display: flex; align-items: center; gap: var(--space-1); }
+.rpf-legend i { font-size: 0.6rem; }
+
+.rpf-verdict {
+    text-align: center;
+    padding: var(--space-4);
+    background: var(--bg-tertiary);
+    border-radius: 1rem;
+    border: 1px solid var(--border-color);
+    margin-top: var(--space-4);
+}
+.rpf-verdict .text {
+    font-size: var(--font-size-section);
+    font-weight: 600;
+}
+.rpf-verdict .sub {
+    font-size: var(--font-size-caption);
+    color: var(--text-secondary);
+    margin-top: var(--space-1);
 } 
 /* ============================================================
    Phase 1.5 / 4 — shared components

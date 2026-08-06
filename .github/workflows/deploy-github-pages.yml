@@ -58,13 +58,9 @@ jobs:
           cp findings.html _site/
           cp feeds.html _site/
           cp insights.html _site/
-          cp insights2.html _site/
-          cp insights3.html _site/
-          cp insights4.html _site/
-          cp insights5.html _site/
           cp insights-agent.html _site/
           cp demo.html _site/
-          echo "✅ Copied 19 HTML files"
+          echo "✅ Copied 15 HTML files"
           
           # Copy JavaScript, CSS, images, and bundled demo SBOM JSON
           cp -r js _site/

@@ -6,9 +6,9 @@
     <title>SBOM Play - About</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
-    <link href="css/style.css?v=0.0.9&cb=1785700000000" rel="stylesheet">
-    <link href="css/themes.css?v=0.0.9&cb=1785700000000" rel="stylesheet">
-    <script src="js/theme-manager.js?v=0.0.9&cb=1785700000000"></script>
+    <link href="css/style.css?v=0.0.9&cb=1786000000000" rel="stylesheet">
+    <link href="css/themes.css?v=0.0.9&cb=1786000000000" rel="stylesheet">
+    <script src="js/theme-manager.js?v=0.0.9&cb=1786000000000"></script>
     <script src="js/depconfuse-service.js?v=0.0.9&cb=1785700000000"></script>
 </head>
 <body>
@@ -97,11 +97,12 @@
                             <li><a href="#how-it-works">How it works</a></li>
                             <li><a href="#direct-vs-transitive">Direct vs transitive</a></li>
                             <li><a href="#tech-debt">Tech-debt scoring</a></li>
+                            <li><a href="#risk-portfolio">Risk portfolio scoring</a></li>
                             <li><a href="#eol-detection">End-of-life detection</a></li>
                         </ol>
                     </div>
                     <div class="col-md-6">
-                        <ol class="mb-0" start="9">
+                        <ol class="mb-0" start="10">
                             <li><a href="#dependency-confusion">Dependency confusion</a></li>
                             <li><a href="#author-enrichment">Author enrichment</a></li>
                             <li><a href="#compliance">SBOM compliance standards</a></li>
@@ -518,6 +519,63 @@
                     <li><a href="https://osv.dev/docs/" target="_blank" rel="noreferrer noopener">OSV API — vulnerability severity data</a></li>
                     <li><a href="https://endoflife.date/docs/api" target="_blank" rel="noreferrer noopener">endoflife.date API — EOL/EOS data</a></li>
                 </ul>
+            </div>
+        </div>
+
+        <!-- Risk Portfolio Scoring -->
+        <div class="card mb-4" id="risk-portfolio">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="fas fa-chart-pie me-2"></i>Risk Portfolio Scoring</h5>
+            </div>
+            <div class="card-body">
+                <p>
+                    At the top of the Insights page, the same underlying metrics that feed the Tech-Debt composite are
+                    re-projected into three <strong>risk domains</strong> aimed at due-diligence and M&amp;A audiences.
+                    Each domain gets an independent 0&ndash;100 score (higher is healthier) and a traffic-light verdict,
+                    while the overall <strong>Tech-Health Score</strong> shown in the header is the Tech-Debt composite
+                    score and grade (see <a href="#tech-debt">Tech-debt scoring</a>).
+                </p>
+
+                <h6 class="mt-3">Domain Scores</h6>
+                <table class="table table-sm table-bordered">
+                    <thead class="table-light">
+                        <tr><th>Domain</th><th>Formula (starts at 100, penalties subtracted)</th></tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td><i class="fas fa-shield-alt me-1"></i>Security Posture</td>
+                            <td>&minus;20 per critical vuln, &minus;8 per high vuln, &minus;25 per malware advisory,
+                                and &minus;15 / &minus;8 when the median direct-dep CVE dwell time exceeds 90 / 30 days.</td>
+                        </tr>
+                        <tr>
+                            <td><i class="fas fa-tools me-1"></i>Operational Health</td>
+                            <td>&minus;3 per EOL component, &minus;5 per repo inactive &gt; 1 year, &minus;3 per repo
+                                missing an SBOM (major-drift components are folded in as a partial offset).</td>
+                        </tr>
+                        <tr>
+                            <td><i class="fas fa-gavel me-1"></i>License &amp; Compliance</td>
+                            <td>&minus;8 per high-risk license, &minus;2 per unpinned GitHub Action.</td>
+                        </tr>
+                    </tbody>
+                </table>
+
+                <h6 class="mt-3">Verdict Thresholds</h6>
+                <table class="table table-sm table-bordered">
+                    <thead class="table-light">
+                        <tr><th>Traffic light</th><th>Penalty (100 &minus; score)</th><th>Overall verdict (Tech-Health)</th></tr>
+                    </thead>
+                    <tbody>
+                        <tr><td><span class="badge bg-success">Good</span></td><td>&le; 30</td><td>&ge; 75: low risk &mdash; standard monitoring</td></tr>
+                        <tr><td><span class="badge bg-warning">Moderate</span></td><td>31 &ndash; 55</td><td>55 &ndash; 74: moderate risk &mdash; plan remediation</td></tr>
+                        <tr><td><span class="badge bg-danger">Needs Attention</span></td><td>&gt; 55</td><td>&lt; 55: elevated risk &mdash; active remediation</td></tr>
+                    </tbody>
+                </table>
+
+                <div class="alert alert-info py-2 mt-3">
+                    <i class="fas fa-info-circle me-2"></i>
+                    <strong>Heuristic weights:</strong> the domain penalty coefficients are tuned for at-a-glance triage,
+                    not a formal risk model. The authoritative single number remains the Tech-Health / Tech-Debt score.
+                </div>
             </div>
         </div>
 

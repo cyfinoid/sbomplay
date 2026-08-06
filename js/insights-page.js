@@ -145,6 +145,7 @@
 
         const sections = [
             renderCoverageBanner(ins, raw),
+            renderRiskPortfolio(ins),
             window.InsightsAggregator.renderKpiStrip(ins, { linkMap }),
             renderLanguageStack(ins),
             renderAgeSection(ins),
@@ -159,6 +160,128 @@
         safe(content, sections.join(''));
         mountCharts(ins);
         wireExpandToggles();
+    }
+
+    // -----------------------------------------------------------------------
+    // 0. Risk Portfolio — overall Tech-Health score + risk-domain cards
+    //    (Security / Operational / Compliance). Shown at the top.
+    // -----------------------------------------------------------------------
+    function rpfBadge(val, good, warn) {
+        if (val <= good) return '<span class="rpf-badge good"><i class="fas fa-check-circle me-1"></i>Good</span>';
+        if (val <= warn) return '<span class="rpf-badge warn"><i class="fas fa-exclamation-circle me-1"></i>Moderate</span>';
+        return '<span class="rpf-badge bad"><i class="fas fa-times-circle me-1"></i>Needs Attention</span>';
+    }
+
+    function rpfScoreBar(pct, color) {
+        return `<div class="rpf-scorebar-wrap">
+            <div class="rpf-scorebar"><div class="fill" style="width:${Math.min(pct, 100)}%;background:${color};"></div></div>
+            <div class="rpf-scorebar-label"><span>0</span><span>${pct}/100</span></div>
+        </div>`;
+    }
+
+    function rpfStatRow(label, value, colorClass) {
+        return `<div class="rpf-stat"><span class="label">${esc(label)}</span><span class="value ${colorClass || ''}">${value}</span></div>`;
+    }
+
+    function renderRiskPortfolio(ins) {
+        const td    = ins.techDebt;
+        const ch    = ins.critHigh;
+        const drift = ins.driftStats;
+        const eol   = ins.eolStats;
+        const lic   = ins.licenseStats;
+        const sc    = ins.supplyChain;
+        const dwell = ins.vulnAgeStats.directDwellMedian;
+        const hyg   = ins.repoHygiene;
+
+        /* ---- Security domain ---- */
+        const secScore = Math.max(0, 100 -
+            (ch.critical * 20 + ch.high * 8 +
+             (sc.malwareCount * 25) +
+             (dwell !== null && dwell > 90 ? 15 : dwell !== null && dwell > 30 ? 8 : 0)));
+        const secColor = secScore >= 70 ? 'var(--color-green)' : secScore >= 45 ? 'var(--color-yellow)' : 'var(--color-red)';
+
+        const secHtml = `
+            <div class="rpf-domain">
+                <h3><i class="fas fa-shield-alt" style="color:var(--color-red);"></i>Security Posture</h3>
+                ${rpfScoreBar(secScore, secColor)}
+                ${rpfStatRow('Crit + High Vulns', ch.total, ch.total > 0 ? 'text-danger fw-bold' : '')}
+                ${rpfStatRow('CVE Dwell (median)', dwell !== null ? dwell + ' days' : '--')}
+                ${rpfStatRow('Malware Advisories', sc.malwareCount, sc.malwareCount > 0 ? 'text-danger fw-bold' : '')}
+                ${rpfStatRow('Dep Confusion Risks', sc.depConfusionCount, sc.depConfusionCount > 0 ? 'text-warning' : '')}
+                <div class="mt-3 text-end">${rpfBadge(100 - secScore, 30, 55)}</div>
+            </div>`;
+
+        /* ---- Operational domain ---- */
+        const staleRepos = hyg.activityBuckets['> 1 year'] || 0;
+        const opScore = Math.max(0, 100 -
+            (eol.eolCount * 3) +
+            (drift.buckets.major.total * 2) +
+            (staleRepos * 5) +
+            (hyg.noSbom * 3));
+        const opScoreClamped = Math.max(0, Math.min(100, opScore));
+        const opColor = opScoreClamped >= 70 ? 'var(--color-green)' : opScoreClamped >= 45 ? 'var(--color-yellow)' : 'var(--color-red)';
+
+        const opHtml = `
+            <div class="rpf-domain">
+                <h3><i class="fas fa-tools" style="color:var(--color-blue);"></i>Operational Health</h3>
+                ${rpfScoreBar(opScoreClamped, opColor)}
+                ${rpfStatRow('Repositories Analyzed', ins.totalRepos)}
+                ${rpfStatRow('With SBOM', ins.reposWithSbom)}
+                ${rpfStatRow('EOL Components', eol.eolCount, eol.eolCount > 0 ? 'text-danger fw-bold' : '')}
+                ${rpfStatRow('Major Drift', drift.buckets.major.total, drift.buckets.major.total > 0 ? 'text-warning' : '')}
+                ${rpfStatRow('Repos Inactive >1yr', staleRepos, staleRepos > 0 ? 'text-warning' : '')}
+                <div class="mt-3 text-end">${rpfBadge(100 - opScoreClamped, 30, 55)}</div>
+            </div>`;
+
+        /* ---- Compliance domain ---- */
+        const compScore = Math.max(0, 100 - (lic.highRisk * 8) - (sc.unpinnedActions * 2));
+        const compColor = compScore >= 70 ? 'var(--color-green)' : compScore >= 45 ? 'var(--color-yellow)' : 'var(--color-red)';
+
+        const compHtml = `
+            <div class="rpf-domain">
+                <h3><i class="fas fa-gavel" style="color:var(--color-yellow);"></i>License &amp; Compliance</h3>
+                ${rpfScoreBar(compScore, compColor)}
+                ${rpfStatRow('High-Risk Licenses', lic.highRisk, lic.highRisk > 0 ? 'text-warning fw-bold' : '')}
+                ${rpfStatRow('Copyleft (direct)', lic.copyleft.direct, lic.copyleft.direct > 0 ? 'text-warning' : '')}
+                ${rpfStatRow('Copyleft (transitive)', lic.copyleft.transitive)}
+                ${rpfStatRow('Unknown Licenses', lic.unknown.total, lic.unknown.total > 0 ? 'text-muted' : '')}
+                ${rpfStatRow('Unpinned GH Actions', sc.unpinnedActions, sc.unpinnedActions > 0 ? 'text-warning' : '')}
+                <div class="mt-3 text-end">${rpfBadge(100 - compScore, 30, 55)}</div>
+            </div>`;
+
+        /* ---- Overall verdict ---- */
+        const overallScore = td.score100;
+        const verdictClass = overallScore >= 75 ? 'text-success' : overallScore >= 55 ? 'text-warning' : 'text-danger';
+        const verdictText  = overallScore >= 75 ? 'Low risk profile — standard monitoring advised.'
+                           : overallScore >= 55 ? 'Moderate risk — review flagged items and set remediation plan.'
+                           : 'Elevated risk — active remediation recommended before proceeding.';
+
+        const legendHtml = `<div class="rpf-legend">
+            <span><i class="fas fa-circle text-success"></i> Good</span>
+            <span><i class="fas fa-circle text-warning"></i> Moderate</span>
+            <span><i class="fas fa-circle text-danger"></i> Needs Attention</span>
+        </div>`;
+
+        const verdictHtml = `<div class="rpf-verdict">
+            <div class="text ${verdictClass}"><i class="fas fa-${overallScore >= 75 ? 'check-circle' : overallScore >= 55 ? 'exclamation-circle' : 'times-circle'} me-2"></i>${esc(verdictText)}</div>
+            <div class="sub">Tech-Health Score ${overallScore}/100 (Grade ${td.grade})</div>
+        </div>`;
+
+        return `<div class="mb-4">
+            <div class="rpf-header">
+                <div class="rpf-overall">
+                    <div class="grade text-${td.gradeColorClass}">${td.grade}</div>
+                    <div class="score">Tech-Health<strong>${td.score100}/100</strong></div>
+                </div>
+            </div>
+            ${legendHtml}
+            <div class="row g-4">
+                <div class="col-md-4">${secHtml}</div>
+                <div class="col-md-4">${opHtml}</div>
+                <div class="col-md-4">${compHtml}</div>
+            </div>
+            ${verdictHtml}
+        </div>`;
     }
 
     // -----------------------------------------------------------------------
