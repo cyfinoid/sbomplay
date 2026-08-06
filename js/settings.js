@@ -2138,13 +2138,16 @@ class SettingsApp {
      */
     async initLocationEnrichmentCard() {
         const btn = document.getElementById('fetchRemainingLocationsBtn');
+        const rescanBtn = document.getElementById('rescanGeocodingBtn');
         const statusDiv = document.getElementById('locationEnrichmentStatus');
         const alertDiv = document.getElementById('locationEnrichmentAlert');
         const progressSpan = document.getElementById('locationFetchProgress');
+        const rescanProgressSpan = document.getElementById('geocodingRescanProgress');
         if (!btn || !statusDiv || !alertDiv) return;
 
         // Count authors that still need location fetching
         const missing = await this._countMissingLocationAuthors();
+        const withLocationStrings = await this._countAuthorsWithLocationStrings();
 
         statusDiv.classList.remove('d-none');
         if (missing > 0) {
@@ -2157,9 +2160,45 @@ class SettingsApp {
             btn.disabled = true;
         }
 
+        if (rescanBtn) {
+            rescanBtn.disabled = !(withLocationStrings > 0 && window.LocationService);
+        }
+
         btn.addEventListener('click', async () => {
-            await this._fetchRemainingLocations(btn, progressSpan, alertDiv, statusDiv);
+            await this._fetchRemainingLocations(btn, progressSpan, alertDiv, statusDiv, rescanBtn);
         });
+
+        if (rescanBtn) {
+            rescanBtn.addEventListener('click', async () => {
+                await this._rescanGeocoding(rescanBtn, rescanProgressSpan, alertDiv, statusDiv, btn);
+            });
+        }
+    }
+
+    _locationProgressController() {
+        const progressContainer = document.getElementById('locationFetchProgressContainer');
+        const progressBar = document.getElementById('locationFetchProgressBar');
+        const progressText = document.getElementById('locationFetchProgressText');
+
+        return {
+            showProgressBar() {
+                if (progressContainer) progressContainer.classList.remove('d-none');
+            },
+            hideProgressBar() {
+                if (progressContainer) progressContainer.classList.add('d-none');
+            },
+            setBarPercent(percent, label) {
+                if (!progressBar) return;
+                const clamped = Math.max(0, Math.min(100, percent));
+                const display = Math.round(clamped);
+                progressBar.style.setProperty('--progress-width', `${clamped}%`);
+                progressBar.setAttribute('aria-valuenow', String(display));
+                progressBar.textContent = `${display}%`;
+                if (progressText) {
+                    progressText.textContent = label || '';
+                }
+            }
+        };
     }
 
     async _countMissingLocationAuthors() {
@@ -2188,28 +2227,44 @@ class SettingsApp {
         }
     }
 
-    async _fetchRemainingLocations(btn, progressSpan, alertDiv, statusDiv) {
-        const progressContainer = document.getElementById('locationFetchProgressContainer');
-        const progressBar = document.getElementById('locationFetchProgressBar');
-        const progressText = document.getElementById('locationFetchProgressText');
-
-        const showProgressBar = () => {
-            if (progressContainer) progressContainer.classList.remove('d-none');
-        };
-        const hideProgressBar = () => {
-            if (progressContainer) progressContainer.classList.add('d-none');
-        };
-        const setBarPercent = (percent, label) => {
-            if (!progressBar) return;
-            const clamped = Math.max(0, Math.min(100, percent));
-            const display = Math.round(clamped);
-            progressBar.style.setProperty('--progress-width', `${clamped}%`);
-            progressBar.setAttribute('aria-valuenow', String(display));
-            progressBar.textContent = `${display}%`;
-            if (progressText) {
-                progressText.textContent = label || '';
+    async _countAuthorsWithLocationStrings() {
+        if (!window.indexedDBManager?.db) return 0;
+        try {
+            const db = window.indexedDBManager.db;
+            const tx = db.transaction(['authorEntities'], 'readonly');
+            const store = tx.objectStore('authorEntities');
+            const all = await new Promise((resolve, reject) => {
+                const req = store.getAll();
+                req.onsuccess = () => resolve(req.result);
+                req.onerror = () => reject(req.error);
+            });
+            let count = 0;
+            for (const entity of all) {
+                const meta = entity.metadata || entity.data?.metadata;
+                if (meta?.location && String(meta.location).trim()) {
+                    count++;
+                }
             }
-        };
+            return count;
+        } catch (e) {
+            console.warn('Failed to count authors with location strings:', e);
+            return 0;
+        }
+    }
+
+    async _getAllAuthorEntities() {
+        const db = window.indexedDBManager.db;
+        const tx = db.transaction(['authorEntities'], 'readonly');
+        const store = tx.objectStore('authorEntities');
+        return new Promise((resolve, reject) => {
+            const req = store.getAll();
+            req.onsuccess = () => resolve(req.result || []);
+            req.onerror = () => reject(req.error);
+        });
+    }
+
+    async _fetchRemainingLocations(btn, progressSpan, alertDiv, statusDiv, otherBtn = null) {
+        const { showProgressBar, hideProgressBar, setBarPercent } = this._locationProgressController();
 
         const token = sessionStorage.getItem('github_token');
         if (!token) {
@@ -2220,20 +2275,14 @@ class SettingsApp {
         }
 
         btn.disabled = true;
+        if (otherBtn) otherBtn.disabled = true;
         statusDiv.classList.remove('d-none');
         showProgressBar();
         setBarPercent(0, 'Loading author entities...');
         progressSpan.textContent = 'Loading author entities...';
 
         try {
-            const db = window.indexedDBManager.db;
-            const tx = db.transaction(['authorEntities'], 'readonly');
-            const store = tx.objectStore('authorEntities');
-            const all = await new Promise((resolve, reject) => {
-                const req = store.getAll();
-                req.onsuccess = () => resolve(req.result);
-                req.onerror = () => reject(req.error);
-            });
+            const all = await this._getAllAuthorEntities();
 
             const needsFetch = [];
             for (const entity of all) {
@@ -2305,6 +2354,10 @@ class SettingsApp {
             // Re-count to update the button state
             const stillMissing = await this._countMissingLocationAuthors();
             btn.disabled = stillMissing === 0;
+            if (otherBtn) {
+                const withLocationStrings = await this._countAuthorsWithLocationStrings();
+                otherBtn.disabled = !(withLocationStrings > 0 && window.LocationService);
+            }
         } catch (error) {
             console.error('Failed to fetch remaining locations:', error);
             alertDiv.className = 'alert alert-danger mb-0';
@@ -2312,6 +2365,153 @@ class SettingsApp {
             progressSpan.textContent = '';
             hideProgressBar();
             btn.disabled = false;
+            if (otherBtn) otherBtn.disabled = false;
+        }
+    }
+
+    async _rescanGeocoding(btn, progressSpan, alertDiv, statusDiv, otherBtn = null) {
+        const { showProgressBar, hideProgressBar, setBarPercent } = this._locationProgressController();
+
+        if (!window.LocationService) {
+            alertDiv.className = 'alert alert-danger mb-0';
+            alertDiv.textContent = 'LocationService is not available on this page.';
+            statusDiv.classList.remove('d-none');
+            return;
+        }
+
+        if (!window.indexedDBManager?.isInitialized?.()) {
+            alertDiv.className = 'alert alert-danger mb-0';
+            alertDiv.textContent = 'IndexedDB is not ready yet. Please reload the page and try again.';
+            statusDiv.classList.remove('d-none');
+            return;
+        }
+
+        const authorCount = await this._countAuthorsWithLocationStrings();
+        if (authorCount === 0) {
+            alertDiv.className = 'alert alert-info mb-0';
+            alertDiv.textContent = 'No authors with location strings found to re-resolve.';
+            statusDiv.classList.remove('d-none');
+            btn.disabled = true;
+            return;
+        }
+
+        const confirmed = window.confirm(
+            `Clear the geocoding cache and re-resolve country codes for ${authorCount.toLocaleString()} author(s) with location strings?\n\n` +
+            'Strings matched by static country/city tables resolve offline; others may call Open-Meteo or Photon.'
+        );
+        if (!confirmed) {
+            return;
+        }
+
+        btn.disabled = true;
+        if (otherBtn) otherBtn.disabled = true;
+        statusDiv.classList.remove('d-none');
+        showProgressBar();
+        setBarPercent(0, 'Clearing geocoding cache...');
+        if (progressSpan) progressSpan.textContent = 'Clearing geocoding cache...';
+
+        try {
+            const locationService = new window.LocationService();
+            await window.indexedDBManager.clearCacheStore('locations');
+            locationService.clearCache();
+
+            setBarPercent(5, 'Loading author entities...');
+            const all = await this._getAllAuthorEntities();
+
+            const authorEntries = [];
+            const locationsNeedingGeocoding = new Set();
+
+            for (const entity of all) {
+                const meta = entity.metadata || entity.data?.metadata;
+                const authorKey = entity.authorKey || entity.key;
+                const authorEntity = entity.data || entity;
+                if (!authorKey || !meta?.location || !String(meta.location).trim()) {
+                    continue;
+                }
+
+                if (authorEntity.metadata) {
+                    delete authorEntity.metadata.countryCode;
+                    delete authorEntity.metadata.country;
+                    delete authorEntity.metadata.countryCodes;
+                    delete authorEntity.metadata.countries;
+                }
+
+                const normalized = locationService.normalizeLocationString(meta.location);
+                if (normalized) {
+                    locationsNeedingGeocoding.add(normalized);
+                    authorEntries.push({ authorKey, authorEntity, normalized });
+                }
+            }
+
+            setBarPercent(10, `Stripping old country codes from ${authorEntries.length.toLocaleString()} author(s)...`);
+            for (let i = 0; i < authorEntries.length; i++) {
+                const { authorKey, authorEntity } = authorEntries[i];
+                await window.cacheManager.saveAuthorEntity(authorKey, authorEntity);
+                if (i % 50 === 0 || i === authorEntries.length - 1) {
+                    const pct = 10 + ((i + 1) / authorEntries.length) * 10;
+                    setBarPercent(pct, `Prepared ${i + 1}/${authorEntries.length} author(s)...`);
+                }
+            }
+
+            const uniqueLocations = Array.from(locationsNeedingGeocoding);
+            setBarPercent(20, `Geocoding ${uniqueLocations.length.toLocaleString()} unique location string(s)...`);
+
+            const geocodeResults = await locationService.batchGeocode(
+                uniqueLocations,
+                (processed, total) => {
+                    const pct = 20 + (processed / total) * 70;
+                    const label = `Geocoding locations: ${processed}/${total}`;
+                    setBarPercent(pct, label);
+                    if (progressSpan) progressSpan.textContent = label;
+                }
+            );
+
+            setBarPercent(92, 'Updating author records...');
+            let updatedAuthors = 0;
+            for (let i = 0; i < authorEntries.length; i++) {
+                const { authorKey, authorEntity, normalized } = authorEntries[i];
+                const geocoded = geocodeResults.get(normalized);
+                if (geocoded?.countryCode) {
+                    authorEntity.metadata = {
+                        ...authorEntity.metadata,
+                        countryCode: geocoded.countryCode,
+                        ...(geocoded.country && { country: geocoded.country })
+                    };
+                    await window.cacheManager.saveAuthorEntity(authorKey, authorEntity);
+                    updatedAuthors++;
+                }
+                if (i % 50 === 0 || i === authorEntries.length - 1) {
+                    const pct = 92 + ((i + 1) / authorEntries.length) * 8;
+                    setBarPercent(pct, `Updated ${updatedAuthors} author(s)...`);
+                }
+            }
+
+            const geocodedLocations = Array.from(geocodeResults.values()).filter(r => r && !r.failed && r.countryCode).length;
+            const failedLocations = uniqueLocations.length - geocodedLocations;
+
+            setBarPercent(100, 'Done');
+            alertDiv.className = 'alert alert-success mb-0';
+            let msg = `Re-resolved ${updatedAuthors.toLocaleString()} author(s) from ${geocodedLocations.toLocaleString()} location string(s).`;
+            if (failedLocations > 0) {
+                msg += ` ${failedLocations.toLocaleString()} string(s) could not be geocoded.`;
+                alertDiv.className = 'alert alert-warning mb-0';
+            }
+            alertDiv.textContent = msg;
+            if (progressSpan) progressSpan.textContent = '';
+
+            setTimeout(() => hideProgressBar(), 1500);
+        } catch (error) {
+            console.error('Failed to re-resolve geocoding:', error);
+            alertDiv.className = 'alert alert-danger mb-0';
+            alertDiv.textContent = `Error: ${error.message}`;
+            if (progressSpan) progressSpan.textContent = '';
+            hideProgressBar();
+        } finally {
+            btn.disabled = !((await this._countAuthorsWithLocationStrings()) > 0 && window.LocationService);
+            if (otherBtn) {
+                const stillMissing = await this._countMissingLocationAuthors();
+                otherBtn.disabled = stillMissing === 0;
+            }
         }
     }
 }

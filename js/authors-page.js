@@ -309,7 +309,7 @@
             // Display author locations on map.
             //
             // Country-only aggregation: rather than placing one marker per (city, region)
-            // string — which required a separate Nominatim geocode call per unique string
+            // string — which required a separate geocoding API call per unique string
             // and was rate-limited to 1 req/sec — we now group authors by country code and
             // place a single marker at the country centroid (from CountryData). The bulk
             // of resolution happens locally without any API calls (static lookup table +
@@ -358,9 +358,9 @@
                 //      (covers static-table hits + everything previously seen in this session).
                 //   2) Fallback to LocationService.getFromCache, which inspects the IndexedDB
                 //      cache for legacy entries that have a countryCode set (lat/lng data we
-                //      previously fetched from Nominatim).
+                //      previously fetched from geocoding APIs).
                 // We deliberately do NOT call geocode() here — the map should never trigger
-                // Nominatim traffic on its own. Anything that doesn't resolve via the two
+                // geocoding API traffic on its own. Anything that doesn't resolve via the two
                 // paths above is a string we have no country signal for; we just skip it.
                 const cacheLookups = [];
                 const cacheLookupAuthors = [];

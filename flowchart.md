@@ -487,7 +487,7 @@ flowchart TD
 - **Bundled Per-Package Writes**: Each package commits its package row, author entities, and relationships in a single IndexedDB transaction (`cacheManager.savePackageAuthorBundle`) instead of 1+N+N separate transactions
 - **Per-Run Memoization**: `findAuthorByEmail` / `findAuthorByGitHub` / `getAuthorEntity` results are memoized for the duration of a `fetchAuthorsForPackages` run so authors shared across packages cost one IDB lookup, not many
 - **Unified Rate-Limited HTTP**: All registry/funding fetches go through `requestQueueManager` lanes (`npm`, `pypi`, `cargo`, `gem`, `ecosystems`, `github`) with shared 429/403 backoff
-- **Country-Only Map**: The authors map renders one Leaflet marker per country using static ISO 3166-1 alpha-2 centroids from `js/country-data.js`; `LocationService.geocode()` resolves country / US-state suffixes locally before falling back to Nominatim, near-eliminating geocoding round-trips
+- **Country-Only Map**: The authors map renders one Leaflet marker per country using static ISO 3166-1 alpha-2 centroids from `js/country-data.js`; `LocationService.geocode()` resolves country / US-state suffixes and major cities locally via `country-data.js` / `city-data.js` before falling back to Open-Meteo and Photon APIs
 - **Optional Contributor Correlation**: Per-package GitHub contributor correlation (extra `/repos/<owner>/<repo>/contributors` calls) is gated behind a setting in `settings.html` and is **off by default**
 
 ---

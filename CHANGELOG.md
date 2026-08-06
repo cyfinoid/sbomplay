@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Clear Geocoding Cache & Re-resolve on Settings** (`settings.html`, `js/settings.js`): new button in Author Location Enrichment clears the IndexedDB `locations` store, strips existing `countryCode` values from author entities, and re-runs `LocationService.batchGeocode()` with progress feedback. Use after geocoding provider changes or to retry previously failed lookups without re-fetching GitHub profiles.
+- **Multi-provider geocoding replaces Nominatim** (`js/location-service.js`, new `js/city-data.js`, `about.html`, `authors.html`, `index.html`, `settings.html`, `demo.html`): author location strings now resolve through a four-step cascade — static country table → static major-city table (GeoNames cities ≥50k, ~14k unambiguous entries) → Open-Meteo Geocoding API → Photon (komoot) failover. A serial network queue with per-provider spacing and 429/503 cooldown prevents burst traffic; IndexedDB cache behaviour is unchanged. Nominatim is removed. Firewall allowlist and Author Enrichment methodology on `about.html` updated accordingly.
+
+### Changed
+- **Geocoding network dependencies**: `nominatim.openstreetmap.org` removed from the firewall allowlist; `geocoding-api.open-meteo.com` (primary API fallback) and `photon.komoot.io` (failover) added instead (`about.html`).
+
 ### Fixed
 - **IndexedDB open failed with `VersionError: requested version (6) < existing (7)`** (`js/indexeddb-manager.js`): browsers that previously ran a VEX-enabled build already have `sbomplay_db` at schema v7 (`vexDocuments` store). This branch still opened at v6, which IndexedDB rejects and blocked app init (including the Quick demo page). Schema version is now 7, `vexDocuments` is created on upgrade when missing, and `clearAll` / `clearCacheStore` include `locations`, `eoxData`, and `vexDocuments`.
 

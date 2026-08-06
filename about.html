@@ -316,7 +316,8 @@
                     </thead>
                     <tbody>
                         <tr><td><code>tile.openstreetmap.org</code></td><td>Map tiles for author locations</td></tr>
-                        <tr><td><code>nominatim.openstreetmap.org</code></td><td>Geocoding service</td></tr>
+                        <tr><td><code>geocoding-api.open-meteo.com</code></td><td>Primary geocoding API (fallback after static country/city tables)</td></tr>
+                        <tr><td><code>photon.komoot.io</code></td><td>Secondary geocoding API (failover when Open-Meteo is rate-limited or unavailable)</td></tr>
                     </tbody>
                 </table>
 
@@ -942,7 +943,49 @@
                     appear on directly reflects the number of packages an account compromise would compromise.
                 </p>
 
-                <h6 class="mt-4"><i class="fas fa-robot me-2 text-dark"></i>5. Bots and automated accounts</h6>
+                <h6 class="mt-4"><i class="fas fa-map-marker-alt me-2 text-info"></i>5. Location geocoding</h6>
+                <p>
+                    GitHub profile <code>location</code> strings are free-form text — "San Francisco, CA", "Germany",
+                    "Bengaluru", or joke entries like "Milky Way". SBOM Play resolves them to an ISO country code for
+                    the Authors map and sanctioned-country checks using a four-step cascade that avoids hammering any
+                    single public geocoder:
+                </p>
+                <table class="table table-sm table-bordered">
+                    <thead class="table-light">
+                        <tr><th>Step</th><th>Resolver</th><th>When it applies</th></tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td>1</td>
+                            <td>Static country table (<code>country-data.js</code>)</td>
+                            <td>Trailing segment is a country name, alpha-2/3 code, or US state (e.g. "Berlin, Germany")</td>
+                        </tr>
+                        <tr>
+                            <td>2</td>
+                            <td>Static city table (<code>city-data.js</code>, GeoNames cities ≥50k pop.)</td>
+                            <td>Bare major-city names with no cross-country ambiguity (e.g. "Tokyo", "Bengaluru")</td>
+                        </tr>
+                        <tr>
+                            <td>3</td>
+                            <td><a href="https://open-meteo.com/en/docs/geocoding-api" target="_blank" rel="noreferrer noopener">Open-Meteo Geocoding API</a></td>
+                            <td>Remaining strings; primary network fallback, no API key required</td>
+                        </tr>
+                        <tr>
+                            <td>4</td>
+                            <td><a href="https://photon.komoot.io/" target="_blank" rel="noreferrer noopener">Photon (komoot)</a></td>
+                            <td>Failover when Open-Meteo returns no result or is rate-limited</td>
+                        </tr>
+                    </tbody>
+                </table>
+                <p class="text-muted small">
+                    <i class="fas fa-info-circle me-1"></i>
+                    All successful and failed resolutions are cached in IndexedDB for 7 days so each unique string is
+                    fetched at most once per session. Network requests are serialized through a shared queue with
+                    per-provider spacing and cooldown on HTTP 429/503. The Authors map itself never triggers geocoding —
+                    it reads only from cache and static tables. Nominatim is no longer used.
+                </p>
+
+                <h6 class="mt-4"><i class="fas fa-robot me-2 text-dark"></i>6. Bots and automated accounts</h6>
                 <p>
                     GitHub contributors include automated accounts: <code>dependabot[bot]</code>,
                     <code>github-actions[bot]</code>, <code>renovate[bot]</code>, <code>pre-commit-ci[bot]</code>, and
@@ -960,6 +1003,9 @@
                     <li><a href="https://packages.ecosyste.ms/docs" target="_blank" rel="noreferrer noopener">ecosyste.ms API Documentation</a> — aggregated package metadata for ecosystems without a native authors endpoint</li>
                     <li><a href="https://docs.npmjs.com/cli/v10/configuring-npm/package-json#people-fields-author-contributors" target="_blank" rel="noreferrer noopener">npm package.json: <code>author</code> and <code>contributors</code> fields</a></li>
                     <li><a href="https://packaging.python.org/en/latest/specifications/core-metadata/#author" target="_blank" rel="noreferrer noopener">PyPI core metadata: <code>Author</code> / <code>Maintainer</code> fields</a></li>
+                    <li><a href="https://www.geonames.org/" target="_blank" rel="noreferrer noopener">GeoNames</a> — static major-city table (<code>cities15000</code>, CC BY 4.0)</li>
+                    <li><a href="https://open-meteo.com/en/docs/geocoding-api" target="_blank" rel="noreferrer noopener">Open-Meteo Geocoding API</a> — primary network geocoding fallback</li>
+                    <li><a href="https://photon.komoot.io/" target="_blank" rel="noreferrer noopener">Photon (komoot)</a> — secondary geocoding failover</li>
                 </ul>
             </div>
         </div>

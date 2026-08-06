@@ -113,6 +113,7 @@ jobs:
             "js/common.js"
             "js/dependency-tree-resolver.js"
             "js/country-data.js"
+            "js/city-data.js"
             "js/depconfuse-service.js"
             "js/deps-page.js"
             "js/ecosystem-utils.js"

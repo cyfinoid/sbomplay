@@ -2,10 +2,9 @@
  * Country Data - Static lookup tables for country resolution and map centroids.
  *
  * Powers the country-only visualization on the authors page and is also used by
- * LocationService to short-circuit Nominatim calls whenever a location string ends
+ * LocationService to short-circuit geocoding API calls whenever a location string ends
  * with a recognizable country, country alias, or US state. Together these tables
- * eliminate the vast majority of geocoding round-trips against Nominatim's strict
- * 1 req/sec rate limit.
+ * eliminate the vast majority of geocoding round-trips.
  *
  * Exposes a single global, `window.CountryData`, which provides:
  *   - resolveCountry(rawString)          → { countryCode, country } | null
