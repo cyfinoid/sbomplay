@@ -92,6 +92,10 @@
         .ag-unavailable { text-align: center; padding: var(--space-6); max-width: 500px; margin: var(--space-6) auto; }
         .ag-unavailable .icon { font-size: 3rem; margin-bottom: var(--space-3); opacity: 0.5; }
         .ag-cap-badge { display: inline-block; font-size: 0.65rem; background: var(--bg-info); color: var(--color-blue); padding: 0.15rem 0.5rem; border-radius: 0.3rem; margin-left: 0.3rem; }
+        .ag-privacy-banner { border-left: 4px solid var(--color-green); background: var(--bg-info); color: var(--text-primary); }
+        .ag-privacy-banner .ag-privacy-title { font-weight: 700; margin-bottom: 0.15rem; }
+        .ag-privacy-banner p { margin-bottom: 0; font-size: var(--font-size-caption); color: var(--text-secondary); }
+        .ag-privacy-banner .ag-privacy-icon { color: var(--color-green); font-size: 1.25rem; flex-shrink: 0; margin-top: 0.1rem; }
         @media (max-width: 576px) { .ag-layout { height: calc(100vh - 200px); min-height: 400px; } .ag-metrics { gap: var(--space-1); } .ag-metric { padding: var(--space-1) var(--space-2); min-width: 50px; } .ag-metric .v { font-size: 0.85rem; } .ag-msg .bubble { max-width: 90%; } }
     </style>
 </head>
@@ -123,6 +127,17 @@
         </div>
     </nav>
     <main id="main" class="container mt-2">
+        <div class="alert ag-privacy-banner d-flex gap-3 align-items-start mb-3" role="status">
+            <i class="fas fa-shield-alt ag-privacy-icon" aria-hidden="true"></i>
+            <div>
+                <div class="ag-privacy-title">100% on-device AI — no server-side inference</div>
+                <p>
+                    This page uses Chrome&rsquo;s built-in <strong>Gemini Nano</strong> (Prompt API) on your machine.
+                    Your SBOM analysis, questions, and model answers are <strong>not sent to SBOM Play or any cloud LLM</strong>.
+                    SBOM data is read from local IndexedDB; only tool-query results in memory are summarized by the on-device model.
+                </p>
+            </div>
+        </div>
         <!-- Hidden canonical selector; options are mirrored into #analysisSelector2 in the agent toolbar -->
         <select id="analysisSelector" class="d-none" aria-hidden="true" tabindex="-1">
             <option value="">Loading...</option>
@@ -131,7 +146,7 @@
         <div id="loading" class="text-center py-5 d-none"><div class="spinner-border text-primary mb-3" role="status"></div><p class="text-muted">Loading data&hellip;</p></div>
         <div id="content" class="d-none"></div>
     </main>
-    <footer class="bg-light mt-4 py-2"><div class="container"><div class="text-center"><small class="text-muted">&copy; 2026 Cyfinoid Research. &middot; On-device AI with built-in tool-use.</small></div></div></footer>
+    <footer class="bg-light mt-4 py-2"><div class="container"><div class="text-center"><small class="text-muted">&copy; 2026 Cyfinoid Research. &middot; On-device Gemini Nano only — no cloud AI backend.</small></div></div></footer>
     <script src="js/indexeddb-manager.js?v=0.0.9&cb=1782100000000"></script>
     <script src="js/common.js?v=0.0.9&cb=1781000000000"></script>
     <script src="js/version-utils.js?v=0.0.9&cb=1781000000000"></script>
@@ -140,6 +155,6 @@
     <script src="js/insights-aggregator.js?v=0.0.9&cb=1781000000000"></script>
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
     <script src="js/ai-nano.js?v=0.0.9&cb=1781000000000"></script>
-    <script src="js/insights-agent.js?v=0.0.9&cb=1785600000000"></script>
+    <script src="js/insights-agent.js?v=0.0.9&cb=1743965400000"></script>
 </body>
 </html>

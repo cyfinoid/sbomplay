@@ -545,11 +545,11 @@ RULES:
 
         let statusHtml = '';
         if (!available) {
-            statusHtml = `<span class="dot unsupported"></span> AI not available`;
+            statusHtml = `<span class="dot unsupported"></span> On-device AI not available`;
         } else if (aiStatus === 'ready') {
-            statusHtml = `<span class="dot ready"></span> Gemini Nano <span class="ag-cap-badge">queries: app-driven</span>`;
+            statusHtml = `<span class="dot ready"></span> Gemini Nano (on-device) <span class="ag-cap-badge">no cloud LLM</span> <span class="ag-cap-badge">queries: app-driven</span>`;
         } else {
-            statusHtml = `<span class="dot loading"></span> Gemini Nano (download on first use) <span class="ag-cap-badge">queries: app-driven</span>`;
+            statusHtml = `<span class="dot loading"></span> Gemini Nano downloading locally <span class="ag-cap-badge">no cloud LLM</span> <span class="ag-cap-badge">queries: app-driven</span>`;
         }
 
         const metrics = currentIns ? buildMetrics(currentIns) : '';
@@ -567,7 +567,7 @@ RULES:
         const html = `
             <div class="ag-header">
                 <h2><i class="fas fa-microchip me-2"></i>SBOM Analyst Agent</h2>
-                <div class="sub">AI queries your SBOM data on-demand via built-in tools</div>
+                <div class="sub">On-device Gemini Nano summarizes SBOM tool queries — nothing leaves your browser</div>
             </div>
             <div class="ag-status">${statusHtml}</div>
             <div class="ag-toolbar">
@@ -578,14 +578,15 @@ RULES:
             ${!available ? `
                 <div class="ag-unavailable">
                     <div class="icon"><i class="fas fa-robot"></i></div>
-                    <h5>AI not available</h5>
+                    <h5>On-device AI not available</h5>
+                    <p class="text-muted small mb-0">This page requires Chrome&rsquo;s Prompt API and Gemini Nano. When unavailable, no data is sent to a server — the feature simply stays disabled.</p>
                 </div>` : ''}
             <div class="ag-layout" id="agentLayout" style="display:${available ? 'flex' : 'none'}">
                 <div class="ag-messages" id="agMessages">
                     <div class="ag-empty" id="agEmpty">
                         <div class="icon"><i class="fas fa-database"></i></div>
-                        <h5>Agent ready — data loaded</h5>
-                        <p>Each question runs real SBOM queries first, then the on-device model summarizes the numbers.</p>
+                        <h5>Agent ready — data loaded locally</h5>
+                        <p>Ask a question: SBOM Play runs in-memory queries on your machine, then Gemini Nano summarizes the results. No cloud AI server is involved.</p>
                     </div>
                 </div>
                 <div class="ag-suggestions" id="agSuggestions">

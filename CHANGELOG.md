@@ -12,6 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Multi-provider geocoding replaces Nominatim** (`js/location-service.js`, new `js/city-data.js`, `about.html`, `authors.html`, `index.html`, `settings.html`, `demo.html`): author location strings now resolve through a four-step cascade — static country table → static major-city table (GeoNames cities ≥50k, ~14k unambiguous entries) → Open-Meteo Geocoding API → Photon (komoot) failover. A serial network queue with per-provider spacing and 429/503 cooldown prevents burst traffic; IndexedDB cache behaviour is unchanged. Nominatim is removed. Firewall allowlist and Author Enrichment methodology on `about.html` updated accordingly.
 
 ### Changed
+- **Agent page privacy messaging** (`insights-agent.html`, `js/insights-agent.js`): added a persistent on-device AI banner stating that Gemini Nano runs locally with no cloud LLM or server-side inference; status line, empty state, and unavailable state copy updated to match.
 - **Geocoding network dependencies**: `nominatim.openstreetmap.org` removed from the firewall allowlist; `geocoding-api.open-meteo.com` (primary API fallback) and `photon.komoot.io` (failover) added instead (`about.html`).
 
 ### Fixed
