@@ -746,7 +746,7 @@ RULES:
                 }
             }
 
-            safe(thinkBubble, renderText(responseText || 'No response generated.'));
+            safe(thinkBubble, renderText(linkifyAnswerText(responseText || 'No response generated.')));
 
         } catch (err) {
             console.error('Agent error:', err);
@@ -921,20 +921,164 @@ ${listHint}`;
         return false;
     }
 
-    /** Build deps.html URL filtered to a package (name@version), scoped to current analysis when set */
+    /* ---- Deep-link helpers (deps / repos / authors / OSV) ---- */
+    let entityIndexCache = null;
+    let entityIndexDataRef = null;
+
+    function analysisOrgParam() {
+        return selector?.value || '';
+    }
+
     function depsPackageUrl(packageName, version) {
         if (!packageName) return null;
         const params = new URLSearchParams();
-        const org = selector?.value;
+        const org = analysisOrgParam();
         if (org) params.set('org', org);
         params.set('search', version ? `${packageName}@${version}` : packageName);
         return `deps.html?${params.toString()}`;
     }
 
+    function reposUrl(repoKey) {
+        if (!repoKey) return null;
+        const params = new URLSearchParams();
+        const org = analysisOrgParam();
+        if (org) params.set('org', org);
+        params.set('search', repoKey);
+        return `repos.html?${params.toString()}`;
+    }
+
+    function authorsUrl(authorName) {
+        if (!authorName) return null;
+        const params = new URLSearchParams();
+        params.set('search', authorName);
+        return `authors.html?${params.toString()}`;
+    }
+
+    function osvUrl(vulnId) {
+        if (!vulnId || !/^(GHSA|CVE|MAL)-/i.test(vulnId)) return null;
+        return `https://osv.dev/vulnerability/${encodeURIComponent(vulnId)}`;
+    }
+
+    function mdLink(label, href) {
+        return href ? `[${label}](${href})` : `**${label}**`;
+    }
+
     function packageListLabel(packageName, version) {
         const label = version ? `${packageName}@${version}` : (packageName || 'unknown');
-        const href = depsPackageUrl(packageName, version);
-        return href ? `[${label}](${href})` : `**${label}**`;
+        return mdLink(label, depsPackageUrl(packageName, version));
+    }
+
+    function repoListLabel(repoKey) {
+        return mdLink(repoKey, reposUrl(repoKey));
+    }
+
+    function authorListLabel(authorName) {
+        return mdLink(authorName, authorsUrl(authorName));
+    }
+
+    function vulnIdLabel(vulnId) {
+        if (!vulnId || vulnId === 'N/A') return '`N/A`';
+        const href = osvUrl(vulnId);
+        return href ? mdLink(vulnId, href) : `\`${vulnId}\``;
+    }
+
+    function getEntityIndex() {
+        if (entityIndexDataRef === currentData && entityIndexCache) return entityIndexCache;
+
+        const packagesByName = new Map(); // lower -> canonical name
+        const packageVersions = new Map(); // lower name@version -> { name, version }
+        const repos = new Map(); // lower owner/name -> canonical
+        const authors = new Map(); // lower -> canonical
+
+        const addPackage = (name, version) => {
+            if (!name || typeof name !== 'string') return;
+            packagesByName.set(name.toLowerCase(), name);
+            if (version) {
+                packageVersions.set(`${name}@${version}`.toLowerCase(), { name, version: String(version) });
+            }
+        };
+
+        for (const d of currentData?.allDependencies || []) {
+            addPackage(d.name, d.version);
+        }
+        for (const vd of currentData?.vulnerabilityAnalysis?.vulnerableDependencies || []) {
+            addPackage(vd.name, vd.version);
+        }
+        for (const r of currentData?.allRepositories || []) {
+            if (!r?.owner || !r?.name) continue;
+            const key = `${r.owner}/${r.name}`;
+            repos.set(key.toLowerCase(), key);
+            // also allow bare repo name when unique enough — only full owner/name for safety
+        }
+        for (const a of currentData?.authorAnalysis?.authors || []) {
+            const name = a.author || a.name;
+            if (name) authors.set(String(name).toLowerCase(), String(name));
+            // Compact refs may only carry authorKey "ecosystem:name"
+            if (a.authorKey && String(a.authorKey).includes(':')) {
+                const n = String(a.authorKey).split(':').slice(1).join(':');
+                if (n) authors.set(n.toLowerCase(), n);
+            }
+        }
+
+        entityIndexDataRef = currentData;
+        entityIndexCache = { packagesByName, packageVersions, repos, authors };
+        return entityIndexCache;
+    }
+
+    /**
+     * Auto-link packages, repos, authors, and vuln IDs in any agent answer.
+     * Protects existing markdown links / code spans; only links entities present
+     * in the loaded analysis (plus OSV ids).
+     */
+    function linkifyAnswerText(text) {
+        if (!text || typeof text !== 'string') return text || '';
+        const index = getEntityIndex();
+        const placeholders = [];
+        const protect = (m) => {
+            placeholders.push(m);
+            return `\u0000L${placeholders.length - 1}\u0000`;
+        };
+
+        let s = text;
+        s = s.replace(/\[[^\]]+\]\([^)]+\)/g, protect);
+        s = s.replace(/`[^`]+`/g, protect);
+
+        // name@version (incl. scoped @scope/name@version)
+        s = s.replace(/(@?[\w.-]+(?:\/[\w.-]+)?)@(\d[\w.+-]*)/g, (full, name, version) => {
+            const hit = index.packageVersions.get(`${name}@${version}`.toLowerCase());
+            if (!hit) return full;
+            return protect(packageListLabel(hit.name, hit.version));
+        });
+
+        // owner/repo
+        s = s.replace(/\b([A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+)\b/g, (full, key) => {
+            const canonical = index.repos.get(key.toLowerCase());
+            if (!canonical) return full;
+            return protect(repoListLabel(canonical));
+        });
+
+        // GHSA / CVE / MAL ids
+        s = s.replace(/\b((?:GHSA-[a-z0-9]{4}-[a-z0-9]{4}-[a-z0-9]{4})|(?:CVE-\d{4}-\d{4,})|(?:MAL-\d{4}-\d+))\b/gi, (full) => {
+            const href = osvUrl(full);
+            return href ? protect(mdLink(full, href)) : full;
+        });
+
+        // "quoted" package or author names
+        s = s.replace(/"([^"\n]{2,120})"/g, (full, inner) => {
+            const key = inner.toLowerCase();
+            const verHit = index.packageVersions.get(key);
+            if (verHit) return protect(`"${packageListLabel(verHit.name, verHit.version)}"`);
+            const pkg = index.packagesByName.get(key);
+            if (pkg) return protect(`"${packageListLabel(pkg, null)}"`);
+            const author = index.authors.get(key);
+            if (author) return protect(`"${authorListLabel(author)}"`);
+            const repo = index.repos.get(key);
+            if (repo) return protect(`"${repoListLabel(repo)}"`);
+            return full;
+        });
+
+        s = s.replace(/\u0000L(\d+)\u0000/g, (_, i) => placeholders[Number(i)] || '');
+        return s;
     }
 
     /** Deterministic bullet list for "list / top N / give me …" questions */
@@ -954,7 +1098,7 @@ ${listHint}`;
                 : `**${matched} ${filter} vulnerabilit${matched === 1 ? 'y' : 'ies'}** in the loaded analysis (showing ${items.length}):`;
             const lines = [header, ''];
             items.forEach((it) => {
-                lines.push(`- ${packageListLabel(it.package, it.version)} — \`${it.vulnId}\` (${it.severity || 'UNKNOWN'})`);
+                lines.push(`- ${packageListLabel(it.package, it.version)} — ${vulnIdLabel(it.vulnId)} (${it.severity || 'UNKNOWN'})`);
             });
             if (!askedLimit && matched > items.length) {
                 lines.push('');
@@ -978,9 +1122,22 @@ ${listHint}`;
             const lines = [header, ''];
             items.forEach((it) => {
                 if (it.package) {
-                    lines.push(`- ${packageListLabel(it.package, it.version)}${it.severity ? ' — ' + it.severity : ''}${it.vulnId ? ' (`' + it.vulnId + '`)' : ''}`);
-                } else if (it.name || it.repoKey) {
-                    lines.push(`- **${it.name || it.repoKey}**${it.severity ? ' — ' + it.severity : ''}`);
+                    const vuln = it.vulnId ? ` — ${vulnIdLabel(it.vulnId)}` : '';
+                    lines.push(`- ${packageListLabel(it.package, it.version)}${it.severity ? ' — ' + it.severity : ''}${vuln}`);
+                } else if (it.repoKey || (it.owner && it.name)) {
+                    const key = it.repoKey || `${it.owner}/${it.name}`;
+                    const extra = [];
+                    if (it.grade) extra.push(`grade ${it.grade}`);
+                    if (it.critHighVulns != null) extra.push(`${it.critHighVulns} C+H vulns`);
+                    if (it.totalDeps != null) extra.push(`${it.totalDeps} deps`);
+                    if (it.archived) extra.push('archived');
+                    lines.push(`- ${repoListLabel(key)}${extra.length ? ' — ' + extra.join(', ') : ''}`);
+                } else if (it.author) {
+                    lines.push(`- ${authorListLabel(it.author)}`);
+                } else if (it.name && it.version) {
+                    lines.push(`- ${packageListLabel(it.name, it.version)}${it.isEol ? ' — EOL' : ''}${it.isEos ? ' — EOS' : ''}`);
+                } else if (it.name) {
+                    lines.push(`- ${packageListLabel(it.name, null)}`);
                 } else {
                     lines.push(`- \`${JSON.stringify(it)}\``);
                 }
@@ -1289,14 +1446,22 @@ ${listHint}`;
     }
 
     /* ---- Text renderer ---- */
+    function renderMdLink(label, url) {
+        if (/^(deps|repos|authors)\.html\?[^\s"'<>]*$/i.test(url)) {
+            return `<a class="ag-entity-link" href="${url}">${label}</a>`;
+        }
+        // OSV advisory deep-links (GHSA / CVE / MAL) — external
+        if (/^https:\/\/osv\.dev\/vulnerability\/[A-Za-z0-9_%.-]+$/i.test(url)) {
+            return `<a class="ag-entity-link" href="${url}" target="_blank" rel="noreferrer noopener">${label}</a>`;
+        }
+        return `[${label}](${url})`;
+    }
+
     function renderText(text) {
         if (!text) return '';
         let html = esc(text);
-        // Markdown links — only relative deps.html deep-links (built by the agent, not model text)
-        html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_, label, url) => {
-            if (!/^deps\.html\?[^\s"'<>]*$/i.test(url)) return `[${label}](${url})`;
-            return `<a class="ag-pkg-link" href="${url}">${label}</a>`;
-        });
+        // Markdown links — only agent-built deep-links (relative pages + OSV)
+        html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_, label, url) => renderMdLink(label, url));
         html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
         html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
         html = html.replace(/(^|[\s(])_([^_\n]+)_([\s).,]|$)/g, '$1<em>$2</em>$3');

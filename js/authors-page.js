@@ -13,6 +13,7 @@
             let currentAuthors = [];
             let filteredAuthors = [];
             let allFilteredAuthors = []; // All authors after filters (including single-package-single-repo) - used for map
+            let cachedAuthorData = null; // last loaded author list (pre display filters)
             let displayLimit = localStorage.getItem('authorsDisplayLimit') || '25'; // '25' or 'all'
             let authorMap = null; // Leaflet map instance
             let locationService = null; // LocationService instance
@@ -202,9 +203,10 @@
             await loadAnalysisList();
             console.log('✅ Authors Page - Analysis list loaded');
             
-            // Check for funding and repo filters in URL and pre-check checkbox
+            // Check for funding, repo, and author search filters in URL
             const urlParams = new URLSearchParams(window.location.search);
             const repoParam = urlParams.get('repo');
+            const searchParam = urlParams.get('search');
             if (urlParams.get('funding') === 'true') {
                 const fundingFilterCheckbox = document.getElementById('fundingFilter');
                 if (fundingFilterCheckbox) {
@@ -220,6 +222,12 @@
                 `;
                 document.querySelector('.container').insertBefore(notice, document.querySelector('.container').firstChild);
             }
+            if (searchParam) {
+                const authorSearchInput = document.getElementById('authorSearchInput');
+                if (authorSearchInput) {
+                    authorSearchInput.value = decodeURIComponent(searchParam);
+                }
+            }
             
             // Store repoParam globally for use in loadAuthorData
             window.repoParam = repoParam;
@@ -230,6 +238,16 @@
             document.getElementById('locationFilter').addEventListener('change', loadAuthorData);
             document.getElementById('fundingFilter').addEventListener('change', loadAuthorData);
             document.getElementById('sanctionsFilter').addEventListener('change', loadAuthorData);
+            document.getElementById('authorSearchInput')?.addEventListener('input', () => {
+                // Search is a client-side filter — redisplay cached authors without reloading IndexedDB
+                if (cachedAuthorData) {
+                    const ecosystem = document.getElementById('ecosystemFilter').value;
+                    const location = document.getElementById('locationFilter').value;
+                    displayAuthors(cachedAuthorData, ecosystem, location);
+                } else {
+                    loadAuthorData();
+                }
+            });
             
             // Display limit select
             const displayLimitSelect = document.getElementById('displayLimitSelect');
@@ -563,7 +581,8 @@
                     console.log(`📊 Authors Page - Filtered to ${authorData.length} authors for repo ${window.repoParam}`);
                 }
                 
-                displayAuthors(authorData, ecosystem, location);
+                cachedAuthorData = authorData || [];
+                displayAuthors(cachedAuthorData, ecosystem, location);
             }
             
             // Update location filter dropdown with unique locations from authors
@@ -1793,6 +1812,21 @@
                 if (ecosystemFilter !== 'all') {
                     filtered = authors.filter(a => a.ecosystem === ecosystemFilter);
                     console.log(`🎨 Authors Page - After filtering by ${ecosystemFilter}: ${filtered.length} authors`);
+                }
+
+                // Filter by author name search (URL ?search= or live input)
+                const authorSearchInput = document.getElementById('authorSearchInput');
+                const rawSearch = authorSearchInput?.value || '';
+                const search = (typeof sanitizeSearchInput === 'function'
+                    ? sanitizeSearchInput(rawSearch)
+                    : rawSearch).trim().toLowerCase();
+                if (search) {
+                    filtered = filtered.filter(a => {
+                        const name = (a.author || a.name || '').toLowerCase();
+                        const key = (a.authorKey || '').toLowerCase();
+                        return name.includes(search) || key.includes(search);
+                    });
+                    console.log(`🎨 Authors Page - After search "${search}": ${filtered.length} authors`);
                 }
                 
                 // Filter by location
