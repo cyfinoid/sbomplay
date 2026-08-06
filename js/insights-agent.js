@@ -16,8 +16,15 @@
     const storageManager = window.storageManager || new StorageManager();
     if (!storageManager.initialized) await storageManager.init();
 
-    const esc  = window.escapeHtml || (s => String(s));
-    const safe = window.safeSetHTML || ((el, h) => { el.innerHTML = h; });
+    const esc  = window.escapeHtml || (s => {
+        const d = document.createElement('div');
+        d.textContent = s == null ? '' : String(s);
+        return d.innerHTML;
+    });
+    const safe = window.safeSetHTML || ((el, h) => {
+        // No trusted sanitizer available: treat input as plain text, never as HTML.
+        el.textContent = h == null ? '' : String(h);
+    });
     const Agg  = window.InsightsAggregator;
 
     const selector = document.getElementById('analysisSelector');
@@ -1283,7 +1290,14 @@ ${listHint}`;
         const area = document.getElementById('agMessages');
         const div = document.createElement('div');
         div.className = 'ag-msg user';
-        div.innerHTML = `<div class="avatar"><i class="fas fa-user"></i></div><div class="bubble">${esc(text)}</div>`;
+        const avatar = document.createElement('div');
+        avatar.className = 'avatar';
+        avatar.innerHTML = '<i class="fas fa-user"></i>';
+        const bubble = document.createElement('div');
+        bubble.className = 'bubble';
+        bubble.textContent = text == null ? '' : String(text);
+        div.appendChild(avatar);
+        div.appendChild(bubble);
         area.appendChild(div);
         scrollBottom();
     }

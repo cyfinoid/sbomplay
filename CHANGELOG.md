@@ -19,6 +19,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Geocoding network dependencies**: `nominatim.openstreetmap.org` removed from the firewall allowlist; `geocoding-api.open-meteo.com` (primary API fallback) and `photon.komoot.io` (failover) added instead (`about.html`).
 
 ### Fixed
+- **XSS hardening on the AI Agent page** (`js/insights-agent.js`, `insights-agent.html`): resolved three CodeQL "text reinterpreted as HTML" alerts flagged by GitHub Advanced Security. The `escapeHtml` / `safeSetHTML` fallbacks (used only if `common.js` helpers are absent) previously did no escaping (`String(s)`) and set raw `innerHTML`; they now escape via a `textContent` round-trip and set text safely. The user-message renderer (`addUserMsg`) builds the bubble with `textContent` instead of injecting the typed message through `innerHTML`. Exception text rendered on agent errors is now guaranteed escaped. Cache-buster bumped on `insights-agent.html`.
 - **IndexedDB open failed with `VersionError: requested version (6) < existing (7)`** (`js/indexeddb-manager.js`): browsers that previously ran a VEX-enabled build already have `sbomplay_db` at schema v7 (`vexDocuments` store). This branch still opened at v6, which IndexedDB rejects and blocked app init (including the Quick demo page). Schema version is now 7, `vexDocuments` is created on upgrade when missing, and `clearAll` / `clearCacheStore` include `locations`, `eoxData`, and `vexDocuments`.
 
 ### Added
