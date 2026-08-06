@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.2] - 2026-08-06
+## [0.2.1] - 2026-08-06
 
 ### Added
 - **Clear Geocoding Cache & Re-resolve on Settings** (`settings.html`, `js/settings.js`): new button in Author Location Enrichment clears the IndexedDB `locations` store, strips existing `countryCode` values from author entities, and re-runs `LocationService.batchGeocode()` with progress feedback. Use after geocoding provider changes or to retry previously failed lookups without re-fetching GitHub profiles.
