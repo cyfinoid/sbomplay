@@ -44,8 +44,6 @@ jobs:
             "insights3.html"
             "insights4.html"
             "insights5.html"
-            "insights-ai.html"
-            "insights-chat.html"
             "insights-agent.html"
             "demo.html"
           )
@@ -160,8 +158,6 @@ jobs:
             "js/insights3-page.js"
             "js/insights4-page.js"
             "js/insights5-page.js"
-            "js/insights-ai.js"
-            "js/insights-chat.js"
             "js/insights-agent.js"
             "js/ai-nano.js"
             "js/demo-page.js"
