@@ -19,6 +19,7 @@ This document provides comprehensive flowcharts documenting how SBOM Play perfor
 12. [Rate Limit Handling Flow](#rate-limit-handling-flow)
 13. [Feed Export Flow (OPML)](#feed-export-flow-opml)
 14. [Insights Analysis Flow](#insights-analysis-flow)
+15. [Insights Agent (Tool-Use) Flow](#insights-agent-tool-use-flow)
 
 ---
 
@@ -185,7 +186,7 @@ flowchart TD
     H --> I[Phase: fetching-repo 5%]
     I --> J[Fetch repositories list]
     J --> K{Repositories found?}
-    K -->|No| L[Show info: No public repos]
+    K -->|No| L[Show info: No accessible repos]
     K -->|Yes| M[Set total repositories count]
     M --> N[Phase: fetching-sbom 10%]
     N --> O[Loop: For each repository]
@@ -486,7 +487,7 @@ flowchart TD
 - **Bundled Per-Package Writes**: Each package commits its package row, author entities, and relationships in a single IndexedDB transaction (`cacheManager.savePackageAuthorBundle`) instead of 1+N+N separate transactions
 - **Per-Run Memoization**: `findAuthorByEmail` / `findAuthorByGitHub` / `getAuthorEntity` results are memoized for the duration of a `fetchAuthorsForPackages` run so authors shared across packages cost one IDB lookup, not many
 - **Unified Rate-Limited HTTP**: All registry/funding fetches go through `requestQueueManager` lanes (`npm`, `pypi`, `cargo`, `gem`, `ecosystems`, `github`) with shared 429/403 backoff
-- **Country-Only Map**: The authors map renders one Leaflet marker per country using static ISO 3166-1 alpha-2 centroids from `js/country-data.js`; `LocationService.geocode()` resolves country / US-state suffixes locally before falling back to Nominatim, near-eliminating geocoding round-trips
+- **Country-Only Map**: The authors map renders one Leaflet marker per country using static ISO 3166-1 alpha-2 centroids from `js/country-data.js`; `LocationService.geocode()` resolves country / US-state suffixes and major cities locally via `country-data.js` / `city-data.js` before falling back to Open-Meteo and Photon APIs
 - **Optional Contributor Correlation**: Per-package GitHub contributor correlation (extra `/repos/<owner>/<repo>/contributors` calls) is gated behind a setting in `settings.html` and is **off by default**
 
 ---
@@ -1073,6 +1074,36 @@ flowchart TD
 - **InsightsPage** (`insights-page.js`): Page bootstrap + 10 section renderers + Chart.js integration
 - **Tech-Debt Composite**: 6 weighted sub-components (drift 30%, vulns 30%, age 15%, license 10%, EOL 10%, hygiene 5%), with 3× direct weighting
 - **Chart.js**: CDN-loaded (4.4.4), theme-aware via `--chart-text-color` / `--chart-grid-color` CSS variables
+
+---
+
+## Insights Agent (Tool-Use) Flow
+
+The Agent page (`insights-agent.html`) keeps raw analysis in memory and lets Gemini Nano request slices via `query_sbom()` instead of embedding the full dataset in every prompt.
+
+```mermaid
+flowchart TD
+    A[User opens insights-agent.html] --> B[Load analysis from StorageManager]
+    B --> C[InsightsAggregator.buildInsights + store currentData]
+    C --> D[AiNano.createSession with tool declarations]
+    D --> E[User sends question]
+    E --> F[session.prompt user text]
+    F --> G{Function call in response?}
+    G -->|Yes| H[executeQuery type filter limit]
+    H --> I[Feed JSON result as next prompt turn]
+    I --> F
+    G -->|No| J[session.promptStreaming final answer]
+    J --> K[Render escaped markdown in chat UI]
+    
+    style A fill:#e1f5ff
+    style K fill:#c8e6c9
+    style H fill:#fff9c4
+```
+
+**Key Components:**
+- **AiNano** (`ai-nano.js`): `LanguageModel` API with legacy fallback; streaming yields cumulative text for the UI
+- **DATA_QUERIES** (`insights-agent.js`): typed handlers (overview, vulnerabilities, dependencies, licenses, drift, EOL, repos, …)
+- **Agent loop**: capped at six tool turns per user message to bound latency and API cost
 
 ---
 

@@ -19,7 +19,7 @@ jobs:
     
     steps:
       - name: Checkout repository
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 1
       
@@ -40,6 +40,7 @@ jobs:
             "findings.html"
             "feeds.html"
             "insights.html"
+            "insights-agent.html"
             "demo.html"
           )
           
@@ -112,6 +113,7 @@ jobs:
             "js/common.js"
             "js/dependency-tree-resolver.js"
             "js/country-data.js"
+            "js/city-data.js"
             "js/depconfuse-service.js"
             "js/deps-page.js"
             "js/ecosystem-utils.js"
@@ -149,6 +151,8 @@ jobs:
             "js/upload-page.js"
             "js/insights-aggregator.js"
             "js/insights-page.js"
+            "js/insights-agent.js"
+            "js/ai-nano.js"
             "js/demo-page.js"
           )
           

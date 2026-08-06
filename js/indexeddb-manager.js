@@ -4,7 +4,9 @@
 class IndexedDBManager {
     constructor() {
         this.dbName = 'sbomplay_db';
-        this.version = 6; // Current database version - v6 adds eoxData store
+        // v6: eoxData store. v7: vexDocuments store (must stay >= 7 so browsers
+        // that already upgraded from a VEX-enabled build can still open the DB).
+        this.version = 7;
         this.db = null;
     }
 
@@ -133,6 +135,15 @@ class IndexedDBManager {
                     const eoxStore = db.createObjectStore('eoxData', { keyPath: 'key' });
                     eoxStore.createIndex('fetchedAt', 'fetchedAt', { unique: false });
                     console.log('✅ Created eoxData object store');
+                }
+
+                // v7 — VEX/VDR documents (user uploads). Created with contains()
+                // guards so v6 DBs upgrade in place; already-v7 DBs skip this.
+                if (!db.objectStoreNames.contains('vexDocuments')) {
+                    const vexStore = db.createObjectStore('vexDocuments', { keyPath: 'vexId' });
+                    vexStore.createIndex('format', 'format', { unique: false });
+                    vexStore.createIndex('uploadedAt', 'uploadedAt', { unique: false });
+                    console.log('✅ Created vexDocuments object store');
                 }
             };
         });
@@ -377,7 +388,7 @@ class IndexedDBManager {
     }
 
     /**
-     * Clear all data
+     * Clear all data. Skips stores missing on older schemas via contains().
      */
     async clearAll() {
         try {
@@ -385,24 +396,20 @@ class IndexedDBManager {
                 console.warn('⚠️ IndexedDB not initialized yet');
                 return false;
             }
-            const transaction = this.db.transaction(
-                ['organizations', 'repositories', 'vulnerabilities', 'metadata', 'authors', 
-                 'packages', 'packageAuthors', 'authorEntities'], 
-                'readwrite'
-            );
-            
-            await Promise.all([
-                this._promisifyRequest(transaction.objectStore('organizations').clear()),
-                this._promisifyRequest(transaction.objectStore('repositories').clear()),
-                this._promisifyRequest(transaction.objectStore('vulnerabilities').clear()),
-                this._promisifyRequest(transaction.objectStore('metadata').clear()),
-                this._promisifyRequest(transaction.objectStore('authors').clear()),
-                this._promisifyRequest(transaction.objectStore('packages').clear()),
-                this._promisifyRequest(transaction.objectStore('packageAuthors').clear()),
-                this._promisifyRequest(transaction.objectStore('authorEntities').clear())
-            ]);
-            
-            console.log('✅ Cleared all IndexedDB data');
+            const allStores = [
+                'organizations', 'repositories', 'vulnerabilities', 'metadata', 'authors',
+                'packages', 'packageAuthors', 'authorEntities', 'locations', 'eoxData',
+                'vexDocuments'
+            ];
+            const presentStores = allStores.filter(name => this.db.objectStoreNames.contains(name));
+            if (presentStores.length === 0) return true;
+
+            const transaction = this.db.transaction(presentStores, 'readwrite');
+            await Promise.all(presentStores.map(name =>
+                this._promisifyRequest(transaction.objectStore(name).clear())
+            ));
+
+            console.log(`✅ Cleared all IndexedDB data (${presentStores.join(', ')})`);
             return true;
         } catch (error) {
             console.error('❌ Failed to clear all data:', error);
@@ -816,8 +823,11 @@ class IndexedDBManager {
                 return false;
             }
             
-            const validStores = ['packages', 'authorEntities', 'packageAuthors', 'vulnerabilities', 
-                                 'authors', 'organizations', 'repositories', 'metadata'];
+            const validStores = [
+                'packages', 'authorEntities', 'packageAuthors', 'vulnerabilities',
+                'authors', 'organizations', 'repositories', 'metadata',
+                'locations', 'eoxData', 'vexDocuments'
+            ];
             
             if (!validStores.includes(storeName)) {
                 console.error(`❌ Invalid store name: ${storeName}`);
