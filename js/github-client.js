@@ -638,6 +638,7 @@ class GitHubClient {
                             description
                             url
                             isArchived
+                            visibility
                             pushedAt
                             primaryLanguage {
                                 name
@@ -694,7 +695,10 @@ class GitHubClient {
                     login: repo.owner.login,
                     type: repo.owner.__typename === 'User' ? 'User' : 'Organization'
                 },
-                visibility: 'public' // GraphQL query only returns public repos by default
+                // GraphQL RepositoryVisibility is PUBLIC | PRIVATE | INTERNAL;
+                // omit privacy/visibility args so authenticated tokens also get
+                // private repos the viewer can access (same as REST).
+                visibility: (repo.visibility || 'PUBLIC').toLowerCase()
             }));
             
             return {
@@ -759,13 +763,16 @@ class GitHubClient {
             
             if (response.ok) {
             const repos = await this.getAllPages(url, response);
-                // Filter: Only include public repos AND repos owned by this organization
+                // Keep every owned repo the API returned. With a token, GitHub includes
+                // public, private, and (Enterprise) internal repos the caller can access;
+                // unauthenticated calls only ever see public. Do not re-filter by
+                // visibility — that previously dropped private/internal repos the token
+                // was allowed to scan.
                 const filteredRepos = repos.filter(repo => {
-                    const isPublic = repo.visibility === 'public';
                     const ownerMatch = repo.owner && 
                         (repo.owner.login?.toLowerCase() === normalizedOwnerName || 
                          repo.full_name?.toLowerCase().startsWith(`${normalizedOwnerName}/`));
-                    return isPublic && ownerMatch;
+                    return ownerMatch;
                 });
                 
                 if (filteredRepos.length < repos.length) {
@@ -818,13 +825,13 @@ class GitHubClient {
             if (response.ok) {
                 console.log(`✅ Found user (REST): ${ownerName}`);
                 const repos = await this.getAllPages(url, response);
-                // Filter: Only include public repos AND repos owned by this user
+                // Same as org path: trust the API's auth gate; keep owned repos of any
+                // visibility the token can see (public / private / internal).
                 const filteredRepos = repos.filter(repo => {
-                    const isPublic = repo.visibility === 'public';
                     const ownerMatch = repo.owner && 
                         (repo.owner.login?.toLowerCase() === normalizedOwnerName || 
                          repo.full_name?.toLowerCase().startsWith(`${normalizedOwnerName}/`));
-                    return isPublic && ownerMatch;
+                    return ownerMatch;
                 });
                 
                 if (filteredRepos.length < repos.length) {

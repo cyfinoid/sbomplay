@@ -186,7 +186,7 @@ flowchart TD
     H --> I[Phase: fetching-repo 5%]
     I --> J[Fetch repositories list]
     J --> K{Repositories found?}
-    K -->|No| L[Show info: No public repos]
+    K -->|No| L[Show info: No accessible repos]
     K -->|Yes| M[Set total repositories count]
     M --> N[Phase: fetching-sbom 10%]
     N --> O[Loop: For each repository]
