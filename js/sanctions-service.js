@@ -10,7 +10,6 @@ class SanctionsService {
             'CU', // Cuba
             'IR', // Iran
             'KP', // North Korea (Democratic People's Republic of Korea)
-            'SY', // Syria
             // Note: Russia sanctions are typically entity/region-specific, not country-wide
             // Add more as needed based on current OFAC sanctions
         ]);

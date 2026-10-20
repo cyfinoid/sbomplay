@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- **Syria removed from the USA (OFAC) sanctioned countries** (`js/sanctions-service.js`): the US ended the Syria sanctions program on July 1, 2025 (EO 14312), so authors located in Syria are no longer flagged as a USA sanctions match. Cache-buster bumped on `authors.html`, `settings.html` and `debug.html`.
+
 ## [0.2.1] - 2026-08-06
 
 ### Added
